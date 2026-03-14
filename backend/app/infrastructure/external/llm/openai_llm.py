@@ -1672,6 +1672,22 @@ To extract data from a webpage:
 
         return fixed_messages
 
+    def _llm_concurrency_slot(self):
+        """Return an async context manager that guards one LLM API slot.
+
+        When ``llm_concurrency_enabled`` is True the global ``LLMConcurrencyLimiter``
+        semaphore is acquired for the duration of the call so that concurrent
+        sessions cannot flood a single-key API provider.  When disabled a
+        no-op ``nullcontext`` is returned so callers need no conditional logic.
+        """
+        from contextlib import nullcontext
+
+        if bool(getattr(get_settings(), "llm_concurrency_enabled", True)):
+            from app.domain.services.concurrency.llm_limiter import get_llm_limiter
+
+            return get_llm_limiter().acquire()
+        return nullcontext()
+
     async def ask(
         self,
         messages: list[dict[str, str]],
@@ -1760,6 +1776,76 @@ To extract data from a webpage:
             request_messages = self._build_validation_recovery_messages(request_messages)
             validation_recovery_attempted = True  # Don't re-sanitize on retry
 
+        # Hold one concurrency slot for the entire retry loop so that retry storms
+        # (e.g. 5 consecutive 90s timeouts from concurrent sessions) cannot exhaust
+        # all available semaphore slots simultaneously.
+        async with self._llm_concurrency_slot():
+            return await self._ask_inner(
+                base_messages=base_messages,
+                request_messages=request_messages,
+                request_tools=request_tools,
+                original_tools=original_tools,
+                response_format=response_format,
+                tool_choice=tool_choice,
+                enable_caching=enable_caching,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                _attempt=_attempt,
+                client=client,
+                settings=settings,
+                llm_tool_max_tokens=llm_tool_max_tokens,
+                llm_tool_request_timeout=llm_tool_request_timeout,
+                llm_tool_timeout_max_retries=llm_tool_timeout_max_retries,
+                llm_request_timeout=llm_request_timeout,
+                hard_call_timeout=hard_call_timeout,
+                timeout_fallback_fast_model=timeout_fallback_fast_model,
+                model_override_for_attempt=model_override_for_attempt,
+                timeout_fallback_used=timeout_fallback_used,
+                slow_tool_breaker_timeout_logged=slow_tool_breaker_timeout_logged,
+                slow_tool_breaker_token_cap_logged=slow_tool_breaker_token_cap_logged,
+                max_retries=max_retries,
+                base_delay=base_delay,
+                validation_recovery_attempted=validation_recovery_attempted,
+                tool_timeout_retries=tool_timeout_retries,
+                messages=messages,
+                tools=tools,
+            )
+
+    async def _ask_inner(
+        self,
+        *,
+        base_messages: list[dict[str, Any]],
+        request_messages: list[dict[str, Any]],
+        request_tools: list[dict[str, Any]] | None,
+        original_tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None,
+        tool_choice: str | None,
+        enable_caching: bool,
+        model: str | None,
+        temperature: float | None,
+        max_tokens: int | None,
+        _attempt: int,
+        client: Any,
+        settings: Any,
+        llm_tool_max_tokens: int,
+        llm_tool_request_timeout: float,
+        llm_tool_timeout_max_retries: int,
+        llm_request_timeout: float,
+        hard_call_timeout: float,
+        timeout_fallback_fast_model: str,
+        model_override_for_attempt: str | None,
+        timeout_fallback_used: bool,
+        slow_tool_breaker_timeout_logged: bool,
+        slow_tool_breaker_token_cap_logged: bool,
+        max_retries: int,
+        base_delay: float,
+        validation_recovery_attempted: bool,
+        tool_timeout_retries: int,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """Execute the retry loop for ask(). Called from ask() under the concurrency slot."""
         for attempt in range(max_retries + 1):  # every try
             response = None
             tool_request_timeout = llm_tool_request_timeout
@@ -2285,252 +2371,254 @@ To extract data from a webpage:
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
         effective_model = self._resolve_model_override(model)
 
-        for attempt in range(max_retries + 1):
-            try:
-                if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.info(f"Retrying structured request (attempt {attempt + 1}/{max_retries + 1})")
-                    await asyncio.sleep(delay)
+        # Hold one concurrency slot for the entire retry loop.
+        async with self._llm_concurrency_slot():
+            for attempt in range(max_retries + 1):
+                try:
+                    if attempt > 0:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        logger.info(f"Retrying structured request (attempt {attempt + 1}/{max_retries + 1})")
+                        await asyncio.sleep(delay)
 
-                is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
-                attempt_messages = [dict(message) for message in request_messages]
-                params = {
-                    "model": effective_model,
-                    "messages": attempt_messages,
-                }
-
-                effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
-                effective_temperature = temperature if temperature is not None else self._temperature
-                if is_new_model:
-                    params["max_completion_tokens"] = effective_max_tokens
-                else:
-                    params["max_tokens"] = effective_max_tokens
-                    params["temperature"] = effective_temperature
-
-                # For thinking APIs (Kimi, etc.), disable extended thinking unless
-                # a previous empty response indicated thinking is needed for output
-                if disable_thinking:
-                    params["extra_body"] = {"thinking": {"type": "disabled"}}
-
-                if supports_strict_schema:
-                    # Use native structured output with strict schema
-                    params["response_format"] = {
-                        "type": "json_schema",
-                        "json_schema": {"name": response_model.__name__, "strict": True, "schema": schema},
+                    is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
+                    attempt_messages = [dict(message) for message in request_messages]
+                    params = {
+                        "model": effective_model,
+                        "messages": attempt_messages,
                     }
-                    # OpenRouter: ensure routing only to providers that honour json_schema
-                    if getattr(self, "_is_openrouter", False):
-                        extra = params.get("extra_body", {})
-                        extra.setdefault("provider", {})["require_parameters"] = True
-                        params["extra_body"] = extra
-                elif self._supports_json_object_format():
-                    # Use json_object if provider supports it
-                    params["response_format"] = {"type": "json_object"}
-                    logger.debug("Using json_object response format")
-                else:
-                    # Provider doesn't support json_object - use prompt-based JSON
-                    if self._model_name not in OpenAILLM._json_format_warned:
-                        OpenAILLM._json_format_warned.add(self._model_name)
-                        logger.info(
-                            "Provider doesn't support json_object format, using prompt-based JSON for %s",
-                            self._model_name,
+
+                    effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+                    effective_temperature = temperature if temperature is not None else self._temperature
+                    if is_new_model:
+                        params["max_completion_tokens"] = effective_max_tokens
+                    else:
+                        params["max_tokens"] = effective_max_tokens
+                        params["temperature"] = effective_temperature
+
+                    # For thinking APIs (Kimi, etc.), disable extended thinking unless
+                    # a previous empty response indicated thinking is needed for output
+                    if disable_thinking:
+                        params["extra_body"] = {"thinking": {"type": "disabled"}}
+
+                    if supports_strict_schema:
+                        # Use native structured output with strict schema
+                        params["response_format"] = {
+                            "type": "json_schema",
+                            "json_schema": {"name": response_model.__name__, "strict": True, "schema": schema},
+                        }
+                        # OpenRouter: ensure routing only to providers that honour json_schema
+                        if getattr(self, "_is_openrouter", False):
+                            extra = params.get("extra_body", {})
+                            extra.setdefault("provider", {})["require_parameters"] = True
+                            params["extra_body"] = extra
+                    elif self._supports_json_object_format():
+                        # Use json_object if provider supports it
+                        params["response_format"] = {"type": "json_object"}
+                        logger.debug("Using json_object response format")
+                    else:
+                        # Provider doesn't support json_object - use prompt-based JSON
+                        if self._model_name not in OpenAILLM._json_format_warned:
+                            OpenAILLM._json_format_warned.add(self._model_name)
+                            logger.info(
+                                "Provider doesn't support json_object format, using prompt-based JSON for %s",
+                                self._model_name,
+                            )
+                        else:
+                            logger.debug("Using prompt-based JSON fallback for %s", self._model_name)
+                        json_instruction = (
+                            "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
+                            f"{json.dumps(schema, indent=2)}\n\n"
+                            "Respond with ONLY the JSON object, no other text or explanation."
                         )
-                    else:
-                        logger.debug("Using prompt-based JSON fallback for %s", self._model_name)
-                    json_instruction = (
-                        "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
-                        f"{json.dumps(schema, indent=2)}\n\n"
-                        "Respond with ONLY the JSON object, no other text or explanation."
-                    )
-                    # Add instruction to system message or create one
-                    if params["messages"] and params["messages"][0]["role"] == "system":
-                        params["messages"][0]["content"] += json_instruction
-                    else:
-                        params["messages"].insert(0, {"role": "system", "content": json_instruction})
+                        # Add instruction to system message or create one
+                        if params["messages"] and params["messages"][0]["role"] == "system":
+                            params["messages"][0]["content"] += json_instruction
+                        else:
+                            params["messages"].insert(0, {"role": "system", "content": json_instruction})
 
-                if tools:
-                    params["tools"] = tools
-                    params["tool_choice"] = tool_choice
-                    params["parallel_tool_calls"] = False
+                    if tools:
+                        params["tools"] = tools
+                        params["tool_choice"] = tool_choice
+                        params["parallel_tool_calls"] = False
 
-                llm_call_start = time.monotonic()
+                    llm_call_start = time.monotonic()
 
-                # ── instructor path ──────────────────────────────────────
-                if patched_client and not tools:
-                    # Instructor handles response_format, JSON parsing, and
-                    # Pydantic validation internally.  We pop response_format
-                    # to avoid double-setting it.
-                    params.pop("response_format", None)
-                    result, completion = await patched_client.chat.completions.create_with_completion(
-                        response_model=response_model,
-                        max_retries=1,
-                        **params,
-                    )
+                    # ── instructor path ──────────────────────────────────────
+                    if patched_client and not tools:
+                        # Instructor handles response_format, JSON parsing, and
+                        # Pydantic validation internally.  We pop response_format
+                        # to avoid double-setting it.
+                        params.pop("response_format", None)
+                        result, completion = await patched_client.chat.completions.create_with_completion(
+                            response_model=response_model,
+                            max_retries=1,
+                            **params,
+                        )
+                        llm_call_duration = time.monotonic() - llm_call_start
+                        _slow = get_settings().llm_slow_request_threshold
+                        log_fn = logger.warning if llm_call_duration > _slow else logger.info
+                        log_fn(
+                            f"LLM ask_structured() [instructor] completed in {llm_call_duration:.1f}s "
+                            f"(model={effective_model}, schema={response_model.__name__}, "
+                            f"attempt={attempt + 1})"
+                        )
+                        await self._record_usage(completion)
+                        return result
+
+                    # ── manual path (fallback) ───────────────────────────────
+                    response = await client.chat.completions.create(**params)
                     llm_call_duration = time.monotonic() - llm_call_start
                     _slow = get_settings().llm_slow_request_threshold
                     log_fn = logger.warning if llm_call_duration > _slow else logger.info
                     log_fn(
-                        f"LLM ask_structured() [instructor] completed in {llm_call_duration:.1f}s "
+                        f"LLM ask_structured() completed in {llm_call_duration:.1f}s "
                         f"(model={effective_model}, schema={response_model.__name__}, "
                         f"attempt={attempt + 1})"
                     )
-                    await self._record_usage(completion)
-                    return result
 
-                # ── manual path (fallback) ───────────────────────────────
-                response = await client.chat.completions.create(**params)
-                llm_call_duration = time.monotonic() - llm_call_start
-                _slow = get_settings().llm_slow_request_threshold
-                log_fn = logger.warning if llm_call_duration > _slow else logger.info
-                log_fn(
-                    f"LLM ask_structured() completed in {llm_call_duration:.1f}s "
-                    f"(model={effective_model}, schema={response_model.__name__}, "
-                    f"attempt={attempt + 1})"
-                )
+                    # Record usage for structured requests
+                    await self._record_usage(response)
 
-                # Record usage for structured requests
-                await self._record_usage(response)
-
-                if not response or not response.choices:
-                    if attempt == max_retries:
-                        raise LLMException("API returned invalid response")
-                    continue
-
-                message = response.choices[0].message
-                content = message.content
-
-                refusal_message = getattr(message, "refusal", None)
-                if refusal_message:
-                    raise StructuredRefusalError(str(refusal_message))
-
-                # For reasoning models (Kimi Code, o1, etc.), check reasoning_content if content is empty
-                if not content and hasattr(message, "reasoning_content") and message.reasoning_content:
-                    logger.info("Using reasoning_content as fallback for empty content field")
-                    content = message.reasoning_content
-
-                # Check for truncation before parsing
-                finish_reason = response.choices[0].finish_reason
-                if finish_reason == "content_filter":
-                    raise StructuredContentFilterError("Structured output blocked by content filter")
-                if finish_reason == "length":
-                    logger.warning("Structured output truncated (finish_reason=length), retrying")
-                    if attempt == max_retries:
-                        # Last resort: attempt JSON repair on the partial response before failing.
-                        # Some models (e.g. glm-4.7) truncate mid-JSON but the partial output
-                        # may still be recoverable via balanced-brace extraction + Pydantic
-                        # partial validation.
-                        if content:
-                            try:
-                                extracted = self._extract_json_from_text(content)
-                                if extracted:
-                                    partial_parsed = json.loads(extracted)
-                                    result = response_model.model_validate(partial_parsed)
-                                    logger.info(
-                                        "Recovered truncated structured output via JSON repair (model=%s, schema=%s)",
-                                        self._model_name,
-                                        response_model.__name__,
-                                    )
-                                    return result
-                            except Exception as repair_err:
-                                logger.debug("JSON repair on truncated output failed: %s", repair_err)
-                        raise StructuredTruncationError("Structured output truncated after all retries")
-                    continue
-
-                if not content:
-                    # For thinking APIs: empty content with thinking disabled means
-                    # the model's primary output mechanism was suppressed. Retry with
-                    # thinking enabled and extract JSON from reasoning output.
-                    if disable_thinking:
-                        logger.warning(
-                            "Thinking API returned empty content with thinking disabled — "
-                            "retrying with thinking enabled"
-                        )
-                        disable_thinking = False
+                    if not response or not response.choices:
+                        if attempt == max_retries:
+                            raise LLMException("API returned invalid response")
                         continue
-                    if attempt == max_retries:
-                        raise LLMException("Empty response content")
-                    continue
 
-                # Parse and validate with Pydantic (fast path via model_validate_json)
-                try:
-                    return response_model.model_validate_json(content)
-                except ValidationError:
-                    # Try balanced-brace extraction for JSON embedded in prose/thinking
-                    extracted = self._extract_json_from_text(content)
-                    if extracted:
-                        logger.info("Extracted JSON from prose via balanced-brace matching")
-                        return response_model.model_validate_json(extracted)
-                    raise
-            except (StructuredRefusalError, StructuredContentFilterError, StructuredTruncationError):
-                raise
-            except (ValidationError, json.JSONDecodeError) as e:
-                logger.warning(f"Structured validation error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    try:
-                        from app.core.prometheus_metrics import llm_json_parse_failures_total
+                    message = response.choices[0].message
+                    content = message.content
 
-                        llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_structured"})
-                    except Exception:
-                        logger.debug("Failed to record ask_structured parse failure metric", exc_info=True)
-                    raise StructuredSchemaValidationError(f"Failed to validate structured response: {e}") from e
-            except RateLimitError as e:
-                retry_after = None
-                if hasattr(e, "response") and e.response is not None:
-                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
-                    if retry_after_header:
-                        with contextlib.suppress(ValueError, TypeError):
-                            retry_after = float(retry_after_header)
-                if retry_after is None:
-                    # Use centralized exponential backoff
-                    retry_config = RetryConfig(
-                        base_delay=base_delay,
-                        exponential_base=2.0,
-                        max_delay=60.0,
-                        jitter=True,
-                    )
-                    retry_after = calculate_delay(attempt + 1, retry_config)
-                logger.warning(
-                    f"OpenAI rate limit hit on structured request attempt {attempt + 1}/{max_retries + 1}, "
-                    f"retrying after {retry_after:.1f}s"
-                )
-                if attempt == max_retries:
-                    raise
-                await asyncio.sleep(retry_after)
-            except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
-                error_msg = str(e).lower()
-                if any(
-                    term in error_msg
-                    for term in [
-                        "context_length_exceeded",
-                        "maximum context length",
-                        "too many tokens",
-                        "max_tokens",
-                        "context window",
-                    ]
-                ):
-                    raise TokenLimitExceededError(str(e)) from e
+                    refusal_message = getattr(message, "refusal", None)
+                    if refusal_message:
+                        raise StructuredRefusalError(str(refusal_message))
 
-                if self._is_message_validation_error(e):
-                    if not validation_recovery_attempted:
-                        recovered_messages = self._build_validation_recovery_messages(base_messages)
-                        if recovered_messages != base_messages:
-                            validation_recovery_attempted = True
-                            base_messages = recovered_messages
-                            request_messages = recovered_messages
-                            if enable_caching and self._cache_manager:
-                                request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                    # For reasoning models (Kimi Code, o1, etc.), check reasoning_content if content is empty
+                    if not content and hasattr(message, "reasoning_content") and message.reasoning_content:
+                        logger.info("Using reasoning_content as fallback for empty content field")
+                        content = message.reasoning_content
+
+                    # Check for truncation before parsing
+                    finish_reason = response.choices[0].finish_reason
+                    if finish_reason == "content_filter":
+                        raise StructuredContentFilterError("Structured output blocked by content filter")
+                    if finish_reason == "length":
+                        logger.warning("Structured output truncated (finish_reason=length), retrying")
+                        if attempt == max_retries:
+                            # Last resort: attempt JSON repair on the partial response before failing.
+                            # Some models (e.g. glm-4.7) truncate mid-JSON but the partial output
+                            # may still be recoverable via balanced-brace extraction + Pydantic
+                            # partial validation.
+                            if content:
+                                try:
+                                    extracted = self._extract_json_from_text(content)
+                                    if extracted:
+                                        partial_parsed = json.loads(extracted)
+                                        result = response_model.model_validate(partial_parsed)
+                                        logger.info(
+                                            "Recovered truncated structured output via JSON repair (model=%s, schema=%s)",
+                                            self._model_name,
+                                            response_model.__name__,
+                                        )
+                                        return result
+                                except Exception as repair_err:
+                                    logger.debug("JSON repair on truncated output failed: %s", repair_err)
+                            raise StructuredTruncationError("Structured output truncated after all retries")
+                        continue
+
+                    if not content:
+                        # For thinking APIs: empty content with thinking disabled means
+                        # the model's primary output mechanism was suppressed. Retry with
+                        # thinking enabled and extract JSON from reasoning output.
+                        if disable_thinking:
                             logger.warning(
-                                "Structured request message validation failed on attempt %d; "
-                                "retrying once with simplified transcript",
-                                attempt + 1,
+                                "Thinking API returned empty content with thinking disabled — "
+                                "retrying with thinking enabled"
                             )
+                            disable_thinking = False
                             continue
-                    raise
-                if attempt == max_retries:
-                    raise
-                logger.warning(f"Structured request failed on attempt {attempt + 1}: {e}")
+                        if attempt == max_retries:
+                            raise LLMException("Empty response content")
+                        continue
 
-        raise LLMException("Failed to get structured response after all retries")
+                    # Parse and validate with Pydantic (fast path via model_validate_json)
+                    try:
+                        return response_model.model_validate_json(content)
+                    except ValidationError:
+                        # Try balanced-brace extraction for JSON embedded in prose/thinking
+                        extracted = self._extract_json_from_text(content)
+                        if extracted:
+                            logger.info("Extracted JSON from prose via balanced-brace matching")
+                            return response_model.model_validate_json(extracted)
+                        raise
+                except (StructuredRefusalError, StructuredContentFilterError, StructuredTruncationError):
+                    raise
+                except (ValidationError, json.JSONDecodeError) as e:
+                    logger.warning(f"Structured validation error on attempt {attempt + 1}: {e}")
+                    if attempt == max_retries:
+                        try:
+                            from app.core.prometheus_metrics import llm_json_parse_failures_total
+
+                            llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_structured"})
+                        except Exception:
+                            logger.debug("Failed to record ask_structured parse failure metric", exc_info=True)
+                        raise StructuredSchemaValidationError(f"Failed to validate structured response: {e}") from e
+                except RateLimitError as e:
+                    retry_after = None
+                    if hasattr(e, "response") and e.response is not None:
+                        retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                        if retry_after_header:
+                            with contextlib.suppress(ValueError, TypeError):
+                                retry_after = float(retry_after_header)
+                    if retry_after is None:
+                        # Use centralized exponential backoff
+                        retry_config = RetryConfig(
+                            base_delay=base_delay,
+                            exponential_base=2.0,
+                            max_delay=60.0,
+                            jitter=True,
+                        )
+                        retry_after = calculate_delay(attempt + 1, retry_config)
+                    logger.warning(
+                        f"OpenAI rate limit hit on structured request attempt {attempt + 1}/{max_retries + 1}, "
+                        f"retrying after {retry_after:.1f}s"
+                    )
+                    if attempt == max_retries:
+                        raise
+                    await asyncio.sleep(retry_after)
+                except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
+                    error_msg = str(e).lower()
+                    if any(
+                        term in error_msg
+                        for term in [
+                            "context_length_exceeded",
+                            "maximum context length",
+                            "too many tokens",
+                            "max_tokens",
+                            "context window",
+                        ]
+                    ):
+                        raise TokenLimitExceededError(str(e)) from e
+
+                    if self._is_message_validation_error(e):
+                        if not validation_recovery_attempted:
+                            recovered_messages = self._build_validation_recovery_messages(base_messages)
+                            if recovered_messages != base_messages:
+                                validation_recovery_attempted = True
+                                base_messages = recovered_messages
+                                request_messages = recovered_messages
+                                if enable_caching and self._cache_manager:
+                                    request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                                logger.warning(
+                                    "Structured request message validation failed on attempt %d; "
+                                    "retrying once with simplified transcript",
+                                    attempt + 1,
+                                )
+                                continue
+                        raise
+                    if attempt == max_retries:
+                        raise
+                    logger.warning(f"Structured request failed on attempt {attempt + 1}: {e}")
+
+            raise LLMException("Failed to get structured response after all retries")
 
     def _capabilities(self):
         return get_capabilities(self._model_name, self._api_base)
@@ -2672,201 +2760,171 @@ To extract data from a webpage:
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
         effective_model = self._resolve_model_override(model)
 
-        while True:
-            is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
-            params = {
-                "model": effective_model,
-                "messages": request_messages,
-                "stream": True,
-            }
-            if self._supports_stream_usage:
-                params["stream_options"] = {"include_usage": True}
+        # Hold one concurrency slot for the entire streaming loop so that concurrent
+        # sessions cannot overwhelm a single-key API provider with parallel requests.
+        async with self._llm_concurrency_slot():
+            while True:
+                is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
+                params = {
+                    "model": effective_model,
+                    "messages": request_messages,
+                    "stream": True,
+                }
+                if self._supports_stream_usage:
+                    params["stream_options"] = {"include_usage": True}
 
-            effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
-            effective_temperature = temperature if temperature is not None else self._temperature
-            if is_new_model:
-                params["max_completion_tokens"] = effective_max_tokens
-            else:
-                params["max_tokens"] = effective_max_tokens
-                params["temperature"] = effective_temperature
+                effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+                effective_temperature = temperature if temperature is not None else self._temperature
+                if is_new_model:
+                    params["max_completion_tokens"] = effective_max_tokens
+                else:
+                    params["max_tokens"] = effective_max_tokens
+                    params["temperature"] = effective_temperature
 
-            # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
-            if self._is_thinking_api:
-                params["extra_body"] = {"thinking": {"type": "disabled"}}
+                # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
+                if self._is_thinking_api:
+                    params["extra_body"] = {"thinking": {"type": "disabled"}}
 
-            if tools:
-                params["tools"] = tools
-                params["tool_choice"] = tool_choice
-                params["parallel_tool_calls"] = False
+                if tools:
+                    params["tools"] = tools
+                    params["tool_choice"] = tool_choice
+                    params["parallel_tool_calls"] = False
 
-            if response_format and not tools:
-                params["response_format"] = response_format
+                if response_format and not tools:
+                    params["response_format"] = response_format
 
-            completion_parts: list[str] = []
-            usage_counts: dict[str, int] | None = None
-            finish_reason: str | None = None
+                completion_parts: list[str] = []
+                usage_counts: dict[str, int] | None = None
+                finish_reason: str | None = None
 
-            try:
-                stream_start = time.monotonic()
-                ttft_logged = False
-                stream = await client.chat.completions.create(**params)
+                try:
+                    stream_start = time.monotonic()
+                    ttft_logged = False
+                    stream = await client.chat.completions.create(**params)
 
-                async for chunk in stream:
-                    if getattr(chunk, "usage", None):
-                        usage = chunk.usage
-                        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-                        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-                        prompt_details = getattr(usage, "prompt_tokens_details", None)
-                        cached_tokens = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
-                        usage_counts = {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                            "cached_tokens": cached_tokens,
+                    async for chunk in stream:
+                        if getattr(chunk, "usage", None):
+                            usage = chunk.usage
+                            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                            prompt_details = getattr(usage, "prompt_tokens_details", None)
+                            cached_tokens = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
+                            usage_counts = {
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": completion_tokens,
+                                "cached_tokens": cached_tokens,
+                            }
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            if chunk.choices[0].finish_reason:
+                                finish_reason = chunk.choices[0].finish_reason
+                            if delta.content:
+                                if not ttft_logged:
+                                    ttft = time.monotonic() - stream_start
+                                    log_fn = logger.warning if ttft > 10 else logger.info
+                                    log_fn(f"LLM ask_stream() TTFT={ttft:.1f}s (model={effective_model})")
+                                    ttft_logged = True
+                                completion_parts.append(delta.content)
+                                yield delta.content
+                            if delta.tool_calls:
+                                logger.warning(
+                                    "ask_stream received tool_call chunks - tool calls are not "
+                                    "supported in streaming mode. Use ask() for tool-calling requests."
+                                )
+
+                    stream_duration = time.monotonic() - stream_start
+                    _slow = getattr(
+                        get_settings(),
+                        "llm_slow_stream_threshold",
+                        get_settings().llm_slow_request_threshold,
+                    )
+                    if stream_duration > _slow * 2:
+                        log_fn = logger.error
+                    elif stream_duration > _slow:
+                        log_fn = logger.warning
+                    else:
+                        log_fn = logger.info
+                    log_fn(
+                        f"LLM ask_stream() completed in {stream_duration:.1f}s "
+                        f"(model={effective_model}, chars={len(''.join(completion_parts))})"
+                    )
+
+                    if usage_counts:
+                        await self._record_usage_counts(
+                            prompt_tokens=usage_counts["prompt_tokens"],
+                            completion_tokens=usage_counts["completion_tokens"],
+                            cached_tokens=usage_counts["cached_tokens"],
+                        )
+                    else:
+                        await self._record_stream_usage(
+                            request_messages,
+                            "".join(completion_parts),
+                            tools=tools,
+                        )
+
+                    normalized_finish_reason = finish_reason or "stop"
+                    self._last_stream_metadata = {
+                        "finish_reason": normalized_finish_reason,
+                        "truncated": normalized_finish_reason == "length",
+                        "provider": "openai",
+                    }
+                    if normalized_finish_reason == "length":
+                        logger.warning("OpenAI streaming response truncated (finish_reason=length)")
+                    return
+
+                except httpx.ReadTimeout:
+                    # Provider stopped sending chunks for longer than the read timeout.
+                    # If content was already streamed, treat as truncation (not fatal).
+                    # The caller's delivery integrity gate handles truncation recovery.
+                    stream_elapsed = time.monotonic() - stream_start
+                    streamed_chars = sum(len(p) for p in completion_parts)
+                    if completion_parts:
+                        logger.warning(
+                            "LLM ask_stream() read timeout after %.1fs — treating %d chars as truncated (model=%s)",
+                            stream_elapsed,
+                            streamed_chars,
+                            effective_model,
+                        )
+                        self._last_stream_metadata = {
+                            "finish_reason": "length",
+                            "truncated": True,
+                            "provider": "openai",
+                            "error": "read_timeout_mid_stream",
                         }
-                    if chunk.choices:
-                        delta = chunk.choices[0].delta
-                        if chunk.choices[0].finish_reason:
-                            finish_reason = chunk.choices[0].finish_reason
-                        if delta.content:
-                            if not ttft_logged:
-                                ttft = time.monotonic() - stream_start
-                                log_fn = logger.warning if ttft > 10 else logger.info
-                                log_fn(f"LLM ask_stream() TTFT={ttft:.1f}s (model={effective_model})")
-                                ttft_logged = True
-                            completion_parts.append(delta.content)
-                            yield delta.content
-                        if delta.tool_calls:
-                            logger.warning(
-                                "ask_stream received tool_call chunks - tool calls are not "
-                                "supported in streaming mode. Use ask() for tool-calling requests."
-                            )
+                        # Don't raise — caller already has the partial content via earlier yields.
+                        # Setting truncated=True triggers the continuation/retry logic.
+                        return
+                    else:
+                        logger.error(
+                            "LLM ask_stream() read timeout before any content (%.1fs, model=%s)",
+                            stream_elapsed,
+                            effective_model,
+                        )
+                        self._last_stream_metadata = {
+                            "finish_reason": "error",
+                            "truncated": False,
+                            "provider": "openai",
+                            "error": "read_timeout_no_content",
+                        }
+                        raise RuntimeError(
+                            f"LLM stream read timeout after {stream_elapsed:.0f}s with no content (model={effective_model})"
+                        ) from None
 
-                stream_duration = time.monotonic() - stream_start
-                _slow = getattr(
-                    get_settings(),
-                    "llm_slow_stream_threshold",
-                    get_settings().llm_slow_request_threshold,
-                )
-                if stream_duration > _slow * 2:
-                    log_fn = logger.error
-                elif stream_duration > _slow:
-                    log_fn = logger.warning
-                else:
-                    log_fn = logger.info
-                log_fn(
-                    f"LLM ask_stream() completed in {stream_duration:.1f}s "
-                    f"(model={effective_model}, chars={len(''.join(completion_parts))})"
-                )
-
-                if usage_counts:
-                    await self._record_usage_counts(
-                        prompt_tokens=usage_counts["prompt_tokens"],
-                        completion_tokens=usage_counts["completion_tokens"],
-                        cached_tokens=usage_counts["cached_tokens"],
-                    )
-                else:
-                    await self._record_stream_usage(
-                        request_messages,
-                        "".join(completion_parts),
-                        tools=tools,
-                    )
-
-                normalized_finish_reason = finish_reason or "stop"
-                self._last_stream_metadata = {
-                    "finish_reason": normalized_finish_reason,
-                    "truncated": normalized_finish_reason == "length",
-                    "provider": "openai",
-                }
-                if normalized_finish_reason == "length":
-                    logger.warning("OpenAI streaming response truncated (finish_reason=length)")
-                return
-
-            except httpx.ReadTimeout:
-                # Provider stopped sending chunks for longer than the read timeout.
-                # If content was already streamed, treat as truncation (not fatal).
-                # The caller's delivery integrity gate handles truncation recovery.
-                stream_elapsed = time.monotonic() - stream_start
-                streamed_chars = sum(len(p) for p in completion_parts)
-                if completion_parts:
-                    logger.warning(
-                        "LLM ask_stream() read timeout after %.1fs — treating %d chars as truncated (model=%s)",
-                        stream_elapsed,
-                        streamed_chars,
-                        effective_model,
-                    )
-                    self._last_stream_metadata = {
-                        "finish_reason": "length",
-                        "truncated": True,
-                        "provider": "openai",
-                        "error": "read_timeout_mid_stream",
-                    }
-                    # Don't raise — caller already has the partial content via earlier yields.
-                    # Setting truncated=True triggers the continuation/retry logic.
-                    return
-                else:
-                    logger.error(
-                        "LLM ask_stream() read timeout before any content (%.1fs, model=%s)",
-                        stream_elapsed,
-                        effective_model,
-                    )
+                except RateLimitError as e:
                     self._last_stream_metadata = {
                         "finish_reason": "error",
                         "truncated": False,
                         "provider": "openai",
-                        "error": "read_timeout_no_content",
+                        "error": "rate_limit",
                     }
-                    raise RuntimeError(
-                        f"LLM stream read timeout after {stream_elapsed:.0f}s with no content (model={effective_model})"
-                    ) from None
-
-            except RateLimitError as e:
-                self._last_stream_metadata = {
-                    "finish_reason": "error",
-                    "truncated": False,
-                    "provider": "openai",
-                    "error": "rate_limit",
-                }
-                # Parse rate limit TTL and mark key exhausted
-                key = await self.get_api_key()
-                if key:
-                    ttl = self._parse_openai_rate_limit(e)
-                    await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                    max_retries = getattr(self, "_max_retries", 3)
-                    logger.warning(
-                        f"OpenAI stream rate limit hit, rotating to next key (attempt {_attempt + 1}/{max_retries})"
-                    )
-                    # Retry with next key (recursively yield from new attempt)
-                    async for chunk in self.ask_stream(
-                        messages,
-                        tools,
-                        response_format,
-                        tool_choice,
-                        enable_caching,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        _attempt=_attempt + 1,
-                    ):
-                        yield chunk
-                    return
-                raise
-            except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
-                error_msg = str(e).lower()
-
-                # Check for authentication errors (401) and rotate keys
-                if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
-                    self._last_stream_metadata = {
-                        "finish_reason": "error",
-                        "truncated": False,
-                        "provider": "openai",
-                        "error": "authentication_error",
-                    }
+                    # Parse rate limit TTL and mark key exhausted
                     key = await self.get_api_key()
                     if key:
-                        await self._key_pool.mark_invalid(key)
+                        ttl = self._parse_openai_rate_limit(e)
+                        await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
                         max_retries = getattr(self, "_max_retries", 3)
-                        logger.error(
-                            f"OpenAI stream authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
+                        logger.warning(
+                            f"OpenAI stream rate limit hit, rotating to next key (attempt {_attempt + 1}/{max_retries})"
                         )
                         # Retry with next key (recursively yield from new attempt)
                         async for chunk in self.ask_stream(
@@ -2883,35 +2941,68 @@ To extract data from a webpage:
                             yield chunk
                         return
                     raise
+                except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
+                    error_msg = str(e).lower()
 
-                if self._is_message_validation_error(e) and not validation_recovery_attempted and not completion_parts:
-                    recovered_messages = self._build_validation_recovery_messages(base_messages)
-                    if recovered_messages != base_messages:
-                        validation_recovery_attempted = True
-                        base_messages = recovered_messages
-                        request_messages = recovered_messages
-                        if enable_caching and self._cache_manager:
-                            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
-                        logger.warning(
-                            "ask_stream retrying once with simplified transcript after schema validation error"
-                        )
-                        continue
+                    # Check for authentication errors (401) and rotate keys
+                    if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
+                        self._last_stream_metadata = {
+                            "finish_reason": "error",
+                            "truncated": False,
+                            "provider": "openai",
+                            "error": "authentication_error",
+                        }
+                        key = await self.get_api_key()
+                        if key:
+                            await self._key_pool.mark_invalid(key)
+                            max_retries = getattr(self, "_max_retries", 3)
+                            logger.error(
+                                f"OpenAI stream authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
+                            )
+                            # Retry with next key (recursively yield from new attempt)
+                            async for chunk in self.ask_stream(
+                                messages,
+                                tools,
+                                response_format,
+                                tool_choice,
+                                enable_caching,
+                                model=model,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                                _attempt=_attempt + 1,
+                            ):
+                                yield chunk
+                            return
+                        raise
 
-                self._last_stream_metadata = {
-                    "finish_reason": "error",
-                    "truncated": False,
-                    "provider": "openai",
-                    "error": type(e).__name__,
-                }
-                if any(
-                    term in error_msg
-                    for term in [
-                        "context_length_exceeded",
-                        "maximum context length",
-                        "too many tokens",
-                        "max_tokens",
-                        "context window",
-                    ]
-                ):
-                    raise TokenLimitExceededError(str(e)) from e
-                raise
+                    if self._is_message_validation_error(e) and not validation_recovery_attempted and not completion_parts:
+                        recovered_messages = self._build_validation_recovery_messages(base_messages)
+                        if recovered_messages != base_messages:
+                            validation_recovery_attempted = True
+                            base_messages = recovered_messages
+                            request_messages = recovered_messages
+                            if enable_caching and self._cache_manager:
+                                request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                            logger.warning(
+                                "ask_stream retrying once with simplified transcript after schema validation error"
+                            )
+                            continue
+
+                    self._last_stream_metadata = {
+                        "finish_reason": "error",
+                        "truncated": False,
+                        "provider": "openai",
+                        "error": type(e).__name__,
+                    }
+                    if any(
+                        term in error_msg
+                        for term in [
+                            "context_length_exceeded",
+                            "maximum context length",
+                            "too many tokens",
+                            "max_tokens",
+                            "context window",
+                        ]
+                    ):
+                        raise TokenLimitExceededError(str(e)) from e
+                    raise

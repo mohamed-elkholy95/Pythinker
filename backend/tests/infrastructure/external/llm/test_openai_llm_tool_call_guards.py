@@ -161,6 +161,7 @@ async def test_ask_tool_timeout_retries_increase_timeout_budget_with_backoff() -
                 llm_request_timeout=1.0,
                 fast_model="",
                 llm_slow_request_threshold=30.0,
+                llm_concurrency_enabled=False,
             ),
         ),
         patch("app.infrastructure.external.llm.openai_llm.asyncio.wait_for", side_effect=_timeout_wait_for),

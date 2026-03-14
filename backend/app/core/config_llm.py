@@ -159,7 +159,7 @@ class LLMConcurrencySettingsMixin:
     """LLM concurrency, token management, and semantic cache configuration."""
 
     # Phase 6: LLM Concurrency Control
-    llm_max_concurrent: int = 20  # Maximum concurrent LLM API requests (scaled for multi-user)
+    llm_max_concurrent: int = 3  # Maximum concurrent LLM API requests (3 prevents API starvation on single-key setups)
     llm_queue_timeout: float = 120.0  # Timeout waiting in LLM queue (seconds)
     llm_concurrency_enabled: bool = True  # Enable LLM concurrency limiting
     token_budget_warn_threshold: float = 0.8  # Warn when budget reaches this utilization (0-1)
