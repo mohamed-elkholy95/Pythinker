@@ -413,7 +413,7 @@ class ScraplingAdapter:
                     headless=self._settings.scraping_headless,
                     network_idle=True,
                     timeout=int(dynamic_timeout * 1000),
-                    disable_resources=["font", "image", "media", "stylesheet"],
+                    disable_resources=True,
                     proxy=proxy,
                 )
             http_error = self._result_from_http_error(page, url, tier="dynamic")
@@ -475,7 +475,7 @@ class ScraplingAdapter:
                     headless=self._settings.scraping_headless,
                     network_idle=bool(kwargs.get("network_idle", True)),
                     timeout=int(dynamic_timeout * 1000),
-                    disable_resources=["font", "image", "media"],
+                    disable_resources=True,
                     proxy=proxy,
                     solve_cloudflare=mode == StealthMode.CLOUDFLARE,
                 )
@@ -658,18 +658,7 @@ class ScraplingAdapter:
         if self._settings.scraping_spider_enabled and len(urls) > 1:
             return await self._fetch_batch_spider(urls, skip_dynamic_fallback=skip_dynamic_fallback)
 
-        # Non-spider path: when skip_dynamic_fallback is set, cap escalation
-        # at HTTP-only (tier 1) to avoid expensive Playwright round-trips.
-        max_tier = 1 if skip_dynamic_fallback else 3
         semaphore = asyncio.Semaphore(concurrency)
-
-        async def _bounded_fetch(url: str) -> ScrapedContent:
-            async with semaphore:
-                result = await self.fetch_with_escalation(url, **kwargs)
-                if max_tier <= 1 and result.tier_used in ("dynamic", "stealthy"):
-                    # Should not happen with start_tier>max_tier, but guard anyway
-                    return result
-                return result
 
         if skip_dynamic_fallback:
             # HTTP-only: use plain fetch (tier 1 only, no escalation)
@@ -679,7 +668,12 @@ class ScraplingAdapter:
 
             return list(await asyncio.gather(*[_http_only_fetch(u) for u in urls]))
 
-        return list(await asyncio.gather(*[_bounded_fetch(u) for u in urls]))
+        # Full escalation path
+        async def _escalating_fetch(url: str) -> ScrapedContent:
+            async with semaphore:
+                return await self.fetch_with_escalation(url, **kwargs)
+
+        return list(await asyncio.gather(*[_escalating_fetch(u) for u in urls]))
 
     async def _fetch_batch_spider(
         self, urls: list[str], *, skip_dynamic_fallback: bool = False
@@ -767,7 +761,7 @@ class ScraplingAdapter:
                                 url=fallback.url,
                                 text="",
                                 error=fallback.error or "Spider did not return content for URL",
-                                tier_used="spider",
+                                tier_used=fallback.tier_used or "spider",
                             )
                         )
 
