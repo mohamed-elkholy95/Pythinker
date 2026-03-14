@@ -7,6 +7,7 @@ Provides common utilities used across domain services:
 - Diff utilities
 """
 
+from app.domain.utils.llm_compat import is_native_openai
 from app.domain.utils.text import (
     TextTruncator,
     TruncationResult,
@@ -58,6 +59,7 @@ __all__ = [
     "is_non_empty_string",
     "is_numeric",
     "is_str",
+    "is_native_openai",
     "is_tool_result_dict",
     "truncate",
     "truncate_output",
