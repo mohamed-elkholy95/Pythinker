@@ -1,9 +1,11 @@
-export type StreamPhase = 'idle' | 'thinking' | 'summarizing' | 'summary_final';
+export type StreamPhase = 'idle' | 'planning' | 'thinking' | 'summarizing' | 'summary_final';
 
 export type StreamingViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'report';
 
 export const STREAMING_LABELS = {
   thinking: 'Thinking',
+  planning_active: 'Creating plan...',
+  planning_final: 'Plan ready',
   summarizing_active: 'Writing report...',
   summarizing_final: 'Report complete',
   completed: 'Session complete',
@@ -25,7 +27,8 @@ export const THINKING_ROTATING_LABELS = [
 export const THINKING_ROTATION_INTERVAL_MS = 3000;
 
 export const VALID_PHASE_TRANSITIONS: Record<StreamPhase, ReadonlyArray<StreamPhase>> = {
-  idle: ['thinking', 'summarizing'],
+  idle: ['planning', 'thinking', 'summarizing'],
+  planning: ['thinking', 'idle', 'summarizing'],
   thinking: ['summarizing', 'idle'],
   summarizing: ['summary_final', 'idle'],
   summary_final: ['idle'],

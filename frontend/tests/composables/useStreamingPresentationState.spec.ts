@@ -128,6 +128,165 @@ describe('useStreamingPresentationState', () => {
     state.dispose();
   });
 
+  // ── Planning phase tests ──────────────────────────────────────
+
+  it('activates planning phase when planPresentationText is present', async () => {
+    const planPresentationText = ref('# Planning...\n> Analyzing...');
+    const isPlanStreaming = ref(true);
+
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      isThinking: false,
+      isActiveOperation: false,
+      isPlanStreaming,
+      planPresentationText,
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: ''
+    });
+
+    await nextTick();
+    expect(state.phase.value).toBe('planning');
+    expect(state.isPlanningPhase.value).toBe(true);
+
+    state.dispose();
+  });
+
+  it('shows "Creating plan..." headline while isPlanStreaming=true', async () => {
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      isThinking: false,
+      isActiveOperation: false,
+      isPlanStreaming: true,
+      planPresentationText: '# Planning...',
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: ''
+    });
+
+    await nextTick();
+    expect(state.headline.value).toBe('Creating plan...');
+
+    state.dispose();
+  });
+
+  it('shows "Plan ready" headline when isPlanStreaming=false with retained planPresentationText', async () => {
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      isThinking: false,
+      isActiveOperation: false,
+      isPlanStreaming: false,
+      planPresentationText: '# AI Agent Frameworks\n## Step 1',
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: ''
+    });
+
+    await nextTick();
+    expect(state.phase.value).toBe('planning');
+    expect(state.headline.value).toBe('Plan ready');
+
+    state.dispose();
+  });
+
+  it('summary streaming still overrides planning', async () => {
+    const isSummaryStreaming = ref(true);
+    const summaryStreamText = ref('partial report');
+
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming,
+      summaryStreamText,
+      isThinking: false,
+      isActiveOperation: false,
+      isPlanStreaming: true,
+      planPresentationText: '# Plan...',
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: ''
+    });
+
+    await nextTick();
+    expect(state.phase.value).toBe('summarizing');
+
+    state.dispose();
+  });
+
+  it('planning preview text comes from planPresentationText, not tool preview text', async () => {
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      isThinking: false,
+      isActiveOperation: false,
+      isPlanStreaming: true,
+      planPresentationText: '# My Plan Content',
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: 'tool preview text'
+    });
+
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(state.previewText.value).toBe('# My Plan Content');
+
+    state.dispose();
+  });
+
+  it('transitions allow idle -> planning -> thinking and planning -> idle', async () => {
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      isThinking: false,
+      isActiveOperation: false,
+      toolDisplayName: '',
+      toolDescription: '',
+      baseViewType: 'generic',
+      isSessionComplete: false,
+      replayScreenshotUrl: '',
+      previewText: ''
+    });
+
+    expect(state.phase.value).toBe('idle');
+
+    // idle -> planning
+    expect(state.setPhase('planning')).toBe(true);
+    expect(state.phase.value).toBe('planning');
+
+    // planning -> thinking
+    expect(state.setPhase('thinking')).toBe(true);
+    expect(state.phase.value).toBe('thinking');
+
+    // Reset to idle, then test planning -> idle
+    state.setPhase('idle');
+    expect(state.setPhase('planning')).toBe(true);
+    expect(state.setPhase('idle')).toBe(true);
+
+    state.dispose();
+  });
+
   it('uses persisted final report text after summary streaming has been cleared', async () => {
     const finalReportText = ref('');
 

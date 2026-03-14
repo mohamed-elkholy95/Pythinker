@@ -17,6 +17,8 @@ export interface StreamingPresentationInput {
   finalReportText?: MaybeRefOrGetter<string | undefined>;
   isThinking?: MaybeRefOrGetter<boolean | undefined>;
   isActiveOperation?: MaybeRefOrGetter<boolean | undefined>;
+  isPlanStreaming?: MaybeRefOrGetter<boolean | undefined>;
+  planPresentationText?: MaybeRefOrGetter<string | undefined>;
   toolDisplayName?: MaybeRefOrGetter<string | undefined>;
   toolDescription?: MaybeRefOrGetter<string | undefined>;
   baseViewType?: MaybeRefOrGetter<StreamingViewType | null | undefined>;
@@ -151,10 +153,12 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
     const finalReportText = resolve(input.finalReportText || '') || '';
     const thinking = Boolean(resolve(input.isThinking || false));
     const activeOperation = Boolean(resolve(input.isActiveOperation || false));
+    const planText = resolve(input.planPresentationText || '') || '';
 
     if (summaryStreaming) return 'summarizing';
     if (finalReportText.length > 0) return 'summary_final';
     if (!summaryStreaming && summaryText.length > 0) return 'summary_final';
+    if (planText.length > 0) return 'planning';
     if (thinking || activeOperation) return 'thinking';
     return 'idle';
   });
@@ -183,24 +187,34 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
     () => {
       const summaryText = resolve(input.summaryStreamText || '') || '';
       const finalReportText = resolve(input.finalReportText || '') || '';
+      const planText = resolve(input.planPresentationText || '') || '';
       const sourcePreviewText = resolve(input.previewText || '') || '';
       if (phase.value === 'summary_final' && finalReportText.length > 0) {
         return finalReportText;
       }
-      return phase.value === 'summarizing' || phase.value === 'summary_final'
-        ? summaryText
-        : sourcePreviewText;
+      if (phase.value === 'summarizing' || phase.value === 'summary_final') {
+        return summaryText;
+      }
+      if (phase.value === 'planning' && planText.length > 0) {
+        return planText;
+      }
+      return sourcePreviewText;
     },
     (next) => setPreviewText(next || ''),
     { immediate: true }
   );
 
   const isSummaryPhase = computed(() => phase.value === 'summarizing' || phase.value === 'summary_final');
+  const isPlanningPhase = computed(() => phase.value === 'planning');
 
   const headline = computed<string>(() => {
     if (resolve(input.isInitializing)) return STREAMING_LABELS.initializing;
     if (phase.value === 'summarizing') return STREAMING_LABELS.summarizing_active;
     if (phase.value === 'summary_final') return STREAMING_LABELS.summarizing_final;
+    if (phase.value === 'planning') {
+      const planStreaming = Boolean(resolve(input.isPlanStreaming || false));
+      return planStreaming ? STREAMING_LABELS.planning_active : STREAMING_LABELS.planning_final;
+    }
     if (phase.value === 'thinking') return THINKING_ROTATING_LABELS[thinkingLabelIndex.value];
     if (resolve(input.isSessionComplete || false)) return STREAMING_LABELS.completed;
     if (toolDisplayName.value) return `Pythinker is using ${toolDisplayName.value}`;
@@ -290,6 +304,7 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
     previewText,
     isStreaming,
     isSummaryPhase,
+    isPlanningPhase,
     showReplayFrame,
     setPhase,
     setPreviewText,
