@@ -443,6 +443,12 @@ const renderedMiniMarkdown = computed(() => {
         codeLang = line.slice(3).trim();
         codeLines = [];
       } else {
+        // Skip mermaid/chart blocks in mini preview (illegible at this scale)
+        if (codeLang === 'mermaid' || codeLang === 'chart' || codeLang === 'plotly') {
+          inCode = false;
+          codeLang = '';
+          continue;
+        }
         const langBadge = codeLang
           ? `<span class="mini-code-lang">${codeLang}</span>`
           : '';
@@ -467,6 +473,25 @@ const renderedMiniMarkdown = computed(() => {
       html.push(`<div class="mini-h2">${inlineFormat(line.slice(3))}</div>`);
     } else if (line.startsWith('# ')) {
       html.push(`<div class="mini-h1">${inlineFormat(line.slice(2))}</div>`);
+    }
+    // Table separator row (skip entirely)
+    else if (/^\|[\s:|-]+\|$/.test(line.trim())) {
+      continue;
+    }
+    // Table row — strip pipes and render as compact paragraph
+    else if (/^\|.+\|$/.test(line.trim())) {
+      const cells = line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).filter(Boolean);
+      if (cells.length > 0) {
+        html.push(`<div class="mini-p">${inlineFormat(cells.join(' · '))}</div>`);
+      }
+    }
+    // Blockquote callout (> [!NOTE], > [!WARNING], etc.) — simplify to paragraph
+    else if (/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/.test(line)) {
+      continue; // skip callout marker line, content follows
+    }
+    // Blockquote content line
+    else if (line.startsWith('> ')) {
+      html.push(`<div class="mini-p">${inlineFormat(line.slice(2))}</div>`);
     }
     // Horizontal rule
     else if (/^[-*_]{3,}\s*$/.test(line)) {

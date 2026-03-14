@@ -658,11 +658,26 @@ class ScraplingAdapter:
         if self._settings.scraping_spider_enabled and len(urls) > 1:
             return await self._fetch_batch_spider(urls, skip_dynamic_fallback=skip_dynamic_fallback)
 
+        # Non-spider path: when skip_dynamic_fallback is set, cap escalation
+        # at HTTP-only (tier 1) to avoid expensive Playwright round-trips.
+        max_tier = 1 if skip_dynamic_fallback else 3
         semaphore = asyncio.Semaphore(concurrency)
 
         async def _bounded_fetch(url: str) -> ScrapedContent:
             async with semaphore:
-                return await self.fetch_with_escalation(url, **kwargs)
+                result = await self.fetch_with_escalation(url, **kwargs)
+                if max_tier <= 1 and result.tier_used in ("dynamic", "stealthy"):
+                    # Should not happen with start_tier>max_tier, but guard anyway
+                    return result
+                return result
+
+        if skip_dynamic_fallback:
+            # HTTP-only: use plain fetch (tier 1 only, no escalation)
+            async def _http_only_fetch(url: str) -> ScrapedContent:
+                async with semaphore:
+                    return await self.fetch(url, **kwargs)
+
+            return list(await asyncio.gather(*[_http_only_fetch(u) for u in urls]))
 
         return list(await asyncio.gather(*[_bounded_fetch(u) for u in urls]))
 

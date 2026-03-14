@@ -606,12 +606,10 @@ class SearchTool(BaseTool):
         )
 
         try:
-            import time as _time
-
-            t0 = _time.monotonic()
+            t0 = time.monotonic()
             skip_dynamic = getattr(settings, "search_auto_enrich_skip_dynamic_fallback", True)
             fetched = await self._scraper.fetch_batch(candidates, skip_dynamic_fallback=skip_dynamic)
-            elapsed = _time.monotonic() - t0
+            elapsed = time.monotonic() - t0
             url_to_content = {r.url: r for r in fetched if r.success and len(r.text) > 200}
             for item in items:
                 if item.link in url_to_content:

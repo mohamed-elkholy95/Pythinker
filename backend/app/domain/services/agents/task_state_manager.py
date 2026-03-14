@@ -108,13 +108,15 @@ class TaskState:
         return found
 
     def mark_remaining_completed(self) -> int:
-        """Mark all pending/in_progress steps as completed.
+        """Promote pending/in_progress steps to completed.
 
-        Called when execution finishes to ensure task_state.md reflects
-        the actual completion state, even for merged or skipped steps.
+        Called when execution finishes successfully.  Only promotes steps
+        that were never individually started or are still running — steps
+        that were explicitly marked failed, blocked, or skipped retain
+        their status since they genuinely did not complete.
 
         Returns:
-            Number of steps marked completed.
+            Number of steps promoted to completed.
         """
         count = 0
         for step in self.steps:

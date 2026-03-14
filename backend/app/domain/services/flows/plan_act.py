@@ -3095,8 +3095,8 @@ class PlanActFlow(BaseFlow):
                             if last_completed_index >= 0:
                                 await self._write_checkpoint(last_completed_index, is_final=True)
 
-                        # Mark all remaining steps as completed in task_state.md
-                        # (handles merged/skipped steps that weren't individually marked)
+                        # Promote pending/in_progress steps to completed in task_state.md
+                        # (handles steps merged into earlier steps that were never individually started)
                         if self._task_state_manager and self._task_state_manager._state:
                             marked = self._task_state_manager._state.mark_remaining_completed()
                             if marked > 0:
