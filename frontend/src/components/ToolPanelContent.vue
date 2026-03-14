@@ -1042,10 +1042,11 @@ const contentHeaderLabel = computed(() => {
     if (props.isSummaryStreaming) return 'Composing report...';
     return 'Report';
   }
-  // Terminal: show shell session name (Manus shows e.g. "test_env_session_v2")
+  // Terminal: show shell session name, fallback to "Terminal"
   if (currentViewType.value === 'terminal') {
     const sessionId = props.toolContent?.args?.id;
-    if (typeof sessionId === 'string' && sessionId) return sessionId;
+    if (typeof sessionId === 'string' && sessionId && sessionId !== 'default') return sessionId;
+    return 'Terminal';
   }
   // Editor: show filename
   if (currentViewType.value === 'editor') {
@@ -2073,7 +2074,7 @@ const handleBrowseUrl = async (url: string) => {
 }
 
 .panel-report-activity-icon-ready {
-  color: var(--function-success);
+  color: var(--text-secondary);
 }
 
 .panel-report-activity-icon-ready .panel-report-activity-glyph {
