@@ -3610,6 +3610,9 @@ const eventRegistry = createEventHandlerRegistry({
   deep_research: (data) => {
     console.debug('[DeepResearch]', (data as import('../types/event').DeepResearchEventData).status)
   },
+  skill: (data) => {
+    console.debug('[Skill]', data)
+  },
 })
 
 // Process a single event (extracted from handleEvent for batching)
