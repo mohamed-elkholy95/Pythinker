@@ -193,8 +193,16 @@
         @click="toggleExpand"
       >
         <!-- Status icon -->
-        <div class="collapsed-status-icon">
-          <Check v-if="isAllCompleted" class="w-4 h-4 text-white" :stroke-width="2.5" />
+        <div
+          class="collapsed-status-icon"
+          :class="{ 'collapsed-status-icon-complete': isAllCompleted }"
+        >
+          <Check
+            v-if="isAllCompleted"
+            class="collapsed-complete-check"
+            :size="16"
+            :stroke-width="2.5"
+          />
           <div v-else-if="steps.some(s => s.status === 'running')" class="collapsed-running-dot" />
           <span v-else class="collapsed-pending-num">{{ currentCount }}</span>
         </div>
@@ -652,7 +660,21 @@ onUnmounted(() => {
 }
 
 .progress-bar-collapsed.completed-state .collapsed-status-icon {
-  background: #22c55e;
+  background: transparent;
+}
+
+.collapsed-status-icon-complete {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  border-radius: 0;
+}
+
+.collapsed-complete-check {
+  width: 16px;
+  height: 16px;
+  color: #22c55e;
+  display: block;
 }
 
 .progress-pill-lg {

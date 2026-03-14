@@ -9,8 +9,23 @@
         <div class="flex flex-col gap-0.5 flex-1 min-w-0">
           <div class="text-[var(--text-primary)] text-[15px] font-semibold leading-snug">{{ $t("Pythinker's Computer") }}</div>
           <div v-if="activityHeadline" class="panel-activity-line">
+            <span
+              v-if="showReportActivityIcon"
+              class="panel-report-activity-icon"
+              :class="{
+                'panel-report-activity-icon-streaming': isSummaryStreaming,
+                'panel-report-activity-icon-ready': !isSummaryStreaming,
+              }"
+              aria-hidden="true"
+            >
+              <FileText
+                :size="13"
+                class="panel-report-activity-glyph"
+              />
+              <span class="panel-report-activity-accent"></span>
+            </span>
             <Loader2
-              v-if="showActivitySpinner"
+              v-else-if="showActivitySpinner"
               :size="13"
               class="flex-shrink-0 text-[var(--icon-secondary)]"
               :class="{ 'animate-spin': isSummaryStreaming }"
@@ -70,13 +85,18 @@
         <!-- Content Header: Centered operation label + View mode tabs.
              Hidden for browser views when URL bar is active, or embedded without forced view mode. -->
         <div
-          v-if="contentConfig && (!embedded || forceViewType) && !showUrlStatusBar"
+          v-if="(contentConfig || showReportPresentation) && (!embedded || forceViewType) && !showUrlStatusBar"
           class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[12px] relative">
 
           <!-- Center: Operation label (Manus-style minimal — no status badges, timers, or step counters) -->
           <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[80%] flex items-center justify-center gap-1.5 min-w-0">
+            <FileText
+              v-if="showReportPresentation"
+              :size="14"
+              class="flex-shrink-0 text-[var(--text-tertiary)]"
+            />
             <BarChart3
-              v-if="currentViewType === 'chart'"
+              v-else-if="currentViewType === 'chart'"
               :size="14"
               class="flex-shrink-0 text-[var(--text-tertiary)]"
             />
@@ -88,8 +108,9 @@
             <span class="truncate">{{ contentHeaderLabel }}</span>
           </div>
 
-          <!-- Right: View mode tabs (absolute positioned) -->
-          <div v-if="contentConfig.showTabs" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <!-- Right: View mode tabs — hidden during report presentation (report overlay covers the content area,
+               so switching view modes would be confusing — the user is viewing the report, not the tool) -->
+          <div v-if="contentConfig?.showTabs && !showReportPresentation" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               v-for="(label, idx) in contentConfig.tabLabels"
               :key="idx"
@@ -102,8 +123,8 @@
             </button>
           </div>
 
-          <!-- Right: HTML Code/Preview tabs (inline in panel header) -->
-          <div v-else-if="currentViewType === 'editor' && isHtmlFile" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <!-- Right: HTML Code/Preview tabs (inline in panel header) — hidden during report -->
+          <div v-else-if="currentViewType === 'editor' && isHtmlFile && !showReportPresentation" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               @click="editorViewMode = 'preview'"
               class="px-2 py-1 text-xs rounded-md transition-colors"
@@ -124,8 +145,8 @@
             </button>
           </div>
 
-          <!-- Right: Chart mode controls (inline in panel header) -->
-          <div v-else-if="currentViewType === 'chart'" class="absolute right-3 flex items-center gap-2">
+          <!-- Right: Chart mode controls (inline in panel header) — hidden during report -->
+          <div v-else-if="currentViewType === 'chart' && !showReportPresentation" class="absolute right-3 flex items-center gap-2">
             <div class="flex items-center gap-1 p-0.5 rounded-md bg-[var(--background-gray-light)]">
               <button
                 @click="chartViewMode = 'interactive'"
@@ -483,10 +504,11 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette, FileText } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { cleanDisplayText } from '@/utils/toolDisplay';
 import { useCanvasLiveSync } from '@/composables/useCanvasLiveSync';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
@@ -962,15 +984,8 @@ watch(
  */
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');
 
-const cleanActivitySubtitle = (value: string): string => {
-  return value
-    .replace(/\s+\|\s*(?:undefined|null|none|nan)\s*$/i, '')
-    .replace(/\s+(?:undefined|null|none|nan)\s*$/i, '')
-    .replace(/^\s*(?:undefined|null|none|nan)\s*\|\s*/i, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+\|\s*$/, '')
-    .trim();
-};
+// Reuse shared placeholder-cleaning utility from toolDisplay.ts (DRY — "Reuse First" rule).
+const cleanActivitySubtitle = cleanDisplayText;
 
 const streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => false),
@@ -1014,10 +1029,19 @@ const activitySubtitle = computed(() => {
   return cleanActivitySubtitle(toolSubtitle.value);
 });
 
-const showActivitySpinner = computed(() => isSummaryPhase.value || (!!props.isThinking && !toolDisplay.value));
+const showReportActivityIcon = computed(() => isSummaryPhase.value);
+
+const showActivitySpinner = computed(() => !showReportActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
 
 // Content header label — Manus-style: show session/file name instead of generic "Terminal"/"Editor"
 const contentHeaderLabel = computed(() => {
+  // Report streaming/display takes priority — the report overlay (EditorContentView)
+  // renders on top of whatever tool view was last active, so the header must reflect
+  // that the user is seeing the report, not the stale tool underneath.
+  if (showReportPresentation.value) {
+    if (props.isSummaryStreaming) return 'Composing report...';
+    return 'Report';
+  }
   // Terminal: show shell session name (Manus shows e.g. "test_env_session_v2")
   if (currentViewType.value === 'terminal') {
     const sessionId = props.toolContent?.args?.id;
@@ -1169,6 +1193,8 @@ const resolvedBrowserUrl = computed(() => {
 
 const showUrlStatusBar = computed(() => {
   if (props.embedded) return false;
+  // Report presentation overlays the browser — don't show URL bar
+  if (showReportPresentation.value) return false;
   // Only show URL bar when the actual displayed content is a browser view
   const viewType = currentViewType.value;
   const isBrowserContent = viewType === 'live_preview' || (!viewType && showPersistentBrowser.value);
@@ -2006,6 +2032,103 @@ const handleBrowseUrl = async (url: string) => {
   color: color-mix(in srgb, var(--text-tertiary) 80%, transparent);
 }
 
+.panel-report-activity-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-brand);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.panel-activity-line:hover .panel-report-activity-icon {
+  transform: translateY(-1px) scale(1.04);
+}
+
+.panel-report-activity-glyph {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-report-activity-accent {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+.panel-report-activity-icon-streaming .panel-report-activity-glyph {
+  animation: report-activity-page 1.7s ease-in-out infinite;
+}
+
+.panel-report-activity-icon-streaming .panel-report-activity-accent {
+  animation: report-activity-pulse 1.7s ease-in-out infinite;
+}
+
+.panel-report-activity-icon-ready {
+  color: var(--function-success);
+}
+
+.panel-report-activity-icon-ready .panel-report-activity-glyph {
+  animation: report-activity-ready 2.4s ease-in-out infinite;
+}
+
+.panel-report-activity-icon-ready .panel-report-activity-accent {
+  animation: report-activity-ready-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes report-activity-page {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(-0.5px) rotate(-7deg);
+  }
+  65% {
+    transform: translateY(0.5px) rotate(5deg);
+  }
+}
+
+@keyframes report-activity-pulse {
+  0%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 24%, transparent);
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+
+@keyframes report-activity-ready {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes report-activity-ready-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
 .panel-activity-separator {
   color: var(--text-quaternary);
   opacity: 0.5;
@@ -2018,6 +2141,15 @@ const handleBrowseUrl = async (url: string) => {
 
 :global(.dark) .panel-activity-detail {
   color: color-mix(in srgb, var(--text-quaternary) 70%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-report-activity-icon,
+  .panel-report-activity-glyph,
+  .panel-report-activity-accent {
+    animation: none !important;
+    transition: none;
+  }
 }
 
 /* ===== TAKEOVER FAB (floating action button) ===== */

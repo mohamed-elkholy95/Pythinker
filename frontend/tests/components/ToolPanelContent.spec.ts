@@ -6,6 +6,21 @@ import ToolPanelContent from '@/components/ToolPanelContent.vue';
 import type { CanvasUpdateEventData } from '@/types/event';
 import type { ToolContent } from '@/types/message';
 
+vi.mock('lucide-vue-next', async () => {
+  const actual = await vi.importActual<typeof import('lucide-vue-next')>('lucide-vue-next');
+  return {
+    ...actual,
+    Loader2: {
+      name: 'Loader2',
+      template: '<span class="mock-loader2" />',
+    },
+    FileText: {
+      name: 'FileText',
+      template: '<span class="mock-file-text" />',
+    },
+  };
+});
+
 const baseToolContent: ToolContent = {
   event_id: 'tool-1',
   timestamp: Date.now(),
@@ -65,6 +80,29 @@ describe('ToolPanelContent', () => {
 
     expect(wrapper.text()).toContain('Composing report...');
     expect(wrapper.find('streaming-report-view-stub').exists()).toBe(true);
+  });
+
+  it('uses a report icon instead of the loader spinner during report activity', () => {
+    const wrapper = mountToolPanelContent({
+      isSummaryStreaming: true,
+      summaryStreamText: 'partial summary',
+    });
+
+    expect(wrapper.findComponent({ name: 'FileText' }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: 'Loader2' }).exists()).toBe(false);
+  });
+
+  it('suppresses placeholder undefined activity detail text', () => {
+    const wrapper = mountToolPanelContent({
+      toolContent: {
+        ...baseToolContent,
+        display_command: 'undefined',
+      },
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+    });
+
+    expect(wrapper.text()).not.toContain('undefined');
   });
 
   it('renders standardized tool activity label when not summary streaming', () => {

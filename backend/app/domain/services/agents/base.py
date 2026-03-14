@@ -2069,8 +2069,9 @@ class BaseAgent:
         # avoid empty-response bugs with some LLM providers.  Now that the loop
         # has exited we must verify the response is valid JSON and, if not, make
         # one extra ask_with_messages() call with format="json_object".
+        # _final_text captures pre-enforcement content for salvage if re-enforcement fails.
+        _final_text = (message.get("content") or "").strip()
         if has_tools and format == "json_object":
-            _final_text = (message.get("content") or "").strip()
             _needs_format_fix = False
             if _final_text:
                 try:
@@ -2098,20 +2099,41 @@ class BaseAgent:
 
         final_content = message.get("content")
         if not final_content:
-            logger.warning("Agent produced empty final message — yielding fallback")
-            fallback_error = (
-                "Step time limit exceeded. No result produced."
-                if wall_clock_exceeded
-                else "I was unable to produce a complete response. Please try again or rephrase your request."
-            )
-            final_content = json.dumps(
-                {
-                    "success": False,
-                    "result": None,
-                    "attachments": [],
-                    "error": fallback_error,
-                }
-            )
+            # Salvage: If the pre-enforcement response was substantial prose
+            # (e.g. a report the LLM wrote as raw markdown instead of JSON),
+            # wrap it in a success JSON rather than discarding it.
+            _stripped = _final_text.lstrip()
+            if _final_text and len(_final_text) > 200 and not _stripped.startswith("{") and not _stripped.startswith("["):
+                logger.info(
+                    "Salvaging %d-char prose response as step result "
+                    "(LLM wrote content instead of JSON)",
+                    len(_final_text),
+                )
+                # Truncate to a summary for the result field; the full text will
+                # reach the user via the summarization phase which reads context.
+                _salvage_summary = _final_text[:300].split("\n")[0].strip()
+                final_content = json.dumps(
+                    {
+                        "success": True,
+                        "result": _salvage_summary,
+                        "attachments": [],
+                    }
+                )
+            else:
+                logger.warning("Agent produced empty final message — yielding fallback")
+                fallback_error = (
+                    "Step time limit exceeded. No result produced."
+                    if wall_clock_exceeded
+                    else "I was unable to produce a complete response. Please try again or rephrase your request."
+                )
+                final_content = json.dumps(
+                    {
+                        "success": False,
+                        "result": None,
+                        "attachments": [],
+                        "error": fallback_error,
+                    }
+                )
         yield MessageEvent(message=final_content)
 
         # Cleanup background tasks on normal exit (e.g. background memory saves)

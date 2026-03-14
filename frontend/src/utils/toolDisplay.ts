@@ -95,8 +95,9 @@ function isPlaceholderValue(value: string): boolean {
   return normalized === 'undefined' || normalized === 'null' || normalized === 'none' || normalized === 'nan';
 }
 
-function cleanDisplayText(value: string): string {
+export function cleanDisplayText(value: string): string {
   return value
+    .replace(/^\s*(?:undefined|null|none|nan)\s*$/i, '')
     .replace(/\s+\|\s*(?:undefined|null|none|nan)\s*$/i, '')
     .replace(/\s+(?:undefined|null|none|nan)\s*$/i, '')
     .replace(/^\s*(?:undefined|null|none|nan)\s*\|\s*/i, '')

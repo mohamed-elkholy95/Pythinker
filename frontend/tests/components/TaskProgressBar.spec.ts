@@ -469,6 +469,26 @@ describe('TaskProgressBar', () => {
     expect(wrapper.text()).toContain('Completed task')
   })
 
+  it('renders a bare completed check in collapsed state when all tasks are complete', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Completed task', status: 'completed' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: false,
+        isThinking: false,
+      },
+    })
+
+    const statusIcon = wrapper.find('.collapsed-status-icon')
+    const checkIcon = wrapper.find('.mock-check')
+
+    expect(statusIcon.classes()).toContain('collapsed-status-icon-complete')
+    expect(checkIcon.classes()).toContain('collapsed-complete-check')
+  })
+
   it('shows composing report status while summary is streaming', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Draft report', status: 'running' },

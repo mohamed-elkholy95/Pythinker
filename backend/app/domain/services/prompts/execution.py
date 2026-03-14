@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -141,10 +142,16 @@ Example step: "Gather detailed requirements from the user"
 
 ### When to Call Tools
 
-**ONLY call tools when absolutely necessary:**
-- If task is general or answer is known → Respond without tools
+**Call tools strategically:**
+- If task is simple and answer is known → Respond without tools
 - If you state you'll use a tool → Call it immediately next
 - Never make redundant tool calls
+- **Research deliverables MUST use tools**: When compiling reports, analyses, or structured output,
+  ALWAYS use `file_write` to save the deliverable. The user sees your tool activity in the live
+  preview — using tools demonstrates progress and produces downloadable artifacts.
+- **Use the sandbox environment actively**: For data processing, formatting, or generating structured
+  output, use `execute_shell_command` or `code_executor` to run scripts. The terminal output is
+  visible in the live preview and shows professional execution.
 
 ## Error Recovery Protocol
 
@@ -609,6 +616,35 @@ DATES AND TEMPORAL CLAIMS:
 - Current date: {current_date}
 - Do NOT reference years beyond this as past events
 - Mark future projections clearly as "[Projected for YEAR]"
+---
+"""
+
+REPORT_FILE_WRITE_SIGNAL = """
+---
+## MANDATORY: Professional Deliverable Workflow
+
+This step produces a deliverable. Follow this professional workflow:
+
+### 1. Save the Report (REQUIRED)
+- Call `file_write` to save the report as a .md file in /workspace/deliverables/
+- Include the file path in your "attachments" array
+- Keep "result" as a 1-2 sentence summary, NOT the full report content
+
+### 2. Use Terminal for Organization (RECOMMENDED)
+- Use `execute_shell_command` to create organized output:
+  - `mkdir -p /workspace/deliverables` — ensure output directory exists
+  - `wc -w /workspace/deliverables/report.md` — verify word count
+  - `zip -j /workspace/deliverables/report.zip /workspace/deliverables/*.md` — package deliverables
+  - `ls -lh /workspace/deliverables/` — show final deliverable listing
+- Terminal commands are visible in the live preview and show professional execution
+
+### 3. Return JSON Response
+```json
+{"success": true, "result": "Compiled comprehensive report (X words)", "attachments": ["/workspace/deliverables/report.md"]}
+```
+
+DO NOT write report content directly into the "result" field.
+DO NOT skip file_write — reports MUST be saved as files the user can download.
 ---
 """
 
@@ -1621,6 +1657,16 @@ def build_execution_prompt_from_context(
         report_indicators = ["report", "summary", "analysis", "research", "comprehensive", "detailed"]
         if any(ind in step.lower() for ind in report_indicators):
             prompt = SELF_VERIFICATION_SIGNAL + prompt
+
+        # Inject file_write reinforcement for report compilation steps.
+        # Some models (e.g. GLM-5) generate report content as inline text
+        # instead of calling file_write, causing the content to be lost.
+        _compile_re = re.compile(
+            r"\b(compile|deliver(?:able)?s?|write\s+report|create\s+report|finalize)\b",
+            re.IGNORECASE,
+        )
+        if _compile_re.search(step):
+            prompt = REPORT_FILE_WRITE_SIGNAL + prompt
 
         # Inject full anti-hallucination protocol for high-risk tasks
         high_risk_indicators = ["benchmark", "metric", "statistic", "price", "specification", "rating"]
