@@ -159,6 +159,53 @@ class TestNormalizeCitationNumbering:
         assert normalize_citation_numbering(report) == report
 
 
+    def test_years_in_brackets_not_treated_as_citations(self):
+        """Years like [2024] and [2026] must not be treated as citation numbers."""
+        report = (
+            "# Report\n\n"
+            "The market grew 47% in [2024] and is projected to reach $8B by [2026].\n"
+            "According to [1], this trend is accelerating [2].\n\n"
+            "## References\n"
+            "[1] Source A - https://a.com\n"
+            "[2] Source B - https://b.com\n"
+        )
+        result = validate_citations(report)
+        assert result.is_valid
+        assert 2024 not in result.orphan_citations
+        assert 2026 not in result.orphan_citations
+        assert result.citation_gaps == []
+
+    def test_normalize_ignores_years_in_brackets(self):
+        """normalize_citation_numbering must not remap year numbers."""
+        report = (
+            "# Report\n\n"
+            "In [2024], AI grew. Claim [1]. Claim [3].\n\n"
+            "## References\n"
+            "[1] Source A - https://a.com\n"
+            "[3] Source C - https://c.com\n"
+        )
+        normalized = normalize_citation_numbering(report)
+        # [2024] should remain untouched as a year reference
+        assert "[2024]" in normalized
+        # [1] and [3] should be renumbered to [1] and [2]
+        assert "Claim [1]" in normalized
+        assert "Claim [2]" in normalized
+
+    def test_repair_with_years_does_not_corrupt(self):
+        """repair_citations must leave years intact and only fix real citations."""
+        report = (
+            "# Report\n\n"
+            "Since [2024], claim [1] and claim [3] are valid.\n\n"
+            "## References\n"
+            "[1] Source A - https://a.com\n"
+            "[3] Source C - https://c.com\n"
+        )
+        source_list = "[1] Source A - https://a.com\n[3] Source C - https://c.com\n"
+        repaired = repair_citations(report, source_list)
+        assert "[2024]" in repaired
+        assert "Source A" in repaired
+
+
 class TestSourceRegistry:
     """Test pre-generation stable source numbering."""
 

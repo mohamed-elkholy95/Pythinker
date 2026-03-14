@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # Pre-compiled patterns
-_INLINE_CITATION_RE = re.compile(r"\[(\d+)\]")
-_REF_ENTRY_RE = re.compile(r"^\s*\[(\d+)\]\s+(.+)$", re.MULTILINE)
+# Bound to 1-3 digits to avoid matching years like [2024] or [2026] in report text.
+_INLINE_CITATION_RE = re.compile(r"\[(\d{1,3})\]")
+_REF_ENTRY_RE = re.compile(r"^\s*\[(\d{1,3})\]\s+(.+)$", re.MULTILINE)
 _REF_SECTION_RE = re.compile(r"^##\s+References?\s*$", re.MULTILINE | re.IGNORECASE)
 _URL_RE = re.compile(r"https?://[^\s)>\]]+")
 
@@ -161,7 +162,9 @@ def normalize_citation_numbering(report_content: str) -> str:
     if not report_content:
         return report_content
 
-    observed_numbers = sorted({int(m.group(1)) for m in _INLINE_CITATION_RE.finditer(report_content)})
+    observed_numbers = sorted(
+        n for n in {int(m.group(1)) for m in _INLINE_CITATION_RE.finditer(report_content)} if n < 1000
+    )
     if not observed_numbers:
         return report_content
 
