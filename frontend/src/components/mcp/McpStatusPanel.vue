@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="panel-header">
       <h4 class="panel-title">MCP Servers</h4>
-      <button class="refresh-btn" :disabled="loading" @click="refreshStatus">
+      <button class="refresh-btn" :disabled="loading" @click="refreshStatus" aria-label="Refresh MCP server status">
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
       </button>
     </div>

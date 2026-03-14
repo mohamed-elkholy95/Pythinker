@@ -135,6 +135,9 @@
             class="toggle-switch"
             :class="{ 'toggle-active': userSkill.enabled }"
             :disabled="loading"
+            role="switch"
+            :aria-checked="userSkill.enabled"
+            :aria-label="`Toggle ${userSkill.skill.name} skill`"
           >
             <span class="toggle-thumb"></span>
           </button>

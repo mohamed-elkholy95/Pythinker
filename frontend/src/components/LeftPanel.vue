@@ -170,7 +170,7 @@
             <PopoverTrigger as-child>
               <button
                 class="group flex flex-1 items-center gap-3 rounded-lg p-2 text-start hover:bg-[var(--fill-tsp-gray-main)] transition-colors min-w-0 outline-none"
-                aria-label="Open user menu"
+                :aria-label="`${currentUser?.fullname || 'Account'} menu`"
               >
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-800 dark:bg-gray-600 text-white text-sm font-semibold shadow-sm">
                   {{ avatarLetter }}
@@ -721,6 +721,7 @@ watch(() => route.path, async (newPath, oldPath) => {
   letter-spacing: 0.01em;
   padding: 0 10px;
   transition: all 0.15s ease;
+  cursor: pointer;
 }
 
 .session-source-filter-btn:hover {

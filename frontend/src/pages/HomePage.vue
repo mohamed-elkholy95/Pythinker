@@ -26,13 +26,19 @@
             </div>
           </div>
           <div class="flex items-center gap-2 ml-auto">
-            <div class="relative flex items-center" aria-expanded="false" aria-haspopup="dialog"
+            <div class="relative flex items-center"
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
-              <div class="avatar-ring cursor-pointer flex-shrink-0">
+              <button
+                class="avatar-ring cursor-pointer flex-shrink-0"
+                type="button"
+                :aria-expanded="showUserMenu"
+                aria-haspopup="menu"
+                aria-label="Account menu"
+              >
                 <div class="avatar-inner">
                   {{ avatarLetter }}
                 </div>
-              </div>
+              </button>
               <!-- User Menu -->
               <div v-if="showUserMenu" @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave"
                 class="absolute top-full right-0 mt-1 mr-[-15px] z-50">
