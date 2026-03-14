@@ -3595,6 +3595,21 @@ const eventRegistry = createEventHandlerRegistry({
     const metrics = data as import('../types/event').EvalMetricsEventData
     console.debug('[EvalMetrics]', metrics.passed ? 'PASSED' : 'WARN', `hallucination=${metrics.hallucination_score}`)
   },
+  partial_result: (data) => {
+    // TODO: Wire into PartialResults.vue component when created (incomplete feature from March 2026 sprint).
+    // Backend emits headline + sources_count per step — currently logged only, not displayed.
+    const pr = data as import('../types/event').PartialResultEventData
+    console.debug('[PartialResult]', `step=${pr.step_index}`, pr.step_title, pr.headline)
+  },
+  attachments: (_data) => {
+    console.debug('[Attachments] received standalone attachments event')
+  },
+  wide_research: (data) => {
+    console.debug('[WideResearch]', (data as import('../types/event').WideResearchEventData).status)
+  },
+  deep_research: (data) => {
+    console.debug('[DeepResearch]', (data as import('../types/event').DeepResearchEventData).status)
+  },
 })
 
 // Process a single event (extracted from handleEvent for batching)

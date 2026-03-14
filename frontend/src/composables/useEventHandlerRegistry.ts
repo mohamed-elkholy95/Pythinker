@@ -6,15 +6,20 @@
  * the dispatch logic.
  */
 
+import type { EventType } from '../types/event'
+
 /** Generic event handler accepting typed data payload. */
 export type EventHandler<T = unknown> = (data: T) => void
 
 /**
  * Create a typed event handler registry from a plain object.
  * Keys are SSE event type strings, values are handler functions.
+ *
+ * Uses `Partial<Record<EventType, …>>` so known event names get
+ * autocomplete and typo detection at compile time.
  */
 export function createEventHandlerRegistry(
-  handlers: Record<string, EventHandler>,
+  handlers: Partial<Record<EventType, EventHandler>>,
 ): Map<string, EventHandler> {
   return new Map(Object.entries(handlers))
 }

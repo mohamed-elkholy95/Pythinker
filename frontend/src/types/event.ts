@@ -11,6 +11,9 @@ export interface FollowUp {
   source: string;               // Source of follow-up (e.g., "suggestion_click")
 }
 
+/** All SSE event type strings recognised by the frontend. */
+export type EventType = AgentSSEEvent['event']
+
 export type AgentSSEEvent = {
   event:
     | 'tool'
@@ -45,7 +48,8 @@ export type AgentSSEEvent = {
     | 'reflection'
     | 'partial_result'
     | 'phase'
-    | 'eval_metrics';
+    | 'eval_metrics'
+    | 'mcp_health';
   data:
     | ToolEventData
     | ToolStreamEventData
