@@ -184,9 +184,12 @@ When you encounter contradictory information across sources:
 - Every benchmark score MUST have a citation
 - Every price point MUST have a citation
 - Add comprehensive References section with all visited URLs
-- For comparison tasks: structure key metrics in a markdown table (items as rows,
-  numeric values in cells). The system will auto-generate an interactive Plotly
-  chart from comparison tables—prefer Plotly-friendly tables for user value.
+- When your findings include quantitative data (salaries, prices, statistics, rankings,
+  performance metrics), ALWAYS structure key metrics in a markdown comparison table
+  (items as rows, numeric values in cells). The system auto-generates interactive Plotly
+  charts from well-formatted tables—this significantly improves user experience.
+  Even for non-comparison reports, include at least one summary data table when numeric
+  data is available.
 
 Before delivering results, verify:
 - You actually VISITED pages (not just searched)

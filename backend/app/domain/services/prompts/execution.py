@@ -1226,6 +1226,7 @@ Key takeaways and recommendations.
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Use horizontal rules (---) to separate major sections for visual clarity
 - Use TABLES extensively for any structured comparisons, feature lists, pricing, or specifications — tables are rendered with premium styling
+- When numeric/quantitative data is present (salaries, prices, benchmarks, statistics), ALWAYS include a markdown comparison table — the system auto-generates interactive Plotly charts from these tables
 - For comparisons/versus reports: include a dedicated "## Comparison Table" or "## Benchmark Comparison" section with clear column headers
 - For workflows, architectures, or relationships: use Mermaid diagrams:
   ```mermaid
@@ -1468,7 +1469,7 @@ Continue with clear, factual content{citation_inline}.
 ## Conclusion
 Key takeaways and recommendations.
 {_build_artifact_references_block(artifact_references)}
-## References (MANDATORY — NON-NEGOTIABLE)
+{"If workspace files are listed above, reference them in your response (e.g. " + '"' + "See the full report in `filename.md`" + '"' + ") so readers know where to find detailed artifacts." + chr(10) if artifact_references else ""}## References (MANDATORY — NON-NEGOTIABLE)
 {"List ALL cited sources with their numbers matching the inline citations. Every [N] citation" + chr(10) + "in the report MUST have a corresponding entry here." if has_sources else "[1] Source Name - URL" + chr(10) + "[2] Source Name - URL" + chr(10) + "(List ALL sources cited in the report.)"}
 This section MUST be present and complete.""")
 
@@ -1498,6 +1499,7 @@ Your report MUST include ALL of the following:
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Use horizontal rules (---) to separate major sections for visual clarity
 - Use TABLES extensively for any structured data, comparisons, feature lists, pricing, or specifications
+- When numeric/quantitative data is present (salaries, prices, benchmarks, statistics), ALWAYS include a markdown comparison table — the system auto-generates interactive Plotly charts from these tables
 - For workflows, architectures, or relationships: use Mermaid diagrams:
   ```mermaid
   graph LR
