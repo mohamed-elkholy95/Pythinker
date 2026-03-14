@@ -91,7 +91,20 @@ def _build_mermaid_preprocessor(sandbox_url: str | None):
 
     from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 
-    client = httpx.AsyncClient(base_url=sandbox_url, timeout=20.0)
+    # Inject the sandbox API secret header so the preprocessor's requests
+    # are authenticated by the sandbox's auth middleware (same header used
+    # by docker_sandbox.py via HTTPClientPool).
+    settings = get_settings()
+    headers: dict[str, str] = {}
+    if settings.sandbox_api_secret:
+        headers["x-sandbox-secret"] = settings.sandbox_api_secret
+
+    client = httpx.AsyncClient(base_url=sandbox_url, timeout=20.0, headers=headers)
+    logger.info(
+        "MermaidPreprocessor initialized: sandbox_url=%s auth=%s",
+        sandbox_url,
+        "secret" if headers else "none",
+    )
     return MermaidPreprocessor(http_client=client, sandbox_url=sandbox_url)
 
 

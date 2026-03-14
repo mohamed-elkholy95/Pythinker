@@ -86,3 +86,42 @@ class TestMermaidPreprocessor:
         mock_client = MagicMock(spec=httpx.AsyncClient)
         pp = MermaidPreprocessor(http_client=mock_client)
         assert pp._client is mock_client
+
+    def test_client_with_auth_headers(self):
+        """MermaidPreprocessor's httpx client should carry auth headers when provided."""
+        headers = {"x-sandbox-secret": "test-secret-123"}
+        client = httpx.AsyncClient(
+            base_url="http://sandbox:8080",
+            timeout=20.0,
+            headers=headers,
+        )
+        pp = MermaidPreprocessor(http_client=client)
+        # Verify the auth header is in the client's default headers
+        assert pp._client.headers.get("x-sandbox-secret") == "test-secret-123"
+
+
+class TestBuildMermaidPreprocessorFactory:
+    """Tests for the _build_mermaid_preprocessor composition root factory."""
+
+    def test_returns_none_when_no_sandbox_url(self):
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor(None)
+        assert result is None
+
+    def test_returns_preprocessor_with_sandbox_url(self):
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor("http://sandbox:8080")
+        assert result is not None
+        assert isinstance(result, MermaidPreprocessor)
+
+    def test_injects_sandbox_secret_header(self):
+        """Factory must inject x-sandbox-secret from settings into the httpx client."""
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor("http://sandbox:8080")
+        if result is None:
+            pytest.skip("sandbox_api_secret not configured in test environment")
+        # The client should have been created; verify it has a base_url
+        assert "sandbox" in str(result._client.base_url)

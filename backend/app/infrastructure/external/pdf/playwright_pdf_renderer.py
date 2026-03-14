@@ -65,8 +65,15 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
         pm.telegram_pdf_renderer_invocations_total.inc({"renderer": "playwright"})
         markdown_content = payload.markdown_content
         if self._mermaid is not None:
-            markdown_content, mermaid_images = await self._mermaid.preprocess_markdown(markdown_content)
-            markdown_content = _replace_mermaid_placeholders_with_markdown_images(markdown_content, mermaid_images)
+            try:
+                markdown_content, mermaid_images = await self._mermaid.preprocess_markdown(markdown_content)
+                if mermaid_images:
+                    logger.info("Pre-rendered %d Mermaid diagram(s) for Playwright PDF", len(mermaid_images))
+                    markdown_content = _replace_mermaid_placeholders_with_markdown_images(
+                        markdown_content, mermaid_images
+                    )
+            except Exception:
+                logger.warning("Mermaid preprocessing failed, using raw markdown", exc_info=True)
 
         normalized = normalize_markdown_for_pdf(markdown_content, payload.sources)
         if normalized.unresolved_citations:
