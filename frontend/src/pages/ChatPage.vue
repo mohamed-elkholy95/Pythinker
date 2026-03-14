@@ -410,6 +410,8 @@
               :isSessionComplete="isSessionComplete"
               :replayScreenshotUrl="replay.currentScreenshotUrl.value"
               :sessionStartTime="phaseStripStartTime"
+              :planPresentationText="planPresentationText"
+              :isPlanStreaming="isPlanStreaming"
               @openPanel="handleOpenPanel"
               @requestRefresh="handleThumbnailRefresh"
             />
@@ -488,6 +490,8 @@
         :summaryStreamText="summaryStreamText"
         :finalReportText="finalReportText"
         :isSummaryStreaming="isSummaryStreaming"
+        :planPresentationText="planPresentationText"
+        :isPlanStreaming="isPlanStreaming"
         @jumpToRealTime="jumpToRealTime"
         :showTimeline="showTimelineControls"
         :timelineProgress="toolTimelineProgress"
@@ -802,6 +806,11 @@ const createInitialState = () => ({
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
   phaseStripStartTime: 0, // Timestamp when the current session started (used by SessionStartTime prop)
+  // Planning presentation state (live view plan streaming)
+  planPresentationText: '', // Accumulated plan markdown for live-view overlay
+  isPlanStreaming: false, // True while planning stream chunks are arriving
+  planPresentationSource: 'idle' as 'idle' | 'progress' | 'stream' | 'final',
+  lastPlanningProgressSignature: '', // Dedup key for progress heartbeats
 });
 
 // Create reactive state
@@ -859,6 +868,10 @@ const {
   timeoutReason,
   activeReasoningState,
   phaseStripStartTime,
+  planPresentationText,
+  isPlanStreaming,
+  planPresentationSource,
+  lastPlanningProgressSignature,
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
@@ -1640,6 +1653,38 @@ const handleStreamGapDetected = (scope: 'transport' | 'transport_retry', info: S
   }
 }
 
+/** Clear planning presentation state (live-view plan overlay). */
+const clearPlanPresentation = (): void => {
+  planPresentationText.value = '';
+  isPlanStreaming.value = false;
+  planPresentationSource.value = 'idle';
+  lastPlanningProgressSignature.value = '';
+};
+
+/** Build planning scaffold from progress events for live-view overlay. */
+const updatePlanProgressPresentation = (progressData: ProgressEventData): void => {
+  if (planPresentationSource.value === 'stream' || planPresentationSource.value === 'final') {
+    return;
+  }
+
+  const phase = normalizePlanningPhase(progressData.phase);
+  if (phase === 'received') return;
+
+  const line = progressData.message?.trim();
+  if (!line) return;
+
+  const signature = `${phase}:${line}`;
+  if (signature === lastPlanningProgressSignature.value) return;
+  lastPlanningProgressSignature.value = signature;
+
+  if (!planPresentationText.value) {
+    planPresentationText.value = '# Planning...\n\n';
+  }
+
+  planPresentationText.value += `> ${line}\n`;
+  planPresentationSource.value = 'progress';
+};
+
 /** Deduplicated cleanup of streaming/thinking state. Use on SSE close/error. */
 const cleanupStreamingState = () => {
   logChatSseDiagnostics('stream:cleanup')
@@ -1647,6 +1692,7 @@ const cleanupStreamingState = () => {
   thinkingText.value = '';
   planningPreviewBatcher.reset('');
   clearPlanningHandoff();
+  clearPlanPresentation();
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
@@ -2638,6 +2684,11 @@ const handleToolEvent = (toolData: ToolEventData) => {
     }
     upsertToolTimeline(toolContent);
 
+    // Clear planning presentation on first real tool start
+    if (toolContent.status === 'calling' && planPresentationText.value) {
+      clearPlanPresentation();
+    }
+
     // Auto-resume to real-time when a new tool starts during a live session
     // and the user had navigated backward in the timeline.
     if (!realTime.value && isLoading.value && toolContent.status === 'calling') {
@@ -2965,6 +3016,24 @@ const handleStreamEvent = (streamData: StreamEventData) => {
     return;
   }
 
+  // Planning phase: stream final plan markdown into live-view overlay
+  if (phase === 'planning') {
+    if (planPresentationSource.value !== 'stream') {
+      planPresentationText.value = '';
+      planPresentationSource.value = 'stream';
+    }
+
+    if (streamData.content) {
+      planPresentationText.value += streamData.content;
+    }
+
+    isPlanStreaming.value = !streamData.is_final;
+    if (streamData.is_final) {
+      planPresentationSource.value = 'final';
+    }
+    return;
+  }
+
   // Default: thinking phase (existing behavior)
   if (streamData.is_final) {
     isThinkingStreaming.value = false;
@@ -2984,6 +3053,7 @@ watch(isTaskCompleted, (completed) => {
   planningProgress.value = null;
   planningPreviewBatcher.reset('');
   clearPlanningHandoff();
+  clearPlanPresentation();
 });
 
 watch(hasVisibleExecutionStep, (isVisible) => {
@@ -3025,6 +3095,9 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   if (isInitializing.value) {
     isInitializing.value = false;
   }
+
+  // Build live-view planning scaffold from progress events
+  updatePlanProgressPresentation(progressData);
 
   // Clear progress when planning is complete (plan event will follow)
   if (progressData.phase === 'finalizing' && progressData.progress_percent && progressData.progress_percent >= 80) {
