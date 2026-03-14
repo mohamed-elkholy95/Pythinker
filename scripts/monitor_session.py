@@ -35,8 +35,8 @@ sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 BASE_URL = os.getenv("PYTHINKER_URL", "http://localhost:8000")
-EMAIL = os.getenv("PYTHINKER_EMAIL", "admin@pythinker.com")
-PASSWORD = os.getenv("PYTHINKER_PASSWORD", "change-me-local-password")
+EMAIL = os.getenv("PYTHINKER_EMAIL", os.getenv("LOCAL_AUTH_EMAIL", "admin@example.com"))
+PASSWORD = os.getenv("PYTHINKER_PASSWORD", os.getenv("LOCAL_AUTH_PASSWORD", "change-me-local-password"))
 
 # ─── ANSI Colors ────────────────────────────────────────────────────────────
 C_RESET = "\033[0m"

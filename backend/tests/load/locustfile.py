@@ -14,6 +14,7 @@ Usage:
 Web UI: http://localhost:8089
 """
 
+import os
 import random
 import string
 
@@ -34,9 +35,10 @@ class PythinkerUser(HttpUser):
     def on_start(self) -> None:
         """Authenticate and create an initial session."""
         # Try local auth (dev mode)
+        password = os.getenv("PYTHINKER_PASSWORD", os.getenv("LOCAL_AUTH_PASSWORD", "change-me-local-password"))
         resp = self.client.post(
             "/api/v1/auth/local",
-            json={"password": "change-me-local-password"},
+            json={"password": password},
             name="/api/v1/auth/local",
         )
         if resp.status_code == 200:

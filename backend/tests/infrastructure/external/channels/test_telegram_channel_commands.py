@@ -487,7 +487,7 @@ async def test_unknown_command_forwards_registered_alias_command(monkeypatch: py
     "command_text",
     [
         "/start",
-        "/start@Pythinker_bot bind_ABC123",
+        "/start@pythinker_bot bind_ABC123",
         "/new",
         "/stop",
         "/status",
