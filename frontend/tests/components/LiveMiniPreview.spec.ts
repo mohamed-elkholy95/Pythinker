@@ -136,4 +136,50 @@ describe('LiveMiniPreview', () => {
     expect(wrapper.find('.final-screenshot-image').exists()).toBe(false)
     expect(wrapper.text()).toContain('Report complete')
   })
+
+  // ── Planning preview tests ──────────────────────────────────────
+
+  it('renders planning preview when planPresentationText is present', () => {
+    const wrapper = shallowMount(LiveMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        planPresentationText: '# AI Frameworks Plan\n## Step 1',
+        isPlanStreaming: true,
+      },
+    })
+
+    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Creating plan...')
+  })
+
+  it('shows "Plan ready" when isPlanStreaming=false with plan text', () => {
+    const wrapper = shallowMount(LiveMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        planPresentationText: '# Final Plan\n## Step 1',
+        isPlanStreaming: false,
+      },
+    })
+
+    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Plan ready')
+  })
+
+  it('summary/report preview still wins when both report and plan data are present', () => {
+    const wrapper = shallowMount(LiveMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        isSummaryStreaming: true,
+        summaryStreamText: '## Report content',
+        planPresentationText: '# Plan content',
+        isPlanStreaming: false,
+      },
+    })
+
+    expect(wrapper.text()).toContain('Writing report...')
+    expect(wrapper.text()).not.toContain('Plan ready')
+  })
 })

@@ -52,6 +52,24 @@
       <div v-if="isSummaryStreaming" class="activity-indicator"></div>
     </div>
 
+    <!-- Planning preview (plan markdown) -->
+    <div v-else-if="isPlanningPhase" class="content-preview streaming-preview">
+      <div class="streaming-mini-window">
+        <div class="streaming-mini-header">
+          <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
+        </div>
+        <div class="streaming-mini-body">
+          <div v-if="props.planPresentationText" class="report-mini-text">
+            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="streaming-mini-lines">
+            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
+          </div>
+        </div>
+      </div>
+      <div v-if="isPlanStreaming" class="activity-indicator"></div>
+    </div>
+
     <!-- Terminal view (shell, code_executor) -->
     <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
       <div class="terminal-window">
@@ -275,6 +293,10 @@ const props = withDefaults(defineProps<{
   isSessionComplete?: boolean;
   /** Replay frame URL provided by parent composable */
   replayScreenshotUrl?: string;
+  /** Plan presentation text for planning mini preview */
+  planPresentationText?: string;
+  /** Whether plan is actively streaming */
+  isPlanStreaming?: boolean;
 }>(), {
   enabled: true,
   size: 'md',
@@ -291,7 +313,9 @@ const props = withDefaults(defineProps<{
   summaryStreamText: '',
   finalReportText: '',
   isSessionComplete: false,
-  replayScreenshotUrl: ''
+  replayScreenshotUrl: '',
+  planPresentationText: '',
+  isPlanStreaming: false
 });
 
 const emit = defineEmits<{
@@ -396,6 +420,8 @@ const streamingPresentation = useStreamingPresentationState({
   finalReportText: computed(() => props.finalReportText || ''),
   isThinking: computed(() => false),
   isActiveOperation: computed(() => !!props.isActive),
+  isPlanStreaming: computed(() => !!props.isPlanStreaming),
+  planPresentationText: computed(() => props.planPresentationText || ''),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || props.toolName || ''),
   toolDescription: computed(() => toolDisplay.value?.description || ''),
   baseViewType: computed(() => baseViewTypeForPresentation.value),
@@ -405,6 +431,7 @@ const streamingPresentation = useStreamingPresentationState({
 });
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+const isPlanningPhase = computed(() => streamingPresentation.isPlanningPhase.value);
 
 // Actual report text for the mini preview — prefer final over streaming
 const reportPreviewText = computed(() => {
@@ -421,7 +448,8 @@ const reportPreviewText = computed(() => {
  * bold, italic, lists, and horizontal rules. No external deps.
  */
 const renderedMiniMarkdown = computed(() => {
-  const raw = reportPreviewText.value;
+  // Use plan text when in planning phase, otherwise report text
+  const raw = isPlanningPhase.value ? (props.planPresentationText || '') : reportPreviewText.value;
   if (!raw) return '';
 
   const escaped = raw

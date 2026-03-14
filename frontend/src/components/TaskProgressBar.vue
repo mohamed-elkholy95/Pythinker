@@ -25,6 +25,8 @@
               :final-report-text="props.finalReportText"
               :is-session-complete="props.isSessionComplete"
               :replay-screenshot-url="props.replayScreenshotUrl"
+              :plan-presentation-text="props.planPresentationText"
+              :is-plan-streaming="props.isPlanStreaming"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -181,6 +183,8 @@
           :final-report-text="props.finalReportText"
           :is-session-complete="props.isSessionComplete"
           :replay-screenshot-url="props.replayScreenshotUrl"
+          :plan-presentation-text="props.planPresentationText"
+          :is-plan-streaming="props.isPlanStreaming"
           size="md"
           @click="emit('openPanel')"
         />
@@ -286,6 +290,10 @@ interface Props {
   isSessionComplete?: boolean
   /** Replay screenshot URL for completed sessions */
   replayScreenshotUrl?: string
+  /** Plan presentation text for live-view overlay */
+  planPresentationText?: string
+  /** Whether plan streaming is in progress */
+  isPlanStreaming?: boolean
   /** Shared session start timestamp so all timers stay in sync. */
   sessionStartTime?: number
 }
@@ -302,7 +310,9 @@ const props = withDefaults(defineProps<Props>(), {
   summaryStreamText: '',
   finalReportText: '',
   isSessionComplete: false,
-  replayScreenshotUrl: ''
+  replayScreenshotUrl: '',
+  planPresentationText: '',
+  isPlanStreaming: false
 })
 
 const emit = defineEmits<{
