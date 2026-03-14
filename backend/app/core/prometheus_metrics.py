@@ -781,6 +781,12 @@ telegram_pdf_citation_integrity_total = Counter(
     labels=["status"],  # status: ok, unresolved
 )
 
+citation_fabricated_total = Counter(
+    name="pythinker_citation_fabricated_total",
+    help_text="Total fabricated citation references detected and removed during report generation",
+    labels=[],
+)
+
 telegram_pdf_generation_failed_total = Counter(
     name="pythinker_telegram_pdf_generation_failed_total",
     help_text="Total Telegram PDF generation failures",
@@ -873,6 +879,7 @@ _metrics_registry = [
     telegram_pdf_renderer_success_total,
     telegram_pdf_renderer_fallback_total,
     telegram_pdf_citation_integrity_total,
+    citation_fabricated_total,
     telegram_pdf_generation_failed_total,
     telegram_pdf_sent_total,
 ]

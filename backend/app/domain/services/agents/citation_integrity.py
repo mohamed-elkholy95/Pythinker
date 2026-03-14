@@ -18,6 +18,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from app.core import prometheus_metrics as pm
+
 logger = logging.getLogger(__name__)
 
 # Pre-compiled patterns
@@ -334,6 +336,7 @@ def repair_citations(report_content: str, source_list: str) -> str:
             # If any reference entries are fabricated, rebuild the entire section
             # from the authoritative list
             if fabricated_count > 0:
+                pm.citation_fabricated_total.inc(value=fabricated_count)
                 rebuilt_lines = [authoritative_entries[n] for n in valid_inline_nums]
                 if rebuilt_lines:
                     repaired = body.rstrip() + "\n\n## References\n" + "\n".join(rebuilt_lines) + "\n"
