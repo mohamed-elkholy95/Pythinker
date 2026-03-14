@@ -345,6 +345,8 @@ async def test_chat_marks_cancelled_when_task_finishes_without_terminal_event_af
     service, teardown = _build_service(session, task)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
-    assert len(events) == 1
+    assert len(events) == 2
     assert isinstance(events[0], ProgressEvent)
+    assert isinstance(events[1], ErrorEvent)
+    assert "interrupted" in events[1].error
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.CANCELLED, destroy_sandbox=False)

@@ -977,6 +977,13 @@ class AgentDomainService:
                     "Session %s task finished without terminal event after partial stream; marking CANCELLED",
                     session_id,
                 )
+                # Emit a user-visible error so the frontend shows something
+                error_event = ErrorEvent(
+                    error="Session was interrupted before completing. This may be caused by "
+                    "resource contention or provider timeouts. Please try again."
+                )
+                await self._session_repository.add_event(session_id, error_event)
+                yield error_event
                 terminal_status = SessionStatus.CANCELLED
 
             if terminal_status is not None:
