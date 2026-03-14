@@ -31,12 +31,7 @@
               :key="provider.id"
               :value="provider.id"
             >
-              <div class="select-option">
-                <div class="provider-badge" :class="getProviderClass(provider.id)">
-                  {{ provider.id.charAt(0).toUpperCase() }}
-                </div>
-                <span>{{ provider.name }}</span>
-              </div>
+              {{ provider.name }}
             </SelectItem>
           </SelectContent>
         </Select>
@@ -103,6 +98,7 @@
             v-model.number="localSettings.temperature"
             @change="saveSettings"
             class="settings-slider"
+            :aria-valuetext="`${localSettings.temperature.toFixed(1)} - ${localSettings.temperature <= 0.3 ? 'Precise' : localSettings.temperature >= 1.5 ? 'Creative' : 'Balanced'}`"
           />
           <div class="slider-labels">
             <span>{{ t('Precise') }}</span>
@@ -131,7 +127,7 @@
             @change="saveSettings"
             min="1000"
             max="32000"
-            step="1000"
+            step="1"
             class="settings-input"
           />
           <span class="input-suffix">tokens</span>
@@ -191,17 +187,6 @@ const availableModels = computed(() => {
   const provider = providers.value.llm_providers.find(p => p.id === localSettings.value.llm_provider)
   return provider?.models || []
 })
-
-// Get provider badge class
-const getProviderClass = (providerId: string) => {
-  const classes: Record<string, string> = {
-    openai: 'provider-openai',
-    anthropic: 'provider-anthropic',
-    google: 'provider-google',
-    azure: 'provider-azure',
-  }
-  return classes[providerId] || 'provider-default'
-}
 
 // Load settings and providers on mount
 onMounted(async () => {
