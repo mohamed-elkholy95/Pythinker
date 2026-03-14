@@ -1644,7 +1644,9 @@ class DockerSandbox(Sandbox):
         Thread-safe: uses asyncio.Lock to serialise concurrent access
         to the shared ``_active_sessions`` dict.
 
-        Returns the previous session_id if one was registered (caller should stop it).
+        Returns the previous session_id if one was registered.
+        Caller should check has_active_stream() before calling to avoid
+        stealing sandboxes from active sessions.
         """
         async with cls._active_sessions_lock:
             previous = cls._active_sessions.get(sandbox_address)

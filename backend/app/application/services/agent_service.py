@@ -532,15 +532,25 @@ class AgentService:
 
                     # Register sandbox ownership for contention prevention
                     if uses_static_sandboxes and sandbox.id.startswith("dev-sandbox-"):
+                        from app.domain.services.stream_guard import has_active_stream
                         from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
                         address = sandbox.id[len("dev-sandbox-") :]
-                        previous_session = await DockerSandbox.register_session(address, session_id)
-                        if previous_session:
-                            logger.info(
-                                f"Sandbox {address} was owned by session {previous_session}, "
-                                f"now reassigned to {session_id}"
+                        current_owner = DockerSandbox._active_sessions.get(address)
+                        if current_owner and current_owner != session_id and await has_active_stream(
+                            current_owner, endpoint="chat"
+                        ):
+                            logger.warning(
+                                f"Sandbox {address} is owned by active session {current_owner} "
+                                f"(has live chat stream) — skipping reassignment to {session_id}"
                             )
+                        else:
+                            previous_session = await DockerSandbox.register_session(address, session_id)
+                            if previous_session:
+                                logger.info(
+                                    f"Sandbox {address} was owned by session {previous_session}, "
+                                    f"now reassigned to {session_id}"
+                                )
 
                     # Run ensure_sandbox for full health check (includes browser verification)
                     if hasattr(sandbox, "ensure_sandbox"):
