@@ -86,6 +86,109 @@ RESEARCH_COMPLEXITY_HINTS = [
 ]
 
 
+def _format_plan_as_markdown(plan: Plan, *, complexity: str, planner_kind: str) -> str:
+    """Format a Plan object as deterministic markdown for live-view streaming.
+
+    Only uses fields that actually exist on the Plan/Step models.
+    Does not invent metadata such as time estimates.
+    """
+    lines: list[str] = []
+
+    # H1: plan title
+    lines.append(f"# {plan.title}")
+    lines.append("")
+
+    # Goal blockquote
+    if plan.goal:
+        lines.append(f"> {plan.goal}")
+        lines.append("")
+
+    # Metadata table
+    lines.append("| Info | Detail |")
+    lines.append("| --- | --- |")
+    lines.append(f"| Complexity | {complexity.capitalize()} |")
+    lines.append(f"| Steps | {len(plan.steps)} |")
+    lines.append(f"| Planner | {planner_kind} |")
+    lines.append("")
+
+    # Optional message paragraph
+    if plan.message:
+        lines.append(plan.message)
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    # Step sections
+    for i, step in enumerate(plan.steps, 1):
+        heading_label = step.action_verb or f"Step {i}"
+        lines.append(f"## Step {i} — {heading_label}")
+        lines.append("")
+        lines.append(step.description)
+        lines.append("")
+
+        if step.expected_output:
+            lines.append(f"Expected output: {step.expected_output}")
+            lines.append("")
+
+        if step.tool_hint:
+            lines.append(f"> Tool hint: {step.tool_hint}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _iter_plan_markdown_chunks(text: str, chunk_size: int = 180) -> list[str]:
+    """Split markdown text into coarse chunks at line boundaries.
+
+    Keeps chunks roughly around *chunk_size* characters but never splits
+    mid-line. Returns at least one chunk (possibly empty string).
+    """
+    if not text:
+        return [""]
+
+    all_lines = text.split("\n")
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in all_lines:
+        line_len = len(line) + 1  # +1 for the newline we'll rejoin with
+        if current and current_len + line_len > chunk_size:
+            chunks.append("\n".join(current) + "\n")
+            current = [line]
+            current_len = line_len
+        else:
+            current.append(line)
+            current_len += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
+
+
+async def _stream_plan_as_markdown(text: str) -> AsyncGenerator[StreamEvent, None]:
+    """Yield StreamEvent(phase='planning') chunks from formatted plan markdown.
+
+    Total synthetic delay budget is kept under 250ms.
+    Does not suppress asyncio.CancelledError.
+    """
+    import asyncio
+
+    chunks = _iter_plan_markdown_chunks(text, chunk_size=180)
+    delay = min(0.04, 0.25 / max(len(chunks), 1))  # stay under 250ms total
+
+    for chunk in chunks:
+        yield StreamEvent(content=chunk, is_final=False, phase="planning")
+        await asyncio.sleep(delay)
+
+    yield StreamEvent(content="", is_final=True, phase="planning")
+
+
 def is_research_task_message(message: str) -> bool:
     """Heuristic for requests that should be treated as research-heavy."""
     lowered = message.lower()
@@ -613,6 +716,15 @@ class PlannerAgent(BaseAgent):
                     progress_percent=95,
                     complexity_category=task_complexity,
                 )
+
+                # Stream the final plan as markdown for live-view presentation
+                planner_kind = "Draft" if draft else "Standard"
+                plan_md = _format_plan_as_markdown(
+                    plan, complexity=task_complexity or "medium", planner_kind=planner_kind
+                )
+                async for stream_event in _stream_plan_as_markdown(plan_md):
+                    yield stream_event
+
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                 return
             fallback_error = "LLM does not support ask_structured"
@@ -628,6 +740,14 @@ class PlannerAgent(BaseAgent):
             progress_percent=95,
             complexity_category=task_complexity,
         )
+
+        # Stream fallback plan through the same planning presentation path
+        fallback_md = _format_plan_as_markdown(
+            fallback_plan, complexity=task_complexity or "medium", planner_kind="Fallback"
+        )
+        async for stream_event in _stream_plan_as_markdown(fallback_md):
+            yield stream_event
+
         yield PlanEvent(status=PlanStatus.CREATED, plan=fallback_plan)
         logger.warning(
             "Planner emitted fallback plan for agent %s due to planning failure: %s",
