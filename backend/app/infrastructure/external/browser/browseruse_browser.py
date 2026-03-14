@@ -277,7 +277,8 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
         try:
             # Import here to avoid circular dependencies
             from browser_use import ChatOpenAI
-            from langchain_core.language_models.chat_models import BaseChatModel
+
+            from app.domain.utils.llm_compat import is_native_openai
 
             # Get settings
             settings = get_settings()
@@ -285,57 +286,32 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             # Use model from settings if not specified
             model_name = llm_model or settings.model_name or "deepseek-chat"
 
-            # Check if we need to strip response_format (non-OpenAI providers)
-            is_openai = settings.api_base and (
-                "api.openai.com" in settings.api_base.lower() or "openai.azure.com" in settings.api_base.lower()
-            )
-
             # Create LLM provider
             if self.llm_provider:
                 llm = self.llm_provider
             else:
-                # Create base ChatOpenAI instance
-                base_llm = ChatOpenAI(
+                # For non-OpenAI providers (GLM, Kimi, DeepSeek, OpenRouter, …)
+                # use browser-use's built-in compat flags instead of a wrapper.
+                compat = not is_native_openai(settings.api_base)
+
+                llm = ChatOpenAI(
                     model=model_name,
                     api_key=settings.api_key,
                     base_url=settings.api_base,
                     temperature=settings.temperature,
+                    # Provider compatibility: disable OpenAI-specific parameters
+                    dont_force_structured_output=compat,
+                    add_schema_to_system_prompt=compat,
+                    frequency_penalty=None if compat else 0.3,
+                    max_completion_tokens=None if compat else 4096,
                 )
 
-                if not is_openai:
-                    # Create a wrapper class that strips response_format for non-OpenAI providers
-                    class NoResponseFormatLLM(BaseChatModel):
-                        """Wrapper that strips response_format from all calls."""
-
-                        def __init__(self, wrapped_llm):
-                            super().__init__()
-                            object.__setattr__(self, "_wrapped", wrapped_llm)
-
-                        @property
-                        def _llm_type(self) -> str:
-                            return self._wrapped._llm_type
-
-                        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-                            kwargs.pop("response_format", None)
-                            return self._wrapped._generate(messages, stop, run_manager, **kwargs)
-
-                        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-                            kwargs.pop("response_format", None)
-                            return await self._wrapped._agenerate(messages, stop, run_manager, **kwargs)
-
-                        def bind(self, **kwargs):
-                            kwargs.pop("response_format", None)
-                            return self._wrapped.bind(**kwargs)
-
-                        def __getattr__(self, name):
-                            return getattr(self._wrapped, name)
-
-                    llm = NoResponseFormatLLM(base_llm)
-                    logger.info("Created response_format-stripping wrapper for non-OpenAI provider")
-                else:
-                    llm = base_llm
-
-                logger.info(f"Browser agent using LLM: {model_name} via {settings.api_base}")
+                if compat:
+                    logger.info(
+                        "Browser agent LLM compat_mode enabled for non-OpenAI provider: %s",
+                        model_name,
+                    )
+                logger.info("Browser agent using LLM: %s via %s", model_name, settings.api_base)
 
             # Enhance task with safety instructions
             enhanced_task = self._enhance_task_prompt(task)

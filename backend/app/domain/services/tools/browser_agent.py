@@ -23,6 +23,7 @@ except ImportError:
 from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
+from app.domain.utils.llm_compat import is_native_openai
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
@@ -123,16 +124,53 @@ def extract_first_json(text: str) -> str:
 
 # SanitizedChatOpenAI is only available when browser_use is installed
 if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
+    from dataclasses import dataclass as _dataclass
+    from dataclasses import field as _dc_field
 
+    @_dataclass
     class SanitizedChatOpenAI(ChatOpenAI):
-        """Custom ChatOpenAI wrapper that sanitizes LLM output to fix JSON parsing issues.
+        """ChatOpenAI wrapper with JSON sanitisation and provider compatibility.
 
-        The browser-use library expects clean JSON from the LLM, but some models return
-        malformed JSON with trailing characters, multiple JSON objects, or extra content.
-        This wrapper intercepts responses and extracts the first valid JSON object.
+        Extends browser-use's ``ChatOpenAI`` (a ``@dataclass``) with two
+        concerns:
 
-        Uses duck typing to avoid direct langchain_core imports which may not be available.
+        1. **JSON sanitisation** — intercepts responses and extracts the first
+           valid JSON object so that models returning trailing characters or
+           multiple objects don't break browser-use's parser.
+
+        2. **Provider compatibility** (``compat_mode``) — when the LLM endpoint
+           is *not* native OpenAI (GLM, Kimi, DeepSeek, OpenRouter, Ollama …),
+           automatically configures browser-use's built-in flags to avoid
+           sending OpenAI-specific parameters that those providers reject:
+
+           * ``dont_force_structured_output = True``
+           * ``add_schema_to_system_prompt = True``
+           * ``frequency_penalty = None``
+           * ``max_completion_tokens = None``
+
+        Uses duck typing to avoid direct langchain_core imports.
         """
+
+        # compat_mode is a dataclass field — participates in __init__
+        compat_mode: bool = _dc_field(default=False)
+
+        def __post_init__(self) -> None:
+            """Apply provider-compatibility overrides after dataclass init."""
+            # Delegate to parent first — ensures browser-use's own __post_init__
+            # (if one is added in a future version) runs before our overrides.
+            with contextlib.suppress(AttributeError):
+                super().__post_init__()
+
+            if self.compat_mode:
+                # Use browser-use's own flags instead of monkey-patching
+                object.__setattr__(self, "dont_force_structured_output", True)
+                object.__setattr__(self, "add_schema_to_system_prompt", True)
+                object.__setattr__(self, "frequency_penalty", None)
+                object.__setattr__(self, "max_completion_tokens", None)
+                logger.info(
+                    "SanitizedChatOpenAI compat_mode enabled — "
+                    "disabled response_format, frequency_penalty, max_completion_tokens"
+                )
 
         def _sanitize_response(self, response: Any) -> Any:
             """Sanitize a response object by cleaning its content.
@@ -453,14 +491,20 @@ class BrowserAgentTool(BaseTool):
         Uses SanitizedChatOpenAI wrapper to handle malformed JSON responses
         from LLMs that return trailing characters or multiple JSON objects.
 
+        Automatically enables ``compat_mode`` for non-native-OpenAI providers
+        (GLM, Kimi, DeepSeek, OpenRouter, Ollama, …) which disables
+        ``response_format`` and other OpenAI-specific parameters that those
+        providers reject with HTTP 400.
+
         Applies an HTTP-level timeout via ``httpx.Timeout`` so that stalled
-        LLM providers (GLM, OpenRouter) cannot block indefinitely — even when
-        browser-use shields internal coroutines from ``asyncio.wait_for()``.
+        LLM providers cannot block indefinitely — even when browser-use
+        shields internal coroutines from ``asyncio.wait_for()``.
 
         Returns:
             SanitizedChatOpenAI instance configured with application settings
         """
         llm_timeout = float(self._settings.browser_agent_llm_timeout)  # 90s default
+        compat = not is_native_openai(self._settings.api_base)
         return SanitizedChatOpenAI(
             model=self._settings.model_name,
             api_key=self._settings.api_key,
@@ -470,6 +514,7 @@ class BrowserAgentTool(BaseTool):
                 timeout=llm_timeout,
                 connect=10.0,
             ),
+            compat_mode=compat,
         )
 
     def _sanitize_task_prompt(self, task: str) -> str:
