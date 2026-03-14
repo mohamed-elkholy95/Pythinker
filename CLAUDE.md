@@ -32,6 +32,38 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 > - Format: `fix(scope)` · `feat(scope)` · `refactor(scope)` · `chore(scope)` · `docs(scope)` · `test(scope)`
 > - Stage files selectively with `git add <specific-files>` — never `git add .` for multi-concern changesets
 
+## Tool Priority: LSP FIRST (MANDATORY)
+
+**LSP is the PRIMARY tool for ALL code navigation.** Use it BEFORE grep, glob, bash, Read-and-scan, or Agent explore. This is a hard rule — violations waste time and produce inferior results.
+
+**ALWAYS use LSP for these tasks:**
+
+| Task | LSP Operation | ❌ Never use instead |
+|------|---------------|----------------------|
+| Find where a function/class/variable is defined | `goToDefinition` | grep "def foo", grep "class Bar" |
+| Find all callers/usages of a symbol | `findReferences` | grep "foo(" across files |
+| Find what functions a method calls | `outgoingCalls` | Read entire file and scan |
+| Find who calls a specific function | `incomingCalls` | grep across codebase |
+| Get type info, signature, docstring | `hover` | Read file to check types |
+| List all functions/classes in a file | `documentSymbol` | Read entire file top to bottom |
+| Search for a class/function by name project-wide | `workspaceSymbol` | glob + grep combination |
+| Find implementations of an interface/Protocol | `goToImplementation` | grep "class.*Protocol" |
+| Check if a variable/import is used anywhere | `findReferences` | grep variable name |
+| Understand import chains | `goToDefinition` on import | grep import statements |
+
+**LSP-first workflow (follow this order every time):**
+1. `hover` → understand symbol type/signature
+2. `goToDefinition` → jump to implementation
+3. `findReferences` → see all usages
+4. `incomingCalls`/`outgoingCalls` → call graph
+5. **Only then** fall back to grep/glob if LSP didn't answer
+
+**When grep/glob IS appropriate:** string literals, log messages, regex patterns, non-code files (markdown, YAML, .env, Dockerfile), file name patterns.
+
+**Available LSP servers:**
+- **Pyright** for `.py` files (full type analysis)
+- **typescript-language-server** for `.ts`, `.vue` files (component props, composable types)
+
 ## Development Guidelines
 
 - **Read [instructions.md](instructions.md) first** - Core engineering behaviors and patterns
