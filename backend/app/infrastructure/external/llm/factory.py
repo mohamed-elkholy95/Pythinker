@@ -12,13 +12,18 @@ Switching providers requires only one change:
     LLM_PROVIDER=anthropic   # or auto, openai, ollama
 """
 
+from __future__ import annotations
+
 import importlib
 import logging
 import threading
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from app.core.config import get_settings
 from app.domain.external.llm import LLM
+
+if TYPE_CHECKING:
+    from app.infrastructure.storage.redis import RedisClient
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +88,30 @@ class LLMProviderRegistry:
         return list(cls._providers.keys())
 
 
-def _get_redis_client():
-    """Safely obtain the Redis client for key pool coordination."""
-    try:
-        from app.infrastructure.storage.redis import get_redis
+def _get_redis_client() -> RedisClient | None:
+    """Safely obtain the Redis client for key pool coordination.
 
-        return get_redis()
-    except Exception as e:
-        logger.warning(f"Failed to get Redis client for LLM: {e}")
-        return None
+    Returns:
+        RedisClient instance or None if Redis is unavailable.
+
+    Note:
+        This is a synchronous function. It is called from get_llm_from_factory()
+        which runs under threading.Lock, so it executes in a threadpool worker
+        (not on the async event loop).
+    """
+    for attempt in range(2):
+        try:
+            from app.infrastructure.storage.redis import get_redis
+
+            return get_redis()
+        except Exception as e:
+            if attempt == 0:
+                import time
+
+                time.sleep(0.5)
+                continue
+            logger.warning("Failed to get Redis client for LLM after retry: %s", e)
+    return None
 
 
 def get_llm_from_factory() -> LLM | None:
@@ -200,7 +220,7 @@ def get_llm() -> LLM | None:
     # Slow path: acquire lock to prevent concurrent initialization
     with _llm_init_lock:
         # Double-checked locking: re-check after acquiring the lock
-        if _cached_llm is not None:
+        if _cached_llm is not None:  # type: ignore[unreachable]  # double-checked locking
             return _cached_llm
 
         _llm_init_attempted = True
