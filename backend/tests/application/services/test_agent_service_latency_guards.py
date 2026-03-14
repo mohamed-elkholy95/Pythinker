@@ -396,32 +396,32 @@ async def test_chat_resumption_emits_idless_events_instead_of_skipping_forever(m
     assert len(events) == 3
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_code == "stream_gap_detected"
-    assert events[0].details and events[0].details.get("reason") == "missing_event_id"
+    # Non-Redis cursors (UUID format) are now caught early — skip mode is
+    # disabled immediately instead of scanning events for a match that can
+    # never succeed.
+    assert events[0].details and events[0].details.get("reason") == "non_redis_cursor"
     assert isinstance(events[1], MessageEvent)
     assert events[1].message == "quick response"
     assert isinstance(events[2], DoneEvent)
-    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "stale"}) == 1.0
-    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "missing_event_id"}) == 1.0
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "non_redis_cursor"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "non_redis_cursor"}) == 1.0
 
 
 @pytest.mark.asyncio
-async def test_chat_resumption_disables_skip_mode_when_cursor_is_stale(monkeypatch):
+async def test_chat_resumption_non_redis_cursor_bypasses_skip_mode(monkeypatch):
+    """Non-Redis cursors (UUID, plain text) must bypass skip mode immediately
+    and emit a gap warning upfront — no events should be lost to scanning."""
     service = _build_service()
-    service.CHAT_RESUME_MAX_SKIPPED_EVENTS = 2
-    service.CHAT_RESUME_MAX_SKIP_SECONDS = 60.0
 
     async def _domain_chat_with_newer_events(*_args, **_kwargs):
         first = MessageEvent(role="assistant", message="first event")
         first.id = "evt-new-1"
         second = MessageEvent(role="assistant", message="second event")
         second.id = "evt-new-2"
-        third = MessageEvent(role="assistant", message="third event")
-        third.id = "evt-new-3"
         done = DoneEvent(title="Done", summary="Completed")
-        done.id = "evt-new-4"
+        done.id = "evt-new-3"
         yield first
         yield second
-        yield third
         yield done
 
     service._agent_domain_service = SimpleNamespace(chat=_domain_chat_with_newer_events)
@@ -441,19 +441,18 @@ async def test_chat_resumption_disables_skip_mode_when_cursor_is_stale(monkeypat
         )
     )
 
-    # First event is skipped while searching for stale cursor. Once threshold is hit,
-    # service emits a gap warning and resumes from the current event.
+    # Non-Redis cursor triggers immediate gap warning + all events flow through
     assert len(events) == 4
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_code == "stream_gap_detected"
-    assert events[0].details and events[0].details.get("reason") == "stale_cursor"
+    assert events[0].details and events[0].details.get("reason") == "non_redis_cursor"
     assert isinstance(events[1], MessageEvent)
-    assert events[1].message == "second event"
+    assert events[1].message == "first event"  # No events skipped
     assert isinstance(events[2], MessageEvent)
-    assert events[2].message == "third event"
+    assert events[2].message == "second event"
     assert isinstance(events[3], DoneEvent)
-    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "stale"}) == 1.0
-    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "stale_cursor"}) == 1.0
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "non_redis_cursor"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "non_redis_cursor"}) == 1.0
 
 
 @pytest.mark.asyncio

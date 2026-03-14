@@ -809,9 +809,32 @@ class AgentService:
                 resume_state_recorded = True
                 pm.record_sse_resume_cursor_state(endpoint="chat", state="redis_cursor")
                 # No gap warning — domain service reads from this position; events flow normally
+            else:
+                # Non-Redis cursor (UUID or other format) — skip mode would search
+                # event.event_id fields that carry Redis stream IDs, guaranteeing a
+                # mismatch.  Disable skip mode immediately and emit a gap warning so
+                # the client knows it may have missed events.
+                logger.warning(
+                    "Resume cursor %s is not a Redis stream ID; disabling skip mode to prevent event starvation",
+                    event_id,
+                )
+                skip_until_resume_point = False
+                resume_state_recorded = True
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="non_redis_cursor")
         else:
             resume_state_recorded = True
             pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")
+
+        # Emit gap warning upfront for non-Redis cursors (UUID format).
+        # This must happen before the event loop so the client knows events may
+        # have been missed and can update its UI accordingly.
+        if event_id and not re.match(r"^\d+-\d+$", event_id) and not skip_until_resume_point:
+            pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="non_redis_cursor")
+            emitted_events += 1
+            yield _build_resume_gap_warning(
+                reason="non_redis_cursor",
+                skip_elapsed_seconds=0.0,
+            )
 
         cancel_task: asyncio.Task | None = None
         next_task: asyncio.Task | None = None
