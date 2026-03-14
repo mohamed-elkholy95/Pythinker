@@ -3095,6 +3095,14 @@ class PlanActFlow(BaseFlow):
                             if last_completed_index >= 0:
                                 await self._write_checkpoint(last_completed_index, is_final=True)
 
+                        # Mark all remaining steps as completed in task_state.md
+                        # (handles merged/skipped steps that weren't individually marked)
+                        if self._task_state_manager and self._task_state_manager._state:
+                            marked = self._task_state_manager._state.mark_remaining_completed()
+                            if marked > 0:
+                                logger.info("Marked %d remaining step(s) as completed in task_state", marked)
+                            self._background_save_task_state(force=True)
+
                         # Phase 3: Reflection memory write-back — wire ReflectionAgent into
                         # the default PlanActFlow path so TASK_OUTCOME memories accumulate
                         # for cross-session learning (previously only in deprecated PlanActGraphFlow).

@@ -107,6 +107,24 @@ class TaskState:
         self.last_updated = datetime.now(UTC)
         return found
 
+    def mark_remaining_completed(self) -> int:
+        """Mark all pending/in_progress steps as completed.
+
+        Called when execution finishes to ensure task_state.md reflects
+        the actual completion state, even for merged or skipped steps.
+
+        Returns:
+            Number of steps marked completed.
+        """
+        count = 0
+        for step in self.steps:
+            if step.get("status") in ("pending", "in_progress"):
+                step["status"] = "completed"
+                count += 1
+        if count > 0:
+            self.last_updated = datetime.now(UTC)
+        return count
+
     def record_url(self, url: str) -> bool:
         """Record a visited URL. Returns True if this is a new URL."""
         if not url:
