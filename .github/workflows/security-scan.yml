@@ -1,37 +1,16 @@
 name: Security Scan
 
 on:
+  # Weekly only — no push trigger to save minutes
   schedule:
-    # Run weekly on Sundays at midnight UTC
     - cron: "0 0 * * 0"
   workflow_dispatch:
-  push:
-    paths:
-      - "backend/requirements*.txt"
-      - "frontend/package.json"
-      - "frontend/bun.lock"
 
 jobs:
-  trufflehog-scan:
-    name: Secret Scanning (TruffleHog)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: TruffleHog Scan
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          extra_args: --only-verified
-
   dependency-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code

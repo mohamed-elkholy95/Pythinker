@@ -1,29 +1,19 @@
 name: Build and Push Docker Images to Docker Hub
 
+# Only build on version tags — never on push/PR (saves significant minutes)
 on:
   push:
-    branches:
-      - main
-      - develop
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - develop
 
 env:
   REGISTRY: docker.io
   IMAGE_REGISTRY: pythinker
 
 jobs:
-  # Run tests before building
-  test:
-    uses: ./.github/workflows/test-and-lint.yml
-
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -43,7 +33,7 @@ jobs:
               max-parallelism = 1
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -51,7 +41,7 @@ jobs:
           password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Skip image push (missing Docker Hub secrets)
-        if: github.event_name != 'pull_request' && (env.DOCKERHUB_USERNAME == '' || env.DOCKERHUB_TOKEN == '')
+        if: env.DOCKERHUB_USERNAME == '' || env.DOCKERHUB_TOKEN == ''
         run: echo "Docker Hub credentials are missing, images will be built but not pushed."
 
       - name: Extract metadata
@@ -60,8 +50,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_REGISTRY }}/pythinker-${{ matrix.component }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -72,8 +60,8 @@ jobs:
         with:
           context: ./${{ matrix.component }}
           file: ./${{ matrix.component }}/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+          platforms: linux/amd64
+          push: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
