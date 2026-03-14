@@ -2,36 +2,46 @@
 
 **Date:** 2026-03-14
 **Author:** Mohamed Elkholy
-**Status:** Approved
+**Status:** Revised after architecture validation
 
 ## Problem
 
-During the planning phase (~14-17s), the live view panel (right side) shows an empty CDP screencast — the sandbox desktop with nothing happening. The user only sees a small `PlanningCard` in the left chat panel with phase text like "Analyzing task complexity..." and a progress bar. The live view, the most prominent visual element, is completely dead during the user's first interaction with the agent.
+During the planning phase, the live view panel shows a mostly idle browser/sandbox frame while the left chat column shows a small `PlanningCard`. For first-message interactions this leaves the primary visual surface inactive for 10-17 seconds, even though the agent is already analyzing and building a plan.
 
-## Solution
+## Review Outcome
 
-Stream the plan as a well-formatted markdown document into the live view's Monaco editor in real-time, using the same `StreamEvent` pattern as the existing "Writing report..." flow. An animated pen-and-paper SVG icon indicates active planning in the tool panel header.
+The original direction is good, but four parts of the first draft were not aligned with the current codebase:
 
-## Approach: Synthetic Plan Stream
+1. Phase-1 planning text should **not** be duplicated as backend `StreamEvent`s. The frontend already receives `ProgressEvent`s, and the orchestration flow already emits repeated `PlanningPhase.PLANNING` heartbeats while the planner waits on the LLM. Mirroring those as extra stream events would add protocol noise and duplicate lines.
+2. `StreamEvent.phase` is already a plain string. No backend event-model/schema change is required to allow `"planning"`.
+3. Planning/report/thinking presentation should stay in the shared `useStreamingPresentationState()` path. A ToolPanel-only state fork would drift from `TaskProgressBar` and `LiveMiniPreview`.
+4. The rendered plan markdown must use deterministic planner data. The original example invented metadata such as `Mode` and `Est. Time`, which are not first-class planner outputs today.
 
-Keep the proven `ask_structured()` planner unchanged. Emit `StreamEvent(phase="planning")` at two points:
+## Validated Solution
 
-1. **During LLM wait** — Convert progress phases to markdown lines (immediate live view activity)
-2. **After plan arrives** — Convert the `Plan` object to rich formatted markdown, stream it chunk-by-chunk
+Use a **two-stage presentation model**:
 
-No extra LLM cost. No changes to the structured output path.
+1. **Phase 1: frontend-derived planning scaffold**
+   Build a lightweight markdown scaffold in `ChatPage.vue` from the existing `ProgressEvent`s.
+2. **Phase 2: backend-streamed final plan markdown**
+   After the `Plan` object is built, stream a formatted markdown version of the final plan via `StreamEvent(phase="planning")`.
 
-## Plan Markdown Format
+This keeps the current planner logic intact, avoids duplicate transport events, and reuses the existing report/streaming presentation architecture.
 
-### Phase 1 — During LLM Wait (progress phases)
+## Current Code Constraints
 
-```markdown
-# Planning...
+These constraints are already true in the repo and must shape the implementation:
 
-> Analyzing task complexity...
-```
+- `backend/app/domain/services/flows/plan_act.py` already emits repeated `ProgressEvent(phase=PlanningPhase.PLANNING, message="Generating plan...")` heartbeats while `create_plan()` is running.
+- `backend/app/domain/models/event.py` already defines `StreamEvent.phase` as `str`, so `"planning"` is already valid.
+- `frontend/src/constants/streamingPresentation.ts` currently only knows `idle`, `thinking`, `summarizing`, and `summary_final`; this is the real phase-model change point.
+- `frontend/src/components/ui/MonacoEditor.vue` updates content with `model.setValue()` on every prop change, so synthetic plan streaming must use a small number of coarse chunks rather than many tiny updates.
 
-As new progress phases arrive, lines are appended:
+## UX Behavior
+
+### Phase 1: Progress-Derived Scaffold
+
+As soon as meaningful planning progress arrives, the live panel should switch from the idle browser frame to a markdown editor overlay:
 
 ```markdown
 # Planning...
@@ -40,254 +50,439 @@ As new progress phases arrive, lines are appended:
 > Creating execution plan...
 ```
 
-### Phase 2 — Full Plan (replaces phase 1 content)
+Rules:
+
+- Ignore `received` for the markdown body. It is useful as transport/ack feedback but too noisy as a visible plan line.
+- Deduplicate repeated `planning` heartbeat messages such as `"Generating plan..."`.
+- Keep existing `thinkingText` behavior intact for the left-side reasoning surfaces; the planning overlay is a new live-view presentation layer, not a replacement for internal reasoning telemetry.
+
+### Phase 2: Final Plan Markdown
+
+Once the planner has built a `Plan`, replace the scaffold with a richer markdown view streamed into the editor:
 
 ```markdown
 # AI Agent Frameworks Comparison 2026
 
-> **Goal:** Research and compare LangGraph, CrewAI, AutoGen, and OpenAI
-> Agents SDK across architecture, tool use, multi-agent coordination,
-> and production readiness.
+> Research and compare LangGraph, CrewAI, AutoGen, and OpenAI Agents SDK
+> across architecture, tool use, multi-agent coordination, and production readiness.
 
-| Info            | Detail              |
-|-----------------|---------------------|
-| **Complexity**  | Very Complex        |
-| **Steps**       | 3                   |
-| **Est. Time**   | 10-15 min           |
-| **Mode**        | Research            |
+| Info | Detail |
+| --- | --- |
+| Complexity | Complex |
+| Steps | 3 |
+| Planner | Standard |
 
 ---
 
-## Step 1 - Research
+## Step 1 — Research
 
-**Research LangGraph, CrewAI, AutoGen, and OpenAI Agents SDK architecture and capabilities**
+Research LangGraph, CrewAI, AutoGen, and OpenAI Agents SDK architecture and capabilities.
 
-Search for current documentation, GitHub repositories, and technical
-reviews for each framework. Compare architecture patterns, tool use
-APIs, and multi-agent coordination approaches.
+Expected output: Collected source notes and comparison criteria.
 
-> Tools: Web Search, Browser
+> Tool hint: browser, web_search
 
 ---
 
-## Step 2 - Analyze
+## Step 2 — Analyze
 
-**Analyze findings and compile structured comparison report with data tables**
+Analyze findings and produce a structured comparison with decision-ready takeaways.
 
-Cross-reference research findings to identify key differences in
-architecture patterns, production readiness, and developer experience.
+Expected output: Draft comparison sections and supporting tables.
 
-> Tools: File Editor, Code Executor
-
----
-
-## Step 3 - Verify & Deliver
-
-**Review report accuracy, validate all citations, and deliver final research report**
-
-Verify factual claims against sources, check citation integrity,
-generate visual charts, and produce the final downloadable report.
-
-> Tools: Web Search, Browser, File Editor
+> Tool hint: file, code_executor
 
 ---
 
-*Plan created by Pythinker*
+## Step 3 — Deliver
+
+Validate the comparison, finalize the report, and deliver the output.
+
+Expected output: Final markdown report with verified claims.
+
+> Tool hint: file
 ```
 
-Key design elements:
-- **Title** from `plan.title` — prominent H1
-- **Goal blockquote** from `plan.goal`
-- **Metadata table** — complexity, step count, estimated time, mode
-- **Each step** as H2 with step number and action verb category
-- **Bold description** as step headline
-- **Tool hint blockquote** with tool names
-- **Horizontal rules** between sections
-- **Footer** with attribution
+Formatting rules:
+
+- H1 from `plan.title`
+- Goal as blockquote from `plan.goal`
+- Metadata table includes only fields already available at planning time:
+  - `Complexity`
+  - `Steps`
+  - `Planner` (`Draft`, `Standard`, or `Fallback`)
+- Optional intro paragraph from `plan.message`
+- Each step rendered from deterministic step data:
+  - Heading prefers `action_verb`, otherwise `Step N`
+  - Main body uses `description`
+  - Optional `Expected output` from `expected_output`
+  - Optional `Tool hint` from `tool_hint`
+- Omit fabricated metadata such as time estimates or mode labels until the planner produces real fields for them
+
+## State Ownership
+
+### Backend Owns
+
+- Final formatted plan markdown
+- Synthetic chunk streaming for the final plan only
+- Fallback-plan formatting through the same formatter
+
+### Frontend Owns
+
+- Phase-1 scaffold text derived from `ProgressEvent`
+- Deduplication of repeated progress heartbeats
+- Overlay visibility and lifecycle
+- Clearing the overlay when the first real tool starts
+
+This split avoids duplicate backend events while still keeping the final plan rendering deterministic and centralized.
 
 ## Backend Changes
 
-### `planner.py` — New helpers and StreamEvent emissions
+### `backend/app/domain/services/agents/planner.py`
 
-**`_format_plan_as_markdown(plan, complexity, mode)`** — Converts a `Plan` object + metadata into the formatted markdown string shown above.
+Add:
 
-**`_stream_plan_as_markdown(markdown_text)`** — Async generator that yields `StreamEvent(phase="planning")` events, splitting the markdown into ~100-char chunks with `asyncio.sleep(0.02)` between chunks (~50 chunks/sec, ~0.5s total for a typical 3-step plan).
+- `_format_plan_as_markdown(plan, *, complexity, planner_kind) -> str`
+- `_stream_plan_as_markdown(markdown_text) -> AsyncGenerator[StreamEvent, None]`
 
-**Changes to `create_plan()`:**
+Behavior:
 
-1. After each `ProgressEvent` yield, also yield a `StreamEvent(phase="planning")` with the progress line as markdown content.
+1. Keep the existing `ask_structured()` path unchanged.
+2. After the `Plan` object is built, call `_format_plan_as_markdown(...)`.
+3. Stream the markdown as `StreamEvent(phase="planning")` chunks.
+4. Emit `StreamEvent(phase="planning", is_final=True)` after the last chunk.
+5. Then emit `PlanEvent(status=CREATED, plan=plan)`.
+6. Apply the same formatting/streaming path to the fallback plan.
 
-2. After `ask_structured()` returns and the `Plan` object is built, call `_format_plan_as_markdown()` to get the full markdown, then yield chunks via `_stream_plan_as_markdown()`.
+Streaming constraints:
 
-3. After all chunks, yield `StreamEvent(phase="planning", is_final=True)`.
+- Chunk size target: `140-220` characters
+- Target chunk count: `4-8`
+- Total synthetic delay budget: `<= 250ms`
+- Do not swallow `asyncio.CancelledError`
 
-4. Then yield the existing `PlanEvent(status=CREATED, plan=plan)` as before.
+Rationale:
 
-### `event.py` — Ensure `"planning"` is valid for StreamEvent.phase
+- The current Monaco wrapper performs full-model `setValue()` updates on every content change, so coarse chunks are safer than 40-50 tiny updates per second.
+- The stream is only for visible animation; it must not noticeably delay plan availability.
 
-Add `"planning"` to the phase field's accepted values if it uses a string enum.
+### No Backend Model or Schema Change
+
+No change is needed in:
+
+- `backend/app/domain/models/event.py`
+- `backend/app/interfaces/schemas/event.py`
+
+Reason: `StreamEvent.phase` and `StreamEventData.phase` are already string-typed.
 
 ## Frontend Changes
 
-### `ChatPage.vue` — New reactive state and event handling
+### `frontend/src/pages/ChatPage.vue`
 
-**New state:**
+Add planning presentation state:
+
 ```typescript
-const planStreamText = ref('')
+const planPresentationText = ref('')
 const isPlanStreaming = ref(false)
+const planPresentationSource = ref<'idle' | 'progress' | 'stream' | 'final'>('idle')
+const lastPlanningProgressSignature = ref('')
 ```
 
-**Extend `handleStreamEvent()`:**
+Add a helper that builds the scaffold from progress events:
+
+```typescript
+const updatePlanProgressPresentation = (progressData: ProgressEventData) => {
+  if (planPresentationSource.value === 'stream' || planPresentationSource.value === 'final') {
+    return
+  }
+
+  const phase = normalizePlanningPhase(progressData.phase)
+  if (phase === 'received') return
+
+  const line = progressData.message?.trim()
+  if (!line) return
+
+  const signature = `${phase}:${line}`
+  if (signature === lastPlanningProgressSignature.value) return
+  lastPlanningProgressSignature.value = signature
+
+  if (!planPresentationText.value) {
+    planPresentationText.value = '# Planning...\n\n'
+  }
+
+  planPresentationText.value += `> ${line}\n`
+  planPresentationSource.value = 'progress'
+}
+```
+
+Update `handleProgressEvent()`:
+
+- Continue updating the existing planning card/progress state
+- Also call `updatePlanProgressPresentation(progressData)`
+- Stop modifying the scaffold once final plan markdown streaming has started
+
+Update `handleStreamEvent()`:
+
 ```typescript
 if (phase === 'planning') {
-  if (streamData.content) {
-    planStreamText.value += streamData.content
+  if (planPresentationSource.value !== 'stream') {
+    planPresentationText.value = ''
+    planPresentationSource.value = 'stream'
   }
+
+  if (streamData.content) {
+    planPresentationText.value += streamData.content
+  }
+
+  isPlanStreaming.value = !streamData.is_final
   if (streamData.is_final) {
-    isPlanStreaming.value = false
-  } else {
-    isPlanStreaming.value = true
+    planPresentationSource.value = 'final'
   }
   return
 }
 ```
 
-**Extend `handlePlanEvent()`:**
+Important behavior:
+
+- Keep the existing `thinking` stream handling for reasoning views
+- Do not clear `planPresentationText` in `handlePlanEvent()`
+- Clear the planning presentation on the first real tool start (`calling` / `running`)
+- Clear it on cancellation, reset, or session teardown
+- Pass the new planning props into both the bottom-dock `TaskProgressBar` and the right-side `ToolPanel`
+
+### `frontend/src/components/ToolPanel.vue`
+
+Thread the new props through to `ToolPanelContent`:
+
+- `planPresentationText`
+- `isPlanStreaming`
+
+### `frontend/src/components/ToolPanelContent.vue`
+
+Add planning props and render ordering:
+
+1. report overlay
+2. planning overlay
+3. unified tool streaming
+4. normal tool/live/replay views
+
+Add:
+
 ```typescript
-// After existing plan handling...
-// Don't clear planStreamText immediately — let it persist until first tool event
+planPresentationText?: string
+isPlanStreaming?: boolean
 ```
 
-**Clear plan overlay on first tool event:**
-```typescript
-// In handleToolEvent(), when the first tool starts:
-if (planStreamText.value) {
-  planStreamText.value = ''
-  isPlanStreaming.value = false
-}
-```
+Add a replay-aware guard similar to the report overlay:
 
-**Pass as props to ToolPanelContent:**
-```typescript
-:plan-stream-text="planStreamText"
-:is-plan-streaming="isPlanStreaming"
-```
-
-### `ToolPanelContent.vue` — Plan presentation overlay
-
-**New props:**
-```typescript
-planStreamText: { type: String, default: '' }
-isPlanStreaming: { type: Boolean, default: false }
-```
-
-**New computed:**
 ```typescript
 const showPlanPresentation = computed(() => {
-  if (!props.isPlanStreaming && !props.planStreamText) return false
-  return props.planStreamText.length > 0
+  if (props.showTimeline && !props.realTime && !isViewingLatestTimelineStep.value) return false
+  return (props.planPresentationText || '').length > 0
 })
 ```
 
-**Template (priority: below report, above tool views):**
+Render the planning overlay with `EditorContentView`:
+
 ```html
-<div v-else-if="showPlanPresentation" class="absolute inset-0 ...">
+<div
+  v-else-if="showPlanPresentation"
+  class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+>
   <EditorContentView
-    :content="planStreamText"
+    :content="props.planPresentationText || ''"
     filename="Plan.md"
-    :is-writing="isPlanStreaming"
+    :is-writing="!!props.isPlanStreaming"
   />
 </div>
 ```
 
-**Header label logic:**
+Header behavior:
+
+- Use the shared streaming state machine for the label
+- Reuse an existing Lucide icon such as `PencilLine` or `FileText` with a subtle pulse
+- Do **not** create a bespoke `PlanningPenIcon.vue` unless design review later decides the existing icon set is insufficient
+
+This follows the repo's reuse-first rule and keeps the surface area smaller.
+
+### `frontend/src/components/TaskProgressBar.vue`
+
+Add the same planning props so the collapsed/expanded `LiveMiniPreview` can show planning state when the tool panel is closed:
+
+- `planPresentationText`
+- `isPlanStreaming`
+
+Thread them into both `LiveMiniPreview` instances.
+
+### `frontend/src/components/LiveMiniPreview.vue`
+
+Extend the mini preview so planning shares the same visual path as report preview:
+
+- show planning preview when the shared streaming state is in the `planning` phase
+- reuse the existing lightweight markdown renderer for the preview body
+- show `"Creating plan..."` while streaming and `"Plan ready"` after final chunk
+
+### `frontend/src/composables/useStreamingPresentationState.ts`
+
+This is the central architecture change on the frontend.
+
+Extend the input shape:
+
 ```typescript
-if (showPlanPresentation.value) {
-  if (props.isPlanStreaming) return 'Creating plan...'
-  return 'Plan'
-}
+isPlanStreaming?: MaybeRefOrGetter<boolean | undefined>
+planPresentationText?: MaybeRefOrGetter<string | undefined>
 ```
 
-**Header icon:** Use `PlanningPenIcon` component (animated SVG) when `showPlanPresentation && isPlanStreaming`.
+Extend the phase model:
 
-### `PlanningPenIcon.vue` — NEW animated SVG component
-
-**Location:** `frontend/src/components/icons/PlanningPenIcon.vue`
-
-A custom animated SVG (24x24 viewBox, renders at 20x20px) with:
-
-1. **Paper** — document shape with corner fold, `stroke="currentColor"`
-2. **Writing lines** — 3-4 horizontal strokes with `stroke-dashoffset` animation (lines appear one by one as if being written)
-3. **Pen** — angled pen shape with `animateTransform` moving down as lines appear
-4. **Pen tip glow** — subtle opacity pulse at the write point
-
-Animation: 2s loop, all elements synced. Color inherits `currentColor` (uses `text-purple-400` during planning).
-
-### `useStreamingPresentationState.ts` — Add planning phase
-
-Add `'planning'` phase to the state machine, triggered when `isPlanStreaming` is true. This enables `LiveMiniPreview` to show the plan when the tool panel is collapsed.
-
-**Phase order:** `idle` -> `planning` -> `thinking` -> `summarizing` -> `summary_final`
-
-### `LiveMiniPreview.vue` — Planning phase thumbnail
-
-When `isPlanningPhase` is true, show a mini preview with:
-- `PlanningPenIcon` (small)
-- Headline: `"Creating plan..."`
-- First few lines of `planStreamText` rendered as markdown preview
-
-## Data Flow (End-to-End)
-
+```typescript
+type StreamPhase = 'idle' | 'planning' | 'thinking' | 'summarizing' | 'summary_final'
 ```
+
+Desired phase precedence:
+
+1. `summarizing`
+2. `summary_final`
+3. `planning`
+4. `thinking`
+5. `idle`
+
+Reasoning:
+
+- Summary/report must always win
+- Planning should win over generic thinking/tool activity while the overlay is still visible
+- Once the first tool starts and planning text is cleared, normal tool/thinking presentation resumes
+
+The composable should expose:
+
+- `isPlanningPhase`
+- planning-aware `headline`
+- planning-aware `previewText`
+
+### `frontend/src/constants/streamingPresentation.ts`
+
+Update:
+
+- `StreamPhase`
+- `VALID_PHASE_TRANSITIONS`
+- `STREAMING_LABELS`
+
+Suggested transitions:
+
+- `idle -> planning`
+- `planning -> thinking`
+- `planning -> idle`
+- `planning -> summarizing`
+- existing summary transitions remain unchanged
+
+## Data Flow
+
+```text
 User sends message
-  -> Backend: ProgressEvent(phase=RECEIVED)
-  -> Backend: StreamEvent(phase="planning", content="# Planning...\n\n> Message received...")
-  -> Frontend: planStreamText grows, Monaco editor shows "Plan.md"
-  -> Frontend: ToolPanelContent header shows PlanningPenIcon + "Creating plan..."
+  -> Backend: ProgressEvent(received) [existing]
+  -> Frontend: no plan markdown yet
 
-  -> Backend: ProgressEvent(phase=ANALYZING)
-  -> Backend: StreamEvent(phase="planning", content="\n> Analyzing task complexity...")
-  -> Frontend: planStreamText grows, new line appears in editor
+  -> Backend: ProgressEvent(analyzing, "Analyzing task complexity...")
+  -> Frontend: build scaffold
+     # Planning...
+     > Analyzing task complexity...
 
-  -> Backend: ask_structured() returns PlanResponse (~14s)
-  -> Backend: StreamEvent(phase="planning", content=full_plan_chunk) x N
-  -> Backend: StreamEvent(phase="planning", is_final=True)
-  -> Frontend: isPlanStreaming=false, header shows "Plan" (static)
+  -> Backend: ProgressEvent(planning, "Creating execution plan...")
+  -> Frontend: append deduped scaffold line
 
-  -> Backend: PlanEvent(status=CREATED, plan=plan)
-  -> Frontend: plan steps appear in left panel, plan editor persists
+  -> Backend: repeated ProgressEvent(planning, "Generating plan...") heartbeat(s)
+  -> Frontend: append once, ignore duplicates
 
-  -> Backend: First ToolEvent (step 1 begins)
-  -> Frontend: planStreamText cleared, tool view takes over live panel
+  -> Backend: plan built
+  -> Backend: StreamEvent(phase="planning", content=chunk_1)
+  -> Frontend: clear scaffold, switch source=stream, start final markdown
+
+  -> Backend: StreamEvent(phase="planning", content=chunk_n)
+  -> Backend: StreamEvent(phase="planning", is_final=true)
+  -> Frontend: isPlanStreaming=false, source=final, plan markdown remains visible
+
+  -> Backend: PlanEvent(CREATED, plan=plan)
+  -> Frontend: left-side plan UI updates; live panel keeps final plan markdown
+
+  -> Backend: first real ToolEvent(status=calling)
+  -> Frontend: clear planning presentation and return to tool/live view
 ```
 
 ## Edge Cases
 
 | Case | Handling |
-|------|----------|
-| Plan creation fails (fallback plan) | Still format and stream the fallback plan markdown |
-| User cancels during planning | Clear `planStreamText`, set `isPlanStreaming=false` |
-| SSE reconnect during planning | Existing Redis queue reconnect handles StreamEvents |
-| Fast path (greeting/knowledge) | No planning phase, no StreamEvents emitted |
-| Plan verification enabled | Plan stays visible during verification |
-| Deep research mode | Same flow, plan appears before workspace init |
-| Report overlay active | Report takes priority (`v-if` over `v-else-if`) |
-
-## Chunk Streaming Parameters
-
-- **Chunk size:** ~80-120 characters per StreamEvent
-- **Delay:** `asyncio.sleep(0.02)` between chunks (~50 chunks/sec)
-- **Typical plan:** ~500-800 chars markdown -> ~0.5-1s streaming time
-- **Progress phase lines:** Emitted immediately (no chunking delay)
+| --- | --- |
+| Planner fallback plan | Format and stream fallback markdown through the same phase-2 path |
+| User cancels during planning | Clear planning presentation state immediately |
+| Replan flow | Reuse the same formatter; planner metadata row shows `Planner = Standard` unless draft/fallback was used |
+| Verification after plan creation | Keep the final plan visible; do not resume appending progress scaffold |
+| Timeline replay mode | Hide planning overlay unless the user is at the latest/live position |
+| Fast draft plan | Same UI; metadata row shows `Planner = Draft` |
+| First tool never starts because execution aborts | Final plan remains visible until reset/error/cancel |
 
 ## Files to Modify
 
-| File | Type | Change |
-|------|------|--------|
-| `backend/app/domain/services/agents/planner.py` | Edit | Add `_format_plan_as_markdown()`, `_stream_plan_as_markdown()`, yield StreamEvents in `create_plan()` |
-| `backend/app/domain/models/event.py` | Edit | Add `"planning"` to StreamEvent phase |
-| `frontend/src/pages/ChatPage.vue` | Edit | Add `planStreamText`, `isPlanStreaming`, extend `handleStreamEvent()`, clear on tool event |
-| `frontend/src/components/ToolPanelContent.vue` | Edit | Add `showPlanPresentation`, template block, header with PlanningPenIcon |
-| `frontend/src/components/icons/PlanningPenIcon.vue` | New | Animated pen & paper SVG component |
-| `frontend/src/composables/useStreamingPresentationState.ts` | Edit | Add `'planning'` phase |
-| `frontend/src/components/LiveMiniPreview.vue` | Edit | Planning phase mini preview |
+### Edit
+
+- `backend/app/domain/services/agents/planner.py`
+- `frontend/src/pages/ChatPage.vue`
+- `frontend/src/components/ToolPanel.vue`
+- `frontend/src/components/ToolPanelContent.vue`
+- `frontend/src/components/TaskProgressBar.vue`
+- `frontend/src/components/LiveMiniPreview.vue`
+- `frontend/src/composables/useStreamingPresentationState.ts`
+- `frontend/src/constants/streamingPresentation.ts`
+
+### Test Updates
+
+- `backend/tests/unit/agents/test_planner.py`
+- `frontend/tests/composables/useStreamingPresentationState.spec.ts`
+- `frontend/tests/components/ToolPanelContent.spec.ts`
+- `frontend/tests/components/ToolPanel.spec.ts`
+- add or extend `ChatPage` tests for planning presentation lifecycle
+
+### No Change Required
+
+- `backend/app/domain/models/event.py`
+- `backend/app/interfaces/schemas/event.py`
+- `frontend/src/types/event.ts`
+
+## Test Plan
+
+### Backend
+
+- plan markdown formatter renders deterministic fields only
+- formatter omits `Expected output` / `Tool hint` when absent
+- fallback plan streams through the same path
+- planning stream emits `phase="planning"` chunks followed by `is_final=True`
+
+### Frontend
+
+- repeated planning heartbeat progress events do not append duplicate scaffold lines
+- first `planning` stream chunk replaces the scaffold instead of appending to it
+- planning overlay takes priority over live/tool view but not over report overlay
+- planning overlay hides on first real tool start
+- replay/timeline guard suppresses stale planning overlays when viewing older timeline steps
+- `useStreamingPresentationState` accepts `planning` transitions and exposes the right headline/preview text
+
+## Context7 Validation Notes
+
+Validated against Context7 MCP and official docs:
+
+- **Vue 3 (`/vuejs/docs`)**
+  - Use `computed()` for derived UI state instead of duplicating reactive state in multiple components.
+  - Use watcher cleanup/effect-scope cleanup patterns for timers and transient subscriptions.
+  - This supports extending `useStreamingPresentationState()` rather than creating a separate ToolPanel-only planning state machine.
+- **Python asyncio (`/python/cpython`)**
+  - Async generators should allow cancellation to propagate and should rely on normal generator finalization.
+  - `_stream_plan_as_markdown()` must not suppress `CancelledError`.
+- **Monaco Editor (`/microsoft/monaco-editor`)**
+  - Text models support full-value updates, but frequent model rewrites should be minimized.
+  - Because the current wrapper uses `model.setValue()` on every prop change, planning chunks should be coarse and bounded.
+
+Official references consulted during validation:
+
+- `https://vuejs.org/guide/essentials/computed.html`
+- `https://vuejs.org/guide/essentials/watchers.html`
+- `https://docs.python.org/3/library/asyncio-task.html`
+- `https://microsoft.github.io/monaco-editor/typedoc/interfaces/editor.ITextModel.html`

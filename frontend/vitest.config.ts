@@ -21,6 +21,11 @@ export default defineConfig({
       ],
     },
     setupFiles: ['./tests/setup.ts'],
+    server: {
+      deps: {
+        inline: ['zod'],
+      },
+    },
   },
   resolve: {
     alias: {
