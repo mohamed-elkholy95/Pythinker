@@ -39,7 +39,7 @@ describe('useStreamingPresentationState', () => {
     await nextTick();
 
     expect(state.phase.value).toBe('summarizing');
-    expect(state.headline.value).toBe('Composing report...');
+    expect(state.headline.value).toBe('Writing report...');
     expect(state.viewType.value).toBe('report');
 
     state.dispose();

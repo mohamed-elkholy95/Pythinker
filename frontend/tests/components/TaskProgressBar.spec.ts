@@ -489,7 +489,7 @@ describe('TaskProgressBar', () => {
     expect(checkIcon.classes()).toContain('collapsed-complete-check')
   })
 
-  it('shows composing report status while summary is streaming', () => {
+  it('shows writing report status while summary is streaming', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Draft report', status: 'running' },
     ])
@@ -504,7 +504,7 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Composing report...')
+    expect(wrapper.text()).toContain('Writing report...')
   })
 
   it('forwards summary stream text to mini preview', () => {

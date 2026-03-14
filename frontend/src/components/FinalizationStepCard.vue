@@ -128,7 +128,7 @@ interface Stage {
  * Keeps unknown descriptions as-is for forward-compatibility.
  */
 const STAGE_LABEL_MAP: Record<string, string> = {
-  'Composing report...': 'Composing report',
+  'Writing report...': 'Writing report',
   'Verifying factual claims...': 'Verifying sources',
   'Fact-checking sources...': 'Verifying sources',
   'Verification complete': 'Sources verified',

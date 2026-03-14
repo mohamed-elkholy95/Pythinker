@@ -101,7 +101,7 @@ describe('LiveMiniPreview', () => {
 
     expect(wrapper.find('.streaming-preview').exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
-    expect(wrapper.text()).toContain('Composing report...')
+    expect(wrapper.text()).toContain('Writing report...')
   })
 
   it('shows report-complete summary view when summary text is buffered after stream end', () => {

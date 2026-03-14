@@ -4,7 +4,7 @@ export type StreamingViewType = 'live_preview' | 'terminal' | 'editor' | 'search
 
 export const STREAMING_LABELS = {
   thinking: 'Thinking',
-  summarizing_active: 'Composing report...',
+  summarizing_active: 'Writing report...',
   summarizing_final: 'Report complete',
   completed: 'Session complete',
   initializing: 'Initializing',

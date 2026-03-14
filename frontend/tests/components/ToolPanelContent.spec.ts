@@ -72,13 +72,13 @@ const mountToolPanelContent = (overrides: Record<string, unknown> = {}) => (
 );
 
 describe('ToolPanelContent', () => {
-  it('shows composing report activity during summary streaming', () => {
+  it('shows writing report activity during summary streaming', () => {
     const wrapper = mountToolPanelContent({
       isSummaryStreaming: true,
       summaryStreamText: 'partial summary',
     });
 
-    expect(wrapper.text()).toContain('Composing report...');
+    expect(wrapper.text()).toContain('Writing report...');
     expect(wrapper.find('streaming-report-view-stub').exists()).toBe(true);
   });
 

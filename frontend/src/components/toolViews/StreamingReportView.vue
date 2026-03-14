@@ -6,7 +6,7 @@
         <div class="typing-dot"></div>
         <div class="typing-dot"></div>
       </div>
-      <span class="streaming-label">{{ isFinal ? 'Report complete' : 'Composing report...' }}</span>
+      <span class="streaming-label">{{ isFinal ? 'Report complete' : 'Writing report...' }}</span>
     </div>
     <div ref="contentRef" class="streaming-content">
       <div class="markdown-body" v-html="renderedHtml"></div>

@@ -1039,7 +1039,7 @@ const contentHeaderLabel = computed(() => {
   // renders on top of whatever tool view was last active, so the header must reflect
   // that the user is seeing the report, not the stale tool underneath.
   if (showReportPresentation.value) {
-    if (props.isSummaryStreaming) return 'Composing report...';
+    if (props.isSummaryStreaming) return 'Writing report...';
     return 'Report';
   }
   // Terminal: show shell session name, fallback to "Terminal"

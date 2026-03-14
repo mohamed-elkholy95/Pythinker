@@ -636,7 +636,7 @@ class ExecutionAgent(BaseAgent):
             status=StepStatus.RUNNING,
             step=Step(
                 id="finalization",
-                description="Composing report...",
+                description="Writing report...",
                 status=ExecutionStatus.RUNNING,
                 step_type=StepType.FINALIZATION,
             ),
