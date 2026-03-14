@@ -175,7 +175,9 @@ class TestCreatePlanStreamIntegration:
         """Create a PlannerAgent with mocked dependencies."""
         llm = MagicMock()
         llm.ask_structured = AsyncMock()
-        llm.ask_stream = AsyncMock(return_value=AsyncMock(__aiter__=lambda s: s, __anext__=AsyncMock(side_effect=StopAsyncIteration)))
+        llm.ask_stream = AsyncMock(
+            return_value=AsyncMock(__aiter__=lambda s: s, __anext__=AsyncMock(side_effect=StopAsyncIteration))
+        )
         repo = MagicMock()
         repo.get_memory = MagicMock(return_value=MagicMock(get_messages=MagicMock(return_value=[])))
         json_parser = MagicMock()
@@ -256,9 +258,7 @@ class TestCreatePlanStreamIntegration:
         msg = Message(message="Compare AI agent frameworks", attachments=[])
         events = [event async for event in planner.create_plan(msg, draft=True)]
 
-        planning_content = "".join(
-            e.content for e in events if isinstance(e, StreamEvent) and e.phase == "planning"
-        )
+        planning_content = "".join(e.content for e in events if isinstance(e, StreamEvent) and e.phase == "planning")
         assert "AI Agent Frameworks Comparison 2026" in planning_content
 
     @pytest.mark.asyncio
@@ -297,7 +297,5 @@ class TestCreatePlanStreamIntegration:
         msg = Message(message="Compare AI agent frameworks", attachments=[])
         events = [event async for event in planner.create_plan(msg, draft=True)]
 
-        planning_content = "".join(
-            e.content for e in events if isinstance(e, StreamEvent) and e.phase == "planning"
-        )
+        planning_content = "".join(e.content for e in events if isinstance(e, StreamEvent) and e.phase == "planning")
         assert "Fallback Plan" in planning_content
