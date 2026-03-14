@@ -24,6 +24,12 @@
               />
               <span class="panel-report-activity-accent"></span>
             </span>
+            <PencilLine
+              v-else-if="showPlanActivityIcon"
+              :size="13"
+              class="flex-shrink-0 text-[var(--icon-secondary)]"
+              :class="{ 'animate-pulse': isPlanStreaming }"
+            />
             <Loader2
               v-else-if="showActivitySpinner"
               :size="13"
@@ -234,12 +240,26 @@
           <!-- Streaming Report — rendered inside EditorContentView (highest priority) -->
           <div
             v-if="showReportPresentation"
+            data-testid="report-overlay"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <EditorContentView
               :content="reportPresentationText"
               filename="Report.md"
               :is-writing="isSummaryStreaming"
+            />
+          </div>
+
+          <!-- Planning Overlay — shows plan markdown during planning phase -->
+          <div
+            v-else-if="showPlanPresentation"
+            data-testid="plan-overlay"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <EditorContentView
+              :content="props.planPresentationText || ''"
+              filename="Plan.md"
+              :is-writing="!!props.isPlanStreaming"
             />
           </div>
 
@@ -504,7 +524,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette, FileText } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette, FileText, PencilLine } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -588,6 +608,8 @@ const props = defineProps<{
   summaryStreamText?: string;
   finalReportText?: string;
   isSummaryStreaming?: boolean;
+  planPresentationText?: string;
+  isPlanStreaming?: boolean;
   /** When true, hides the frame header and outer card styling (used in embedded/workspace mode) */
   embedded?: boolean;
   /** Override the auto-detected content view type (used for workspace tab switching) */
@@ -733,6 +755,11 @@ const showReportPresentation = computed(() => {
   // 2. Session completed — the report is the last thing the agent produced
   if (!props.isSummaryStreaming && !showPersistedFinalReport.value) return false;
   return reportPresentationText.value.length > 0;
+});
+const showPlanPresentation = computed(() => {
+  if (showReportPresentation.value) return false;
+  if (props.showTimeline && !props.realTime && !isViewingLatestTimelineStep.value) return false;
+  return (props.planPresentationText || '').length > 0;
 });
 
 // Tool state
@@ -994,6 +1021,8 @@ const streamingPresentation = useStreamingPresentationState({
   finalReportText: computed(() => showPersistedFinalReport.value ? (props.finalReportText || '') : ''),
   isThinking: computed(() => !!props.isThinking),
   isActiveOperation: computed(() => isActiveOperation.value),
+  isPlanStreaming: computed(() => !!props.isPlanStreaming),
+  planPresentationText: computed(() => props.planPresentationText || ''),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || ''),
   toolDescription: computed(() => toolSubtitle.value || ''),
   baseViewType: computed(() => {
@@ -1013,8 +1042,11 @@ const streamingPresentation = useStreamingPresentationState({
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
 const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
 
+const isPlanningPhase = computed(() => streamingPresentation.isPlanningPhase.value);
+
 const activityHeadline = computed(() => {
   if (isSummaryPhase.value) return streamingPresentation.headline.value;
+  if (isPlanningPhase.value) return streamingPresentation.headline.value;
   if (toolDisplay.value?.displayName) {
     // Distinguish active vs completed tools so the headline reflects reality
     if (isActiveOperation.value) return `Pythinker is using ${toolDisplay.value.displayName}`;
@@ -1030,8 +1062,9 @@ const activitySubtitle = computed(() => {
 });
 
 const showReportActivityIcon = computed(() => isSummaryPhase.value);
+const showPlanActivityIcon = computed(() => isPlanningPhase.value && !isSummaryPhase.value);
 
-const showActivitySpinner = computed(() => !showReportActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
+const showActivitySpinner = computed(() => !showReportActivityIcon.value && !showPlanActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
 
 // Content header label — Manus-style: show session/file name instead of generic "Terminal"/"Editor"
 const contentHeaderLabel = computed(() => {
@@ -1041,6 +1074,10 @@ const contentHeaderLabel = computed(() => {
   if (showReportPresentation.value) {
     if (props.isSummaryStreaming) return 'Writing report...';
     return 'Report';
+  }
+  if (showPlanPresentation.value) {
+    if (props.isPlanStreaming) return 'Creating plan...';
+    return 'Plan';
   }
   // Terminal: show shell session name, fallback to "Terminal"
   if (currentViewType.value === 'terminal') {

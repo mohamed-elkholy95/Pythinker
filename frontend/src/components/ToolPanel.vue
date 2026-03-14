@@ -35,6 +35,8 @@
         :summaryStreamText="panelProps.summaryStreamText"
         :finalReportText="panelProps.finalReportText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
+        :planPresentationText="panelProps.planPresentationText"
+        :isPlanStreaming="panelProps.isPlanStreaming"
         :activeCanvasUpdate="panelProps.activeCanvasUpdate"
         :sessionStartTime="panelProps.sessionStartTime"
         @hide="() => hideToolPanel(true)"
@@ -126,6 +128,8 @@ const panelProps = defineProps<{
   summaryStreamText?: string
   finalReportText?: string
   isSummaryStreaming?: boolean
+  planPresentationText?: string
+  isPlanStreaming?: boolean
   activeCanvasUpdate?: CanvasUpdateEventData | null
   /** Shared session start timestamp so all timers stay in sync. */
   sessionStartTime?: number

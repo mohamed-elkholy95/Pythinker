@@ -59,6 +59,8 @@ vi.mock('@/components/ToolPanelContent.vue', () => ({
       'plan',
       'isLoading',
       'isThinking',
+      'planPresentationText',
+      'isPlanStreaming',
     ],
     emits: ['hide', 'jumpToRealTime', 'stepForward', 'stepBackward', 'seekByProgress'],
   },
@@ -258,6 +260,23 @@ describe('ToolPanel', () => {
 
     const panel = wrapper.find('[style]')
     expect(panel.attributes('style')).toContain('opacity: 1')
+  })
+
+  it('should forward planPresentationText to ToolPanelContent', async () => {
+    const wrapper = mount(ToolPanel, {
+      props: {
+        ...defaultProps,
+        planPresentationText: '# Plan Content',
+        isPlanStreaming: true,
+      },
+    })
+
+    wrapper.vm.showToolPanel(mockToolContent, false)
+    await wrapper.vm.$nextTick()
+
+    const toolPanelContent = wrapper.findComponent({ name: 'ToolPanelContent' })
+    expect(toolPanelContent.props('planPresentationText')).toBe('# Plan Content')
+    expect(toolPanelContent.props('isPlanStreaming')).toBe(true)
   })
 
   it('should apply correct styles when hidden', async () => {

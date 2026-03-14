@@ -427,6 +427,53 @@ describe('ToolPanelContent', () => {
     expect(canvasLiveView.attributes('data-project-id')).toBe('live-project');
   });
 
+  it('shows planning overlay when planPresentationText is present', () => {
+    const wrapper = mountToolPanelContent({
+      planPresentationText: '# Plan Content\n## Step 1',
+      isPlanStreaming: true,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+    });
+
+    expect(wrapper.find('[data-testid="plan-overlay"]').exists()).toBe(true);
+    expect(wrapper.find('editor-content-view-stub').exists()).toBe(true);
+  });
+
+  it('report overlay still has higher priority than planning overlay', () => {
+    const wrapper = mountToolPanelContent({
+      planPresentationText: '# Plan Content',
+      isPlanStreaming: false,
+      isSummaryStreaming: true,
+      summaryStreamText: 'report text',
+    });
+
+    // Report overlay should win — planning overlay should not render
+    expect(wrapper.find('[data-testid="report-overlay"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="plan-overlay"]').exists()).toBe(false);
+  });
+
+  it('planning header shows "Creating plan..." while streaming', () => {
+    const wrapper = mountToolPanelContent({
+      planPresentationText: '# Plan...',
+      isPlanStreaming: true,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+    });
+
+    expect(wrapper.text()).toContain('Creating plan...');
+  });
+
+  it('planning header shows "Plan ready" after final chunk', () => {
+    const wrapper = mountToolPanelContent({
+      planPresentationText: '# Final Plan\n## Step 1',
+      isPlanStreaming: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+    });
+
+    expect(wrapper.text()).toContain('Plan ready');
+  });
+
   it('bumps the CanvasLiveView refresh token for same-project canvas updates', async () => {
     const CanvasLiveViewStub = defineComponent({
       name: 'CanvasLiveView',
