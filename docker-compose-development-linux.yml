@@ -1,0 +1,483 @@
+# =============================================================================
+# Development Compose — Linux (Docker Compose Watch)
+#
+# Usage:
+#   docker compose -f docker-compose-development-linux.yml up --watch
+#   docker compose -f docker-compose-development-linux.yml up -d
+#
+# Compose Watch syncs file changes from host → container via Docker API (tar+cp).
+# Files land on the container's native ext4 filesystem — inotify events fire
+# immediately with no polling required.
+#
+# Actions:
+#   sync          — Copy changed files into running container (HMR / hot reload)
+#   rebuild       — Rebuild image + replace container (dependency changes)
+#   sync+restart  — Copy files + restart container process (config changes)
+# =============================================================================
+
+services:
+  frontend-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5174:5174" # Vite dev server
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '1'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+        - action: sync
+          path: ./frontend/public
+          target: /app/public
+        - action: sync
+          path: ./frontend/index.html
+          target: /app/index.html
+        - action: sync
+          path: ./frontend/vite.config.ts
+          target: /app/vite.config.ts
+        - action: sync
+          path: ./frontend/tsconfig.json
+          target: /app/tsconfig.json
+        - action: sync
+          path: ./frontend/tsconfig.app.json
+          target: /app/tsconfig.app.json
+        - action: sync
+          path: ./frontend/tsconfig.node.json
+          target: /app/tsconfig.node.json
+        - action: sync
+          path: ./frontend/env.d.ts
+          target: /app/env.d.ts
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/package-lock.json
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: [ "./dev.sh" ]
+    volumes:
+      # Fallback bind mount keeps backend source in sync even when `docker compose watch`
+      # is not running (common in local dev sessions).
+      - ./backend/app:/app/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dspy_cache:/app/data/dspy_cache
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    tmpfs:
+      - /tmp:size=256M
+    env_file:
+      - .env
+    environment:
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-change-me-local-password}
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
+      - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-0}
+      - BACKEND_UVICORN_GRACEFUL_TIMEOUT=${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-3}
+      # DSPy prompt optimization
+      - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
+      - DSPY_CACHEDIR=/app/data/dspy_cache
+      - DSPY_NUM_THREADS=${DSPY_NUM_THREADS:-4}
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    develop:
+      watch:
+        # Application source sync; enable uvicorn auto-reload with BACKEND_ENABLE_RELOAD=1
+        - action: sync
+          path: ./backend/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        - action: rebuild
+          path: ./backend/requirements.txt
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    volumes:
+      - ./backend/app:/app/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dspy_cache:/app/data/dspy_cache
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - .env
+    environment:
+      - CHANNEL_GATEWAY_ENABLED=true
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-change-me-local-password}
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
+      - FAST_MODEL=${FAST_MODEL:-}
+    develop:
+      watch:
+        - action: sync
+          path: ./backend/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        - action: rebuild
+          path: ./backend/requirements.txt
+
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    hostname: sandbox
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined # Required for Chrome openat2/fsmount syscalls on Linux
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    volumes:
+      - /app/__pycache__
+      - /app/.venv
+    ports:
+      - "127.0.0.1:8083:8080" # Sandbox API (localhost only)
+      - "127.0.0.1:8082:8082" # Framework API (localhost only)
+    shm_size: '2gb'
+    tmpfs:
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /tmp:size=1g,nosuid,nodev
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2'
+          pids: 1024
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    environment:
+      - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
+      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
+      - UVI_ARGS="--reload"
+      - FRAMEWORK_UVI_ARGS="--reload"
+      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - ENABLE_VNC=${ENABLE_VNC:-0}
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --renderer-process-limit=4 --disable-features=CalculateNativeWinOcclusion,IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
+      - BROWSER_PATH=/usr/local/bin/chromium
+      - LIBGL_ALWAYS_SOFTWARE=1
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    develop:
+      watch:
+        - action: sync
+          path: ./sandbox/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        - action: sync
+          path: ./sandbox/scripts
+          target: /app/scripts
+        - action: sync+restart
+          path: ./sandbox/supervisord.conf
+          target: /app/supervisord.conf
+        - action: rebuild
+          path: ./sandbox/requirements.txt
+        - action: rebuild
+          path: ./sandbox/requirements.runtime.txt
+
+  mongodb:
+    image: mongo:7.0.28
+    command:
+      - mongod
+      - --wiredTigerCacheSizeGB=0.25
+      - --setParameter=diagnosticDataCollectionEnabled=false
+      - --setParameter=cursorTimeoutMillis=300000
+      - --quiet
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand('ping').ok\" || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --loglevel
+      - warning
+      - --timeout
+      - "300"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-64mb}
+      - --maxmemory-policy
+      - ${REDIS_MAXMEMORY_POLICY:-volatile-lfu}
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+      - --auto-aof-rewrite-percentage
+      - "100"
+      - --auto-aof-rewrite-min-size
+      - "32mb"
+      - --activedefrag
+      - "yes"
+    volumes:
+      - redis_runtime_data:/data
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.3
+    container_name: pythinker-qdrant
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC (2x faster)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      # Memory optimization: store payloads on disk via mmap
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
+      # Scalar quantization: 4x memory reduction with ~1% recall loss
+      - QDRANT__STORAGE__QUANTIZATION__SCALAR__TYPE=int8
+      - QDRANT__STORAGE__QUANTIZATION__SCALAR__ALWAYS_RAM=true
+      # Optimizer tuning for small collections
+      - QDRANT__STORAGE__OPTIMIZERS__MEMMAP_THRESHOLD=10000
+      - QDRANT__STORAGE__OPTIMIZERS__INDEXING_THRESHOLD=10000
+      - QDRANT__STORAGE__OPTIMIZERS__FLUSH_INTERVAL_SEC=30
+      - QDRANT__STORAGE__WAL__WAL_CAPACITY_MB=16
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mongodb_data:
+    name: pythinker-mongodb-data
+  redis_runtime_data:
+    name: pythinker-redis-runtime-data
+  qdrant_data:
+    name: pythinker-qdrant-data
+  minio_data:
+    name: pythinker-minio-data
+  dspy_cache:
+    name: pythinker-dspy-cache
+
+networks:
+  pythinker-network:
+    name: pythinker-network
+    driver: bridge

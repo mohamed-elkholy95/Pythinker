@@ -1,0 +1,137 @@
+name: Test and Lint
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - '*.md'
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
+      - '.github/workflows/daily-repo-status.lock.yml'
+      - '.github/workflows/copilot-setup-steps.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - '*.md'
+
+# Cancel in-progress runs on the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-lint:
+    name: Backend Lint (Ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: pip install "ruff>=0.8.0"
+
+      - name: Run Ruff linter
+        run: ruff check .
+
+      - name: Run Ruff formatter check
+        run: ruff format --check .
+
+  backend-test:
+    name: Backend Tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install "setuptools<82"
+          pip install -r requirements.txt
+          pip install -r tests/requirements.txt
+
+      - name: Run unit and domain tests
+        env:
+          MONGODB_URI: mongodb://localhost:27017
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          API_KEY: test-api-key-for-ci
+          JWT_SECRET_KEY: test-secret-key-for-ci
+          PASSWORD_SALT: test-salt-for-ci
+          AUTH_PROVIDER: none
+          ENVIRONMENT: testing
+        run: pytest tests/ -v --tb=short --ignore=tests/integration --ignore=tests/load
+
+  frontend:
+    name: Frontend (Lint + Types + Tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run ESLint
+        run: bun run lint:check
+
+      - name: Run TypeScript check
+        run: bun run type-check
+
+      - name: Run tests
+        run: bun run test:run

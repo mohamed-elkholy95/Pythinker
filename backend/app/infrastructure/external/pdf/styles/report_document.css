@@ -1,0 +1,282 @@
+@page {
+  size: A4;
+  margin: 16mm 16mm 16mm 16mm;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #111111;
+}
+
+body {
+  font-family: "Noto Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  line-height: 1.55;
+}
+
+.document-content {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 8mm 4mm 6mm;
+}
+
+.doc-title {
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: #111111;
+  margin: 0 0 16px 0;
+  font-family: "Times New Roman", Georgia, serif;
+}
+
+.doc-meta {
+  margin-bottom: 26px;
+}
+
+.meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.meta-label {
+  font-weight: 700;
+  color: #111111;
+}
+
+.meta-value {
+  color: #333333;
+}
+
+.doc-body {
+  font-size: 16px;
+  line-height: 1.72;
+  color: #111111;
+}
+
+.doc-body h1 {
+  display: none;
+}
+
+.doc-body h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-top: 32px;
+  margin-bottom: 14px;
+  line-height: 1.3;
+}
+
+.doc-body h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 24px;
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.doc-body h4 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 18px;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.doc-body p {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  line-height: 1.72;
+}
+
+.doc-body a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.doc-body a:hover {
+  text-decoration: underline;
+}
+
+.doc-body ul,
+.doc-body ol {
+  margin: 14px 0;
+  padding-left: 24px;
+}
+
+.doc-body li {
+  margin: 6px 0;
+  line-height: 1.65;
+}
+
+.doc-body blockquote {
+  margin: 20px 0;
+  padding: 14px 18px;
+  border-left: 4px solid #d1d5db;
+  background: #f8fafc;
+  border-radius: 0 8px 8px 0;
+  color: #4b5563;
+  break-inside: avoid;
+}
+
+.doc-body blockquote.alert {
+  border-left-width: 6px;
+  color: #111827;
+}
+
+.doc-body blockquote.alert p {
+  margin: 8px 0 0;
+}
+
+.doc-body blockquote.alert p:first-of-type {
+  margin-top: 0;
+}
+
+.doc-body blockquote.alert .alert-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doc-body blockquote.alert.alert-note {
+  background: #eff6ff;
+  border-left-color: #2563eb;
+}
+
+.doc-body blockquote.alert.alert-note .alert-title {
+  color: #1d4ed8;
+}
+
+.doc-body blockquote.alert.alert-tip {
+  background: #ecfdf5;
+  border-left-color: #10b981;
+}
+
+.doc-body blockquote.alert.alert-tip .alert-title {
+  color: #047857;
+}
+
+.doc-body blockquote.alert.alert-important {
+  background: #fff7ed;
+  border-left-color: #f97316;
+}
+
+.doc-body blockquote.alert.alert-important .alert-title {
+  color: #c2410c;
+}
+
+.doc-body blockquote.alert.alert-warning,
+.doc-body blockquote.alert.alert-caution {
+  background: #fefce8;
+  border-left-color: #eab308;
+}
+
+.doc-body blockquote.alert.alert-warning .alert-title,
+.doc-body blockquote.alert.alert-caution .alert-title {
+  color: #a16207;
+}
+
+.doc-body code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code", monospace;
+}
+
+.doc-body pre {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 20px 0;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.45;
+  break-inside: avoid;
+}
+
+.doc-body pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.doc-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+  font-size: 14px;
+  break-inside: avoid;
+}
+
+.doc-body th {
+  background-color: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 700;
+}
+
+.doc-body td {
+  border: 1px solid #e5e7eb;
+  padding: 10px 12px;
+  vertical-align: top;
+}
+
+.doc-body hr {
+  border: none;
+  border-top: 1px solid #d1d5db;
+  margin: 28px 0;
+}
+
+/* Inline citation badge copied from report modal print mode */
+.doc-body a[href^="#ref-"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  border: 1.2px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1;
+  text-decoration: none !important;
+  vertical-align: 0.2em;
+  margin: 0 2px;
+}
+
+.doc-body a[href^="#ref-"]:hover {
+  background: #1c1c1e;
+  border-color: #1c1c1e;
+  color: #ffffff;
+  text-decoration: none !important;
+}
+
+.doc-body [id^="ref-"] {
+  scroll-margin-top: 12px;
+}
+
+.doc-body img,
+.doc-body figure {
+  max-width: 100%;
+  break-inside: avoid;
+}
+
+.doc-body p,
+.doc-body li,
+.doc-body td,
+.doc-body a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

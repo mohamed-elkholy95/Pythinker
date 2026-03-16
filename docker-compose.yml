@@ -1,0 +1,567 @@
+services:
+  frontend:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-frontend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      x-bake:
+        platforms:
+          - linux/amd64
+    ports:
+      - "5174:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+      - traefik-public
+    environment:
+      - BACKEND_URL=http://backend:8000
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf.template:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.pythinker.rule=Host(`pythinker.pythought.com`)"
+      - "traefik.http.routers.pythinker.entrypoints=web"
+      - "traefik.http.services.pythinker.loadbalancer.server.port=80"
+
+  backend:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      x-bake:
+        platforms:
+          - linux/amd64
+    depends_on:
+      sandbox:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - knowledge_base_data:/app/data/knowledge_bases
+      - dspy_cache:/app/data/dspy_cache
+      #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
+    networks:
+      - pythinker-network
+      - pythinker-backend-internal  # Can reach MongoDB, Redis, Qdrant, MinIO
+      - traefik-public
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    tmpfs:
+      - /tmp:size=256M
+    env_file:
+      - .env
+    environment:
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - GRPC_ENABLE_FORK_SUPPORT=0 # Suppress gRPC fork warning from qdrant-client
+      - NODE_OPTIONS=--no-deprecation # Suppress Playwright url.parse() deprecation
+      - FAST_MODEL=${FAST_MODEL:-}
+      # DSPy prompt optimization — disabled by default; flip to true to run offline jobs
+      - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
+      - DSPY_CACHEDIR=/app/data/dspy_cache
+      - DSPY_NUM_THREADS=${DSPY_NUM_THREADS:-4}
+      - DSPY_MAX_BOOTSTRAPPED_DEMOS=${DSPY_MAX_BOOTSTRAPPED_DEMOS:-4}
+      - DSPY_MAX_LABELED_DEMOS=${DSPY_MAX_LABELED_DEMOS:-4}
+      - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
+      - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.pythinker-api.rule=Host(`pythinker.pythought.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.pythinker-api.entrypoints=web"
+      - "traefik.http.services.pythinker-api.loadbalancer.server.port=8000"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  gateway:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - .env
+    environment:
+      - CHANNEL_GATEWAY_ENABLED=true
+      # Infrastructure credentials — must match the backend service.
+      # The gateway runs get_agent_service() which needs MongoDB, Redis,
+      # sandbox, and LLM access.  .env has these commented out, so we
+      # set Docker-internal defaults here (same as the backend block).
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
+      - FAST_MODEL=${FAST_MODEL:-}
+    networks:
+      - pythinker-network
+      - pythinker-backend-internal  # Reach MongoDB, Redis
+
+  sandbox:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+      args:
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
+      x-bake:
+        platforms:
+          - linux/amd64
+    hostname: sandbox
+    # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
+    restart: unless-stopped
+    # NOTE: privileged:true removed — it silently disables seccomp, cap_drop, and
+    # no-new-privileges. For the openat2/fsmount Ubuntu kernel issue, use
+    # seccomp=unconfined as a narrower workaround until the seccomp allowlist is updated.
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    environment:
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
+      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - BROWSER_PATH=/usr/local/bin/chromium
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
+      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
+      - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
+      - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
+      - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
+      - RUNTIME_API_HOST=${RUNTIME_API_HOST:-http://backend:8000}
+      - RUNTIME_API_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
+      - OPENAI_API_BASE=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
+      - OPENAI_BASE_URL=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
+      - OPENAI_API_KEY=${SANDBOX_LLM_PROXY_KEY:-}
+      - CODE_SERVER_PORT=${CODE_SERVER_PORT:-8443}
+      - CODE_SERVER_PASSWORD=${CODE_SERVER_PASSWORD:-disabled}
+      - ENABLE_CODE_SERVER=${ENABLE_CODE_SERVER:-0}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=sandbox-runtime
+      - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
+      - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
+      - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
+    # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
+    # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
+    ports:
+      - "127.0.0.1:8083:8080" # Sandbox API (localhost only)
+      - "127.0.0.1:8082:8082" # Sandbox framework API (localhost only)
+      - "127.0.0.1:8443:8443" # code-server (localhost only)
+    shm_size: '2g'
+    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue)
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - SYS_ADMIN        # Chrome namespace sandboxing
+      - NET_BIND_SERVICE
+      - SYS_CHROOT
+    # Temp filesystem - sandbox needs exec capability for code execution
+    tmpfs:
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /tmp:size=1g,nosuid,nodev # 1GB for Chrome temp files and user data
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+    # File descriptor limits for browser processes
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      # nproc removed: redundant with cgroup pids limit and scoped per-UID
+      # (moby/moby#31424) — causes confusing pthread_create EAGAIN failures
+      # Resource limits: 2G per sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+          pids: 1024
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    networks:
+      - pythinker-network
+
+  sandbox2:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+      args:
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
+      x-bake:
+        platforms:
+          - linux/amd64
+    hostname: sandbox2
+    # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
+    restart: unless-stopped
+    environment:
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
+      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - BROWSER_PATH=/usr/local/bin/chromium
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
+      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
+      - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
+      - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
+      - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
+      - RUNTIME_API_HOST=${RUNTIME_API_HOST:-http://backend:8000}
+      - RUNTIME_API_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
+      - OPENAI_API_BASE=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
+      - OPENAI_BASE_URL=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
+      - OPENAI_API_KEY=${SANDBOX_LLM_PROXY_KEY:-}
+      - CODE_SERVER_PORT=${CODE_SERVER_PORT:-8443}
+      - CODE_SERVER_PASSWORD=${CODE_SERVER_PASSWORD:-disabled}
+      - ENABLE_CODE_SERVER=${ENABLE_CODE_SERVER:-0}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=sandbox-runtime
+      - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
+      - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
+      - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
+    ports:
+      - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
+      - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
+      - "127.0.0.1:8444:8443" # code-server (localhost only)
+    shm_size: '2g'
+    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue)
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - SYS_ADMIN        # Chrome namespace sandboxing
+      - NET_BIND_SERVICE
+      - SYS_CHROOT
+    tmpfs:
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /tmp:size=1g,nosuid,nodev # 1GB for Chrome temp files and user data
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+          pids: 1024
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/health || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    container_name: pythinker-minio
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console UI
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      - MINIO_IDENTITY_OPENID_ENABLE=off
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
+      - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD:-pythinker-svc-secret-change-me}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc admin config reset myminio identity_openid:_ 2>/dev/null || true && \
+        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>/dev/null || true && \
+        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>/dev/null || true && \
+        echo "MinIO service user '$$MINIO_SERVICE_USER' ready with readwrite policy"
+    networks:
+      - pythinker-network
+    restart: "no"
+
+  mongodb:
+    image: mongo:7.0.28
+    command:
+      - mongod
+      - --wiredTigerCacheSizeGB=0.25
+      - --setParameter=diagnosticDataCollectionEnabled=false
+      - --setParameter=cursorTimeoutMillis=300000
+      - --quiet
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    #ports:
+    #  - "27017:27017"
+    networks:
+      - pythinker-backend-internal  # Internal-only — no external access
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand('ping').ok\" || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --loglevel
+      - warning
+      - --timeout
+      - "300"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-64mb}
+      - --maxmemory-policy
+      - ${REDIS_MAXMEMORY_POLICY:-volatile-lfu}
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+      # Auto-compact AOF when it doubles and exceeds 32 MB
+      - --auto-aof-rewrite-percentage
+      - "100"
+      - --auto-aof-rewrite-min-size
+      - "32mb"
+      # Allow truncating up to 8 KB of corrupt AOF tail instead of hard-crashing.
+      - --aof-load-corrupt-tail-max-size
+      - "8192"
+      - --activedefrag
+      - "yes"
+    volumes:
+      - redis_runtime_data:/data
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.3
+    container_name: pythinker-qdrant
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC (2x faster)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      # Memory optimization: store payloads on disk via mmap
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
+      # Scalar quantization: 4x memory reduction with ~1% recall loss
+      - QDRANT__STORAGE__QUANTIZATION__SCALAR__TYPE=int8
+      - QDRANT__STORAGE__QUANTIZATION__SCALAR__ALWAYS_RAM=true
+      # Optimizer tuning (flush interval + WAL size)
+      - QDRANT__STORAGE__OPTIMIZERS__FLUSH_INTERVAL_SEC=30
+      - QDRANT__STORAGE__WAL__WAL_CAPACITY_MB=16
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mongodb_data:
+    name: pythinker-mongodb-data
+  redis_runtime_data:
+    name: pythinker-redis-runtime-data
+  qdrant_data:
+    name: pythinker-qdrant-data
+  minio_data:
+    name: pythinker-minio-data
+  knowledge_base_data:
+    name: pythinker-knowledge-base-data
+  dspy_cache:
+    name: pythinker-dspy-cache
+
+networks:
+  pythinker-network:
+    name: pythinker-network
+    driver: bridge
+  pythinker-backend-internal:
+    name: pythinker-backend-internal
+    internal: true  # No external access — containers only (defense-in-depth)
+  traefik-public:
+    name: traefik-public
+    driver: bridge

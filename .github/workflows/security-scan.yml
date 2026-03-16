@@ -1,0 +1,63 @@
+name: Security Scan
+
+on:
+  # Weekly only — no push trigger to save minutes
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install "setuptools<82"
+          pip install -r backend/requirements.txt
+          pip install "pip-audit>=2.7.0"
+
+      - name: Run pip-audit
+        id: pip-audit
+        continue-on-error: true
+        run: |
+          pip-audit --format json --output pip-audit-report.json || true
+          pip-audit
+
+      - name: Install Node dependencies
+        working-directory: frontend
+        run: bun install
+
+      - name: Run npm audit
+        id: npm-audit
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          bun pm trust || true
+          npm audit --json > ../npm-audit-report.json || true
+          npm audit
+
+      - name: Upload audit reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-reports
+          path: |
+            pip-audit-report.json
+            npm-audit-report.json
+          retention-days: 30

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }}</title>
+    <style>
+{{ css }}
+    </style>
+  </head>
+  <body>
+    <article class="document-content pdf-export-mode">
+      <h1 class="doc-title">{{ title }}</h1>
+      <div class="doc-meta">
+        <div class="meta-row">
+          <span class="meta-label">Author:</span>
+          <span class="meta-value">{{ author }}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">Date:</span>
+          <span class="meta-value">{{ generated_date }}</span>
+        </div>
+      </div>
+
+      <div class="doc-body prose">
+        {{ body_html | safe }}
+      </div>
+    </article>
+  </body>
+</html>
