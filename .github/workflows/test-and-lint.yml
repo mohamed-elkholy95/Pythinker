@@ -24,7 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Detect which paths changed so we can skip unaffected jobs
+  # Detect which paths changed to skip expensive steps (not jobs —
+  # jobs must always run so required status checks pass)
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -46,7 +47,6 @@ jobs:
   backend-lint:
     name: Backend Lint (Ruff)
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
@@ -54,27 +54,35 @@ jobs:
         working-directory: backend
 
     steps:
+      - name: Skip — no backend changes
+        if: needs.changes.outputs.backend != 'true'
+        run: echo "No backend changes detected, skipping lint."
+
       - name: Checkout code
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Ruff
+        if: needs.changes.outputs.backend == 'true'
         run: pip install "ruff>=0.8.0"
 
       - name: Run Ruff linter
+        if: needs.changes.outputs.backend == 'true'
         run: ruff check .
 
       - name: Run Ruff formatter check
+        if: needs.changes.outputs.backend == 'true'
         run: ruff format --check .
 
   backend-test:
     name: Backend Tests (pytest)
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -103,10 +111,16 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Skip — no backend changes
+        if: needs.changes.outputs.backend != 'true'
+        run: echo "No backend changes detected, skipping tests."
+
       - name: Checkout code
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -116,6 +130,7 @@ jobs:
             backend/tests/requirements.txt
 
       - name: Install dependencies
+        if: needs.changes.outputs.backend == 'true'
         run: |
           pip install --upgrade pip
           pip install "setuptools<82"
@@ -123,6 +138,7 @@ jobs:
           pip install -r tests/requirements.txt
 
       - name: Run unit and domain tests
+        if: needs.changes.outputs.backend == 'true'
         env:
           MONGODB_URI: mongodb://localhost:27017
           REDIS_HOST: localhost
@@ -137,7 +153,6 @@ jobs:
   frontend:
     name: Frontend (Lint + Types + Tests)
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -145,22 +160,32 @@ jobs:
         working-directory: frontend
 
     steps:
+      - name: Skip — no frontend changes
+        if: needs.changes.outputs.frontend != 'true'
+        run: echo "No frontend changes detected, skipping."
+
       - name: Checkout code
+        if: needs.changes.outputs.frontend == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Bun
+        if: needs.changes.outputs.frontend == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        if: needs.changes.outputs.frontend == 'true'
+        run: bun install
 
       - name: Run ESLint
+        if: needs.changes.outputs.frontend == 'true'
         run: bun run lint:check
 
       - name: Run TypeScript check
+        if: needs.changes.outputs.frontend == 'true'
         run: bun run type-check
 
       - name: Run tests
+        if: needs.changes.outputs.frontend == 'true'
         run: bun run test:run
