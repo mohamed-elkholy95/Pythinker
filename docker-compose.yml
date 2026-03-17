@@ -88,13 +88,13 @@ services:
       - "8000:8000"
     depends_on:
       mongodb:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       sandbox:
         condition: service_started
     restart: unless-stopped
@@ -150,13 +150,13 @@ services:
       backend:
         condition: service_healthy
       mongodb:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       sandbox:
         condition: service_started
     restart: unless-stopped
@@ -351,7 +351,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   # ---------------------------------------------------------------------------
   # MinIO (S3-compatible object storage)
@@ -360,8 +364,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-pythinker-2bc6b06a}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-o4CcLtVkGf4TNW6PjqulJpssS4G4HObo}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
       - MINIO_IDENTITY_OPENID_ENABLE=off
     volumes:
       - minio_data:/data
@@ -372,7 +376,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # MinIO Init (create service user)
@@ -381,10 +389,10 @@ services:
     image: minio/mc:latest
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-pythinker-2bc6b06a}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-o4CcLtVkGf4TNW6PjqulJpssS4G4HObo}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
       - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
       - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD:-pythinker-svc-secret-change-me}
     entrypoint: /bin/sh
@@ -418,7 +426,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   mongodb_data:
