@@ -39,9 +39,29 @@ updates:
           - "minor"
           - "patch"
 
-  # Docker base images
+  # Docker base images (per-directory for each Dockerfile)
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "type: infrastructure"
+    reviewers:
+      - "mohamed-elkholy95"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "type: infrastructure"
+    reviewers:
+      - "mohamed-elkholy95"
+
+  - package-ecosystem: "docker"
+    directory: "/sandbox"
     schedule:
       interval: "weekly"
     labels:
