@@ -23,6 +23,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # Detect which paths changed to skip expensive steps (not jobs —
   # jobs must always run so required status checks pass)
