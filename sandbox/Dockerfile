@@ -27,13 +27,13 @@ RUN add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
     apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22.13.0 via NVM
+# Node.js 22 LTS via NVM (22.22.1 fixes node-tar, minimatch, glob, brace-expansion, jsdiff CVEs)
 ENV NVM_DIR=/usr/local/nvm
-ENV NODE_VERSION=22.13.0
+ENV NODE_VERSION=22.22.1
 RUN mkdir -p ${NVM_DIR} && \
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && \
     . ${NVM_DIR}/nvm.sh && nvm install ${NODE_VERSION} && nvm alias default ${NODE_VERSION} && nvm use default && \
-    npm install -g pnpm@10.29.2
+    npm install -g pnpm@latest
 
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
@@ -41,8 +41,8 @@ ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # uv — fast Python package/project manager (matches reference sandbox §3.1)
-# Installed as a standalone binary so agents can use it without activating a venv.
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# Pinned to 0.7.x to get patched jsonwebtoken Rust crate (fixes CVE alerts #211, #212)
+RUN curl -LsSf https://astral.sh/uv/0.7.12/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Fonts — comprehensive set for proper web rendering
 # fonts-liberation: metric-compatible with Arial, Times New Roman, Courier (used by 90%+ of websites)
@@ -64,6 +64,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 # Base Python venv template (used by sandbox API + per-workspace venv cloning)
 # Uses uv for ~10-20x faster installs vs pip
 RUN python3 -m venv /opt/base-python-venv && \
+    uv pip install --python /opt/base-python-venv/bin/python --no-cache "pip>=25.1" && \
     uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.runtime.txt && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
         uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \
@@ -175,7 +176,7 @@ COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /home/ubuntu/.local/share/pnpm /home/ubuntu/.local/share/pnpm
 
 ENV NVM_DIR=/usr/local/nvm
-ENV NODE_VERSION=22.13.0
+ENV NODE_VERSION=22.22.1
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV VIRTUAL_ENV=/opt/base-python-venv
 ENV SANDBOX_ADDONS_ENABLED=${ENABLE_SANDBOX_ADDONS}
@@ -221,8 +222,7 @@ RUN if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
 COPY supervisord.conf /app/supervisord.conf
 
 ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" SANDBOX_STREAMING_MODE=cdp_only \
-    SUPERVISOR_RPC_USERNAME=supervisor \
-    SUPERVISOR_RPC_PASSWORD=supervisor-dev-password
+    SUPERVISOR_RPC_USERNAME=supervisor
 
 ENV BROWSER_PATH=/usr/local/bin/chromium
 ENV CHROME_BIN=/usr/local/bin/chromium
