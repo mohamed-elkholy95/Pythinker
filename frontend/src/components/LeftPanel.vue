@@ -41,7 +41,8 @@
       }"
     >
       <div class="left-panel-header pl-2 pr-4 py-3 h-[56px]">
-        <div class="flex items-center">
+        <div class="flex items-center gap-2">
+          <img src="/icon.svg" alt="Pythinker" class="h-5 w-5" />
           <PythinkerLogoTextIcon />
         </div>
         <button

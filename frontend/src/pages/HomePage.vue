@@ -21,7 +21,6 @@
               <Menu :size="20" class="text-[var(--icon-secondary)]" />
             </button>
             <div v-if="!isLeftPanelShow" class="h-8 relative z-20 overflow-hidden flex gap-2 items-center">
-              <img src="/icon.svg" alt="Pythinker" class="h-5 w-5" />
               <PythinkerLogoTextIcon />
             </div>
           </div>
