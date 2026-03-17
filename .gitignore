@@ -131,7 +131,7 @@ examples/
 # ─── Dev Scripts (local-only) ────────────────────────────────────────────────
 .dev.sh
 build.sh
-run.sh
+/run.sh
 test-like-github.sh
 monitor_containers.sh
 show_context_stats.py
