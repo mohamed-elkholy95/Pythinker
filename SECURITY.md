@@ -12,7 +12,7 @@
 
 Instead, report vulnerabilities privately:
 
-1. **Email**: Send details to **moelkholy1995@gmail.com**
+1. **Email**: Send details to **melkholy@gtechmatrix.com**
 2. **Include**: Description of the vulnerability, steps to reproduce, potential impact, and suggested fix if any
 
 ### What to Expect
