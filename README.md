@@ -9,6 +9,9 @@
 [![CI](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml/badge.svg?branch=main)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml)
 [![Docker](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml)
 [![Security](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub issues](https://img.shields.io/github/issues/mohamed-elkholy95/Pythinker)](https://github.com/mohamed-elkholy95/Pythinker/issues)
+[![GitHub stars](https://img.shields.io/github/stars/mohamed-elkholy95/Pythinker)](https://github.com/mohamed-elkholy95/Pythinker/stargazers)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://python.org)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg)](https://fastapi.tiangolo.com)
@@ -225,7 +228,7 @@ Pythinker/
 │   │   ├── infrastructure/# External integrations (LLM, DB, browser)
 │   │   └── interfaces/    # API routes, WebSocket handlers
 │   ├── nanobot/           # Multi-channel messaging gateway (vendored)
-│   └── tests/             # 6,000+ tests
+│   └── tests/             # 3,800+ tests
 ├── sandbox/           # Ubuntu Docker sandbox with Chrome
 ├── grafana/           # Dashboards & monitoring configs
 ├── scripts/           # Utility scripts
@@ -235,11 +238,10 @@ Pythinker/
 ### Running Locally
 
 ```bash
-# Development mode with hot reload (Linux)
-docker compose -f docker-compose-development-linux.yml up --watch
+# Development mode with hot reload
+docker compose up --watch
 
-# Development mode (macOS)
-docker compose -f docker-compose-development.yml up --watch
+docker compose up --watch
 
 # Ports:
 #   5174 -> Frontend (Vite dev server)
