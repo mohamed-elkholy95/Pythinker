@@ -35,7 +35,7 @@ reportlab>=4.2.0  # Telegram PDF delivery generation engine
 html5lib==1.1
 # 6.7.4+ currently pulls an editdistpy build path that fails in fresh CI images
 # with "ModuleNotFoundError: pkg_resources". Pin to known-good version.
-symspellpy==6.7.3
+symspellpy==6.9.0
 
 # Browser automation
 playwright>=1.48.0
