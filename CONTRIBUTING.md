@@ -14,7 +14,7 @@ Thank you for your interest in contributing to Pythinker! This guide will help y
    ```bash
    cp .env.example .env
    # Edit .env with your API keys
-   docker compose -f docker-compose-development-linux.yml up --watch
+   docker compose up --watch
    ```
 
 ## Development Workflow
