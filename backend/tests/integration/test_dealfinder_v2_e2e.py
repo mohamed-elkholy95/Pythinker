@@ -17,7 +17,6 @@ from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.deal_finder.adapter import DealFinderAdapter
 from app.infrastructure.external.search.serper_search import ShoppingResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers / factories
 # ---------------------------------------------------------------------------
@@ -104,16 +103,46 @@ async def test_full_search_flow_physical_product() -> None:
     query = "Sony WH-1000XM5 headphones"
 
     shopping_payload = [
-        {"title": "Sony WH-1000XM5 Wireless Headphones", "source": "Amazon", "price": 279.99,
-         "link": "https://amazon.com/dp/B09XS7JWHH", "rating": 4.8, "rating_count": 15000},
-        {"title": "Sony WH-1000XM5 Headphones", "source": "Best Buy", "price": 289.99,
-         "link": "https://bestbuy.com/site/sony-wh-1000xm5/6505727.p", "rating": 4.7, "rating_count": 8000},
-        {"title": "Sony WH-1000XM5 Noise Canceling Headphones", "source": "Costco", "price": 259.99,
-         "link": "https://costco.com/sony-wh-1000xm5.product.100123456.html", "rating": 4.6, "rating_count": 3000},
-        {"title": "Sony WH-1000XM5 Wireless Headphones", "source": "Walmart", "price": 298.00,
-         "link": "https://walmart.com/ip/Sony-WH-1000XM5/1234567890", "rating": 4.5, "rating_count": 5000},
-        {"title": "Sony WH-1000XM5 Wireless Over-Ear Headphones", "source": "Newegg", "price": 269.00,
-         "link": "https://newegg.com/p/27Y-000N-00017", "rating": 4.4, "rating_count": 1200},
+        {
+            "title": "Sony WH-1000XM5 Wireless Headphones",
+            "source": "Amazon",
+            "price": 279.99,
+            "link": "https://amazon.com/dp/B09XS7JWHH",
+            "rating": 4.8,
+            "rating_count": 15000,
+        },
+        {
+            "title": "Sony WH-1000XM5 Headphones",
+            "source": "Best Buy",
+            "price": 289.99,
+            "link": "https://bestbuy.com/site/sony-wh-1000xm5/6505727.p",
+            "rating": 4.7,
+            "rating_count": 8000,
+        },
+        {
+            "title": "Sony WH-1000XM5 Noise Canceling Headphones",
+            "source": "Costco",
+            "price": 259.99,
+            "link": "https://costco.com/sony-wh-1000xm5.product.100123456.html",
+            "rating": 4.6,
+            "rating_count": 3000,
+        },
+        {
+            "title": "Sony WH-1000XM5 Wireless Headphones",
+            "source": "Walmart",
+            "price": 298.00,
+            "link": "https://walmart.com/ip/Sony-WH-1000XM5/1234567890",
+            "rating": 4.5,
+            "rating_count": 5000,
+        },
+        {
+            "title": "Sony WH-1000XM5 Wireless Over-Ear Headphones",
+            "source": "Newegg",
+            "price": 269.00,
+            "link": "https://newegg.com/p/27Y-000N-00017",
+            "rating": 4.4,
+            "rating_count": 1200,
+        },
     ]
 
     search_engine = MagicMock()
@@ -129,7 +158,7 @@ async def test_full_search_flow_physical_product() -> None:
     with patch("app.infrastructure.external.deal_finder.adapter.get_settings") as mock_settings:
         settings = MagicMock()
         settings.deal_search_mode = "shopping"
-        settings.deal_verify_top_n = 0          # skip verification to avoid scraper calls
+        settings.deal_verify_top_n = 0  # skip verification to avoid scraper calls
         settings.deal_verify_timeout = 5.0
         settings.deal_coupon_search_enabled = True
         settings.deal_scraper_timeout = 10
@@ -181,9 +210,7 @@ async def test_full_search_flow_digital_product() -> None:
 
     search_engine = MagicMock()
     # search_shopping: empty list (no Shopping results for software)
-    search_engine.search_shopping = AsyncMock(
-        return_value=ToolResult.ok(message="Found 0 shopping results", data=[])
-    )
+    search_engine.search_shopping = AsyncMock(return_value=ToolResult.ok(message="Found 0 shopping results", data=[]))
     # search: empty web results
     search_engine.search = AsyncMock(return_value=_empty_search_results(query))
 
@@ -233,19 +260,37 @@ async def test_coupons_included_in_results() -> None:
     query = "Nintendo Switch OLED"
 
     shopping_payload = [
-        {"title": "Nintendo Switch – OLED Model", "source": "Amazon", "price": 349.99,
-         "link": "https://amazon.com/dp/B098RL6SBJ"},
-        {"title": "Nintendo Switch OLED", "source": "Best Buy", "price": 349.99,
-         "link": "https://bestbuy.com/site/nintendo-switch-oled/6453654.p"},
-        {"title": "Nintendo Switch OLED Console", "source": "Walmart", "price": 339.00,
-         "link": "https://walmart.com/ip/Nintendo-Switch-OLED/114090758"},
+        {
+            "title": "Nintendo Switch - OLED Model",
+            "source": "Amazon",
+            "price": 349.99,
+            "link": "https://amazon.com/dp/B098RL6SBJ",
+        },
+        {
+            "title": "Nintendo Switch OLED",
+            "source": "Best Buy",
+            "price": 349.99,
+            "link": "https://bestbuy.com/site/nintendo-switch-oled/6453654.p",
+        },
+        {
+            "title": "Nintendo Switch OLED Console",
+            "source": "Walmart",
+            "price": 339.00,
+            "link": "https://walmart.com/ip/Nintendo-Switch-OLED/114090758",
+        },
     ]
 
     coupon_results = [
-        {"title": "Nintendo eShop 10% off coupon code 2026", "link": "https://slickdeals.net/coupon/nintendo",
-         "snippet": "Use code ESHOP10 for 10% off Nintendo eShop purchases. Verified working."},
-        {"title": "Best Nintendo Switch deals and promo codes", "link": "https://retailmenot.com/view/nintendo.com",
-         "snippet": "Find the latest Nintendo coupon codes and save on your purchase."},
+        {
+            "title": "Nintendo eShop 10% off coupon code 2026",
+            "link": "https://slickdeals.net/coupon/nintendo",
+            "snippet": "Use code ESHOP10 for 10% off Nintendo eShop purchases. Verified working.",
+        },
+        {
+            "title": "Best Nintendo Switch deals and promo codes",
+            "link": "https://retailmenot.com/view/nintendo.com",
+            "snippet": "Find the latest Nintendo coupon codes and save on your purchase.",
+        },
     ]
 
     search_engine = MagicMock()

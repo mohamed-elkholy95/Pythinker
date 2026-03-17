@@ -1,11 +1,13 @@
 """Test URL deduplication in verification scrape."""
+
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.infrastructure.external.deal_finder.adapter import DealFinderAdapter
+import pytest
+
 from app.domain.external.deal_finder import DealResult
+from app.infrastructure.external.deal_finder.adapter import DealFinderAdapter
 
 
 def _make_deal(url: str, store: str = "Store", price: float = 99.0, i: int = 0) -> DealResult:
@@ -30,7 +32,7 @@ class TestVerifyDedup:
         async def counting_fetch(url: str, **kwargs):  # type: ignore[return]
             nonlocal fetch_count
             fetch_count += 1
-            return None  # trigger AttributeError → caught by except block
+            return  # trigger AttributeError → caught by except block
 
         mock_scraper = MagicMock()
         mock_scraper.fetch = counting_fetch
@@ -38,10 +40,7 @@ class TestVerifyDedup:
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=AsyncMock())
 
         # 3 deals all pointing to the same URL
-        deals = [
-            _make_deal("https://same-store.com/product/123", store=f"Store {i}", i=i)
-            for i in range(3)
-        ]
+        deals = [_make_deal("https://same-store.com/product/123", store=f"Store {i}", i=i) for i in range(3)]
 
         result = await adapter._verify_top_deals(deals, top_n=3, timeout=5.0)
 
@@ -55,17 +54,14 @@ class TestVerifyDedup:
 
         async def tracking_fetch(url: str, **kwargs):  # type: ignore[return]
             fetched_urls.append(url)
-            return None  # trigger exception path
+            return  # trigger exception path
 
         mock_scraper = MagicMock()
         mock_scraper.fetch = tracking_fetch
 
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=AsyncMock())
 
-        deals = [
-            _make_deal(f"https://store-{i}.com/product", store=f"Store {i}", i=i)
-            for i in range(3)
-        ]
+        deals = [_make_deal(f"https://store-{i}.com/product", store=f"Store {i}", i=i) for i in range(3)]
 
         result = await adapter._verify_top_deals(deals, top_n=3, timeout=5.0)
 
@@ -80,7 +76,7 @@ class TestVerifyDedup:
         async def counting_fetch(url: str, **kwargs):  # type: ignore[return]
             nonlocal fetch_count
             fetch_count += 1
-            return None
+            return
 
         mock_scraper = MagicMock()
         mock_scraper.fetch = counting_fetch
@@ -117,17 +113,14 @@ class TestVerifyDedup:
 
         async def tracking_fetch(url: str, **kwargs):  # type: ignore[return]
             fetched_urls.append(url)
-            return None
+            return
 
         mock_scraper = MagicMock()
         mock_scraper.fetch = tracking_fetch
 
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=AsyncMock())
 
-        deals = [
-            _make_deal(f"https://store-{i}.com/product", store=f"Store {i}", i=i)
-            for i in range(5)
-        ]
+        deals = [_make_deal(f"https://store-{i}.com/product", store=f"Store {i}", i=i) for i in range(5)]
 
         result = await adapter._verify_top_deals(deals, top_n=2, timeout=5.0)
 

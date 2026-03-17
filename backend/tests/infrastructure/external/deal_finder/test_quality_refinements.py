@@ -5,8 +5,6 @@ Covers:
 - EDITORIAL_REVIEW_DOMAINS constant completeness
 """
 
-import pytest
-
 from app.infrastructure.external.deal_finder.adapter import (
     EDITORIAL_REVIEW_DOMAINS,
     _title_matches_query,
@@ -70,7 +68,6 @@ class TestTitleRelevance:
     def test_model_specific_words_required(self):
         """Only 1/3 significant words match → 33% < 60% → reject."""
         # query_words: ['samsung', 'galaxy', 's24'] ('ultra' is not a stop word)
-        # Actually: ['samsung', 'galaxy', 's24', 'ultra']
         # Title 'samsung' matches 1/4 = 25% → reject
         assert not _title_matches_query("Samsung Case Accessory Bundle", "Samsung Galaxy S24 Ultra")
 

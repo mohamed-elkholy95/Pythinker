@@ -6,8 +6,6 @@ output that may be wrapped in [CMD_BEGIN]...[CMD_END] shell framing markers.
 
 import json
 
-import pytest
-
 from app.domain.utils.text import extract_json_from_shell_output
 
 
@@ -26,7 +24,7 @@ class TestExtractJsonFromShellOutput:
 
     def test_clean_json_array(self):
         """JSON array input is returned unchanged."""
-        raw = '[1, 2, 3]'
+        raw = "[1, 2, 3]"
         assert extract_json_from_shell_output(raw) == raw
 
     def test_shell_framed_plotly_output(self):
@@ -63,12 +61,7 @@ class TestExtractJsonFromShellOutput:
 
     def test_multiple_json_lines_returns_last(self):
         """When multiple JSON lines exist, returns the last valid one."""
-        raw = (
-            "Loading config...\n"
-            '{"status": "loading"}\n'
-            "Processing...\n"
-            '{"success": true, "result": "done"}\n'
-        )
+        raw = 'Loading config...\n{"status": "loading"}\nProcessing...\n{"success": true, "result": "done"}\n'
         result = extract_json_from_shell_output(raw)
         parsed = json.loads(result)
         assert parsed["success"] is True

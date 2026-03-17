@@ -17,6 +17,7 @@ from app.domain.services.agents.output_verifier import OutputVerifier
 # Shared fixture — minimal OutputVerifier instance
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def verifier() -> OutputVerifier:
     """Minimal OutputVerifier with all injected deps mocked out.
@@ -54,6 +55,7 @@ assert len(LONG_CONTENT) > 200, "LONG_CONTENT fixture must exceed the 200-char l
 # ---------------------------------------------------------------------------
 # Creative task bypass — should return False
 # ---------------------------------------------------------------------------
+
 
 class TestCreativeTaskBypass:
     """Creative queries must bypass CoVe regardless of content."""
@@ -127,6 +129,7 @@ class TestCreativeTaskBypass:
 # ---------------------------------------------------------------------------
 # Length gate — content under 200 chars returns False even for design queries
 # ---------------------------------------------------------------------------
+
 
 class TestLengthGate:
     def test_short_content_creative_query_returns_false(self, verifier: OutputVerifier) -> None:

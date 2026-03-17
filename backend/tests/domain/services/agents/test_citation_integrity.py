@@ -158,7 +158,6 @@ class TestNormalizeCitationNumbering:
         )
         assert normalize_citation_numbering(report) == report
 
-
     def test_years_in_brackets_not_treated_as_citations(self):
         """Years like [2024] and [2026] must not be treated as citation numbers."""
         report = (

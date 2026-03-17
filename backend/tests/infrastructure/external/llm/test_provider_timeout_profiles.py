@@ -9,7 +9,7 @@ Verifies that:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -79,7 +79,6 @@ class TestCreateTimeoutUsesProviderProfile:
 
     def test_tool_call_timeout_uses_provider_profile(self) -> None:
         """For GLM, tool call read timeout should be 180s, not hardcoded 90s."""
-        from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
         profile = get_provider_profile("https://open.bigmodel.cn/api/paas/v4/", "glm-5")
         # The tool_read_timeout from profile should be 180

@@ -9,7 +9,6 @@ from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode
 from app.domain.services.agent_task_runner import AgentTaskRunner
 
-
 FULL_REPORT_CONTENT = """\
 # Comprehensive Research Report
 

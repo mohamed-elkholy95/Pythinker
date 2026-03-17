@@ -10,17 +10,16 @@ Covers:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.domain.external.deal_finder import DealComparison, DealResult, EmptyReason
+from app.domain.external.deal_finder import DealComparison
 from app.domain.external.scraper import ScrapedContent
 from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.deal_finder import adapter as adapter_module
 from app.infrastructure.external.deal_finder.adapter import DealFinderAdapter
 from app.infrastructure.external.search.serper_search import ShoppingResult
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures & helpers
@@ -84,9 +83,7 @@ def _make_settings(
 
 def _noop_scraper() -> AsyncMock:
     scraper = AsyncMock()
-    scraper.fetch = AsyncMock(
-        return_value=ScrapedContent(success=False, url="", text="", html=None)
-    )
+    scraper.fetch = AsyncMock(return_value=ScrapedContent(success=False, url="", text="", html=None))
     return scraper
 
 
@@ -104,12 +101,19 @@ async def test_shopping_search_returns_deals_from_multiple_stores(
     monkeypatch.setattr(adapter_module, "get_settings", lambda: settings)
 
     shopping_items = [
-        _make_shopping_result(title="Sony WH-1000XM5", source="Amazon", price=278.00,
-                               link="https://www.amazon.com/dp/B09ABCD", position=1),
-        _make_shopping_result(title="Sony WH-1000XM5", source="Best Buy", price=299.99,
-                               link="https://www.bestbuy.com/site/123", position=2),
-        _make_shopping_result(title="Sony WH-1000XM5", source="Walmart", price=269.00,
-                               link="https://www.walmart.com/ip/456", position=3),
+        _make_shopping_result(
+            title="Sony WH-1000XM5", source="Amazon", price=278.00, link="https://www.amazon.com/dp/B09ABCD", position=1
+        ),
+        _make_shopping_result(
+            title="Sony WH-1000XM5",
+            source="Best Buy",
+            price=299.99,
+            link="https://www.bestbuy.com/site/123",
+            position=2,
+        ),
+        _make_shopping_result(
+            title="Sony WH-1000XM5", source="Walmart", price=269.00, link="https://www.walmart.com/ip/456", position=3
+        ),
     ]
 
     search_engine = AsyncMock()
@@ -152,9 +156,7 @@ async def test_shopping_search_no_site_operator(
     monkeypatch.setattr(adapter_module, "get_settings", lambda: settings)
 
     search_engine = AsyncMock()
-    search_engine.search_shopping = AsyncMock(
-        return_value=ToolResult.ok(message="0 results", data=[])
-    )
+    search_engine.search_shopping = AsyncMock(return_value=ToolResult.ok(message="0 results", data=[]))
 
     adapter = DealFinderAdapter(scraper=_noop_scraper(), search_engine=search_engine)
     await adapter._search_via_shopping("Sony WH-1000XM5")
@@ -177,25 +179,26 @@ async def test_deals_sorted_by_score(
     """search_deals must return deals sorted by score descending."""
     settings = _make_settings(
         deal_search_mode="shopping",
-        deal_verify_top_n=0,       # skip verification for this test
+        deal_verify_top_n=0,  # skip verification for this test
         deal_coupon_search_enabled=False,
     )
     monkeypatch.setattr(adapter_module, "get_settings", lambda: settings)
 
     # Three products at different prices — Amazon lowest → highest score
     shopping_items = [
-        _make_shopping_result(title="Laptop", source="Newegg", price=1100.00,
-                               link="https://www.newegg.com/p/1", position=1),
-        _make_shopping_result(title="Laptop", source="Amazon", price=899.00,
-                               link="https://www.amazon.com/dp/1", position=2),
-        _make_shopping_result(title="Laptop", source="Best Buy", price=999.00,
-                               link="https://www.bestbuy.com/site/1", position=3),
+        _make_shopping_result(
+            title="Laptop", source="Newegg", price=1100.00, link="https://www.newegg.com/p/1", position=1
+        ),
+        _make_shopping_result(
+            title="Laptop", source="Amazon", price=899.00, link="https://www.amazon.com/dp/1", position=2
+        ),
+        _make_shopping_result(
+            title="Laptop", source="Best Buy", price=999.00, link="https://www.bestbuy.com/site/1", position=3
+        ),
     ]
 
     search_engine = AsyncMock()
-    search_engine.search_shopping = AsyncMock(
-        return_value=ToolResult.ok(message="3 results", data=shopping_items)
-    )
+    search_engine.search_shopping = AsyncMock(return_value=ToolResult.ok(message="3 results", data=shopping_items))
 
     adapter = DealFinderAdapter(scraper=_noop_scraper(), search_engine=search_engine)
     comparison = await adapter.search_deals("gaming laptop")
@@ -225,11 +228,9 @@ async def test_digital_product_uses_web_search(
 
     search_engine = AsyncMock()
     # shopping should NOT be called for digital products
-    search_engine.search_shopping = AsyncMock(
-        return_value=ToolResult.ok(message="0 results", data=[])
-    )
+    search_engine.search_shopping = AsyncMock(return_value=ToolResult.ok(message="0 results", data=[]))
     # web search returns 0 results (just checking routing, not results)
-    from app.domain.models.search import SearchResultItem, SearchResults
+    from app.domain.models.search import SearchResults
 
     search_engine.search = AsyncMock(
         return_value=ToolResult.ok(
@@ -326,9 +327,7 @@ class TestNoLegacyPath:
         monkeypatch.setattr(adapter_module, "get_settings", lambda: settings)
 
         search_engine = AsyncMock()
-        search_engine.search_shopping = AsyncMock(
-            return_value=ToolResult.ok(message="0 results", data=[])
-        )
+        search_engine.search_shopping = AsyncMock(return_value=ToolResult.ok(message="0 results", data=[]))
 
         from app.domain.models.search import SearchResults
 

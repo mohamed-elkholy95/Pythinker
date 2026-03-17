@@ -1,7 +1,7 @@
 """Tests for code review fixes (v2 path scoring, verify exception handling, empty coupon filtering, event models)."""
-import pytest
+
+from app.domain.external.deal_finder import CouponInfo, DealResult
 from app.infrastructure.external.deal_finder.adapter import _score_deal_static
-from app.domain.external.deal_finder import DealResult, CouponInfo
 
 
 class TestScoreDealStaticWired:
@@ -136,8 +136,8 @@ class TestVerifyTopDealsExceptionHandling:
         ]
         # Simulate the fixed gather result loop
         verified: list[DealResult | BaseException] = [
-            to_verify[0],           # success
-            RuntimeError("boom"),   # failure
+            to_verify[0],  # success
+            RuntimeError("boom"),  # failure
         ]
 
         result: list[DealResult] = []

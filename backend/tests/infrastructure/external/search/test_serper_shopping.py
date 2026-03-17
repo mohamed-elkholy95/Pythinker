@@ -8,7 +8,6 @@ import pytest
 
 from app.infrastructure.external.search.serper_search import SerperSearchEngine, ShoppingResult
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

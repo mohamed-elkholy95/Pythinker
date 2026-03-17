@@ -142,8 +142,8 @@ class TestSelectBestTable:
         return _MarkdownTable(heading=heading, headers=headers, rows=rows)
 
     def test_numeric_table_preferred_over_hex_only_table(self, generator: ComparisonChartGenerator) -> None:
-        # hex_table: 3 rows × 3 headers = 9 base score, 0 numeric cells → total 9
-        # numeric_table: 3 rows × 2 headers = 6 base score, 3 numeric cells (+6) → total 12
+        # hex_table: 3 rows x 3 headers = 9 base score, 0 numeric cells -> total 9
+        # numeric_table: 3 rows x 2 headers = 6 base score, 3 numeric cells (+6) -> total 12
         # numeric_table must win despite fewer columns
         hex_table = self._make_table(
             headers=["Token", "Light", "Dark"],

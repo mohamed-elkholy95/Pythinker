@@ -83,7 +83,12 @@ class TestReconciliationBasics:
 
     async def test_reconciliation_job_runs(self, outbox_repo, qdrant_repo, memories_collection):
         """Test reconciliation job executes successfully."""
-        job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection, max_retries_per_run=10)
+        job = ReconciliationJob(
+            outbox_repo=outbox_repo,
+            qdrant_repo=qdrant_repo,
+            memories_collection=memories_collection,
+            max_retries_per_run=10,
+        )
 
         stats = await job.run_reconciliation()
 
@@ -97,7 +102,9 @@ class TestReconciliationBasics:
 
     async def test_get_reconciliation_stats(self, outbox_repo, qdrant_repo, memories_collection):
         """Test getting reconciliation statistics."""
-        job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection)
+        job = ReconciliationJob(
+            outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection
+        )
 
         stats = await job.get_reconciliation_stats()
 
@@ -138,7 +145,11 @@ class TestFailedSyncRetry:
 
         # Run reconciliation
         job = ReconciliationJob(
-            outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection, retry_failed_after_hours=1, max_retries_per_run=10
+            outbox_repo=outbox_repo,
+            qdrant_repo=qdrant_repo,
+            memories_collection=memories_collection,
+            retry_failed_after_hours=1,
+            max_retries_per_run=10,
         )
 
         stats = await job.run_reconciliation()
@@ -177,7 +188,12 @@ class TestFailedSyncRetry:
         await memories_collection.insert_one(memory_doc)
 
         # Run reconciliation (retry_failed_after_hours=1)
-        job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection, retry_failed_after_hours=1)
+        job = ReconciliationJob(
+            outbox_repo=outbox_repo,
+            qdrant_repo=qdrant_repo,
+            memories_collection=memories_collection,
+            retry_failed_after_hours=1,
+        )
 
         await job.run_reconciliation()
 
@@ -209,7 +225,9 @@ class TestFailedSyncRetry:
         await memories_collection.insert_one(memory_doc)
 
         # Run reconciliation
-        job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection)
+        job = ReconciliationJob(
+            outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection
+        )
 
         await job.run_reconciliation()
 
@@ -249,7 +267,9 @@ class TestMissingVectorDetection:
         assert not exists
 
         # Run reconciliation
-        job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection)
+        job = ReconciliationJob(
+            outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, memories_collection=memories_collection
+        )
 
         stats = await job.run_reconciliation()
 

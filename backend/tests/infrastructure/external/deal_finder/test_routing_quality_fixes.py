@@ -27,40 +27,38 @@ class TestDigitalProductOverride:
         mock_scraper = AsyncMock()
         mock_scraper.fetch.return_value = None
         mock_search = AsyncMock()
-        mock_search.search = AsyncMock(
-            return_value=MagicMock(success=True, data=MagicMock(results=[]))
-        )
+        mock_search.search = AsyncMock(return_value=MagicMock(success=True, data=MagicMock(results=[])))
         # search_shopping should NOT be called for digital override
         mock_search.search_shopping = AsyncMock()
 
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=mock_search)
 
-        with patch(
-            "app.infrastructure.external.deal_finder.adapter.classify_item_category",
-            return_value="digital",
+        with (
+            patch(
+                "app.infrastructure.external.deal_finder.adapter.classify_item_category",
+                return_value="digital",
+            ),
+            patch("app.infrastructure.external.deal_finder.adapter.get_settings") as mock_settings,
         ):
-            with patch(
-                "app.infrastructure.external.deal_finder.adapter.get_settings"
-            ) as mock_settings:
-                settings = MagicMock()
-                settings.deal_search_mode = "auto"
-                settings.deal_verify_top_n = 0
-                settings.deal_coupon_search_enabled = False
-                settings.deal_scraper_history_enabled = False
-                mock_settings.return_value = settings
+            settings = MagicMock()
+            settings.deal_search_mode = "auto"
+            settings.deal_verify_top_n = 0
+            settings.deal_coupon_search_enabled = False
+            settings.deal_scraper_history_enabled = False
+            mock_settings.return_value = settings
 
-                with patch.object(
-                    adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]
-                ) as mock_web_search:
-                    with patch.object(
-                        adapter,
-                        "_search_deals_legacy",
-                        new_callable=AsyncMock,
-                    ) as mock_legacy:
-                        result = await adapter.search_deals(
-                            query="Microsoft 365 Family annual subscription",
-                            stores=["amazon.com", "microsoft.com", "bestbuy.com"],
-                        )
+            with (
+                patch.object(adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]) as mock_web_search,
+                patch.object(
+                    adapter,
+                    "_search_deals_legacy",
+                    new_callable=AsyncMock,
+                ) as mock_legacy,
+            ):
+                result = await adapter.search_deals(
+                    query="Microsoft 365 Family annual subscription",
+                    stores=["amazon.com", "microsoft.com", "bestbuy.com"],
+                )
 
         # Legacy per-store path must NOT have been called
         mock_legacy.assert_not_called()
@@ -75,33 +73,27 @@ class TestDigitalProductOverride:
         mock_search = AsyncMock()
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=mock_search)
 
-        with patch(
-            "app.infrastructure.external.deal_finder.adapter.classify_item_category",
-            return_value="physical",
+        with (
+            patch(
+                "app.infrastructure.external.deal_finder.adapter.classify_item_category",
+                return_value="physical",
+            ),
+            patch.object(adapter, "_search_via_shopping", new_callable=AsyncMock, return_value=[]) as mock_shopping,
+            patch.object(adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]),
+            patch.object(adapter, "_search_deals_legacy", new_callable=AsyncMock) as mock_legacy,
+            patch("app.infrastructure.external.deal_finder.adapter.get_settings") as mock_settings,
         ):
-            with patch.object(
-                adapter, "_search_via_shopping", new_callable=AsyncMock, return_value=[]
-            ) as mock_shopping:
-                with patch.object(
-                    adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]
-                ):
-                    with patch.object(
-                        adapter, "_search_deals_legacy", new_callable=AsyncMock
-                    ) as mock_legacy:
-                        with patch(
-                            "app.infrastructure.external.deal_finder.adapter.get_settings"
-                        ) as mock_settings:
-                            settings = MagicMock()
-                            settings.deal_search_mode = "auto"
-                            settings.deal_verify_top_n = 0
-                            settings.deal_coupon_search_enabled = False
-                            settings.deal_scraper_history_enabled = False
-                            mock_settings.return_value = settings
+            settings = MagicMock()
+            settings.deal_search_mode = "auto"
+            settings.deal_verify_top_n = 0
+            settings.deal_coupon_search_enabled = False
+            settings.deal_scraper_history_enabled = False
+            mock_settings.return_value = settings
 
-                            result = await adapter.search_deals(
-                                query="Sony WH-1000XM5 headphones",
-                                stores=["amazon.com", "bestbuy.com"],
-                            )
+            result = await adapter.search_deals(
+                query="Sony WH-1000XM5 headphones",
+                stores=["amazon.com", "bestbuy.com"],
+            )
 
         # Legacy per-store path must NOT be called — unified v2 path is always used
         mock_legacy.assert_not_called()
@@ -116,30 +108,26 @@ class TestDigitalProductOverride:
         mock_search = AsyncMock()
         adapter = DealFinderAdapter(scraper=mock_scraper, search_engine=mock_search)
 
-        with patch(
-            "app.infrastructure.external.deal_finder.adapter.classify_item_category",
-            return_value="digital",
+        with (
+            patch(
+                "app.infrastructure.external.deal_finder.adapter.classify_item_category",
+                return_value="digital",
+            ),
+            patch.object(adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]) as mock_web,
+            patch.object(adapter, "_search_deals_legacy", new_callable=AsyncMock) as mock_legacy,
+            patch("app.infrastructure.external.deal_finder.adapter.get_settings") as mock_settings,
         ):
-            with patch.object(
-                adapter, "_search_via_web", new_callable=AsyncMock, return_value=[]
-            ) as mock_web:
-                with patch.object(
-                    adapter, "_search_deals_legacy", new_callable=AsyncMock
-                ) as mock_legacy:
-                    with patch(
-                        "app.infrastructure.external.deal_finder.adapter.get_settings"
-                    ) as mock_settings:
-                        settings = MagicMock()
-                        settings.deal_search_mode = "auto"
-                        settings.deal_verify_top_n = 0
-                        settings.deal_coupon_search_enabled = False
-                        settings.deal_scraper_history_enabled = False
-                        mock_settings.return_value = settings
+            settings = MagicMock()
+            settings.deal_search_mode = "auto"
+            settings.deal_verify_top_n = 0
+            settings.deal_coupon_search_enabled = False
+            settings.deal_scraper_history_enabled = False
+            mock_settings.return_value = settings
 
-                        await adapter.search_deals(
-                            query="Adobe Creative Cloud subscription",
-                            stores=None,
-                        )
+            await adapter.search_deals(
+                query="Adobe Creative Cloud subscription",
+                stores=None,
+            )
 
         # No stores provided → digital → web path used, legacy never called
         mock_web.assert_called_once()

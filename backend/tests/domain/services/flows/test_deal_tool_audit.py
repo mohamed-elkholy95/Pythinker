@@ -167,8 +167,7 @@ def test_regression_deal_scraper_was_not_recognized() -> None:
     )
     # Regression assertion: must NOT be missed
     assert "search" not in missed, (
-        f"Regression: deal_scraper still not recognized for 'search' action. "
-        f"fulfilled={fulfilled}, missed={missed}"
+        f"Regression: deal_scraper still not recognized for 'search' action. fulfilled={fulfilled}, missed={missed}"
     )
     assert "search" in fulfilled
 

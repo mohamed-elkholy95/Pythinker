@@ -1,10 +1,12 @@
 """Test that Slickdeals feed cache uses asyncio.Lock to prevent duplicate requests."""
+
 from __future__ import annotations
 
 import asyncio
 import sys
 import types
 from contextlib import contextmanager
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,7 +22,7 @@ def _stub_feedparser():
     feedparser is not installed in the current environment."""
 
     class _FakeFeed:
-        entries: list = []
+        entries: ClassVar[list] = []
 
     module = types.ModuleType("feedparser")
     module.parse = MagicMock(return_value=_FakeFeed())  # type: ignore[attr-defined]
@@ -68,15 +70,11 @@ class TestFeedCacheLock:
         coupon_aggregator._feed_cache_locks.clear()
 
         with _stub_feedparser():
-            tasks = [
-                fetch_slickdeals_coupons(mock_scraper, f"store_{i}")
-                for i in range(10)
-            ]
+            tasks = [fetch_slickdeals_coupons(mock_scraper, f"store_{i}") for i in range(10)]
             await asyncio.gather(*tasks)
 
         assert fetch_count <= 4, (
-            f"Expected ≤4 HTTP requests but got {fetch_count} — "
-            f"feed cache lock is not preventing duplicate fetches"
+            f"Expected ≤4 HTTP requests but got {fetch_count} — feed cache lock is not preventing duplicate fetches"
         )
 
     @pytest.mark.asyncio
@@ -117,6 +115,7 @@ class TestFeedCacheLock:
     @pytest.mark.asyncio
     async def test_failed_fetch_does_not_poison_cache(self):
         """A fetch that returns success=False should not populate the feed cache."""
+
         async def mock_fetch_fail(url: str, **kwargs: object) -> ScrapedContent:
             return ScrapedContent(success=False, url=url, text="")
 
@@ -130,9 +129,7 @@ class TestFeedCacheLock:
             result = await fetch_slickdeals_coupons(mock_scraper, "bestbuy")
 
         assert result == [], "Failed fetches should return empty coupon list"
-        assert len(coupon_aggregator._feed_cache) == 0, (
-            "Failed fetches must not populate _feed_cache"
-        )
+        assert len(coupon_aggregator._feed_cache) == 0, "Failed fetches must not populate _feed_cache"
 
     @pytest.mark.asyncio
     async def test_get_feed_lock_returns_same_lock_for_same_url(self):

@@ -20,7 +20,6 @@ from app.domain.external.deal_finder import (
 )
 from app.domain.services.tools.deal_scraper import DealScraperTool
 
-
 # ---------------------------------------------------------------------------
 # Shared stub
 # ---------------------------------------------------------------------------
@@ -219,7 +218,6 @@ async def test_deal_search_has_coupon_item_category_summary() -> None:
 
 def _get_deal_search_description() -> str:
     """Extract the description string from the deal_search tool decorator."""
-    tool = DealScraperTool.__dict__["deal_search"]
     # The @tool decorator stores metadata as _tool_meta or in __doc__/func attributes.
     # We inspect the tool's registered schema via get_tools().
     stub = StubDealFinder()

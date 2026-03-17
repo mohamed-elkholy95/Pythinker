@@ -37,7 +37,7 @@ async def _slow_generator(
 async def _empty_generator() -> collections.abc.AsyncGenerator[_DummyEvent, None]:
     """Yields nothing."""
     return
-    yield  # noqa: RET504 — makes it an async generator
+    yield
 
 
 @pytest.mark.asyncio
@@ -51,7 +51,7 @@ async def test_interleave_fast_generator_no_heartbeats() -> None:
     events: list[BaseEvent] = []
     async with hb:
         async for event in interleave_heartbeat(_fast_generator(), hb):
-            events.append(event)
+            events.append(event)  # noqa: PERF401
 
     labels = [e.label for e in events if isinstance(e, _DummyEvent)]
     assert labels == ["event-0", "event-1", "event-2"]
@@ -71,7 +71,7 @@ async def test_interleave_slow_generator_emits_heartbeats() -> None:
     events: list[BaseEvent] = []
     async with hb:
         async for event in interleave_heartbeat(_slow_generator(stall_seconds=0.35, count=2), hb):
-            events.append(event)
+            events.append(event)  # noqa: PERF401
 
     # Should have at least 1 heartbeat per stall period
     heartbeats = [e for e in events if isinstance(e, ProgressEvent)]
@@ -98,7 +98,7 @@ async def test_interleave_empty_generator() -> None:
     events: list[BaseEvent] = []
     async with hb:
         async for event in interleave_heartbeat(_empty_generator(), hb):
-            events.append(event)
+            events.append(event)  # noqa: PERF401
 
     assert len(events) == 0
 
@@ -114,7 +114,7 @@ async def test_interleave_preserves_event_order() -> None:
     events: list[BaseEvent] = []
     async with hb:
         async for event in interleave_heartbeat(_slow_generator(stall_seconds=0.2, count=1), hb):
-            events.append(event)
+            events.append(event)  # noqa: PERF401
 
     # Pattern should be: [heartbeat, ..., heartbeat, real_event]
     # The last non-heartbeat event should be the real event
