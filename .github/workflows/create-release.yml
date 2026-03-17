@@ -38,31 +38,31 @@ jobs:
 
           # Append Docker pull commands
           OWNER="${{ github.repository_owner }}"
-          cat >> /tmp/release-notes.md << EOF
-
----
-
-### Docker Images
-
-**GitHub Container Registry (ghcr.io):**
-\`\`\`bash
-docker pull ghcr.io/${OWNER}/pythinker-frontend:${VERSION}
-docker pull ghcr.io/${OWNER}/pythinker-backend:${VERSION}
-docker pull ghcr.io/${OWNER}/pythinker-sandbox:${VERSION}
-\`\`\`
-
-**Docker Hub:**
-\`\`\`bash
-docker pull pythinker/pythinker-frontend:${VERSION}
-docker pull pythinker/pythinker-backend:${VERSION}
-docker pull pythinker/pythinker-sandbox:${VERSION}
-\`\`\`
-
-**Quick start:**
-\`\`\`bash
-IMAGE_TAG=${VERSION} docker compose -f docker-compose.yml up -d
-\`\`\`
-EOF
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Docker Images"
+            echo ""
+            echo "**GitHub Container Registry (ghcr.io):**"
+            echo '```bash'
+            echo "docker pull ghcr.io/${OWNER}/pythinker-frontend:${VERSION}"
+            echo "docker pull ghcr.io/${OWNER}/pythinker-backend:${VERSION}"
+            echo "docker pull ghcr.io/${OWNER}/pythinker-sandbox:${VERSION}"
+            echo '```'
+            echo ""
+            echo "**Docker Hub:**"
+            echo '```bash'
+            echo "docker pull pythinker/pythinker-frontend:${VERSION}"
+            echo "docker pull pythinker/pythinker-backend:${VERSION}"
+            echo "docker pull pythinker/pythinker-sandbox:${VERSION}"
+            echo '```'
+            echo ""
+            echo "**Quick start:**"
+            echo '```bash'
+            echo "IMAGE_TAG=${VERSION} docker compose -f docker-compose.yml up -d"
+            echo '```'
+          } >> /tmp/release-notes.md
 
       - name: Create GitHub Release
         env:
