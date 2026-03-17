@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: BUILDER — heavy installs, dev tools, Playwright
 # ============================================================
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:24.04 AS builder
 ARG ENABLE_SANDBOX_ADDONS=0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -104,7 +104,7 @@ RUN apt-get update && apt-get purge -y --auto-remove software-properties-common 
 # ============================================================
 # Stage 2: RUNTIME — production sandbox image
 # ============================================================
-FROM ubuntu:22.04 AS runtime
+FROM ubuntu:24.04 AS runtime
 ARG ENABLE_SANDBOX_ADDONS=0
 ARG GIT_VERSION=dev
 ARG GIT_SHA=unknown
