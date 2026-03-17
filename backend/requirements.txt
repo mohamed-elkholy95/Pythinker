@@ -3,7 +3,7 @@ skills-ref>=0.1.0
 
 # Build tooling compatibility for transient sdist metadata generation.
 # setuptools>=82 can break transitive legacy `pkg_resources` import paths.
-setuptools<82
+setuptools<83
 
 # Core web framework
 fastapi[standard]>=0.115.0
