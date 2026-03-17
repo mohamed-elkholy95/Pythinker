@@ -17,6 +17,7 @@ export interface User {
   email: string;
   role: UserRole;
   is_active: boolean;
+  totp_enabled: boolean;
   created_at: string;
   updated_at: string;
   last_login_at?: string | null;
@@ -28,6 +29,7 @@ export interface User {
 export interface LoginRequest {
   email: string;
   password: string;
+  totp_code?: string;
 }
 
 /**
@@ -43,11 +45,12 @@ export interface RegisterRequest {
  * Login response type
  */
 export interface LoginResponse {
-  user: User;
-  access_token: string;
-  refresh_token: string;
+  user?: User;
+  access_token?: string;
+  refresh_token?: string;
   token_type: string;
   expires_in?: number;
+  requires_totp?: boolean;
 }
 
 /**
@@ -134,6 +137,28 @@ export interface ResetPasswordRequest {
   email: string;
   verification_code: string;
   new_password: string;
+}
+
+/**
+ * TOTP setup response type
+ */
+export interface TotpSetupResponse {
+  provisioning_uri: string;
+  secret: string;
+}
+
+/**
+ * TOTP verify request type
+ */
+export interface TotpVerifyRequest {
+  code: string;
+}
+
+/**
+ * TOTP disable request type
+ */
+export interface TotpDisableRequest {
+  code: string;
 }
 
 
@@ -277,7 +302,34 @@ export async function resetPassword(request: ResetPasswordRequest): Promise<{}> 
   return response.data.data;
 }
 
+/**
+ * Start TOTP 2FA setup — returns provisioning URI for QR code
+ * @returns TOTP setup data (provisioning_uri + secret)
+ */
+export async function totpSetup(): Promise<TotpSetupResponse> {
+  const response = await apiClient.post<ApiResponse<TotpSetupResponse>>('/auth/totp/setup');
+  return response.data.data;
+}
 
+/**
+ * Verify TOTP code to complete 2FA setup
+ * @param request TOTP verification code
+ * @returns Success response
+ */
+export async function totpVerify(request: TotpVerifyRequest): Promise<{}> {
+  const response = await apiClient.post<ApiResponse<{}>>('/auth/totp/verify', request);
+  return response.data.data;
+}
+
+/**
+ * Disable TOTP 2FA
+ * @param request Current TOTP code for verification
+ * @returns Success response
+ */
+export async function totpDisable(request: TotpDisableRequest): Promise<{}> {
+  const response = await apiClient.post<ApiResponse<{}>>('/auth/totp/disable', request);
+  return response.data.data;
+}
 
 /**
  * Set authentication token in request headers

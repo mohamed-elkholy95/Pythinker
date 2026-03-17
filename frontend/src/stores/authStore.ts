@@ -88,6 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
           email: 'anonymous@localhost',
           role: 'user',
           is_active: true,
+          totp_enabled: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }
@@ -135,8 +136,16 @@ export const useAuthStore = defineStore('auth', () => {
       isLoading.value = true
       authError.value = null
       const response = await apiLogin(credentials)
-      storeToken(response.access_token)
-      setAuthToken(response.access_token)
+
+      // TOTP 2FA challenge — don't store tokens yet
+      if (response.requires_totp) {
+        return response
+      }
+
+      if (response.access_token) {
+        storeToken(response.access_token)
+        setAuthToken(response.access_token)
+      }
       if (response.refresh_token) {
         storeRefreshToken(response.refresh_token)
       }
