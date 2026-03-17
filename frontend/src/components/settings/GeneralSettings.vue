@@ -1,14 +1,56 @@
 <template>
   <div class="general-settings">
-    <!-- Section Header -->
+    <!-- Appearance Section -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-icon">
+          <Palette class="w-5 h-5" />
+        </div>
+        <div class="section-info">
+          <h4 class="section-title">{{ t('Appearance') }}</h4>
+          <p class="section-desc">{{ t('Choose your preferred color theme') }}</p>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <component :is="isDark ? Moon : Sun" class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          <div class="setting-text">
+            <span class="setting-label">{{ t('Theme') }}</span>
+            <span class="setting-hint">{{ isDark ? t('Dark mode is active') : t('Light mode is active') }}</span>
+          </div>
+        </div>
+        <Select :modelValue="isDark ? 'dark' : 'light'" @update:modelValue="onThemeChange">
+          <SelectTrigger class="settings-select">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent :side-offset="5">
+            <SelectItem value="light">
+              <div class="select-option">
+                <Sun class="w-4 h-4" />
+                <span>{{ t('Light') }}</span>
+              </div>
+            </SelectItem>
+            <SelectItem value="dark">
+              <div class="select-option">
+                <Moon class="w-4 h-4" />
+                <span>{{ t('Dark') }}</span>
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+
+    <!-- Language Section -->
     <div class="section-card">
       <div class="section-header">
         <div class="section-icon">
           <Globe class="w-5 h-5" />
         </div>
         <div class="section-info">
-          <h4 class="section-title">Language & Region</h4>
-          <p class="section-desc">Choose your preferred language for the interface</p>
+          <h4 class="section-title">{{ t('Language & Region') }}</h4>
+          <p class="section-desc">{{ t('Choose your preferred language for the interface') }}</p>
         </div>
       </div>
 
@@ -16,8 +58,8 @@
         <div class="setting-label-group">
           <Languages class="w-4 h-4 text-[var(--icon-tertiary)]" />
           <div class="setting-text">
-            <span class="setting-label">Display Language</span>
-            <span class="setting-hint">Affects all text and UI elements</span>
+            <span class="setting-label">{{ t('Display Language') }}</span>
+            <span class="setting-hint">{{ t('Affects all text and UI elements') }}</span>
           </div>
         </div>
         <Select v-model="selectedLanguage" @update:modelValue="onLanguageChange">
@@ -45,7 +87,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Globe, Languages } from 'lucide-vue-next'
+import { Globe, Languages, Moon, Palette, Sun } from 'lucide-vue-next'
 import {
   Select,
   SelectContent,
@@ -54,15 +96,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useLocale } from '@/composables/useI18n'
+import { useThemeMode } from '@/composables/useThemeMode'
 import type { Locale } from '@/locales'
 
-// Use i18n for translations
 const { t } = useI18n()
-
-// Use the project's i18n composable
 const { currentLocale, setLocale } = useLocale()
+const { isDark, setTheme } = useThemeMode()
 
-// Language selection
 const selectedLanguage = ref<Locale>(currentLocale.value)
 
 interface LanguageOption {
@@ -76,10 +116,13 @@ const languageOptions: LanguageOption[] = [
   { value: 'zh', label: t('Simplified Chinese'), flag: '🇨🇳' },
 ]
 
+const onThemeChange = (value: string) => {
+  setTheme(value as 'dark' | 'light')
+}
+
 const onLanguageChange = (value: string) => {
   if (value && typeof value === 'string') {
-    const locale = value as Locale
-    setLocale(locale)
+    setLocale(value as Locale)
   }
 }
 </script>
