@@ -15,6 +15,7 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-2496ED.svg)](https://docker.com)
+[![Scrapling](https://img.shields.io/badge/Scraping-Scrapling-blue)](https://github.com/D4Vinci/Scrapling)
 
 *An open-source, self-hosted AI agent that can browse the web, write & execute code, search the internet, manage files, and deliver polished research reports — all from a beautiful real-time interface.*
 
@@ -35,9 +36,11 @@ Inspired by [Manus AI](https://manus.im) and built with ideas from [OpenManus](h
 | **Beautiful Report Generation** | Automatically produces structured, citation-rich research reports with charts and references |
 | **Sandboxed Execution** | Every task runs in an isolated Docker container with Chrome, Python, Node.js, and shell access |
 | **Multi-Model Support** | Works with any OpenAI-compatible API — GPT-4o, Claude, DeepSeek, Kimi, GLM, local models, and more |
+| **Intelligent Web Scraping** | Three-tier scraping with automatic escalation — HTTP, dynamic rendering, stealth browser (powered by Scrapling) |
 | **Telegram Integration** | Full-featured Telegram bot gateway with inline buttons, file sharing, and streaming responses |
 | **MCP Tool Integration** | Extend capabilities with external Model Context Protocol servers |
-| **PlanAct Agent Architecture** | Intelligent planning, execution, and summarization pipeline with adaptive model routing |
+| **PlanAct Agent Architecture** | Intelligent planning, execution, reflection, and verification pipeline with 108 agent modules |
+| **Hybrid Memory System** | Semantic search over past sessions via Qdrant (BM25 + dense retrieval with RRF fusion) |
 
 ---
 
@@ -67,7 +70,8 @@ Inspired by [Manus AI](https://manus.im) and built with ideas from [OpenManus](h
 |-------|-----------|
 | **Frontend** | Vue 3, TypeScript, Vite, TipTap, Monaco Editor, xterm.js, Plotly |
 | **Backend** | FastAPI, Python 3.12+, Pydantic v2, Beanie ODM, SSE, WebSockets |
-| **Agent** | PlanAct pipeline, adaptive model routing, tool efficiency monitoring |
+| **Agent** | PlanAct pipeline, adaptive model routing, tool efficiency monitoring, reflection & verification |
+| **Web Scraping** | [Scrapling](https://github.com/D4Vinci/Scrapling) (tiered: HTTP/TLS impersonation → dynamic rendering → stealth browser), Playwright |
 | **Sandbox** | Ubuntu Docker, Chromium, Playwright, Supervisord, CDP screencast |
 | **Messaging** | Nanobot multi-channel gateway (Telegram, Slack, Discord, DingTalk, Feishu) |
 | **Database** | MongoDB 7.0 (sessions & state), Redis 8 (cache & coordination) |
@@ -148,17 +152,49 @@ When you send a message, Pythinker's agent follows an intelligent pipeline:
 
 ```
 User Message
-    |
+    │
     v
-+--------------+    +------------------+    +----------------+
-|   Planning   |--->|    Execution     |--->| Summarization  |
-|              |    |                  |    |                |
-| . Analyze    |    | . Run tools      |    | . Synthesize   |
-| . Break down |    | . Browse web     |    | . Cite sources |
-| . Prioritize |    | . Execute code   |    | . Format report|
-| . Checkpoint |    | . Search & scrape|    | . Verify facts |
-+--------------+    +------------------+    +----------------+
+┌──────────────┐    ┌──────────────────┐    ┌────────────────┐    ┌──────────────┐
+│   Planning   │───>│    Execution     │───>│   Reflection   │───>│ Verification │
+│              │    │                  │    │                │    │              │
+│ • Analyze    │    │ • Run tools      │    │ • Evaluate     │    │ • Hallucina- │
+│ • Decompose  │    │ • Browse web     │    │   quality      │    │   tion check │
+│ • Route model│    │ • Execute code   │    │ • Critic review│    │ • Citation   │
+│ • Checkpoint │    │ • Search & scrape│    │ • Self-correct │    │   integrity  │
+└──────────────┘    └──────────────────┘    └────────────────┘    └──────────────┘
 ```
+
+### Agent Architecture Deep Dive
+
+Pythinker's agent is not a simple prompt-and-respond loop. It is a modular, introspective system with **108 specialized modules** across dedicated subsystems:
+
+**Planning** — The Planner decomposes user requests into structured multi-step plans with checkpoints. A complexity assessor routes tasks to the appropriate model tier before planning begins.
+
+**Execution** — The Step Executor runs each plan step, selecting from 43+ tools. A parallel executor can run independent steps concurrently. Tool efficiency is monitored to detect and break analysis paralysis (5+ consecutive reads without writes).
+
+**Reasoning & Reflection** — After execution, a reflection layer evaluates output quality. A critic agent provides adversarial review. Chain-of-verification cross-checks claims against sources.
+
+**Memory** — Conversation context, research traces, and tool results are managed through a sliding-window context system with role-scoped memory. Qdrant provides semantic search over past sessions using hybrid BM25 + dense retrieval with Reciprocal Rank Fusion (RRF).
+
+**Self-Healing** — A stuck detector identifies when the agent is looping. A self-healing loop attempts recovery strategies. Error pattern analysis learns from failures to avoid them in future runs.
+
+**Verification** — Hallucination detection (LLM-as-Judge), citation integrity checking, grounding validation, and output coverage validation ensure the final deliverable is accurate and well-sourced.
+
+**Document Intelligence** — A context-aware document segmenter uses AST-based boundary detection to chunk long documents without splitting mid-function. An implementation tracker validates multi-file code completeness via AST + pattern analysis.
+
+**Security** — Content safety gates, security assessors, and compliance gates run before any output reaches the user.
+
+### Web Scraping Pipeline
+
+Pythinker uses [Scrapling](https://github.com/D4Vinci/Scrapling) as its primary web scraping engine, providing a three-tier escalation strategy that balances speed with stealth:
+
+| Tier | Engine | When Used |
+|------|--------|-----------|
+| **Tier 1** | HTTP + TLS impersonation (`curl_cffi`) | Default — fast, low overhead |
+| **Tier 2** | Dynamic rendering (headless browser) | JavaScript-heavy pages |
+| **Tier 3** | Stealth browser (`Patchright`) | Anti-bot protected sites |
+
+The agent's scraper automatically escalates through tiers when a lower tier fails (blocked, empty content, CAPTCHA detected). This is implemented via the domain `Scraper` Protocol with a clean port/adapter boundary — the domain layer never imports Scrapling directly.
 
 ### Real-Time Features
 
@@ -207,6 +243,8 @@ TELEGRAM_CHANNEL_ENABLED=true
 - **Secret scanning** — TruffleHog + GitHub secret scanning in CI
 - **Dependency auditing** — pip-audit and npm audit run automatically
 - **Network isolation** — Internal services run on private Docker networks
+- **OWASP security headers** — Content-Security-Policy, HSTS, X-Frame-Options on all responses
+- **Container scanning** — Trivy vulnerability scanning in CI pipeline
 
 See [SECURITY.md](SECURITY.md) for our vulnerability reporting policy.
 
@@ -222,11 +260,12 @@ Pythinker/
 ├── backend/           # FastAPI + Python 3.12 + DDD architecture
 │   ├── app/
 │   │   ├── core/          # Configuration, settings, lifespan
-│   │   ├── domain/        # Models, services, agents, tools
+│   │   ├── domain/        # Models, services, agents (108 modules), tools
 │   │   ├── application/   # Use case orchestration, DTOs
-│   │   ├── infrastructure/# External integrations (LLM, DB, browser)
+│   │   ├── infrastructure/# External integrations (LLM, DB, browser, scraper)
 │   │   └── interfaces/    # API routes, WebSocket handlers
 │   ├── nanobot/           # Multi-channel messaging gateway (vendored)
+│   ├── scripts/           # Utility & migration scripts
 │   └── tests/             # 3,800+ tests
 ├── sandbox/           # Ubuntu Docker sandbox with Chrome
 ├── grafana/           # Dashboards & monitoring configs
@@ -268,7 +307,7 @@ bun run test:run                         # Vitest
 
 Pythinker ships with a full observability stack:
 
-- **Prometheus** — Metrics collection (SSE connections, sandbox health, API latency)
+- **Prometheus** — Metrics collection (SSE connections, sandbox health, API latency, tool efficiency)
 - **Grafana** — Pre-configured dashboards
 - **Loki + Promtail** — Log aggregation and search
 
@@ -292,6 +331,7 @@ All configuration is via `.env`. Key sections:
 | **Sandbox** | `SANDBOX_IMAGE`, `SANDBOX_LIFECYCLE_MODE` | Container lifecycle |
 | **Telegram** | `TELEGRAM_BOT_TOKEN` | Bot gateway |
 | **Storage** | `MINIO_ROOT_USER/PASSWORD` | Object storage |
+| **Multi-Key** | `*_API_KEY`, `*_API_KEY_2`, `*_API_KEY_3` | API key rotation with failover |
 
 See [`.env.example`](.env.example) for the complete reference with documentation.
 
@@ -304,8 +344,10 @@ Pythinker is inspired by and builds upon ideas from these projects:
 - **[Manus AI](https://manus.im)** — The original vision of an AI agent that can browse, code, and deliver research autonomously. Pythinker's PlanAct pipeline and live browser streaming are directly inspired by Manus.
 - **[OpenManus](https://github.com/manusai/OpenManus)** — The open-source Manus implementation that demonstrated the feasibility of a self-hosted agent with sandbox isolation.
 - **[Nanobot](https://github.com/ArcadeAI/nanobot)** — Multi-channel AI agent framework. Pythinker vendors Nanobot as its Telegram/Slack/Discord messaging gateway, bridging the MessageBus to Pythinker's AgentService.
+- **[Scrapling](https://github.com/D4Vinci/Scrapling)** — Intelligent web scraping library with TLS fingerprinting, anti-bot evasion, and tiered fetching. Pythinker uses Scrapling as its primary scraping engine with automatic tier escalation (HTTP → dynamic → stealth).
 - **[browser-use](https://github.com/browser-use/browser-use)** — Browser automation library used for autonomous multi-step web workflows.
 - **[Playwright](https://playwright.dev)** — Browser control and CDP screencast streaming.
+- **[Qdrant](https://qdrant.tech)** — Vector search engine powering Pythinker's hybrid semantic memory system.
 
 ---
 
