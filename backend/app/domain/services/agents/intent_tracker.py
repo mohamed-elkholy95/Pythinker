@@ -1,0 +1,659 @@
+"""User Intent Tracker for Prompt Adherence
+
+Tracks user intent throughout agent execution to ensure:
+1. All explicit user requirements are addressed
+2. Agent doesn't add unrequested features (scope creep)
+3. Agent doesn't skip requested features (scope drift)
+4. Final output matches user expectations
+
+Research shows agents commonly drift from user intent during
+multi-step execution. This module provides continuous monitoring
+and correction guidance.
+"""
+
+import logging
+import re
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any, ClassVar
+
+logger = logging.getLogger(__name__)
+
+
+class IntentType(str, Enum):
+    """Types of user intent detected."""
+
+    ACTION = "action"  # Do something
+    QUESTION = "question"  # Answer something
+    CREATION = "creation"  # Create something
+    MODIFICATION = "modification"  # Change something
+    DELETION = "deletion"  # Remove something
+    ANALYSIS = "analysis"  # Analyze/research something
+    COMPARISON = "comparison"  # Compare things
+
+
+class DriftType(str, Enum):
+    """Types of scope drift detected."""
+
+    SCOPE_CREEP = "scope_creep"  # Adding unrequested work
+    SCOPE_REDUCTION = "scope_reduction"  # Skipping requested work
+    TOPIC_DRIFT = "topic_drift"  # Going off-topic
+    GOLD_PLATING = "gold_plating"  # Unnecessary enhancements
+
+
+@dataclass
+class UserIntent:
+    """Represents the user's primary intent."""
+
+    intent_type: IntentType
+    primary_goal: str
+    explicit_requirements: list[str]
+    implicit_requirements: list[str]
+    constraints: list[str]  # Explicit constraints user specified (DO NOT, don't, avoid, never)
+    implicit_constraints: list[str]  # Inferred constraints from context
+    preferences: dict[str, str]  # Format, style, etc.
+    original_prompt: str
+    extracted_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass
+class DriftAlert:
+    """Alert for detected scope drift."""
+
+    drift_type: DriftType
+    description: str
+    severity: float  # 0.0 to 1.0
+    evidence: str  # What triggered this alert
+    correction: str  # Suggested correction
+
+
+@dataclass
+class IntentTrackingResult:
+    """Result of intent tracking check."""
+
+    coverage_percent: float  # How many requirements addressed
+    unaddressed_requirements: list[str]
+    addressed_requirements: list[str]
+    drift_alerts: list[DriftAlert]
+    on_track: bool
+    guidance: str | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def needs_correction(self) -> bool:
+        """Check if execution needs correction."""
+        return not self.on_track or len(self.drift_alerts) > 0
+
+
+class IntentTracker:
+    """Tracks user intent throughout agent execution.
+
+    Usage:
+        tracker = IntentTracker()
+
+        # At planning time - extract intent
+        intent = tracker.extract_intent("Create a Python script that reads CSV...")
+
+        # During execution - track progress
+        tracker.mark_addressed("Read CSV file", step_id="step-1")
+
+        # At checkpoints - verify alignment
+        result = tracker.check_alignment(current_work_summary)
+
+        if result.needs_correction:
+            print(result.guidance)
+    """
+
+    # Action verbs for intent type detection
+    INTENT_PATTERNS: ClassVar[dict[IntentType, list[str]]] = {
+        IntentType.CREATION: [
+            r"\b(create|make|build|generate|write|develop|design|implement)\b",
+        ],
+        IntentType.MODIFICATION: [
+            r"\b(update|modify|change|edit|revise|fix|improve|enhance|refactor)\b",
+        ],
+        IntentType.DELETION: [
+            r"\b(delete|remove|drop|clear|clean|purge)\b",
+        ],
+        IntentType.ANALYSIS: [
+            r"\b(analyze|research|investigate|study|examine|review|assess|evaluate)\b",
+        ],
+        IntentType.COMPARISON: [
+            r"\b(compare|contrast|versus|vs|differ|between)\b",
+        ],
+        IntentType.QUESTION: [
+            r"^(what|who|when|where|why|how|which|is|are|can|does|do)\b",
+            r"\?\s*$",
+        ],
+    }
+
+    # Constraint patterns (things NOT to do)
+    # Enhanced patterns that capture the constraint content more accurately
+    CONSTRAINT_PATTERNS: ClassVar[list[str]] = [
+        r"(?:do\s+not|don't|dont)\s+(.+?)(?:\.|$)",
+        r"(?:never|avoid|skip)\s+(.+?)(?:\.|$)",
+        r"(?:without|no)\s+(\w+(?:\s+\w+)?)",
+        r"(?:except|excluding)\s+(.+?)(?:\.|$)",
+    ]
+
+    # Preference patterns
+    PREFERENCE_PATTERNS: ClassVar[dict[str, str]] = {
+        "format": r"(?:in|as|using)\s+(markdown|json|csv|html|pdf|text)",
+        "language": r"(?:in|using)\s+(python|javascript|typescript|java|go|rust)",
+        "style": r"(?:in\s+a?\s*)(professional|casual|formal|simple|detailed)\s+(?:style|tone|manner)",
+    }
+
+    def __init__(self):
+        """Initialize the intent tracker."""
+        self._current_intent: UserIntent | None = None
+        self._addressed_requirements: set[str] = set()
+        self._work_history: list[dict[str, Any]] = []
+
+        # Use lightweight sentence embeddings for semantic matching
+        self._embedding_cache: dict[str, list[float]] = {}
+
+        # Compile patterns
+        self._intent_re = {
+            k: [re.compile(p, re.IGNORECASE) for p in patterns] for k, patterns in self.INTENT_PATTERNS.items()
+        }
+        self._constraint_re = [re.compile(p, re.IGNORECASE) for p in self.CONSTRAINT_PATTERNS]
+        self._preference_re = {k: re.compile(p, re.IGNORECASE) for k, p in self.PREFERENCE_PATTERNS.items()}
+
+    def extract_intent(self, user_prompt: str) -> UserIntent:
+        """Extract user intent from the prompt.
+
+        Args:
+            user_prompt: The user's original message
+
+        Returns:
+            UserIntent with extracted information
+        """
+        if not user_prompt:
+            return UserIntent(
+                intent_type=IntentType.ACTION,
+                primary_goal="",
+                explicit_requirements=[],
+                implicit_requirements=[],
+                constraints=[],
+                implicit_constraints=[],
+                preferences={},
+                original_prompt="",
+            )
+
+        # Detect intent type
+        intent_type = self._detect_intent_type(user_prompt)
+
+        # Extract primary goal (first sentence or main clause)
+        primary_goal = self._extract_primary_goal(user_prompt)
+
+        # Extract explicit requirements (numbered lists, bullets)
+        explicit_reqs = self._extract_explicit_requirements(user_prompt)
+
+        # Extract implicit requirements (mentioned but not listed)
+        implicit_reqs = self._extract_implicit_requirements(user_prompt, explicit_reqs)
+
+        # Extract constraints (what NOT to do)
+        constraints = self._extract_constraints(user_prompt)
+
+        # Infer implicit constraints from task context
+        implicit_constraints = self._infer_implicit_constraints(user_prompt)
+
+        # Extract preferences
+        preferences = self._extract_preferences(user_prompt)
+
+        intent = UserIntent(
+            intent_type=intent_type,
+            primary_goal=primary_goal,
+            explicit_requirements=explicit_reqs,
+            implicit_requirements=implicit_reqs,
+            constraints=constraints,
+            implicit_constraints=implicit_constraints,
+            preferences=preferences,
+            original_prompt=user_prompt,
+        )
+
+        self._current_intent = intent
+        self._addressed_requirements.clear()
+        self._work_history.clear()
+
+        logger.info(
+            f"Extracted intent: type={intent_type.value}, "
+            f"requirements={len(explicit_reqs)}, constraints={len(constraints)}"
+        )
+
+        return intent
+
+    def _detect_intent_type(self, text: str) -> IntentType:
+        """Detect the primary intent type."""
+        text_lower = text.lower()
+
+        for intent_type, patterns in self._intent_re.items():
+            for pattern in patterns:
+                if pattern.search(text_lower):
+                    return intent_type
+
+        return IntentType.ACTION  # Default
+
+    def _extract_primary_goal(self, text: str) -> str:
+        """Extract the primary goal from the prompt."""
+        # Get first sentence or up to first newline
+        first_part = text.split("\n")[0].strip()
+
+        # If it's too long, truncate at sentence boundary
+        if len(first_part) > 200:
+            match = re.match(r"^[^.!?]+[.!?]", first_part)
+            if match:
+                return match.group(0).strip()
+            return first_part[:200] + "..."
+
+        return first_part
+
+    def _extract_explicit_requirements(self, text: str) -> list[str]:
+        """Extract explicitly listed requirements."""
+        requirements = []
+
+        # Numbered items (1. Item, 1) Item)
+        numbered = re.findall(r"(?:^|\n)\s*\d+[.\)]\s*(.+?)(?=\n|$)", text)
+        requirements.extend([r.strip() for r in numbered if r.strip()])
+
+        # Bullet items (- Item, * Item)
+        bullets = re.findall(r"(?:^|\n)\s*[-*]\s*(.+?)(?=\n|$)", text)
+        requirements.extend([r.strip() for r in bullets if r.strip()])
+
+        return requirements
+
+    def _extract_implicit_requirements(
+        self,
+        text: str,
+        explicit: list[str],
+    ) -> list[str]:
+        """Extract implicitly mentioned requirements."""
+        implicit = []
+        explicit_lower = {e.lower() for e in explicit}
+
+        # Look for "should", "must", "need to" phrases
+        should_patterns = [
+            r"(?:should|must|needs?\s+to|has?\s+to|requires?)\s+(.+?)(?:[.,]|$)",
+        ]
+
+        for pattern in should_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            implicit.extend(match.strip() for match in matches if match.lower().strip() not in explicit_lower)
+
+        return implicit[:10]  # Limit
+
+    def _extract_constraints(self, text: str) -> list[str]:
+        """Extract constraints (things NOT to do)."""
+        constraints = []
+
+        for pattern in self._constraint_re:
+            matches = pattern.findall(text)
+            constraints.extend([m.strip() for m in matches if m.strip()])
+
+        return constraints
+
+    def _infer_implicit_constraints(self, message: str) -> list[str]:
+        """Infer constraints that are implicit in the task.
+
+        Analyzes the message context to determine constraints the user
+        likely expects even if not explicitly stated.
+
+        Args:
+            message: The user's original message
+
+        Returns:
+            List of inferred constraint strings
+        """
+        implicit = []
+
+        # If user asks for "simple" solution, don't over-engineer
+        if re.search(r"\b(simple|basic|minimal|quick)\b", message, re.IGNORECASE):
+            implicit.append("Keep solution simple, don't over-engineer")
+
+        # If user specifies a language/framework, don't switch
+        lang_match = re.search(
+            r"\b(in\s+)?(python|javascript|typescript|rust|go|java)\b",
+            message,
+            re.IGNORECASE,
+        )
+        if lang_match:
+            lang = lang_match.group(2)
+            implicit.append(f"Use {lang}, don't switch to another language")
+
+        # If user mentions "existing" code, don't create new files unnecessarily
+        if re.search(r"\b(existing|current|this)\s+(code|file|project)\b", message, re.IGNORECASE):
+            implicit.append("Modify existing code, don't create new files unnecessarily")
+
+        return implicit
+
+    def _extract_preferences(self, text: str) -> dict[str, str]:
+        """Extract user preferences (format, style, etc.)."""
+        preferences = {}
+
+        for pref_type, pattern in self._preference_re.items():
+            match = pattern.search(text)
+            if match:
+                preferences[pref_type] = match.group(1).lower()
+
+        return preferences
+
+    def mark_addressed(
+        self,
+        requirement: str,
+        step_id: str,
+        work_summary: str | None = None,
+    ) -> None:
+        """Mark a requirement as addressed.
+
+        Args:
+            requirement: The requirement that was addressed
+            step_id: ID of the step that addressed it
+            work_summary: Optional summary of work done
+        """
+        self._addressed_requirements.add(requirement.lower())
+
+        self._work_history.append(
+            {
+                "step_id": step_id,
+                "requirement": requirement,
+                "summary": work_summary,
+                "timestamp": datetime.now(UTC),
+            }
+        )
+
+        logger.debug(f"Marked requirement addressed: {requirement[:50]}... by {step_id}")
+
+    def check_alignment(
+        self,
+        current_work: str,
+        plan_steps: list[str] | None = None,
+    ) -> IntentTrackingResult:
+        """Check if current work aligns with user intent.
+
+        Args:
+            current_work: Summary of current work being done
+            plan_steps: Optional list of planned step descriptions
+
+        Returns:
+            IntentTrackingResult with alignment assessment
+        """
+        if not self._current_intent:
+            return IntentTrackingResult(
+                coverage_percent=100.0,
+                unaddressed_requirements=[],
+                addressed_requirements=[],
+                drift_alerts=[],
+                on_track=True,
+            )
+
+        # Calculate requirement coverage
+        all_requirements = self._current_intent.explicit_requirements + self._current_intent.implicit_requirements
+
+        addressed = []
+        unaddressed = []
+
+        for req in all_requirements:
+            if req.lower() in self._addressed_requirements:
+                addressed.append(req)
+            else:
+                # Check if current work addresses this requirement using semantic matching
+                if self.check_requirement_addressed(req, current_work, threshold=0.3):
+                    addressed.append(req)
+                    self._addressed_requirements.add(req.lower())
+                else:
+                    unaddressed.append(req)
+
+        coverage = len(addressed) / len(all_requirements) if all_requirements else 100.0
+
+        # Check for drift
+        drift_alerts = self._detect_drift(current_work, plan_steps)
+
+        # Determine if on track
+        on_track = coverage >= 0.5 and len(drift_alerts) == 0
+
+        # Generate guidance if needed
+        guidance = None
+        if not on_track:
+            guidance = self._generate_guidance(unaddressed, drift_alerts)
+
+        return IntentTrackingResult(
+            coverage_percent=coverage * 100,
+            unaddressed_requirements=unaddressed,
+            addressed_requirements=addressed,
+            drift_alerts=drift_alerts,
+            on_track=on_track,
+            guidance=guidance,
+        )
+
+    def _detect_drift(
+        self,
+        current_work: str,
+        plan_steps: list[str] | None,
+    ) -> list[DriftAlert]:
+        """Detect scope drift in current work."""
+        alerts = []
+
+        if not self._current_intent:
+            return alerts
+
+        current_lower = current_work.lower()
+        intent = self._current_intent
+
+        # Check for scope creep (adding unrequested features)
+        scope_creep_indicators = [
+            "also added",
+            "bonus feature",
+            "extra functionality",
+            "while I was at it",
+            "additionally implemented",
+            "as a bonus",
+            "I also",
+            "went ahead and",
+        ]
+
+        for indicator in scope_creep_indicators:
+            if indicator in current_lower:
+                alerts.append(
+                    DriftAlert(
+                        drift_type=DriftType.SCOPE_CREEP,
+                        description="Agent may be adding unrequested features",
+                        severity=0.4,
+                        evidence=indicator,
+                        correction="Focus only on explicitly requested features",
+                    )
+                )
+                break
+
+        # Check for constraint violations
+        alerts.extend(
+            DriftAlert(
+                drift_type=DriftType.SCOPE_CREEP,
+                description=f"Work may violate constraint: {constraint}",
+                severity=0.7,
+                evidence=constraint,
+                correction=f"Avoid: {constraint}",
+            )
+            for constraint in intent.constraints
+            if constraint.lower() in current_lower
+        )
+
+        # Check for topic drift (current work not related to goal)
+        # Use semantic similarity for better matching
+        goal_similarity = self._compute_semantic_similarity(intent.primary_goal, current_work)
+        if goal_similarity < 0.15:
+            alerts.append(
+                DriftAlert(
+                    drift_type=DriftType.TOPIC_DRIFT,
+                    description="Current work may be off-topic from original goal",
+                    severity=0.5,
+                    evidence=f"Low similarity ({goal_similarity:.2f}) to goal",
+                    correction=f"Return focus to: {intent.primary_goal[:100]}",
+                )
+            )
+
+        return alerts
+
+    def _text_similarity(self, text1: str, text2: str) -> float:
+        """Calculate simple text similarity using Jaccard word overlap."""
+        if not text1 or not text2:
+            return 0.0
+
+        # Simple word overlap (Jaccard)
+        words1 = set(re.findall(r"\b\w+\b", text1.lower()))
+        words2 = set(re.findall(r"\b\w+\b", text2.lower()))
+
+        # Remove stop words
+        stop_words = {"the", "a", "an", "is", "are", "to", "for", "of", "and", "in", "on", "with"}
+        words1 -= stop_words
+        words2 -= stop_words
+
+        if not words1 or not words2:
+            return 0.0
+
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+
+        return intersection / union if union > 0 else 0.0
+
+    def _compute_semantic_similarity(
+        self,
+        text1: str,
+        text2: str,
+    ) -> float:
+        """Compute semantic similarity using embeddings.
+
+        Uses trigram embeddings for lightweight semantic comparison.
+        Falls back to Jaccard if embeddings unavailable.
+
+        Args:
+            text1: First text to compare
+            text2: Second text to compare
+
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        try:
+            emb1 = self._get_or_compute_embedding(text1)
+            emb2 = self._get_or_compute_embedding(text2)
+
+            if not emb1 or not emb2:
+                return self._text_similarity(text1, text2)
+
+            # Cosine similarity
+            dot = sum(a * b for a, b in zip(emb1, emb2, strict=True))
+            norm1 = sum(a * a for a in emb1) ** 0.5
+            norm2 = sum(b * b for b in emb2) ** 0.5
+
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+
+            return dot / (norm1 * norm2)
+
+        except Exception:
+            # Fallback to Jaccard
+            return self._text_similarity(text1, text2)
+
+    def _get_or_compute_embedding(self, text: str) -> list[float]:
+        """Get cached embedding or compute new one.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector (list of floats)
+        """
+        # Truncate for cache key to handle long texts
+        cache_key = text[:200]
+
+        if cache_key not in self._embedding_cache:
+            from app.domain.services.agents.stuck_detector import compute_trigram_embedding
+
+            self._embedding_cache[cache_key] = compute_trigram_embedding(text)
+
+            # Limit cache size to prevent memory bloat
+            if len(self._embedding_cache) > 500:
+                # Remove oldest entries (first 100)
+                keys_to_remove = list(self._embedding_cache.keys())[:100]
+                for key in keys_to_remove:
+                    del self._embedding_cache[key]
+
+        return self._embedding_cache[cache_key]
+
+    def check_requirement_addressed(
+        self,
+        requirement: str,
+        work_done: str,
+        threshold: float = 0.7,
+    ) -> bool:
+        """Check if a requirement is addressed using semantic matching.
+
+        This method uses semantic similarity (trigram embeddings) to determine
+        if the work done addresses the given requirement. This is more robust
+        than simple word overlap as it captures semantic relationships.
+
+        Args:
+            requirement: The requirement to check
+            work_done: Description of work done
+            threshold: Minimum similarity score to consider addressed (0.0-1.0)
+
+        Returns:
+            True if the requirement appears to be addressed
+        """
+        similarity = self._compute_semantic_similarity(requirement, work_done)
+        return similarity >= threshold
+
+    def _generate_guidance(
+        self,
+        unaddressed: list[str],
+        alerts: list[DriftAlert],
+    ) -> str:
+        """Generate correction guidance."""
+        lines = ["## Alignment Correction Needed"]
+
+        if unaddressed:
+            lines.append("\n**Unaddressed Requirements:**")
+            lines.extend(f"- {req}" for req in unaddressed[:5])
+
+        if alerts:
+            lines.append("\n**Issues Detected:**")
+            for alert in alerts:
+                lines.append(f"- [{alert.drift_type.value}] {alert.description}")
+                lines.append(f"  Correction: {alert.correction}")
+
+        return "\n".join(lines)
+
+    def get_summary(self) -> dict[str, Any]:
+        """Get tracking summary."""
+        if not self._current_intent:
+            return {"status": "no_intent_tracked"}
+
+        all_reqs = self._current_intent.explicit_requirements + self._current_intent.implicit_requirements
+
+        return {
+            "intent_type": self._current_intent.intent_type.value,
+            "primary_goal": self._current_intent.primary_goal[:100],
+            "total_requirements": len(all_reqs),
+            "addressed_count": len(self._addressed_requirements),
+            "constraints_count": len(self._current_intent.constraints),
+            "work_steps_tracked": len(self._work_history),
+        }
+
+    def reset(self) -> None:
+        """Reset the tracker for a new task."""
+        self._current_intent = None
+        self._addressed_requirements.clear()
+        self._work_history.clear()
+        self._embedding_cache.clear()
+
+
+# Singleton instance
+_tracker: IntentTracker | None = None
+
+
+def get_intent_tracker() -> IntentTracker:
+    """Get the global intent tracker instance."""
+    global _tracker
+    if _tracker is None:
+        _tracker = IntentTracker()
+    return _tracker

@@ -1,0 +1,169 @@
+// File API service
+import { apiClient, ApiResponse, API_CONFIG } from './client';
+import { SignedUrlResponse } from '../types/response';
+
+/**
+ * File info type
+ */
+export interface FileInfo {
+  file_id: string;
+  filename: string;
+  content_type?: string;
+  size: number;
+  upload_date: string;
+  metadata?: Record<string, any>;
+  file_url?: string;
+}
+
+const encodeFileId = (fileId: string): string => encodeURIComponent(fileId);
+
+
+
+/**
+ * Upload file
+ * @param file File to upload
+ * @param metadata Optional metadata
+ * @returns Upload result
+ */
+export async function uploadFile(file: File, metadata?: Record<string, any>): Promise<FileInfo> {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  if (metadata) {
+    formData.append('metadata', JSON.stringify(metadata));
+  }
+
+  const response = await apiClient.post<ApiResponse<FileInfo>>('/files', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data.data;
+}
+
+/**
+ * Download file
+ * @param fileId File ID
+ * @returns File download result
+ */
+export async function downloadFile(fileId: string): Promise<Blob> {
+  const response = await apiClient.get(`/files/${encodeFileId(fileId)}/download`, {
+    responseType: 'blob',
+  });
+  
+  return response.data;
+}
+
+/**
+ * Delete file
+ * @param fileId File ID
+ * @returns Success status
+ */
+export async function deleteFile(fileId: string): Promise<boolean> {
+  try {
+    await apiClient.delete<ApiResponse<void>>(`/files/${encodeFileId(fileId)}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete file:', error);
+    return false;
+  }
+}
+
+/**
+ * Get file information
+ * @param fileId File ID
+ * @returns File information or null if not found
+ */
+export async function getFileInfo(fileId: string): Promise<FileInfo | null> {
+  try {
+    const response = await apiClient.get<ApiResponse<FileInfo>>(`/files/${encodeFileId(fileId)}/info`);
+    return response.data.data;
+  } catch (error) {
+    console.error('Failed to get file info:', error);
+    return null;
+  }
+}
+
+/**
+ * Create file signed URL
+ * @param fileId File ID to create signed URL for
+ * @param expireMinutes URL expiration time in minutes (default: 15)
+ * @returns Signed URL response for file download
+ */
+export async function createFileSignedUrl(fileId: string, expireMinutes: number = 15): Promise<SignedUrlResponse> {
+  const response = await apiClient.post<ApiResponse<SignedUrlResponse>>(`/files/${encodeFileId(fileId)}/signed-url`, {
+    expire_minutes: expireMinutes
+  });
+  return response.data.data;
+}
+
+/**
+ * Get file download URL
+ * @param file File info
+ * @returns Promise resolving to file download URL string
+ */
+export async function getFileDownloadUrl(
+  fileInfo: FileInfo,
+): Promise<string> {
+  if (fileInfo.file_url) {
+    return `${API_CONFIG.host}${fileInfo.file_url}`;
+  }
+  const signedUrlResponse = await createFileSignedUrl(fileInfo.file_id);
+  return `${API_CONFIG.host}${signedUrlResponse.signed_url}`;
+}
+
+/**
+ * Download multiple files as a zip archive
+ * @param fileIds Array of file IDs to download
+ * @returns Promise that triggers file download
+ */
+export async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
+  const response = await apiClient.post('/files/batch/download', {
+    file_ids: fileIds
+  }, {
+    responseType: 'blob'
+  });
+
+  // Extract filename from Content-Disposition header or use default
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = 'files.zip';
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+    if (filenameMatch) {
+      filename = decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+    }
+  }
+
+  // Create download link and trigger download
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/**
+ * Get file URL for direct access
+ * @param fileId File ID
+ * @returns File URL string
+ */
+export function getFileUrl(fileId: string): string {
+  return `${API_CONFIG.host}/api/v1/files/${encodeFileId(fileId)}/download`;
+}
+
+/**
+ * File API object with all file-related methods
+ */
+export const fileApi = {
+  uploadFile,
+  downloadFile,
+  deleteFile,
+  getFileInfo,
+  createFileSignedUrl,
+  getFileDownloadUrl,
+  downloadFilesAsZip,
+  getFileUrl,
+};

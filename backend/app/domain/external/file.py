@@ -1,0 +1,98 @@
+from typing import Any, BinaryIO, Protocol
+
+from app.domain.models.file import FileInfo
+
+
+class FileStorage(Protocol):
+    """File storage service interface for file upload and download operations"""
+
+    async def upload_file(
+        self,
+        file_data: BinaryIO,
+        filename: str,
+        user_id: str,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FileInfo:
+        """Upload file to storage
+
+        Args:
+            file_data: Binary file data stream
+            filename: Name of the file to be stored
+            user_id: ID of the user uploading the file
+            content_type: MIME type of the file (optional)
+            metadata: Additional metadata to store with the file (optional)
+
+        Returns:
+            FileUploadResult containing file_id and upload information
+        """
+        ...
+
+    async def download_file(self, file_id: str, user_id: str | None = None) -> tuple[BinaryIO, FileInfo]:
+        """Download file from storage by file ID
+
+        Args:
+            file_id: File ID
+            user_id: ID of the user downloading the file (optional, if None skips access control)
+
+        Returns:
+            FileDownloadResult containing file data and metadata for FastAPI streaming
+        """
+        ...
+
+    async def delete_file(self, file_id: str, user_id: str) -> bool:
+        """Delete file from storage
+
+        Args:
+            file_id: File ID
+            user_id: ID of the user deleting the file
+
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        ...
+
+    async def get_file_info(self, file_id: str, user_id: str | None = None) -> FileInfo | None:
+        """Get file metadata from storage
+
+        Args:
+            file_id: File ID
+            user_id: ID of the user requesting file info
+
+        Returns:
+            FileInfo containing file metadata, None if file not found
+        """
+        ...
+
+    async def generate_upload_url(
+        self, filename: str, user_id: str, content_type: str | None = None
+    ) -> tuple[str, str]:
+        """Generate a presigned URL for direct file upload.
+
+        Args:
+            filename: Name of the file to be uploaded
+            user_id: ID of the user uploading the file
+            content_type: MIME type of the file (optional)
+
+        Returns:
+            Tuple of (presigned_url, object_key)
+
+        Raises:
+            NotImplementedError: If the storage backend doesn't support presigned URLs
+        """
+        raise NotImplementedError("Presigned upload URLs not supported by this storage backend")
+
+    async def generate_download_url(self, file_id: str, user_id: str | None = None) -> str:
+        """Generate a presigned URL for direct file download.
+
+        Args:
+            file_id: File ID / object key
+            user_id: ID of the user downloading the file (optional)
+
+        Returns:
+            Presigned download URL
+
+        Raises:
+            NotImplementedError: If the storage backend doesn't support presigned URLs
+        """
+        raise NotImplementedError("Presigned download URLs not supported by this storage backend")
