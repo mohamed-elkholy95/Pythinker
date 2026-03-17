@@ -1,0 +1,143 @@
+# AgentSkills standard (Anthropic open standard for portable skill packaging)
+skills-ref>=0.1.0
+
+# Build tooling compatibility for transient sdist metadata generation.
+# setuptools>=82 can break transitive legacy `pkg_resources` import paths.
+setuptools<83
+
+# Core web framework
+fastapi[standard]>=0.115.0
+uvicorn>=0.32.0
+
+# LLM providers (let browser-use control openai version)
+openai>=2.7.2
+instructor>=1.7.0
+
+# Data validation
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# Async/SSE (let browser-use control httpx version)
+sse-starlette>=2.1.0
+httpx>=0.28.1
+
+# Utilities (let browser-use control rich and markdownify)
+tenacity>=8.2.0
+rich>=14.0.0
+markdownify>=1.2.0
+rapidfuzz>=3.9.0
+reportlab>=4.2.0  # Telegram PDF delivery generation engine
+# Keep html5lib on wheel-backed modern release to avoid legacy build path
+# that imports pkg_resources in pip-audit's ephemeral resolver environment.
+html5lib==1.1
+# 6.7.4+ currently pulls an editdistpy build path that fails in fresh CI images
+# with "ModuleNotFoundError: pkg_resources". Pin to known-good version.
+symspellpy==6.9.0
+
+# Browser automation
+playwright>=1.48.0
+browser-use>=0.11.0
+
+# Web scraping with TLS fingerprinting and stealth capabilities
+# [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)
+scrapling[fetchers]>=0.4
+
+# Docker SDK
+docker>=7.1.0
+
+# WebSockets
+websockets>=13.1
+
+# Database clients
+motor>=3.6.0
+pymongo>=4.10.0
+beanie>=1.27.0
+redis>=5.2.0
+qdrant-client>=1.12.0
+
+# Object storage
+minio>=7.2.0
+
+# Image processing (screenshot deduplication & WebP thumbnails)
+Pillow>=11.1.0
+imagehash>=4.3.1
+
+# Caching
+async-lru>=2.0.0
+
+# Search & Retrieval
+rank-bm25>=0.2.2
+numpy>=1.24.0  # Required for MMR diversification
+
+# Hallucination detection handled by LLM-as-Judge (llm_grounding_verifier.py)
+
+# Deal Scraper: RSS feed parsing + structured data extraction
+feedparser>=6.0
+extruct>=0.17
+
+# File uploads
+python-multipart>=0.0.12
+
+# MCP protocol
+mcp>=1.9.0
+
+# Security
+pyjwt[crypto]>=2.9.0
+cryptography>=43.0.0
+
+# Token counting
+tiktoken>=0.8.0
+
+# TOTP authentication
+pyotp>=2.9.0
+
+# Observability
+prometheus_client>=0.21.0
+structlog>=24.4.0
+
+# OpenTelemetry distributed tracing (optional — graceful no-op when not installed)
+opentelemetry-api>=1.29.0
+opentelemetry-sdk>=1.29.0
+opentelemetry-exporter-otlp-proto-grpc>=1.29.0
+opentelemetry-instrumentation-httpx>=0.50b0
+opentelemetry-instrumentation-fastapi>=0.50b0
+
+# Knowledge Base (RAG-Anything) — REMOVED from default image.
+# raganything pulls torch (1.7GB), nvidia CUDA (4.3GB), triton (640MB),
+# modelscope (1.34GB), opencv (274MB), transformers (61MB) = ~8.5GB bloat.
+# Install manually if needed: pip install raganything>=1.2.0
+# The adapter (raganything/adapter.py) uses lazy imports with ImportError fallback.
+
+# Prompt optimization pipeline (Thompson sampling + MIPROv2)
+# Enable with FEATURE_PROMPT_OPTIMIZATION_PIPELINE=true
+dspy>=2.6.0
+
+# ---------------------------------------------------------------------------
+# Nanobot integration dependencies
+# Multi-channel AI agent framework (Telegram, Slack, DingTalk, Feishu, QQ, etc.)
+# ---------------------------------------------------------------------------
+litellm>=1.81.5,<2.0.0
+typer>=0.20.0,<1.0.0
+croniter>=6.0.0,<7.0.0
+python-telegram-bot[socks]>=22.0,<23.0
+slack-sdk>=3.39.0,<4.0.0
+dingtalk-stream>=0.24.0,<1.0.0
+lark-oapi>=1.5.0,<2.0.0
+python-socketio>=5.16.0,<6.0.0
+qq-botpy>=1.2.0,<2.0.0
+slackify-markdown>=0.2.0,<1.0.0
+readability-lxml>=0.8.4,<1.0.0
+# Requests 2.32.x warns at import time when chardet>=6 is present.
+# readability-lxml depends on chardet without an upper bound, so pin it here.
+chardet>=3.0.2,<8.0.0
+loguru>=0.7.3,<1.0.0
+oauth-cli-kit>=0.1.3,<1.0.0
+socksio>=1.0.0,<2.0.0
+python-socks[asyncio]>=2.8.0,<3.0.0
+prompt-toolkit>=3.0.50,<4.0.0
+msgpack>=1.1.0,<2.0.0
+websocket-client>=1.9.0,<2.0.0
+json-repair>=0.57.0,<1.0.0

@@ -1,0 +1,114 @@
+groups:
+  - name: pythinker_semantic_cache
+    interval: 30s
+    rules:
+      # Cache performance alerts
+      - alert: SemanticCacheHitRateLow
+        expr: |
+          pythinker_semantic_cache_hit_rate < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          component: semantic_cache
+        annotations:
+          summary: "Semantic cache hit rate is below 50%"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (target: >50%). This may indicate poor query similarity or insufficient cache warmup."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/semantic-cache-low-hit-rate.md"
+
+      # Qdrant performance alerts
+      - alert: QdrantHighLatency
+        expr: |
+          histogram_quantile(0.99, rate(pythinker_qdrant_query_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: qdrant
+        annotations:
+          summary: "Qdrant p99 query latency is above 500ms"
+          description: "Qdrant p99 latency is {{ $value | humanizeDuration }}. Check collection size, HNSW parameters, or resource constraints."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/qdrant-high-latency.md"
+
+      # Memory budget pressure alerts
+      - alert: MemoryBudgetPressureHigh
+        expr: pythinker_memory_budget_pressure > 0.85
+        for: 10m
+        labels:
+          severity: critical
+          component: memory_service
+        annotations:
+          summary: "Memory budget pressure is critically high"
+          description: "Memory budget pressure is {{ $value | humanizePercentage }} (threshold: 85%). Context injection is now at 25% capacity. Consider session reset or context pruning."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/memory-pressure-high.md"
+
+      # Evidence grounding alerts
+      - alert: EvidenceRejectionRateHigh
+        expr: |
+          (
+            rate(pythinker_evidence_rejection_total[15m])
+            /
+            (rate(pythinker_grounded_claim_ratio[15m]) + 1)
+          ) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+          component: grounding_safety
+        annotations:
+          summary: "Evidence rejection rate is above 20%"
+          description: "Evidence rejection rate is {{ $value | humanizePercentage }}. High rejection may indicate low-quality retrievals or conflicting memories."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/evidence-rejection-high.md"
+
+      # Context loss detection
+      - alert: ContextLossDetected
+        expr: rate(pythinker_context_loss_detected_total[10m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: execution_flow
+        annotations:
+          summary: "Context loss patterns detected in execution"
+          description: "Detected {{ $value }} context loss events per second. Check checkpoint frequency and memory budget settings."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/context-loss-detected.md"
+
+      # Hallucination rate monitoring
+      - alert: HallucinationRateElevated
+        expr: pythinker_hallucination_rate > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          component: grounding_safety
+        annotations:
+          summary: "Hallucination rate is elevated"
+          description: "Hallucination rate is {{ $value | humanizePercentage }} (threshold: 15%). Review evidence confidence thresholds and retrieval quality."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/hallucination-rate-elevated.md"
+
+  - name: pythinker_capacity_planning
+    interval: 1m
+    rules:
+      # Collection growth monitoring
+      - alert: QdrantCollectionGrowthRapid
+        expr: |
+          (
+            pythinker_qdrant_collection_size
+            -
+            pythinker_qdrant_collection_size offset 1h
+          ) > 10000
+        for: 30m
+        labels:
+          severity: info
+          component: capacity_planning
+        annotations:
+          summary: "Qdrant collection growing rapidly"
+          description: "Collection {{ $labels.collection }} grew by {{ $value }} points in 1 hour. Monitor disk space and indexing performance."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/collection-growth.md"
+
+      # Checkpoint write failures
+      - alert: CheckpointWriteFailures
+        expr: rate(pythinker_checkpoint_write_error_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: execution_flow
+        annotations:
+          summary: "Checkpoint writes are failing"
+          description: "Checkpoint writes failing at {{ $value }} errors/sec. This will cause context loss in long sessions."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/checkpoint-failures.md"

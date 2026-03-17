@@ -1,0 +1,3 @@
+.github/workflows/*.lock.yml linguist-generated=true merge=ours
+design1.html linguist-vendored=true
+docs/index.html linguist-vendored=true

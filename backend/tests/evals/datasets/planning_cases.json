@@ -1,0 +1,145 @@
+{
+  "version": "1.0",
+  "description": "Test cases for evaluating planning agent quality",
+  "cases": [
+    {
+      "id": "plan_001",
+      "input": "Research Python async patterns and best practices",
+      "constraints": {
+        "min_steps": 2,
+        "max_steps": 6,
+        "required_tools": ["web_search"],
+        "complexity": "medium"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["async", "await"]
+      },
+      "tags": ["planning", "research", "medium"]
+    },
+    {
+      "id": "plan_002",
+      "input": "What is 2+2?",
+      "constraints": {
+        "max_steps": 2,
+        "complexity": "simple",
+        "fast_path_expected": true
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["4"]
+      },
+      "tags": ["planning", "simple", "fast_path"]
+    },
+    {
+      "id": "plan_003",
+      "input": "Compare Python, JavaScript, and Go for web development, analyzing performance, ecosystem, and developer experience",
+      "constraints": {
+        "min_steps": 4,
+        "max_steps": 12,
+        "required_tools": ["web_search"],
+        "complexity": "complex"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["Python", "JavaScript", "Go"]
+      },
+      "tags": ["planning", "research", "complex", "comparison"]
+    },
+    {
+      "id": "plan_004",
+      "input": "Create a simple Python script that prints hello world",
+      "constraints": {
+        "max_steps": 3,
+        "complexity": "simple"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["print"]
+      },
+      "tags": ["planning", "coding", "simple"]
+    },
+    {
+      "id": "plan_005",
+      "input": "Find and summarize the latest news about AI developments in healthcare",
+      "constraints": {
+        "min_steps": 2,
+        "max_steps": 6,
+        "required_tools": ["web_search"],
+        "complexity": "medium"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["AI", "healthcare"]
+      },
+      "tags": ["planning", "research", "news"]
+    },
+    {
+      "id": "plan_006",
+      "input": "Just rename the file from old.txt to new.txt",
+      "constraints": {
+        "max_steps": 2,
+        "complexity": "simple"
+      },
+      "expected": {
+        "should_succeed": true
+      },
+      "tags": ["planning", "file_ops", "simple"]
+    },
+    {
+      "id": "plan_007",
+      "input": "Analyze the codebase structure, identify potential issues, create documentation, and suggest improvements",
+      "constraints": {
+        "min_steps": 5,
+        "max_steps": 12,
+        "complexity": "complex"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["analyze", "documentation"]
+      },
+      "tags": ["planning", "code_analysis", "complex"]
+    },
+    {
+      "id": "plan_008",
+      "input": "What is the capital of France?",
+      "constraints": {
+        "max_steps": 2,
+        "complexity": "simple",
+        "fast_path_expected": true
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["Paris"]
+      },
+      "tags": ["planning", "factual", "simple"]
+    },
+    {
+      "id": "plan_009",
+      "input": "Research climate change impacts, gather data from multiple sources, analyze trends, and create a comprehensive report with visualizations",
+      "constraints": {
+        "min_steps": 5,
+        "max_steps": 12,
+        "required_tools": ["web_search", "file_write"],
+        "complexity": "complex"
+      },
+      "expected": {
+        "should_succeed": true,
+        "contains": ["climate", "report"]
+      },
+      "tags": ["planning", "research", "complex", "report"]
+    },
+    {
+      "id": "plan_010",
+      "input": "Fix the typo in the README file",
+      "constraints": {
+        "max_steps": 2,
+        "complexity": "simple"
+      },
+      "expected": {
+        "should_succeed": true
+      },
+      "tags": ["planning", "editing", "simple"]
+    }
+  ]
+}

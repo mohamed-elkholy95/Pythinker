@@ -1,0 +1,48 @@
+{
+  "include": ["app"],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.ruff_cache",
+    "**/.pytest_cache",
+    "**/nanobot"
+  ],
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "standard",
+
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": "none",
+  "reportMissingModuleSource": "warning",
+
+  "reportUnusedImport": "warning",
+  "reportUnusedClass": "warning",
+  "reportUnusedFunction": "warning",
+  "reportUnusedVariable": "warning",
+
+  "reportGeneralTypeIssues": "error",
+  "reportArgumentType": "error",
+  "reportReturnType": "error",
+  "reportAttributeAccessIssue": "error",
+
+  "reportOptionalSubscript": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalCall": "error",
+
+  "reportPrivateUsage": "warning",
+  "reportConstantRedefinition": "warning",
+
+  "reportIncompatibleMethodOverride": "error",
+  "reportIncompatibleVariableOverride": "error",
+
+  "reportUnknownParameterType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownMemberType": "none",
+
+  "reportUnnecessaryIsInstance": "warning",
+  "reportUnnecessaryCast": "warning",
+  "reportUnnecessaryComparison": "warning",
+
+  "reportImportCycles": "warning"
+}
