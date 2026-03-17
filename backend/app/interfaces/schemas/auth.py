@@ -10,6 +10,7 @@ class LoginRequest(BaseModel):
 
     email: str
     password: str
+    totp_code: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -23,6 +24,13 @@ class LoginRequest(BaseModel):
     def validate_password(cls, v: str) -> str:
         if not v or len(v) < 6:
             raise ValueError("Password must be at least 6 characters long")
+        return v
+
+    @field_validator("totp_code")
+    @classmethod
+    def validate_totp_code(cls, v: str | None) -> str | None:
+        if v is not None and (not v.isdigit() or len(v) != 6):
+            raise ValueError("TOTP code must be 6 digits")
         return v
 
 
@@ -154,6 +162,7 @@ class UserResponse(BaseModel):
     email: str
     role: UserRole
     is_active: bool
+    totp_enabled: bool = False
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
@@ -167,6 +176,7 @@ class UserResponse(BaseModel):
             email=user.email,
             role=user.role,
             is_active=user.is_active,
+            totp_enabled=getattr(user, "totp_enabled", False),
             created_at=user.created_at,
             updated_at=user.updated_at,
             last_login_at=user.last_login_at,
@@ -176,11 +186,12 @@ class UserResponse(BaseModel):
 class LoginResponse(BaseModel):
     """Login response schema"""
 
-    user: UserResponse
-    access_token: str
-    refresh_token: str
+    user: UserResponse | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
-    expires_in: int
+    expires_in: int | None = None
+    requires_totp: bool = False
 
 
 class RegisterResponse(BaseModel):
@@ -205,3 +216,36 @@ class RefreshTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+
+
+class TotpSetupResponse(BaseModel):
+    """TOTP setup response — contains the provisioning URI for QR code generation"""
+
+    provisioning_uri: str
+    secret: str
+
+
+class TotpVerifyRequest(BaseModel):
+    """Verify TOTP code to complete 2FA setup"""
+
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        if not v or not v.isdigit() or len(v) != 6:
+            raise ValueError("TOTP code must be 6 digits")
+        return v
+
+
+class TotpDisableRequest(BaseModel):
+    """Disable TOTP 2FA with current code verification"""
+
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        if not v or not v.isdigit() or len(v) != 6:
+            raise ValueError("TOTP code must be 6 digits")
+        return v

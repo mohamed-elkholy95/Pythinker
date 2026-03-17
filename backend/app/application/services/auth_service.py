@@ -8,6 +8,8 @@ import secrets
 from datetime import UTC, datetime
 from typing import Any
 
+import pyotp
+
 from app.application.errors.exceptions import BadRequestError, UnauthorizedError, ValidationError
 from app.application.services.token_service import TokenService
 from app.core.config import get_settings
@@ -412,12 +414,32 @@ class AuthService:
 
         raise ConfigurationException(f"Unsupported auth provider: {self.settings.auth_provider}")
 
-    async def login_with_tokens(self, email: str, password: str) -> AuthToken:
-        """Authenticate user and return JWT tokens"""
+    async def login_with_tokens(self, email: str, password: str, totp_code: str | None = None) -> AuthToken:
+        """Authenticate user and return JWT tokens.
+
+        If the user has TOTP 2FA enabled and no totp_code is provided,
+        returns an AuthToken with requires_totp=True and no tokens.
+        The caller should prompt for the TOTP code and retry.
+        """
         user = await self.authenticate_user(email, password)
 
         if not user:
             raise UnauthorizedError("Invalid email or password")
+
+        # Check if user has TOTP 2FA enabled
+        if getattr(user, "totp_enabled", False) and user.totp_secret:
+            if not totp_code:
+                # Signal that TOTP is required — don't issue tokens yet
+                return AuthToken(
+                    access_token="",
+                    token_type="bearer",
+                    user=user,
+                    requires_totp=True,
+                )
+
+            # Verify the TOTP code
+            if not self._verify_totp(user.totp_secret, totp_code):
+                raise UnauthorizedError("Invalid TOTP code")
 
         # Generate JWT tokens
         access_token = self.token_service.create_access_token(user)
@@ -641,6 +663,88 @@ class AuthService:
         await self.user_repository.update_user(user)
 
         logger.info(f"User activated successfully: {user_id}")
+        return True
+
+    # =========================================================================
+    # TOTP 2FA
+    # =========================================================================
+
+    def _verify_totp(self, secret: str, code: str) -> bool:
+        """Verify a TOTP code against the user's secret.
+
+        Accepts the current code and 1 window before/after (±30 seconds)
+        to account for clock drift between server and authenticator app.
+        """
+        totp = pyotp.TOTP(secret)
+        return totp.verify(code, valid_window=1)
+
+    async def setup_totp(self, user_id: str) -> tuple[str, str]:
+        """Generate a new TOTP secret for the user.
+
+        Returns (provisioning_uri, secret). The secret is stored on the user
+        but TOTP is NOT enabled until verify_totp_setup() confirms the code.
+        """
+        user = await self.user_repository.get_user_by_id(user_id)
+        if not user:
+            raise ValidationError("User not found")
+        if not user.is_active:
+            raise UnauthorizedError("User account is inactive")
+
+        # Generate a new secret
+        secret = pyotp.random_base32()
+
+        # Store the secret but don't enable TOTP yet
+        user.totp_secret = secret
+        user.totp_enabled = False
+        user.updated_at = datetime.now(UTC)
+        await self.user_repository.update_user(user)
+
+        # Build the provisioning URI for QR code generation
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(
+            name=user.email,
+            issuer_name="Pythinker",
+        )
+
+        return provisioning_uri, secret
+
+    async def verify_totp_setup(self, user_id: str, code: str) -> bool:
+        """Verify a TOTP code to complete 2FA setup. Enables TOTP on success."""
+        user = await self.user_repository.get_user_by_id(user_id)
+        if not user:
+            raise ValidationError("User not found")
+        if not user.totp_secret:
+            raise BadRequestError("TOTP setup has not been initiated")
+
+        if not self._verify_totp(user.totp_secret, code):
+            raise UnauthorizedError("Invalid TOTP code. Please try again.")
+
+        # Enable TOTP
+        user.totp_enabled = True
+        user.updated_at = datetime.now(UTC)
+        await self.user_repository.update_user(user)
+
+        logger.info("TOTP 2FA enabled for user: %s", user_id)
+        return True
+
+    async def disable_totp(self, user_id: str, code: str) -> bool:
+        """Disable TOTP 2FA after verifying the current code."""
+        user = await self.user_repository.get_user_by_id(user_id)
+        if not user:
+            raise ValidationError("User not found")
+        if not user.totp_enabled or not user.totp_secret:
+            raise BadRequestError("TOTP 2FA is not enabled")
+
+        if not self._verify_totp(user.totp_secret, code):
+            raise UnauthorizedError("Invalid TOTP code")
+
+        # Disable TOTP and clear the secret
+        user.totp_enabled = False
+        user.totp_secret = None
+        user.updated_at = datetime.now(UTC)
+        await self.user_repository.update_user(user)
+
+        logger.info("TOTP 2FA disabled for user: %s", user_id)
         return True
 
     async def reset_password(self, email: str, new_password: str) -> bool:
