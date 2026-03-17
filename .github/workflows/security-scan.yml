@@ -6,6 +6,10 @@ on:
     - cron: "0 0 * * 0"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   dependency-audit:
     name: Dependency Audit
@@ -61,3 +65,57 @@ jobs:
             pip-audit-report.json
             npm-audit-report.json
           retention-days: 30
+
+  container-scan:
+    name: Container Image Scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        image:
+          - context: backend
+            dockerfile: backend/Dockerfile
+            name: pythinker-backend
+          - context: frontend
+            dockerfile: frontend/Dockerfile.dev
+            name: pythinker-frontend
+          - context: sandbox
+            dockerfile: sandbox/Dockerfile
+            name: pythinker-sandbox
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            -f ${{ matrix.image.dockerfile }} \
+            -t ${{ matrix.image.name }}:scan \
+            ${{ matrix.image.context }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: "${{ matrix.image.name }}:scan"
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Run Trivy (SARIF output)
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: "${{ matrix.image.name }}:scan"
+          format: "sarif"
+          output: "trivy-${{ matrix.image.name }}.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-${{ matrix.image.name }}.sarif"
+          category: "trivy-${{ matrix.image.name }}"

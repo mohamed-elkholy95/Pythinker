@@ -9,7 +9,7 @@ on:
       - '*.md'
       - 'CLAUDE.md'
       - 'AGENTS.md'
-      - '.github/workflows/daily-repo-status.lock.yml'
+      - '.github/disabled-workflows/**'
       - '.github/workflows/copilot-setup-steps.yml'
   pull_request:
     branches: [main]
@@ -17,6 +17,9 @@ on:
       - 'docs/**'
       - 'scripts/**'
       - '*.md'
+
+permissions:
+  contents: read
 
 # Cancel in-progress runs on the same branch/PR
 concurrency:
