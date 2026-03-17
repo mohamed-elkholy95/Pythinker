@@ -1,5 +1,5 @@
 # Build stage: compile frontend from source so image never depends on local dist state
-FROM node:22-slim AS build-stage
+FROM node:25-slim AS build-stage
 
 WORKDIR /app
 # Vite build for this bundle can exceed 2 GB old-space in CI; keep headroom configurable.

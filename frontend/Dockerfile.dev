@@ -1,6 +1,6 @@
 # Development Dockerfile using Node.js for better Vite compatibility
 # Note: Bun has issues with Vite's WebSocket proxy (socket.destroySoon not implemented)
-FROM node:22-slim
+FROM node:25-slim
 
 # Install dependencies with npm for reliable registry resolution
 RUN npm install -g npm@11.8.0
