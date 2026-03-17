@@ -13,6 +13,7 @@ Features (planned):
 """
 
 import logging
+import os
 import time
 from collections.abc import Callable
 
@@ -30,7 +31,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="Pythinker API Gateway",
     description="Unified API gateway for Pythinker services",
-    version="1.0.0",
+    version=os.environ.get("GIT_VERSION", "dev"),
 )
 
 app.state.limiter = limiter

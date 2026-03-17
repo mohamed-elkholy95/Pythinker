@@ -3,6 +3,7 @@ Lightweight health check endpoints for connectivity and readiness verification.
 Separate from the comprehensive monitoring endpoints for minimal overhead.
 """
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,6 +33,9 @@ async def health_check() -> JSONResponse:
             "status": health["overall_status"],
             "timestamp": datetime.now(UTC).isoformat(),
             "service": "pythinker-backend",
+            "version": os.environ.get("GIT_VERSION", "dev"),
+            "git_sha": os.environ.get("GIT_SHA", "unknown"),
+            "build_date": os.environ.get("BUILD_DATE", "unknown"),
             "components": health.get("components", {}),
         },
         status_code=status_code,
