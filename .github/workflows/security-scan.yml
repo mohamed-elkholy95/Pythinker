@@ -99,7 +99,7 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: steps.build.outcome == 'success'
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
           format: "table"
@@ -109,7 +109,7 @@ jobs:
 
       - name: Run Trivy (SARIF output)
         if: steps.build.outcome == 'success'
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
           format: "sarif"
