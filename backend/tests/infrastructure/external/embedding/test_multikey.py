@@ -69,13 +69,18 @@ class TestEmbeddingMultiKey:
             redis_client=redis_client,
         )
 
-        # Mock httpx AsyncClient to always return 429
+        # Mock HTTPClientPool.get_client to return a mock client whose .post returns 429
         mock_response = MagicMock()
         mock_response.status_code = 429
         mock_response.headers = {}
+        mock_response.text = "rate limited"
 
-        mock_post = AsyncMock(return_value=mock_response)
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         with pytest.raises(RuntimeError) as exc:
             await client.embed_batch(["test text"])
@@ -135,7 +140,7 @@ class TestEmbeddingMultiKey:
             redis_client=redis_client,
         )
 
-        # Mock successful response
+        # Mock HTTPClientPool.get_client to return a mock client
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -145,8 +150,12 @@ class TestEmbeddingMultiKey:
             ]
         }
 
-        mock_post = AsyncMock(return_value=mock_response)
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         result = await client.embed_batch(["text1", "text2"])
 
@@ -167,18 +176,23 @@ class TestEmbeddingMultiKey:
         mock_response_429 = MagicMock()
         mock_response_429.status_code = 429
         mock_response_429.headers = {"x-ratelimit-reset": "1234567890"}
+        mock_response_429.text = "rate limited"
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
         mock_response_200.json.return_value = {"data": [{"index": 0, "embedding": [0.5] * 1536}]}
 
-        mock_post = AsyncMock(side_effect=[mock_response_429, mock_response_200])
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(side_effect=[mock_response_429, mock_response_200])
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         result = await client.embed_batch(["test"])
 
         assert len(result) == 1
-        assert mock_post.call_count == 2  # Rotated to second key
+        assert mock_http_client.post.call_count == 2  # Rotated to second key
 
     @pytest.mark.asyncio
     async def test_embed_batch_auto_rotation_on_401(self, redis_client, mocker):
@@ -193,18 +207,23 @@ class TestEmbeddingMultiKey:
         mock_response_401 = MagicMock()
         mock_response_401.status_code = 401
         mock_response_401.headers = {}
+        mock_response_401.text = "unauthorized"
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
         mock_response_200.json.return_value = {"data": [{"index": 0, "embedding": [0.5] * 1536}]}
 
-        mock_post = AsyncMock(side_effect=[mock_response_401, mock_response_200])
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(side_effect=[mock_response_401, mock_response_200])
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         result = await client.embed_batch(["test"])
 
         assert len(result) == 1
-        assert mock_post.call_count == 2
+        assert mock_http_client.post.call_count == 2
 
     @pytest.mark.asyncio
     async def test_parse_rate_limit_ttl_with_header(self, redis_client):
@@ -273,14 +292,18 @@ class TestEmbeddingMultiKey:
         mock_response.status_code = 200
         mock_response.json.return_value = {"data": [{"index": 0, "embedding": [0.1] * 1536}]}
 
-        mock_post = AsyncMock(return_value=mock_response)
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         long_text = "a" * 10000
         await client.embed_batch([long_text])
 
         # Check that the request payload has truncated text
-        call_kwargs = mock_post.call_args.kwargs
+        call_kwargs = mock_http_client.post.call_args.kwargs
         input_texts = call_kwargs["json"]["input"]
         assert len(input_texts[0]) == 8000
 
@@ -303,8 +326,12 @@ class TestEmbeddingMultiKey:
             ]
         }
 
-        mock_post = AsyncMock(return_value=mock_response)
-        mocker.patch("httpx.AsyncClient.post", mock_post)
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mocker.patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            return_value=mock_http_client,
+        )
 
         result = await client.embed_batch(["text0", "text1", "text2"])
 
