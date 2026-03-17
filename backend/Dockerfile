@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: BUILDER — compile deps, install browsers
 # ============================================================
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PYTHONUNBUFFERED=1
 ENV UV_HTTP_TIMEOUT=300
@@ -35,7 +35,7 @@ RUN scrapling install
 # ============================================================
 # Stage 2: RUNTIME — slim production image
 # ============================================================
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ARG GIT_VERSION=dev
 ARG GIT_SHA=unknown
