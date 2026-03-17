@@ -5,6 +5,37 @@ All notable changes to Pythinker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-03-17
+
+### Fixed
+
+- **CI**: Override working-directory on skip steps to prevent workflow failure
+- **CI**: Move skip logic to step-level so required status checks always pass
+- **CI**: Add workflow_dispatch to Docker build and filter badge URLs
+- **Frontend**: Use CSS custom properties for thumbnail space reservation
+- **Tests**: Resolve all ruff lint and format errors in test files
+
+### Changed
+
+- **Docker**: Add OCI version labels and build metadata (GIT_VERSION, GIT_SHA, BUILD_DATE) to all Dockerfiles
+- **API**: Expose version, git SHA, and build date in health endpoint response
+- **Release**: Add automated release script (`scripts/release.sh`) and GitHub Release workflow
+
+### Dependencies
+
+- Bump vitest from 3.2.4 to 4.1.0 (frontend)
+- Bump @vitest/coverage-v8 from 3.2.4 to 4.1.0 (frontend)
+- Update setuptools requirement from <82 to <83 (backend)
+- Update chardet requirement from <6.0.0 to <8.0.0 (backend)
+- Bump symspellpy from 6.7.3 to 6.9.0 (backend)
+- Bump actions/upload-artifact from 4 to 7
+- Bump dorny/paths-filter from 3 to 4
+- Bump actions/download-artifact from 6.0.0 to 8.0.1
+- Bump docker/setup-buildx-action from 3 to 4
+- Bump docker/login-action from 3 to 4
+
+[1.0.1]: https://github.com/mohamed-elkholy95/Pythinker/compare/v1.0.0...v1.0.1
+
 ## [1.0.0] - 2026-03-16
 
 ### Added
