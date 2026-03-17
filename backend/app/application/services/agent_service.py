@@ -537,8 +537,10 @@ class AgentService:
 
                         address = sandbox.id[len("dev-sandbox-") :]
                         current_owner = DockerSandbox._active_sessions.get(address)
-                        if current_owner and current_owner != session_id and await has_active_stream(
-                            current_owner, endpoint="chat"
+                        if (
+                            current_owner
+                            and current_owner != session_id
+                            and await has_active_stream(current_owner, endpoint="chat")
                         ):
                             logger.warning(
                                 f"Sandbox {address} is owned by active session {current_owner} "

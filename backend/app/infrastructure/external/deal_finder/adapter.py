@@ -472,11 +472,7 @@ def _extract_deals_from_snippets(
 
         # Editorial/review domains are not purchasable storefronts — classify them
         # as "community" so they are filtered out by the community-exclusion pass.
-        effective_source_type = (
-            "community"
-            if any(ed in domain for ed in EDITORIAL_REVIEW_DOMAINS)
-            else source_type
-        )
+        effective_source_type = "community" if any(ed in domain for ed in EDITORIAL_REVIEW_DOMAINS) else source_type
 
         prices = _SNIPPET_PRICE_PATTERN.findall(combined_text)
         parsed_prices = []
@@ -679,10 +675,7 @@ class DealFinderAdapter:
         # without per-store site: filtering.
         search_query = query
         if stores and effective_mode == "shopping":
-            store_hints = " ".join(
-                s.replace(".com", "").replace("www.", "").split(".")[0]
-                for s in stores[:3]
-            )
+            store_hints = " ".join(s.replace(".com", "").replace("www.", "").split(".")[0] for s in stores[:3])
             search_query = f"{query} {store_hints}"
             logger.debug(
                 "search_deals: appending store hints to query: %r -> %r",
@@ -1265,8 +1258,7 @@ class DealFinderAdapter:
 
             checkpoint_data = {
                 "store_statuses": [
-                    {"store": store, "status": "found", "result_count": count}
-                    for store, count in store_counts.items()
+                    {"store": store, "status": "found", "result_count": count} for store, count in store_counts.items()
                 ],
                 "partial_deals": [],
                 "query": query,

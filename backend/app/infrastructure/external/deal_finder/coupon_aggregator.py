@@ -148,6 +148,7 @@ async def _get_feed_lock(url: str) -> asyncio.Lock:
             _feed_cache_locks[url] = asyncio.Lock()
         return _feed_cache_locks[url]
 
+
 # Negative result cache — remembers sources that returned 404 / no page.
 # Keyed by "source:store", value is (timestamp, reason_string).
 # 2-hour TTL so we don't permanently block a source if the page appears later.
@@ -370,7 +371,9 @@ async def fetch_slickdeals_coupons(
                             verified=False,
                             source="slickdeals",
                             confidence=confidence,
-                            item_category=classify_item_category(text=f"{title} {summary}", url=entry_link, store=store),
+                            item_category=classify_item_category(
+                                text=f"{title} {summary}", url=entry_link, store=store
+                            ),
                             source_url=entry_link,
                         )
                     )

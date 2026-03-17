@@ -3397,10 +3397,34 @@ class PlanActFlow(BaseFlow):
                                     "deal_compare_prices",
                                 },
                                 "browse": {"browser_navigate", "browser_agent"},
-                                "execute": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-                                "run": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-                                "benchmark": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-                                "test": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
+                                "execute": {
+                                    "shell_exec",
+                                    "terminal_exec",
+                                    "code_exec",
+                                    "code_execute_python",
+                                    "code_executor",
+                                },
+                                "run": {
+                                    "shell_exec",
+                                    "terminal_exec",
+                                    "code_exec",
+                                    "code_execute_python",
+                                    "code_executor",
+                                },
+                                "benchmark": {
+                                    "shell_exec",
+                                    "terminal_exec",
+                                    "code_exec",
+                                    "code_execute_python",
+                                    "code_executor",
+                                },
+                                "test": {
+                                    "shell_exec",
+                                    "terminal_exec",
+                                    "code_exec",
+                                    "code_execute_python",
+                                    "code_executor",
+                                },
                                 "write": {"file_write", "file_create", "file"},
                                 "create": {"file_write", "file_create", "file"},
                                 "read": {"file_read", "file"},
@@ -3422,7 +3446,10 @@ class PlanActFlow(BaseFlow):
                             _exec_verbs = {"execute", "run", "benchmark", "test"}
                             _has_exec_verb = any(v in _desc_lower for v in _exec_verbs)
                             _did_write = bool(_tools_used & {"file_write", "file_create", "file"})
-                            _did_exec = bool(_tools_used & {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"})
+                            _did_exec = bool(
+                                _tools_used
+                                & {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"}
+                            )
                             if _has_exec_verb and _did_write and not _did_exec:
                                 logger.warning(
                                     "Step %s description mentions execution but only file_write was used "
@@ -3431,8 +3458,7 @@ class PlanActFlow(BaseFlow):
                                     step.description[:80],
                                 )
                                 step.notes = (
-                                    (step.notes or "")
-                                    + "\n[Audit: script written but not executed — "
+                                    (step.notes or "") + "\n[Audit: script written but not executed — "
                                     "benchmark data may be inferred, not measured]"
                                 )
                                 # Signal to ExecutionAgent for disclaimer enhancement

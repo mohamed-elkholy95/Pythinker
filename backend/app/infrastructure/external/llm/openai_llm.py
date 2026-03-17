@@ -2572,7 +2572,9 @@ To extract data from a webpage:
                 except RateLimitError as e:
                     retry_after = None
                     if hasattr(e, "response") and e.response is not None:
-                        retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                        retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get(
+                            "retry-after"
+                        )
                         if retry_after_header:
                             with contextlib.suppress(ValueError, TypeError):
                                 retry_after = float(retry_after_header)
@@ -2592,7 +2594,9 @@ To extract data from a webpage:
                     if attempt == max_retries:
                         raise
                     await asyncio.sleep(retry_after)
-                except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
+                except (
+                    Exception
+                ) as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
                     error_msg = str(e).lower()
                     if any(
                         term in error_msg
@@ -2614,7 +2618,9 @@ To extract data from a webpage:
                                 base_messages = recovered_messages
                                 request_messages = recovered_messages
                                 if enable_caching and self._cache_manager:
-                                    request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                                    request_messages = self._cache_manager.prepare_messages_for_caching(
+                                        request_messages
+                                    )
                                 logger.warning(
                                     "Structured request message validation failed on attempt %d; "
                                     "retrying once with simplified transcript",
@@ -2949,7 +2955,9 @@ To extract data from a webpage:
                             yield chunk
                         return
                     raise
-                except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
+                except (
+                    Exception
+                ) as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
                     error_msg = str(e).lower()
 
                     # Check for authentication errors (401) and rotate keys
@@ -2983,7 +2991,11 @@ To extract data from a webpage:
                             return
                         raise
 
-                    if self._is_message_validation_error(e) and not validation_recovery_attempted and not completion_parts:
+                    if (
+                        self._is_message_validation_error(e)
+                        and not validation_recovery_attempted
+                        and not completion_parts
+                    ):
                         recovered_messages = self._build_validation_recovery_messages(base_messages)
                         if recovered_messages != base_messages:
                             validation_recovery_attempted = True

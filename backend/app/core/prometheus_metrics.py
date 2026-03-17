@@ -1928,7 +1928,15 @@ def record_sse_resume_cursor_state(endpoint: str = "chat", state: str = "absent"
     """Record resume cursor state transitions for reconnect attempts."""
     normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
     normalized_state = (state or "").strip().lower() or "unknown"
-    if normalized_state not in {"found", "stale", "format_mismatch", "absent", "redis_cursor", "non_redis_cursor", "found_at_end"}:
+    if normalized_state not in {
+        "found",
+        "stale",
+        "format_mismatch",
+        "absent",
+        "redis_cursor",
+        "non_redis_cursor",
+        "found_at_end",
+    }:
         normalized_state = "unknown"
     sse_resume_cursor_state_total.inc({"endpoint": normalized_endpoint, "state": normalized_state})
 

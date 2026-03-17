@@ -2103,10 +2103,14 @@ class BaseAgent:
             # (e.g. a report the LLM wrote as raw markdown instead of JSON),
             # wrap it in a success JSON rather than discarding it.
             _stripped = _final_text.lstrip()
-            if _final_text and len(_final_text) > 200 and not _stripped.startswith("{") and not _stripped.startswith("["):
+            if (
+                _final_text
+                and len(_final_text) > 200
+                and not _stripped.startswith("{")
+                and not _stripped.startswith("[")
+            ):
                 logger.info(
-                    "Salvaging %d-char prose response as step result "
-                    "(LLM wrote content instead of JSON)",
+                    "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
                     len(_final_text),
                 )
                 # Truncate to a summary for the result field; the full text will

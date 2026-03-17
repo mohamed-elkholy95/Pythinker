@@ -744,8 +744,7 @@ class AgentTaskRunner(TaskRunner):
         if rewrite_count > 0:
             logger.info("Rewrote %d chart reference(s) in report content", rewrite_count)
         elif any(
-            getattr(a, "content_type", None) in ("image/png", "text/html")
-            and getattr(a, "file_id", None)
+            getattr(a, "content_type", None) in ("image/png", "text/html") and getattr(a, "file_id", None)
             for a in (event.attachments or [])
         ):
             logger.warning(

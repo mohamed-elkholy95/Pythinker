@@ -272,6 +272,7 @@ class TextTruncator:
 # markers.  Downstream JSON parsers (Plotly orchestrator, step executor)
 # need the raw JSON payload without the shell framing.
 
+
 def extract_json_from_shell_output(raw: str) -> str:
     """Extract a JSON payload from potentially shell-framed sandbox output.
 

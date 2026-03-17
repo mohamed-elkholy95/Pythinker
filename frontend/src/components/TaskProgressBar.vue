@@ -587,7 +587,16 @@ onUnmounted(() => {
 }
 
 .collapsed-wrapper.has-thumbnail {
-  /* Thumbnail overflows above via position: absolute — no margin needed */
+  --floating-thumb-height: 90px;
+  --floating-thumb-gap: 8px;
+  padding-top: calc(var(--floating-thumb-height) + var(--floating-thumb-gap));
+  transition: padding-top 0.2s ease;
+}
+
+@media (max-width: 640px) {
+  .collapsed-wrapper.has-thumbnail {
+    --floating-thumb-height: 70px;
+  }
 }
 
 .progress-bar-collapsed {
@@ -714,7 +723,7 @@ onUnmounted(() => {
 .live-preview-thumbnail-floating {
   position: absolute;
   left: 12px;
-  bottom: 8px;
+  top: 0;
   z-index: 10;
 }
 

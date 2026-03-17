@@ -434,9 +434,7 @@ class APIKeyPool:
             self._redis = get_redis()
             logger.info(f"[{self.provider}] Lazy Redis acquisition succeeded — key pool now using Redis coordination.")
         except Exception as e:
-            logger.warning(
-                f"[{self.provider}] Lazy Redis acquisition failed — continuing in-memory mode: {e}"
-            )
+            logger.warning(f"[{self.provider}] Lazy Redis acquisition failed — continuing in-memory mode: {e}")
 
     def _log_all_keys_exhausted(self) -> None:
         """Log key exhaustion with cooldown to prevent log spam.

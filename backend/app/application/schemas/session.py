@@ -66,11 +66,11 @@ class ConsoleRecord(BaseModel):
             # Header format after marker removal: \n{user}@{host}:{path}\n {command}\n
             idx = cleaned.find(f" {command}\n")
             if idx >= 0:
-                cleaned = cleaned[idx + len(f" {command}\n"):]
+                cleaned = cleaned[idx + len(f" {command}\n") :]
             else:
                 idx = cleaned.find(f"{command}\n")
                 if idx >= 0:
-                    cleaned = cleaned[idx + len(f"{command}\n"):]
+                    cleaned = cleaned[idx + len(f"{command}\n") :]
         return cleaned.strip("\n")
 
 
