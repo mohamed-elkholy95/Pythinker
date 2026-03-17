@@ -1,0 +1,29 @@
+# CODEOWNERS — Pythinker
+# These owners are automatically requested for review on PRs that modify matching paths.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @mohamed-elkholy95
+
+# Backend (FastAPI, DDD, domain logic)
+/backend/ @mohamed-elkholy95
+
+# Frontend (Vue 3, TypeScript)
+/frontend/ @mohamed-elkholy95
+
+# Sandbox (Docker isolation, browser automation)
+/sandbox/ @mohamed-elkholy95
+
+# Infrastructure & DevOps
+/docker-compose*.yml @mohamed-elkholy95
+/.github/ @mohamed-elkholy95
+/Dockerfile* @mohamed-elkholy95
+
+# Documentation
+/docs/ @mohamed-elkholy95
+*.md @mohamed-elkholy95
+
+# Security-sensitive files
+/backend/app/core/config*.py @mohamed-elkholy95
+/backend/app/infrastructure/middleware/ @mohamed-elkholy95
+SECURITY.md @mohamed-elkholy95
