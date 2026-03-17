@@ -96,7 +96,7 @@ jobs:
             ${{ matrix.image.context }}
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
           format: "table"
@@ -105,7 +105,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Run Trivy (SARIF output)
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
           format: "sarif"
