@@ -13,6 +13,33 @@ import type { WritableComputedRef } from 'vue'
  *  - useThemeColors() from @/utils/themeColors (MutationObserver on <html class>)
  *  - CSS custom properties (var(--text-primary) etc.) — adapt automatically
  */
+// frontend/src/composables/useTheme.ts
+
+export function useTheme() {
+  const setTheme = (theme: string) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  };
+
+  const toggleTheme = () => {
+    const current = localStorage.getItem("theme") || "dark";
+    const next = current === "dark" ? "light" : "dark";
+    setTheme(next);
+  };
+
+  const initTheme = () => {
+    const saved = localStorage.getItem("theme");
+
+    if (saved) {
+      setTheme(saved);
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setTheme(prefersDark ? "dark" : "light");
+    }
+  };
+
+  return { toggleTheme, initTheme };
+}
 export function useThemeMode() {
   const isDark = useDark({
     storageKey: 'bolt_theme',
