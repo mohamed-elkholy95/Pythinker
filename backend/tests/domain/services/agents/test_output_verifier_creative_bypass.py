@@ -13,7 +13,6 @@ import pytest
 
 from app.domain.services.agents.output_verifier import OutputVerifier
 
-
 # ---------------------------------------------------------------------------
 # Shared fixture — minimal OutputVerifier instance
 # ---------------------------------------------------------------------------

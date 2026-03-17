@@ -68,9 +68,9 @@ async def outbox_repo():
 class TestSyncWorkerBasics:
     """Test basic sync worker operations."""
 
-    async def test_worker_start_stop(self):
+    async def test_worker_start_stop(self, outbox_repo, qdrant_repo):
         """Test starting and stopping sync worker."""
-        worker = SyncWorker(poll_interval=0.1, batch_size=10)
+        worker = SyncWorker(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, poll_interval=0.1, batch_size=10)
 
         assert not worker._running
 
@@ -280,9 +280,9 @@ class TestBatchOperations:
 class TestWorkerStats:
     """Test worker statistics reporting."""
 
-    async def test_get_worker_stats(self, outbox_repo):
+    async def test_get_worker_stats(self, outbox_repo, qdrant_repo):
         """Test worker statistics."""
-        worker = SyncWorker(outbox_repo=outbox_repo, poll_interval=0.1, batch_size=50)
+        worker = SyncWorker(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, poll_interval=0.1, batch_size=50)
 
         stats = await worker.get_stats()
 

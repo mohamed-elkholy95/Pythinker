@@ -1,5 +1,4 @@
 """Tests for DealFinder v2 configuration."""
-import pytest
 from app.core.config import get_settings
 
 
