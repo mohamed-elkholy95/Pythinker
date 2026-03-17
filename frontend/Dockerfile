@@ -17,6 +17,20 @@ RUN npm run build
 # Production stage: serve compiled assets with nginx
 FROM nginx:stable-alpine AS production-stage
 
+ARG GIT_VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="pythinker-frontend"
+LABEL org.opencontainers.image.version=${GIT_VERSION}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+LABEL org.opencontainers.image.source="https://github.com/mohamed-elkholy95/Pythinker"
+
+ENV GIT_VERSION=${GIT_VERSION}
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_DATE=${BUILD_DATE}
+
 # Copy build output from builder stage
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 

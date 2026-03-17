@@ -105,6 +105,15 @@ RUN apt-get update && apt-get purge -y --auto-remove software-properties-common 
 # ============================================================
 FROM ubuntu:22.04 AS runtime
 ARG ENABLE_SANDBOX_ADDONS=0
+ARG GIT_VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="pythinker-sandbox"
+LABEL org.opencontainers.image.version=${GIT_VERSION}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+LABEL org.opencontainers.image.source="https://github.com/mohamed-elkholy95/Pythinker"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -175,6 +184,9 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 ENV PYTHONIOENCODING=utf-8
 ENV LANG=C.UTF-8
 ENV PW_TEST_SCREENSHOT_NO_FONTS_READY=1
+ENV GIT_VERSION=${GIT_VERSION}
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_DATE=${BUILD_DATE}
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 

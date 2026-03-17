@@ -37,7 +37,20 @@ RUN scrapling install
 # ============================================================
 FROM python:3.12-slim
 
+ARG GIT_VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="pythinker-backend"
+LABEL org.opencontainers.image.version=${GIT_VERSION}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+LABEL org.opencontainers.image.source="https://github.com/mohamed-elkholy95/Pythinker"
+
 ENV PYTHONUNBUFFERED=1
+ENV GIT_VERSION=${GIT_VERSION}
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_DATE=${BUILD_DATE}
 
 WORKDIR /app
 
