@@ -1,1 +1,67 @@
+name: "Feature Request"
+description: Suggest a new feature or improvement for Pythinker
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+      attributes:
+            value: |
+                    Thank you for suggesting a feature! Please fill out the sections below.
 
+                      - type: textarea
+                          id: problem
+                              attributes:
+                                    label: Problem Statement
+                                          description: What problem does this feature solve? What's the use case?
+                                                placeholder: "I'm always frustrated when..."
+                                                    validations:
+                                                          required: true
+
+                                                            - type: textarea
+                                                                id: solution
+                                                                    attributes:
+                                                                          label: Proposed Solution
+                                                                                description: Describe what you'd like to happen.
+                                                                                      placeholder: Describe your ideal solution...
+                                                                                          validations:
+                                                                                                required: true
+
+                                                                                                  - type: dropdown
+                                                                                                      id: category
+                                                                                                          attributes:
+                                                                                                                label: Feature Category
+                                                                                                                      options:
+                                                                                                                              - Agent / Planning
+                                                                                                                                      - Browser / Automation
+                                                                                                                                              - Code Execution / Sandbox
+                                                                                                                                                      - Search / Research
+                                                                                                                                                              - Report Generation
+                                                                                                                                                                      - UI / Frontend
+                                                                                                                                                                              - API / Backend
+                                                                                                                                                                                      - Telegram / Messaging
+                                                                                                                                                                                              - DevOps / Infrastructure
+                                                                                                                                                                                                      - Other
+                                                                                                                                                                                                          validations:
+                                                                                                                                                                                                                required: true
+                                                                                                                                                                                                                
+                                                                                                                                                                                                                  - type: dropdown
+                                                                                                                                                                                                                      id: priority
+                                                                                                                                                                                                                          attributes:
+                                                                                                                                                                                                                                label: How important is this feature to you?
+                                                                                                                                                                                                                                      options:
+                                                                                                                                                                                                                                              - Nice to have
+                                                                                                                                                                                                                                                      - Important — would significantly improve my workflow
+                                                                                                                                                                                                                                                              - Critical — blocking my use case
+                                                                                                                                                                                                                                                              
+                                                                                                                                                                                                                                                                - type: textarea
+                                                                                                                                                                                                                                                                    id: alternatives
+                                                                                                                                                                                                                                                                        attributes:
+                                                                                                                                                                                                                                                                              label: Alternatives Considered
+                                                                                                                                                                                                                                                                                    description: Any alternative solutions or features you've considered.
+                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                                                                      - type: textarea
+                                                                                                                                                                                                                                                                                          id: context
+                                                                                                                                                                                                                                                                                              attributes:
+                                                                                                                                                                                                                                                                                                    label: Additional Context
+                                                                                                                                                                                                                                                                                                          description: Mockups, examples from other tools, or any other context.
+                                                                                                                                                                                                                                                                                                          
