@@ -25,6 +25,9 @@ from app.interfaces.schemas.auth import (
     RegisterResponse,
     ResetPasswordRequest,
     SendVerificationCodeRequest,
+    TotpDisableRequest,
+    TotpSetupResponse,
+    TotpVerifyRequest,
     UserResponse,
 )
 from app.interfaces.schemas.base import APIResponse
@@ -39,8 +42,12 @@ async def login(
     request: LoginRequest, auth_service: AuthService = Depends(get_auth_service)
 ) -> APIResponse[LoginResponse]:
     """User login endpoint"""
-    # Authenticate user and get tokens
-    auth_result = await auth_service.login_with_tokens(request.email, request.password)
+    # Authenticate user and get tokens (passing optional TOTP code)
+    auth_result = await auth_service.login_with_tokens(request.email, request.password, request.totp_code)
+
+    # If TOTP is required but not provided, return challenge response
+    if auth_result.requires_totp:
+        return APIResponse.success(LoginResponse(requires_totp=True))
 
     # Return success response with tokens
     settings = get_settings()
@@ -236,5 +243,54 @@ async def reset_password(
 
     # Reset password
     await auth_service.reset_password(request.email, request.new_password)
+
+    return APIResponse.success({})
+
+
+# =========================================================================
+# TOTP 2FA ENDPOINTS
+# =========================================================================
+
+
+@router.post("/totp/setup", response_model=APIResponse[TotpSetupResponse])
+async def totp_setup(
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> APIResponse[TotpSetupResponse]:
+    """Generate a TOTP secret and provisioning URI for 2FA setup"""
+    if get_settings().auth_provider != "password":
+        raise BadRequestError("TOTP setup is only available for password authentication")
+
+    provisioning_uri, secret = await auth_service.setup_totp(current_user.id)
+
+    return APIResponse.success(TotpSetupResponse(provisioning_uri=provisioning_uri, secret=secret))
+
+
+@router.post("/totp/verify", response_model=APIResponse[dict])
+async def totp_verify(
+    request: TotpVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> APIResponse[dict]:
+    """Verify a TOTP code to complete 2FA setup"""
+    if get_settings().auth_provider != "password":
+        raise BadRequestError("TOTP is only available for password authentication")
+
+    await auth_service.verify_totp_setup(current_user.id, request.code)
+
+    return APIResponse.success({})
+
+
+@router.post("/totp/disable", response_model=APIResponse[dict])
+async def totp_disable(
+    request: TotpDisableRequest,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> APIResponse[dict]:
+    """Disable TOTP 2FA with current code verification"""
+    if get_settings().auth_provider != "password":
+        raise BadRequestError("TOTP is only available for password authentication")
+
+    await auth_service.disable_totp(current_user.id, request.code)
 
     return APIResponse.success({})

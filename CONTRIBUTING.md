@@ -56,6 +56,15 @@ chore(deps): bump fastapi to 0.119
 - Type check: `bun run type-check`
 - Composables use `useX` naming, components use `PascalCase`
 
+### Dependency Management
+
+The backend uses **`requirements.txt`** as the source of truth for dependencies. A `uv.lock` file is also present for contributors who use [uv](https://github.com/astral-sh/uv) as their package manager.
+
+- **pip users**: `pip install -r requirements.txt` (standard workflow)
+- **uv users**: `uv sync` (faster, uses uv.lock for deterministic installs)
+
+When adding or updating dependencies, always update `requirements.txt` first. The `uv.lock` will be regenerated automatically on the next `uv sync`.
+
 ### Running Tests
 
 ```bash

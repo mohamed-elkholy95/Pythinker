@@ -18,6 +18,8 @@ class User(BaseModel):
     password_hash: str | None = None
     role: UserRole = UserRole.USER
     is_active: bool = True
+    totp_secret: str | None = None
+    totp_enabled: bool = False
     created_at: datetime = datetime.now(UTC)
     updated_at: datetime = datetime.now(UTC)
     last_login_at: datetime | None = None

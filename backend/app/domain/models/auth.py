@@ -12,3 +12,4 @@ class AuthToken(BaseModel):
     token_type: str = "bearer"
     refresh_token: str | None = None
     user: User | None = None
+    requires_totp: bool = False

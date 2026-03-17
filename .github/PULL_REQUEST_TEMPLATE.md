@@ -4,6 +4,7 @@
 -
 
 ## Type of Change
+<<<<<<< chore/repo-setup-enhancements
 <!-- Check the relevant option(s) -->
 - [ ] Bug fix (non-breaking change that fixes an issue)
 - [ ] New feature (non-breaking change that adds functionality)
@@ -12,6 +13,20 @@
 - [ ] Documentation update
 - [ ] CI/CD or infrastructure change
 - [ ] Dependency update
+=======
+
+<!-- Check all that apply -->
+
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds functionality)
+- [ ] Refactor (code change that neither fixes a bug nor adds a feature)
+- [ ] Breaking change (fix or feature that would cause existing functionality to change)
+- [ ] Documentation update
+- [ ] Infrastructure / CI/CD change
+- [ ] Dependency update
+
+## Related Issues
+>>>>>>> main
 
 ## Related Issues
 <!-- Link to related issues: Fixes #123, Closes #456 -->

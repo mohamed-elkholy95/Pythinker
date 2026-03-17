@@ -990,11 +990,11 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       sandbox:
         condition: service_started
     restart: unless-stopped
@@ -1050,13 +1050,13 @@ services:
       backend:
         condition: service_healthy
       mongodb:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       sandbox:
         condition: service_started
     restart: unless-stopped
@@ -1101,7 +1101,7 @@ services:
     hostname: sandbox
     security_opt:
       - no-new-privileges:true
-      - seccomp=unconfined
+      - seccomp=./sandbox/seccomp-sandbox.hardened.json
     cap_drop:
       - ALL
     cap_add:
@@ -1251,7 +1251,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   # ---------------------------------------------------------------------------
   # MinIO (S3-compatible object storage)
@@ -1260,19 +1264,23 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-pythinker-2bc6b06a}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-o4CcLtVkGf4TNW6PjqulJpssS4G4HObo}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
       - MINIO_IDENTITY_OPENID_ENABLE=off
     volumes:
       - minio_data:/data
     ports:
-      - "9010:9000"
-      - "9011:9001"
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
     restart: unless-stopped
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # MinIO Init (create service user)
@@ -1281,10 +1289,10 @@ services:
     image: minio/mc:latest
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-pythinker-2bc6b06a}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-o4CcLtVkGf4TNW6PjqulJpssS4G4HObo}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
       - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
       - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD:-pythinker-svc-secret-change-me}
     entrypoint: /bin/sh
@@ -1308,8 +1316,8 @@ services:
     container_name: pythinker-qdrant
     mem_limit: 1g
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
@@ -1318,7 +1326,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   mongodb_data:

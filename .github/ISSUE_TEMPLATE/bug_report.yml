@@ -6,14 +6,22 @@ body:
   - type: markdown
     attributes:
       value: |
+<<<<<<< chore/repo-setup-enhancements
         Thank you for taking the time to report a bug! Please fill out the sections below to help us investigate.
+=======
+        Thanks for taking the time to report a bug! Please fill out the sections below.
+>>>>>>> main
 
   - type: textarea
     id: description
     attributes:
       label: Describe the Bug
       description: A clear and concise description of what the bug is.
+<<<<<<< chore/repo-setup-enhancements
       placeholder: Tell us what happened...
+=======
+      placeholder: What went wrong?
+>>>>>>> main
     validations:
       required: true
 
@@ -22,7 +30,11 @@ body:
     attributes:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior.
+<<<<<<< chore/repo-setup-enhancements
       placeholder: |
+=======
+      value: |
+>>>>>>> main
         1. Go to '...'
         2. Click on '...'
         3. Send message '...'
@@ -63,7 +75,10 @@ body:
         - macOS 15 (Sequoia)
         - macOS 14 (Sonoma)
         - Windows 11
+<<<<<<< chore/repo-setup-enhancements
         - Windows 10
+=======
+>>>>>>> main
         - Other (specify in Additional Context)
     validations:
       required: true
