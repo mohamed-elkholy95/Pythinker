@@ -18,7 +18,7 @@
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
     "@novnc/novnc": "^1.6.0",
-    "@shikijs/transformers": "^3.22.0",
+    "@shikijs/transformers": "^4.0.2",
     "@tiptap/extension-character-count": "^3.17.0",
     "@tiptap/extension-code-block-lowlight": "^3.17.0",
     "@tiptap/extension-color": "3.17.0",
