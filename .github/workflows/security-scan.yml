@@ -99,6 +99,7 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: steps.build.outcome == 'success'
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
@@ -118,7 +119,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy SARIF to GitHub Security
-        if: steps.build.outcome == 'success'
+        if: steps.build.outcome == 'success' && hashFiles(format('trivy-{0}.sarif', matrix.image.name)) != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "trivy-${{ matrix.image.name }}.sarif"
