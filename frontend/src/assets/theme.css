@@ -306,3 +306,18 @@
   --color-4: 195 100% 63%;
   --color-5: 90 100% 63%;
 }
+
+:root {
+  --bg-color: #ffffff;
+  --text-color: #111111;
+}
+
+[data-theme="dark"] {
+  --bg-color: #111111;
+  --text-color: #ffffff;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+}
