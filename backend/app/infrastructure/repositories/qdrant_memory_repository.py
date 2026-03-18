@@ -104,16 +104,20 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             # Store as Unix timestamp for integer indexing
             payload["created_at"] = int(created_at.timestamp())
 
-        await get_qdrant().client.upsert(
-            collection_name=self._collection,
-            points=[
-                models.PointStruct(
-                    id=memory_id,
-                    vector=vectors,
-                    payload=payload,
-                )
-            ],
-        )
+        try:
+            await get_qdrant().client.upsert(
+                collection_name=self._collection,
+                points=[
+                    models.PointStruct(
+                        id=memory_id,
+                        vector=vectors,
+                        payload=payload,
+                    )
+                ],
+            )
+        except Exception as e:
+            logger.warning("Qdrant upsert_memory failed for %s: %s", memory_id, e)
+            return
         logger.debug(f"Upserted memory {memory_id} to Qdrant with named vectors")
 
     async def upsert_memories_batch(
@@ -168,10 +172,14 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 )
             )
 
-        await get_qdrant().client.upsert(
-            collection_name=self._collection,
-            points=points,
-        )
+        try:
+            await get_qdrant().client.upsert(
+                collection_name=self._collection,
+                points=points,
+            )
+        except Exception as e:
+            logger.warning("Qdrant upsert_memories_batch failed (%d memories): %s", len(memories), e)
+            return
         logger.info(f"Batch upserted {len(memories)} memories to Qdrant")
 
     async def search_similar(
@@ -254,6 +262,9 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 limit=limit,
                 score_threshold=min_score,
             )
+        except Exception as e:
+            logger.warning("Qdrant search_similar failed for user %s: %s", user_id, e)
+            return []
         finally:
             duration = time.time() - start_time
             qdrant_query_duration_seconds.observe(
@@ -374,6 +385,9 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 limit=limit,
                 score_threshold=min_score,
             )
+        except Exception as e:
+            logger.warning("Qdrant search_hybrid failed for user %s query '%s': %s", user_id, query_text[:50], e)
+            return []
         finally:
             duration = time.time() - start_time
             qdrant_query_duration_seconds.observe(
@@ -398,10 +412,14 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         Args:
             memory_id: ID of memory to delete
         """
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.PointIdsList(points=[memory_id]),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.PointIdsList(points=[memory_id]),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_memory failed for %s: %s", memory_id, e)
+            return
         logger.debug(f"Deleted memory {memory_id} from Qdrant")
 
     async def delete_memories_batch(self, memory_ids: list[str]) -> None:
@@ -413,10 +431,14 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         if not memory_ids:
             return
 
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.PointIdsList(points=memory_ids),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.PointIdsList(points=memory_ids),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_memories_batch failed (%d memories): %s", len(memory_ids), e)
+            return
         logger.info(f"Batch deleted {len(memory_ids)} memories from Qdrant")
 
     async def delete_user_memories(self, user_id: str) -> None:
@@ -425,14 +447,18 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         Args:
             user_id: User whose memories to delete
         """
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
-                )
-            ),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+                    )
+                ),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_user_memories failed for user %s: %s", user_id, e)
+            return
         logger.info(f"Deleted all memories for user {user_id} from Qdrant")
 
     async def get_memory_count(self, user_id: str | None = None) -> int:
@@ -444,17 +470,21 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         Returns:
             Number of memories
         """
-        if user_id:
-            result = await get_qdrant().client.count(
-                collection_name=self._collection,
-                count_filter=models.Filter(
-                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
-                ),
-            )
-        else:
-            result = await get_qdrant().client.count(
-                collection_name=self._collection,
-            )
+        try:
+            if user_id:
+                result = await get_qdrant().client.count(
+                    collection_name=self._collection,
+                    count_filter=models.Filter(
+                        must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+                    ),
+                )
+            else:
+                result = await get_qdrant().client.count(
+                    collection_name=self._collection,
+                )
+        except Exception as e:
+            logger.warning("Qdrant get_memory_count failed: %s", e)
+            return 0
         return result.count
 
     async def memory_exists(self, memory_id: str) -> bool:
@@ -466,8 +496,12 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         Returns:
             True if memory exists
         """
-        result = await get_qdrant().client.retrieve(
-            collection_name=self._collection,
-            ids=[memory_id],
-        )
+        try:
+            result = await get_qdrant().client.retrieve(
+                collection_name=self._collection,
+                ids=[memory_id],
+            )
+        except Exception as e:
+            logger.warning("Qdrant memory_exists check failed for %s: %s", memory_id, e)
+            return False
         return len(result) > 0

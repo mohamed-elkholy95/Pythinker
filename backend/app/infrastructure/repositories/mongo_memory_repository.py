@@ -159,10 +159,14 @@ class MongoMemoryRepository(MemoryRepository):
 
     async def get_by_id(self, memory_id: str) -> MemoryEntry | None:
         """Get memory by ID."""
-        doc = await self._collection.find_one({"_id": memory_id})
-        if doc:
-            return self._from_document(doc)
-        return None
+        try:
+            doc = await self._collection.find_one({"_id": memory_id})
+            if doc:
+                return self._from_document(doc)
+            return None
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_by_id failed for %s: %s", memory_id, e)
+            return None
 
     async def get_by_ids(self, memory_ids: list[str]) -> list[MemoryEntry]:
         """Get multiple memories by IDs.
@@ -177,15 +181,19 @@ class MongoMemoryRepository(MemoryRepository):
             return []
 
         # Create a map for preserving order
-        cursor = self._collection.find({"_id": {"$in": memory_ids}})
+        try:
+            cursor = self._collection.find({"_id": {"$in": memory_ids}})
 
-        id_to_memory = {}
-        async for doc in cursor:
-            memory = self._from_document(doc)
-            id_to_memory[memory.id] = memory
+            id_to_memory = {}
+            async for doc in cursor:
+                memory = self._from_document(doc)
+                id_to_memory[memory.id] = memory
 
-        # Return in original order, excluding missing
-        return [id_to_memory[mid] for mid in memory_ids if mid in id_to_memory]
+            # Return in original order, excluding missing
+            return [id_to_memory[mid] for mid in memory_ids if mid in id_to_memory]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_by_ids failed for %d IDs: %s", len(memory_ids), e)
+            return []
 
     async def update(self, memory_id: str, update: MemoryUpdate) -> MemoryEntry | None:
         """Update an existing memory."""
@@ -201,9 +209,13 @@ class MongoMemoryRepository(MemoryRepository):
 
             update_data["content_hash"] = hashlib.sha256(update_data["content"].encode()).hexdigest()[:16]
 
-        result = await self._collection.find_one_and_update(
-            {"_id": memory_id}, {"$set": update_data}, return_document=True
-        )
+        try:
+            result = await self._collection.find_one_and_update(
+                {"_id": memory_id}, {"$set": update_data}, return_document=True
+            )
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("MongoDB update failed for memory %s: %s", memory_id, e)
+            raise IntegrationException(f"MongoDB update failed: {e}", service="mongodb") from e
 
         if result:
             return self._from_document(result)
@@ -211,8 +223,12 @@ class MongoMemoryRepository(MemoryRepository):
 
     async def delete(self, memory_id: str) -> bool:
         """Delete memory by ID."""
-        result = await self._collection.delete_one({"_id": memory_id})
-        return result.deleted_count > 0
+        try:
+            result = await self._collection.delete_one({"_id": memory_id})
+            return result.deleted_count > 0
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB delete failed for memory %s: %s", memory_id, e)
+            return False
 
     async def delete_by_user(self, user_id: str) -> int:
         """Delete all memories for a user."""
@@ -400,19 +416,25 @@ class MongoMemoryRepository(MemoryRepository):
 
     async def find_duplicates(self, user_id: str, content_hash: str) -> list[MemoryEntry]:
         """Find memories with matching content hash."""
-        cursor = self._collection.find({"user_id": user_id, "content_hash": content_hash})
-
-        return [self._from_document(doc) async for doc in cursor]
+        try:
+            cursor = self._collection.find({"user_id": user_id, "content_hash": content_hash})
+            return [self._from_document(doc) async for doc in cursor]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB find_duplicates failed for user %s: %s", user_id, e)
+            return []
 
     async def get_by_entities(self, user_id: str, entities: list[str], limit: int = 20) -> list[MemoryEntry]:
         """Get memories mentioning specific entities."""
-        cursor = (
-            self._collection.find({"user_id": user_id, "is_active": True, "entities": {"$in": entities}})
-            .sort("access_count", DESCENDING)
-            .limit(limit)
-        )
-
-        return [self._from_document(doc) async for doc in cursor]
+        try:
+            cursor = (
+                self._collection.find({"user_id": user_id, "is_active": True, "entities": {"$in": entities}})
+                .sort("access_count", DESCENDING)
+                .limit(limit)
+            )
+            return [self._from_document(doc) async for doc in cursor]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_by_entities failed for user %s: %s", user_id, e)
+            return []
 
     async def get_recent(
         self, user_id: str, limit: int = 10, memory_types: list[MemoryType] | None = None
@@ -423,9 +445,12 @@ class MongoMemoryRepository(MemoryRepository):
         if memory_types:
             query["memory_type"] = {"$in": [t.value for t in memory_types]}
 
-        cursor = self._collection.find(query).sort("created_at", DESCENDING).limit(limit)
-
-        return [self._from_document(doc) async for doc in cursor]
+        try:
+            cursor = self._collection.find(query).sort("created_at", DESCENDING).limit(limit)
+            return [self._from_document(doc) async for doc in cursor]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_recent failed for user %s: %s", user_id, e)
+            return []
 
     async def get_most_accessed(
         self, user_id: str, limit: int = 10, since: datetime | None = None
@@ -436,14 +461,21 @@ class MongoMemoryRepository(MemoryRepository):
         if since:
             query["last_accessed"] = {"$gte": since}
 
-        cursor = self._collection.find(query).sort("access_count", DESCENDING).limit(limit)
-
-        return [self._from_document(doc) async for doc in cursor]
+        try:
+            cursor = self._collection.find(query).sort("access_count", DESCENDING).limit(limit)
+            return [self._from_document(doc) async for doc in cursor]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_most_accessed failed for user %s: %s", user_id, e)
+            return []
 
     async def get_all_content(self, limit: int = 10000) -> list[str]:
         """Get content strings from all active memories for BM25 corpus fitting."""
-        cursor = self._collection.find({"is_active": True}, {"content": 1}).limit(limit)
-        return [doc["content"] async for doc in cursor if doc.get("content")]
+        try:
+            cursor = self._collection.find({"is_active": True}, {"content": 1}).limit(limit)
+            return [doc["content"] async for doc in cursor if doc.get("content")]
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.warning("MongoDB get_all_content failed: %s", e)
+            return []
 
     async def get_stats(self, user_id: str) -> MemoryStats:
         """Get memory statistics for a user."""
