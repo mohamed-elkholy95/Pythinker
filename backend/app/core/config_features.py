@@ -138,6 +138,11 @@ class AgentSafetySettingsMixin:
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
 
+    # Absolute wall-clock limit for the entire agent session (base.execute()).
+    # Acts as a hard outer guard independent of per-step limits and idle timeouts.
+    # Default 1 hour; set to 0 to disable.
+    max_session_wall_clock_seconds: int = 3600
+
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
     reflection_interval: int = 5  # Iterations between self-reflection cycles

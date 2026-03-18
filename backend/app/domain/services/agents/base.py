@@ -1504,6 +1504,36 @@ class BaseAgent:
         return max(1.0, cost)  # Minimum 1 iteration per cycle
 
     async def execute(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
+        from app.core.config import get_settings
+
+        _settings = get_settings()
+        _session_timeout = getattr(_settings, "max_session_wall_clock_seconds", 3600)
+
+        try:
+            async with asyncio.timeout(_session_timeout if _session_timeout > 0 else None):
+                async for _event in self._execute_inner(request, format):
+                    yield _event
+        except TimeoutError:
+            logger.warning(
+                "Agent session wall-clock timeout after %ds (session=%s)",
+                _session_timeout,
+                getattr(self, "_session_id", "unknown"),
+            )
+            _timeout_content = json.dumps(
+                {
+                    "success": False,
+                    "result": (
+                        "The session reached the maximum allowed time and was stopped. "
+                        "Any work completed up to this point has been saved."
+                    ),
+                    "attachments": [],
+                    "error": f"Session wall-clock limit of {_session_timeout}s exceeded.",
+                }
+            )
+            yield MessageEvent(message=_timeout_content)
+            await self.cleanup_background_tasks()
+
+    async def _execute_inner(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
         format = format or self.format
         # Don't use json_object format when tools are available - causes empty responses
         # Only enforce JSON format after tool calling is complete
