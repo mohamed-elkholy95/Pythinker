@@ -90,6 +90,7 @@ def _warn_if_null_metrics() -> None:
     if not _metrics_warning_emitted:
         _metrics_warning_emitted = True
         from app.domain.external.observability import NullMetrics
+
         if isinstance(_metrics, NullMetrics):
             logger.warning(
                 "Agent execution using NullMetrics — Prometheus counters will not record. "
