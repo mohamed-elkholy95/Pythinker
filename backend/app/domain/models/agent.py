@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain.models.memory import Memory
 
@@ -74,5 +74,3 @@ class Agent(BaseModel):
         if v is not None and v <= 0:
             raise ValueError("Max tokens must be positive")
         return v
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
