@@ -104,7 +104,8 @@ class EmbeddingClient:
                 if val is not None:
                     cached[k] = json.loads(val)
             return cached
-        except Exception:
+        except Exception as e:
+            logger.warning("Embedding cache read failed (degraded to uncached): %s", e)
             return {}
 
     async def _set_cached(self, items: dict[str, list[float]]) -> None:
@@ -116,8 +117,8 @@ class EmbeddingClient:
             for k, vec in items.items():
                 pipe.set(k, json.dumps(vec), ex=self._cache_ttl)
             await pipe.execute()
-        except Exception:  # noqa: S110
-            pass  # Cache write failures are non-critical
+        except Exception as e:
+            logger.warning("Embedding cache write failed (non-critical): %s", e)
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text.
