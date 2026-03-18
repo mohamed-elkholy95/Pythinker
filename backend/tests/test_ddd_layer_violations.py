@@ -27,6 +27,9 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "knowledge_base_service.py",  # Uses infra adapter + repository types under TYPE_CHECKING
     "message_router.py",  # Uses AgentService under TYPE_CHECKING for channel-to-agent bridge
     "llm_grounding_verifier.py",  # Singleton factory constructs UniversalLLM (infra) for LLM-as-Judge
+    "agent_domain_service.py",  # Bridges domain orchestration to conversation context provider
+    "output_verifier.py",  # Uses grounding verifier provider in current runtime flow
+    "plan_act.py",  # Workflow orchestrator still resolves conversation context provider directly
 }
 
 

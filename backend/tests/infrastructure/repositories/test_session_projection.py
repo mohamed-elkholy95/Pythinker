@@ -145,30 +145,22 @@ class TestProjectionDiscipline:
             assert projection.get("files") == 0
 
     @pytest.mark.asyncio
-    async def test_add_file_loads_only_files(self, repo, mock_collection):
-        """add_file should load only the files array for duplicate check."""
-        mock_collection.find_one = AsyncMock(return_value={"_id": "obj_id", "files": []})
+    async def test_add_file_uses_atomic_update_without_preread(self, repo, mock_collection):
+        """add_file should rely on a single conditional update rather than a pre-read."""
+        mock_collection.update_one = AsyncMock(return_value=MagicMock(matched_count=1))
+        mock_collection.find_one = AsyncMock()
 
-        file_info = MagicMock(spec=FileInfo)
-        file_info.file_id = "f1"
-        file_info.file_path = "/test.py"
-        file_info.model_dump.return_value = {"file_id": "f1", "file_path": "/test.py"}
+        file_info = FileInfo(file_id="f1", filename="test.py", file_path="/test.py")
 
-        mock_update_result = MagicMock()
-        mock_find_one_query = MagicMock()
-        mock_find_one_query.update = AsyncMock(return_value=mock_update_result)
-
-        with (
-            patch.object(SessionDocument, "session_id", create=True, new="session_id"),
-            patch.object(SessionDocument, "get_pymongo_collection", return_value=mock_collection),
-            patch.object(SessionDocument, "find_one", return_value=mock_find_one_query),
-        ):
+        with patch.object(SessionDocument, "get_pymongo_collection", return_value=mock_collection):
             await repo.add_file("s1", file_info)
 
-            # Verify pymongo find_one used files-only projection
-            call_args = mock_collection.find_one.call_args
-            projection = call_args[1].get("projection") or call_args[0][1]
-            assert projection == {"files": 1}
+        mock_collection.find_one.assert_not_called()
+        mock_collection.update_one.assert_awaited_once()
+        update_filter = mock_collection.update_one.await_args.args[0]
+        assert update_filter["session_id"] == "s1"
+        assert {"files.file_id": {"$ne": "f1"}} in update_filter["$and"]
+        assert {"files.file_path": {"$ne": "/test.py"}} in update_filter["$and"]
 
     @pytest.mark.asyncio
     async def test_get_file_by_path_loads_only_files(self, repo, mock_collection):
@@ -176,7 +168,7 @@ class TestProjectionDiscipline:
         mock_collection.find_one = AsyncMock(
             return_value={
                 "_id": "obj_id",
-                "files": [{"file_id": "f1", "file_path": "/test.py", "file_name": "test.py"}],
+                "files": [{"file_id": "f1", "file_path": "/test.py", "filename": "test.py"}],
             }
         )
 

@@ -292,11 +292,10 @@ async def test_takeover_navigation_action_proxies_to_sandbox():
     response_mock.raise_for_status = MagicMock()
     response_mock.json = MagicMock(return_value={"ok": True, "message": "Navigated back"})
 
-    client_ctx = AsyncMock()
-    client_ctx.__aenter__.return_value.post = AsyncMock(return_value=response_mock)
-    client_ctx.__aenter__.return_value.get = AsyncMock(return_value=response_mock)
+    client = AsyncMock()
+    client.post = AsyncMock(return_value=response_mock)
 
-    with patch("app.interfaces.api.session_routes.httpx.AsyncClient", return_value=client_ctx):
+    with patch("app.interfaces.api.session_routes.get_sandbox_navigation_http_client", AsyncMock(return_value=client)):
         response = await takeover_navigation_action(
             session_id=session_id,
             action="back",
@@ -333,10 +332,10 @@ async def test_takeover_navigation_history_returns_sanitized_payload():
         }
     )
 
-    client_ctx = AsyncMock()
-    client_ctx.__aenter__.return_value.get = AsyncMock(return_value=response_mock)
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=response_mock)
 
-    with patch("app.interfaces.api.session_routes.httpx.AsyncClient", return_value=client_ctx):
+    with patch("app.interfaces.api.session_routes.get_sandbox_navigation_http_client", AsyncMock(return_value=client)):
         response = await takeover_navigation_history(
             session_id=session_id,
             current_user=current_user,

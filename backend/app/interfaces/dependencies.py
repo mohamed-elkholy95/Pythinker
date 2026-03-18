@@ -4,6 +4,7 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.websockets import WebSocket
@@ -336,6 +337,13 @@ def get_screenshot_query_service() -> ScreenshotQueryService:
     return _get_screenshot_query_service()
 
 
+async def get_sandbox_navigation_http_client() -> httpx.AsyncClient:
+    """Get the shared HTTP client used for sandbox takeover navigation."""
+    from app.infrastructure.external.http_pool import HTTPClientPool
+
+    return await HTTPClientPool.get_client(name="sandbox-navigation", timeout=httpx.Timeout(10.0))
+
+
 @lru_cache
 def get_browser_workflow_service() -> "BrowserWorkflowService":
     """Get BrowserWorkflowService using the cached composition-root pattern."""
@@ -502,7 +510,7 @@ async def require_admin_user(
         return User(
             id="anonymous",
             fullname="anonymous",
-            email="anonymous@localhost",
+            email="anonymous@example.local",
             role=UserRole.ADMIN,
             is_active=True,
         )
@@ -560,7 +568,7 @@ async def get_current_user(
     # If auth_provider is 'none', return anonymous user
     if settings.auth_provider == "none":
         return User(
-            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
+            id="anonymous", fullname="anonymous", email="anonymous@example.local", role=UserRole.USER, is_active=True
         )
 
     # Check if bearer token is provided
@@ -601,7 +609,7 @@ async def get_eventsource_current_user(
 
     if settings.auth_provider == "none":
         return User(
-            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
+            id="anonymous", fullname="anonymous", email="anonymous@example.local", role=UserRole.USER, is_active=True
         )
 
     token = bearer_credentials.credentials if bearer_credentials else access_token
@@ -639,7 +647,7 @@ async def get_optional_current_user(
     # If auth_provider is 'none', return anonymous user
     if settings.auth_provider == "none":
         return User(
-            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
+            id="anonymous", fullname="anonymous", email="anonymous@example.local", role=UserRole.USER, is_active=True
         )
 
     # If no bearer token provided, return None

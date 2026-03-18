@@ -226,3 +226,6 @@ class MongoSyncOutboxRepository(SyncOutboxRepositoryBase):
             logger.info(f"Cleaned up {result.deleted_count} completed outbox entries older than {days} days")
 
         return result.deleted_count
+
+
+SyncOutboxRepository = MongoSyncOutboxRepository
