@@ -2,8 +2,8 @@
   <section class="cta-section">
     <div class="cta-glow" aria-hidden="true" />
     <div class="cta-inner">
-      <h2 :ref="revealRef" class="cta-heading scroll-reveal">Ready to Deploy Your Own AI&nbsp;Agent?</h2>
-      <p :ref="revealRef" class="cta-sub scroll-reveal">Open source. Self-hosted. Zero data leakage.</p>
+      <h2 :ref="revealRef" class="cta-heading scroll-reveal">Your Personal AI Agent,<br />Ready&nbsp;in&nbsp;Minutes</h2>
+      <p :ref="revealRef" class="cta-sub scroll-reveal">Open source. Self-hosted. Your data never leaves your server.</p>
       <div :ref="revealRef" class="cta-actions scroll-reveal">
         <a href="/login" class="cta-btn cta-btn--primary">Get Started Free <ArrowRight :size="18" /></a>
         <a href="https://github.com/mohamed-elkholy95/Pythinker" target="_blank" rel="noopener noreferrer" class="cta-btn cta-btn--secondary">

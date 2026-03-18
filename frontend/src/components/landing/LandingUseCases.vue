@@ -1,9 +1,9 @@
 <template>
   <section id="use-cases" class="uc-section">
     <div class="uc-inner">
-      <h2 :ref="revealRef" class="section-heading scroll-reveal">Built for Real Work</h2>
+      <h2 :ref="revealRef" class="section-heading scroll-reveal">Tasks People Actually Use It For</h2>
       <p :ref="revealRef" class="section-sub scroll-reveal">
-        From market analysis to web automation — let the agent handle the heavy lifting.
+        Tell it what you need, walk away, and come back to results.
       </p>
       <div class="uc-grid">
         <div v-for="(uc, i) in useCases" :key="uc.title" :ref="revealRef"
@@ -30,17 +30,17 @@ import { useScrollReveal } from '../../composables/useScrollReveal'
 const { revealRef } = useScrollReveal()
 
 const useCases = [
-  { title: 'Market Research', icon: BarChart3, color: 'blue',
-    description: 'Analyze competitors, scrape pricing data, and compile comprehensive reports with citations.',
-    tools: ['Browser', 'Search', 'Files'] },
-  { title: 'Deal Finding', icon: Tag, color: 'amber',
-    description: 'Compare prices across stores, find active coupons and promo codes automatically.',
+  { title: 'Research & Reports', icon: BarChart3, color: 'blue',
+    description: '"Research the top 5 competitors in X market and write a report." It searches, reads, compares, and delivers a cited document.',
+    tools: ['Search', 'Browser', 'Files'] },
+  { title: 'Find the Best Deal', icon: Tag, color: 'amber',
+    description: '"Find me the best price for X across these stores." It opens each site, compares prices, finds coupons, and reports back.',
     tools: ['Browser', 'Search'] },
-  { title: 'Code Generation', icon: Code, color: 'green',
-    description: 'Generate, test, and iterate on code with full terminal access inside isolated sandboxes.',
+  { title: 'Write & Run Code', icon: Code, color: 'green',
+    description: '"Build a Python script that does X." It writes the code, tests it, fixes bugs, and gives you the working result.',
     tools: ['Terminal', 'Files', 'Code'] },
-  { title: 'Web Automation', icon: MousePointerClick, color: 'purple',
-    description: 'Fill forms, navigate multi-step workflows, and extract structured data from any website.',
+  { title: 'Automate Web Tasks', icon: MousePointerClick, color: 'purple',
+    description: '"Fill out this form on 10 pages" or "Extract all product data from this site." It handles repetitive web work.',
     tools: ['Browser', 'Terminal'] },
 ]
 </script>
