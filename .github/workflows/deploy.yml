@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: Build Images
 
 on:
   push:
@@ -147,75 +147,7 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.component }},mode=max
 
   # ---------------------------------------------------------------------------
-  # Deploy to VPS via SSH
+  # Deployment is handled by Dokploy (manual Deploy button).
+  # CI only builds and pushes images to ghcr.io.
+  # Dokploy pulls pre-built images when Deploy is clicked.
   # ---------------------------------------------------------------------------
-  deploy:
-    needs: [changes, build]
-    if: always() && (needs.build.result == 'success' || needs.changes.outputs.any_app == 'false')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    steps:
-      - name: Skip deploy (no app changes)
-        if: needs.changes.outputs.any_app == 'false'
-        run: echo "No app changes — skipping deploy"
-
-      - name: Deploy via SSH
-        if: needs.changes.outputs.any_app == 'true'
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
-          envs: GHCR_TOKEN
-          script: |
-            set -euo pipefail
-            cd /opt/pythinker-deploy
-
-            echo "==> Authenticating to ghcr.io..."
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-
-            echo "==> Pulling latest compose file..."
-            git pull origin main --ff-only
-
-            echo "==> Pulling updated images..."
-            docker compose -f docker-compose-deploy.yml pull
-
-            echo "==> Starting services..."
-            docker compose -f docker-compose-deploy.yml up -d --remove-orphans
-
-            echo "==> Waiting for backend health..."
-            for i in $(seq 1 30); do
-              if curl -fsS http://localhost:8000/api/v1/health >/dev/null 2>&1; then
-                echo "Backend healthy!"
-                break
-              fi
-              if [ "$i" -eq 30 ]; then
-                echo "ERROR: Backend health check failed after 30 attempts"
-                docker compose -f docker-compose-deploy.yml logs --tail 50 backend
-                exit 1
-              fi
-              sleep 2
-            done
-
-            echo "==> Waiting for sandbox health..."
-            for i in $(seq 1 30); do
-              if curl -fsS http://localhost:8083/health >/dev/null 2>&1; then
-                echo "Sandbox healthy!"
-                break
-              fi
-              if [ "$i" -eq 30 ]; then
-                echo "ERROR: Sandbox health check failed after 30 attempts"
-                docker compose -f docker-compose-deploy.yml logs --tail 50 sandbox
-                exit 1
-              fi
-              sleep 2
-            done
-
-            echo "==> Cleaning up old images..."
-            docker image prune -f
-
-            echo "==> Deploy complete!"
