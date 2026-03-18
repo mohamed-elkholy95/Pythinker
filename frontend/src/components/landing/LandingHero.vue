@@ -4,38 +4,49 @@
     <div class="hero-grid" aria-hidden="true" />
 
     <div class="hero-content">
-      <Transition appear name="fade-up">
-        <span class="hero-badge">
-          <Server :size="14" class="hero-badge-icon" />
-          Self-Hosted AI Agent Platform
-        </span>
-      </Transition>
+      <div class="hero-split">
+        <div class="hero-text">
+          <Transition appear name="fade-up">
+            <span class="hero-badge">
+              <Server :size="14" class="hero-badge-icon" />
+              Self-Hosted AI Agent Platform
+            </span>
+          </Transition>
 
-      <Transition appear name="fade-up-d1">
-        <h1 class="hero-headline">
-          Your AI. Your Tools.<br />
-          <span class="hero-headline-accent">Your Infrastructure.</span>
-        </h1>
-      </Transition>
+          <Transition appear name="fade-up-d1">
+            <h1 class="hero-headline">
+              Your AI. Your Tools.<br />
+              <span class="hero-headline-accent">Your Infrastructure.</span>
+            </h1>
+          </Transition>
 
-      <Transition appear name="fade-up-d2">
-        <p class="hero-sub">
-          An AI agent that browses the web, runs code, manages files, and
-          researches &mdash; all in isolated Docker sandboxes you control.
-        </p>
-      </Transition>
+          <Transition appear name="fade-up-d2">
+            <p class="hero-sub">
+              An AI agent that browses the web, runs code, manages files, and
+              researches &mdash; all in isolated Docker sandboxes you control.
+            </p>
+          </Transition>
 
-      <Transition appear name="fade-up-d3">
-        <div class="hero-ctas">
-          <a href="/login" class="hero-btn hero-btn--primary">
-            Get Started <ArrowRight :size="18" />
-          </a>
-          <a href="#how-it-works" class="hero-btn hero-btn--secondary"
-            @click.prevent="scrollTo('how-it-works')">
-            <Play :size="16" /> See How It Works
-          </a>
+          <Transition appear name="fade-up-d3">
+            <div class="hero-ctas">
+              <a href="/login" class="hero-btn hero-btn--primary">
+                Get Started <ArrowRight :size="18" />
+              </a>
+              <a href="#how-it-works" class="hero-btn hero-btn--secondary"
+                @click.prevent="scrollTo('how-it-works')">
+                <Play :size="16" /> See How It Works
+              </a>
+            </div>
+          </Transition>
         </div>
-      </Transition>
+
+        <Transition appear name="fade-up-d2">
+          <div class="hero-mascot">
+            <div class="mascot-glow" aria-hidden="true" />
+            <img src="/pythinker_animated.svg" alt="Pythinker AI Robot" class="mascot-img" width="280" height="350" />
+          </div>
+        </Transition>
+      </div>
 
       <Transition appear name="fade-up-d4">
         <div class="hero-preview">
@@ -102,8 +113,7 @@ const scrollTo = (id: string) => {
 <style scoped>
 .hero {
   position: relative; min-height: 100vh; display: flex;
-  align-items: center; justify-content: center;
-  padding: 100px 24px 60px; overflow: hidden;
+  align-items: center; justify-content: center; padding: 100px 24px 60px; overflow: hidden;
 }
 .hero-glow {
   position: absolute; top: -15%; left: 50%; translate: -50% 0;
@@ -121,9 +131,23 @@ const scrollTo = (id: string) => {
 }
 @keyframes gridBreath { 0%,100% { opacity: .7 } 50% { opacity: 1 } }
 .hero-content {
-  position: relative; z-index: 1; max-width: 900px; width: 100%;
+  position: relative; z-index: 1; max-width: 1100px; width: 100%;
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 24px;
 }
+.hero-split { display: flex; align-items: center; gap: 48px; width: 100%; }
+.hero-text { flex: 1; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 24px; }
+.hero-mascot { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.mascot-glow {
+  position: absolute; inset: -20%; border-radius: 50%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--text-brand) 12%, transparent) 0%, color-mix(in srgb, #EE9983 6%, transparent) 40%, transparent 70%);
+  filter: blur(40px); pointer-events: none;
+}
+.mascot-img {
+  width: 280px; height: auto;
+  filter: drop-shadow(0 8px 32px color-mix(in srgb, #213853 20%, transparent));
+  animation: mascotFloat 6s ease-in-out infinite;
+}
+@keyframes mascotFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
 .hero-badge {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 16px; border-radius: 999px; font-size: 13px; font-weight: 500;
@@ -159,10 +183,7 @@ const scrollTo = (id: string) => {
   background: color-mix(in srgb, var(--background-card) 80%, transparent);
   color: var(--text-primary); border: 1px solid var(--border-main); backdrop-filter: blur(6px);
 }
-.hero-btn--secondary:hover {
-  border-color: var(--border-dark); background: var(--fill-tsp-gray-main); transform: translateY(-2px);
-}
-/* Preview window */
+.hero-btn--secondary:hover { border-color: var(--border-dark); background: var(--fill-tsp-gray-main); transform: translateY(-2px); }
 .hero-preview { width: 100%; max-width: 820px; margin-top: 32px; }
 .preview-window {
   border-radius: 16px; overflow: hidden; border: 1px solid var(--border-main);
@@ -207,32 +228,31 @@ const scrollTo = (id: string) => {
 .browser-skeleton-block { border-radius: 6px; background: var(--fill-tsp-gray-main); min-height: 40px; }
 .browser-skeleton-lines { display: flex; flex-direction: column; gap: 4px; }
 .browser-line { height: 6px; border-radius: 3px; background: var(--fill-tsp-gray-main); }
-/* Appear transitions */
 .fade-up-enter-active, .fade-up-d1-enter-active, .fade-up-d2-enter-active,
-.fade-up-d3-enter-active, .fade-up-d4-enter-active {
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
+.fade-up-d3-enter-active, .fade-up-d4-enter-active { transition: opacity 0.7s ease, transform 0.7s ease; }
 .fade-up-enter-from, .fade-up-d1-enter-from, .fade-up-d2-enter-from,
-.fade-up-d3-enter-from, .fade-up-d4-enter-from {
-  opacity: 0; transform: translateY(24px);
-}
+.fade-up-d3-enter-from, .fade-up-d4-enter-from { opacity: 0; transform: translateY(24px); }
 .fade-up-d1-enter-active { transition-delay: 0.1s; }
 .fade-up-d2-enter-active { transition-delay: 0.2s; }
 .fade-up-d3-enter-active { transition-delay: 0.35s; }
 .fade-up-d4-enter-active { transition-delay: 0.55s; }
 @media (max-width: 768px) {
   .hero { padding: 90px 16px 40px; min-height: auto; }
+  .hero-split { flex-direction: column-reverse; gap: 32px; }
+  .hero-text { align-items: center; text-align: center; }
   .hero-headline { font-size: 38px; }
   .hero-sub { font-size: 16px; }
   .hero-ctas { flex-direction: column; width: 100%; }
   .hero-btn { width: 100%; justify-content: center; }
+  .mascot-img { width: 180px; }
   .preview-body { min-height: 220px; }
   .preview-sidebar { display: none; }
 }
-@media (min-width: 769px) and (max-width: 1024px) { .hero-headline { font-size: 52px; } }
+@media (min-width: 769px) and (max-width: 1024px) { .hero-headline { font-size: 52px; } .mascot-img { width: 220px; } }
 @media (prefers-reduced-motion: reduce) {
   .fade-up-enter-active, .fade-up-d1-enter-active, .fade-up-d2-enter-active,
   .fade-up-d3-enter-active, .fade-up-d4-enter-active { transition: none; }
   .hero-grid { animation: none; }
+  .mascot-img { animation: none; }
 }
 </style>
