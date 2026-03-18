@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SnapshotType(str, Enum):
@@ -115,6 +115,26 @@ class StateSnapshot(BaseModel):
     # Compression info
     is_compressed: bool = False
     compressed_size_bytes: int | None = None
+
+    @model_validator(mode="after")
+    def validate_snapshot_data_matches_type(self) -> "StateSnapshot":
+        """Ensure the populated sub-model matches the snapshot_type."""
+        type_to_field = {
+            SnapshotType.FILE_SYSTEM: "file_system",
+            SnapshotType.FILE_CONTENT: "file_content",
+            SnapshotType.BROWSER_STATE: "browser",
+            SnapshotType.TERMINAL_STATE: "terminal",
+            SnapshotType.EDITOR_STATE: "editor",
+            SnapshotType.PLAN_STATE: "plan",
+            SnapshotType.FULL_STATE: "full_state",
+        }
+        expected_field = type_to_field.get(self.snapshot_type)
+        if expected_field and getattr(self, expected_field) is None:
+            raise ValueError(
+                f"Snapshot type '{self.snapshot_type.value}' requires "
+                f"'{expected_field}' to be populated"
+            )
+        return self
 
     @classmethod
     def create_file_snapshot(
