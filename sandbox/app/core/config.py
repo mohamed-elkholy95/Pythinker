@@ -1,5 +1,5 @@
 from typing import List, Optional, Union
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     # Log configuration
     LOG_LEVEL: str = "INFO"
+
+    # Deployment environment — controls security validation
+    SANDBOX_ENVIRONMENT: str = "development"
 
     # ── CDP timeout constants ────────────────────────────────────────
     # Centralizes all CDP-related timeouts (previously scattered across
@@ -99,6 +102,16 @@ class Settings(BaseSettings):
         elif isinstance(v, (list, str)):
             return v
         raise ValueError(v)
+
+    @model_validator(mode="after")
+    def validate_production_secret(self) -> "Settings":
+        """Refuse to start without SANDBOX_API_SECRET in non-development environments."""
+        if self.SANDBOX_ENVIRONMENT != "development" and not self.SANDBOX_API_SECRET:
+            raise ValueError(
+                "SANDBOX_API_SECRET is required in production. "
+                "Set it via environment variable to authenticate sandbox API requests."
+            )
+        return self
 
     class Config:
         case_sensitive = True
