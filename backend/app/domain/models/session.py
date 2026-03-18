@@ -57,6 +57,13 @@ class ResearchMode(str, Enum):
     DEAL_FINDING = "deal_finding"
 
 
+class SandboxLifecycleMode(str, Enum):
+    """Sandbox container lifecycle mode."""
+
+    STATIC = "static"
+    EPHEMERAL = "ephemeral"
+
+
 class Session(BaseModel):
     """Session model"""
 
@@ -65,7 +72,7 @@ class Session(BaseModel):
     source: str = "web"  # Channel origin: "web" | "telegram" | "discord" | "cron" | "api"
     sandbox_id: str | None = Field(default=None)  # Identifier for the sandbox environment
     sandbox_owned: bool = False  # True when session owns lifecycle of sandbox container
-    sandbox_lifecycle_mode: str | None = None  # static | ephemeral
+    sandbox_lifecycle_mode: SandboxLifecycleMode | None = None
     sandbox_created_at: datetime | None = None
     agent_id: str
     task_id: str | None = None
