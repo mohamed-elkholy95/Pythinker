@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    ORIGINS: List[str] = ["*"]
+    ORIGINS: List[str] = ["http://backend:8000", "http://localhost:8000"]
 
     # Service timeout settings (minutes)
     SERVICE_TIMEOUT_MINUTES: Optional[int] = None
