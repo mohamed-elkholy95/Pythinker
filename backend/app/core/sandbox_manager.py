@@ -23,6 +23,12 @@ from app.core.error_manager import (
     error_context,
     error_handler,
 )
+from app.core.prometheus_metrics import (
+    sandbox_created_total,
+    sandbox_destroyed_total,
+    sandbox_health_failures_total,
+    sandbox_recovery_attempts_total,
+)
 from app.core.retry import sandbox_retry
 from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
@@ -116,6 +122,7 @@ class EnhancedSandboxManager:
                 task.add_done_callback(self._background_tasks.discard)
 
                 self._circuit_breaker.record_success()
+                sandbox_created_total.inc(labels={"session_id": session_id})
                 logger.info(f"Sandbox created successfully for session {session_id}")
 
                 return sandbox
@@ -168,6 +175,7 @@ class EnhancedSandboxManager:
             # Evict the per-session lock so the lock map doesn't grow indefinitely
             async with self._locks_mutex:
                 self._session_locks.pop(session_id, None)
+            sandbox_destroyed_total.inc()
             logger.info(f"Sandbox destroyed for session {session_id}")
             return True
         except Exception as e:
@@ -188,6 +196,7 @@ class EnhancedSandboxManager:
 
                 if not is_healthy:
                     sandbox.metrics.health_check_failures += 1
+                    sandbox_health_failures_total.inc()
 
                     if sandbox.metrics.health_check_failures >= 3:
                         sandbox.state = SandboxState.UNHEALTHY
@@ -225,6 +234,7 @@ class EnhancedSandboxManager:
             for strategy in recovery_strategies:
                 try:
                     logger.info(f"Attempting recovery strategy: {strategy.__name__}")
+                    sandbox_recovery_attempts_total.inc(labels={"method": strategy.__name__})
                     if await strategy():
                         sandbox.state = SandboxState.HEALTHY
                         logger.info(f"Sandbox {sandbox.session_id} recovered successfully")
