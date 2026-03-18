@@ -29,6 +29,7 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+      - dokploy-network
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/ >/dev/null || exit 1"]
       interval: 30s
@@ -345,15 +346,23 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+    external: true
   redis_runtime_data:
     name: pythinker-redis-runtime-data
+    external: true
   qdrant_data:
     name: pythinker-qdrant-data
+    external: true
   minio_data:
     name: pythinker-minio-data
+    external: true
   dspy_cache:
     name: pythinker-dspy-cache
+    external: true
 
 networks:
   pythinker-network:
     name: pythinker-network
+    external: true
+  dokploy-network:
+    external: true
