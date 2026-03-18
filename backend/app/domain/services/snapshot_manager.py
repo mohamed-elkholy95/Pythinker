@@ -275,7 +275,8 @@ class SnapshotManager:
                 try:
                     await self.storage.delete(obj_key)
                     deleted += 1
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to delete %s: %s", obj_key, exc)
                     failed_keys.append(obj_key)
             if failed_keys:
                 logger.warning(
@@ -285,5 +286,5 @@ class SnapshotManager:
                 )
             return deleted
         except Exception as e:
-            logger.warning("Storage purge failed: %s", e)
+            logger.warning("Storage purge failed: %s", e, exc_info=True)
             return 0
