@@ -7,7 +7,7 @@ time budget is being exhausted.
 
 import itertools
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -32,23 +32,39 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch):
     mock_settings.context_compression_trigger_pct = 0.80
     # Feature flags accessed as settings.feature_xxx in get_feature_flags()
     for attr in [
-        "feature_tree_of_thoughts", "feature_self_consistency",
-        "feature_plan_validation_v2", "feature_reflection_advanced",
-        "feature_context_optimization", "feature_tool_tracing",
-        "feature_reward_hacking_detection", "feature_failure_prediction",
-        "feature_circuit_breaker_adaptive", "feature_workflow_checkpointing",
-        "feature_hitl_enabled", "feature_taskgroup_enabled",
-        "feature_sse_v2", "feature_structured_outputs",
-        "feature_parallel_memory", "feature_enhanced_research",
-        "feature_phased_research", "feature_shadow_mode",
-        "feature_hallucination_prevention", "feature_hallucination_validation",
-        "feature_hallucination_learning", "feature_hallucination_preemptive",
-        "feature_hallucination_collaborative", "feature_hallucination_metacognitive",
+        "feature_tree_of_thoughts",
+        "feature_self_consistency",
+        "feature_plan_validation_v2",
+        "feature_reflection_advanced",
+        "feature_context_optimization",
+        "feature_tool_tracing",
+        "feature_reward_hacking_detection",
+        "feature_failure_prediction",
+        "feature_circuit_breaker_adaptive",
+        "feature_workflow_checkpointing",
+        "feature_hitl_enabled",
+        "feature_taskgroup_enabled",
+        "feature_sse_v2",
+        "feature_structured_outputs",
+        "feature_parallel_memory",
+        "feature_enhanced_research",
+        "feature_phased_research",
+        "feature_shadow_mode",
+        "feature_hallucination_prevention",
+        "feature_hallucination_validation",
+        "feature_hallucination_learning",
+        "feature_hallucination_preemptive",
+        "feature_hallucination_collaborative",
+        "feature_hallucination_metacognitive",
         "feature_hallucination_escalation_enabled",
-        "feature_runtime_clarification_gate", "feature_runtime_dangling_recovery",
-        "feature_runtime_quality_gates", "feature_runtime_insight_promotion",
-        "feature_runtime_capability_manifest", "feature_runtime_skill_discovery",
-        "feature_runtime_research_trace", "feature_runtime_delegate_tool",
+        "feature_runtime_clarification_gate",
+        "feature_runtime_dangling_recovery",
+        "feature_runtime_quality_gates",
+        "feature_runtime_insight_promotion",
+        "feature_runtime_capability_manifest",
+        "feature_runtime_skill_discovery",
+        "feature_runtime_research_trace",
+        "feature_runtime_delegate_tool",
         "feature_runtime_channel_overlay",
     ]:
         setattr(mock_settings, attr, False)
