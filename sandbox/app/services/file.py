@@ -7,6 +7,7 @@ import os
 import re
 import glob
 import asyncio
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -141,7 +142,7 @@ class FileService:
 
             # Read with sudo
             if sudo:
-                command = f"sudo cat '{file}'"
+                command = f"sudo cat {shlex.quote(str(file))}"
                 process = await asyncio.create_subprocess_shell(
                     command,
                     stdout=asyncio.subprocess.PIPE,
@@ -220,7 +221,7 @@ class FileService:
                 mode = ">>" if append else ">"
                 parent_dir = os.path.dirname(file)
                 if parent_dir and not os.path.exists(parent_dir):
-                    mkdir_cmd = f"sudo mkdir -p '{parent_dir}'"
+                    mkdir_cmd = f"sudo mkdir -p {shlex.quote(str(parent_dir))}"
                     mkdir_proc = await asyncio.create_subprocess_shell(
                         mkdir_cmd,
                         stdout=asyncio.subprocess.PIPE,
@@ -243,7 +244,7 @@ class FileService:
                     bytes_written = await asyncio.to_thread(write_temp_file)
 
                     # Use sudo to write temporary file content to target file
-                    command = f"sudo bash -c \"cat {temp_file} {mode} '{file}'\""
+                    command = f"sudo bash -c 'cat {temp_file} {mode} {shlex.quote(str(file))}'"
                     process = await asyncio.create_subprocess_shell(
                         command,
                         stdout=asyncio.subprocess.PIPE,
@@ -435,7 +436,7 @@ class FileService:
 
         try:
             if sudo:
-                command = f"sudo rm -rf -- '{path}'"
+                command = f"sudo rm -rf -- {shlex.quote(str(path))}"
                 process = await asyncio.create_subprocess_shell(
                     command,
                     stdout=asyncio.subprocess.PIPE,
