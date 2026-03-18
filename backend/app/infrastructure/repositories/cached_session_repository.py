@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 
 # Cache key patterns
 _SESSION_KEY = "session:{session_id}"
+
+
 def _get_session_ttl() -> int:
     """Get session cache TTL from settings."""
     from app.core.config import get_settings
+
     return get_settings().session_cache_ttl_seconds
 
 

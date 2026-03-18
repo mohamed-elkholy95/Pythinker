@@ -40,7 +40,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
-MAX_ENABLED_SKILLS = 5
+
+def _max_enabled_skills() -> int:
+    """Get max enabled skills from settings."""
+    from app.core.config import get_settings
+
+    return get_settings().max_enabled_skills
 
 
 def _skill_to_response(skill, include_prompt: bool = False) -> SkillResponse:
@@ -393,7 +398,7 @@ async def get_user_skills(
         UserSkillsResponse(
             skills=user_skills,
             enabled_count=len([s for s in user_skills if s.enabled]),
-            max_skills=MAX_ENABLED_SKILLS,
+            max_skills=_max_enabled_skills(),
         )
     )
 
@@ -429,10 +434,10 @@ async def update_user_skill(
         if request.enabled:
             # Check max skills limit
             if skill_id not in enabled_skills:
-                if len(enabled_skills) >= MAX_ENABLED_SKILLS:
+                if len(enabled_skills) >= _max_enabled_skills():
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Maximum {MAX_ENABLED_SKILLS} skills allowed. Remove a skill to add another.",
+                        detail=f"Maximum {_max_enabled_skills()} skills allowed. Remove a skill to add another.",
                     )
                 enabled_skills.append(skill_id)
         else:
@@ -478,10 +483,10 @@ async def enable_skills(
     settings_collection = db.get_collection("user_settings")
 
     # Check skill limit
-    if len(request.skill_ids) > MAX_ENABLED_SKILLS:
+    if len(request.skill_ids) > _max_enabled_skills():
         raise HTTPException(
             status_code=400,
-            detail=f"Maximum {MAX_ENABLED_SKILLS} skills allowed.",
+            detail=f"Maximum {_max_enabled_skills()} skills allowed.",
         )
 
     # Verify all skills exist
@@ -520,7 +525,7 @@ async def enable_skills(
         UserSkillsResponse(
             skills=user_skills,
             enabled_count=len(request.skill_ids),
-            max_skills=MAX_ENABLED_SKILLS,
+            max_skills=_max_enabled_skills(),
         )
     )
 
@@ -1043,10 +1048,10 @@ async def install_skill_from_package(
                 enabled_skills = settings_doc.get("enabled_skills", []) if settings_doc else []
 
                 if skill_id not in enabled_skills:
-                    if len(enabled_skills) >= MAX_ENABLED_SKILLS:
+                    if len(enabled_skills) >= _max_enabled_skills():
                         raise HTTPException(
                             status_code=400,
-                            detail=f"Maximum {MAX_ENABLED_SKILLS} skills allowed.",
+                            detail=f"Maximum {_max_enabled_skills()} skills allowed.",
                         )
                     enabled_skills.append(skill_id)
                     await settings_collection.update_one(
@@ -1144,7 +1149,7 @@ async def install_skill_from_package(
         settings_doc = await settings_collection.find_one({"user_id": str(current_user.id)})
         enabled_skills = settings_doc.get("enabled_skills", []) if settings_doc else []
 
-        if skill_id not in enabled_skills and len(enabled_skills) < MAX_ENABLED_SKILLS:
+        if skill_id not in enabled_skills and len(enabled_skills) < _max_enabled_skills():
             enabled_skills.append(skill_id)
             await settings_collection.update_one(
                 {"user_id": str(current_user.id)},
