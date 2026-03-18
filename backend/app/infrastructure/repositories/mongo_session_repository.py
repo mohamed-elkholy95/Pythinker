@@ -257,18 +257,17 @@ class MongoSessionRepository(SessionRepository):
         return None
 
     async def delete(self, session_id: str) -> None:
-        """Delete a session"""
-        mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
-        if mongo_session:
-            await mongo_session.delete()
+        """Delete a session (atomic single-operation delete)."""
+        collection = SessionDocument.get_pymongo_collection()
+        await collection.delete_one({"session_id": session_id})
 
-    async def get_all(self) -> list[Session]:
+    async def get_all(self, limit: int = 100) -> list[Session]:
         """Get all sessions (lightweight — excludes events/files)."""
         collection = SessionDocument.get_pymongo_collection()
         cursor = collection.find(
             {},
             projection={"events": 0, "files": 0},
-        ).sort("latest_message_at", -1)
+        ).sort("latest_message_at", -1).limit(limit)
 
         sessions: list[Session] = []
         async for doc in cursor:
