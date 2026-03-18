@@ -3,12 +3,15 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
 
 class TestDockerSandboxCreateTaskSecurityPolicy:
     """_create_task must apply security policy from policy service."""
 
+    @pytest.mark.unit
     def test_create_task_uses_policy_service_security_options(self) -> None:
         """Security opts, cap_drop, cap_add come from policy service, not literals."""
         # We cannot easily run real Docker, so we verify the code path uses the policy.
@@ -37,6 +40,7 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
                 sandbox_framework_port=8082,
                 sandbox_streaming_mode=StreamingMode.CDP_ONLY,
                 sandbox_api_secret=None,
+                sandbox_lifecycle_mode="static",
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]

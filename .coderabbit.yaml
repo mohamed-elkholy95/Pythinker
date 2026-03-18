@@ -166,6 +166,7 @@ reviews:
     drafts: false
     base_branches:
       - main
+      - main-dev
 
   tools:
     # ── Python Static Analysis ──

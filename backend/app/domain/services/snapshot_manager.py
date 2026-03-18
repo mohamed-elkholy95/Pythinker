@@ -73,7 +73,7 @@ class SnapshotManager:
     Features:
     - Async snapshot capture (non-blocking teardown)
     - Delta compression (only changed files)
-    - Automatic cleanup (TTL-based)
+    - Storage purge (best-effort sweep)
     - S3-compatible storage (MinIO)
     """
 
@@ -253,27 +253,38 @@ class SnapshotManager:
         # For now, return empty list (MinIO SDK would provide bucket listing)
         return []
 
-    async def cleanup_old_snapshots(self, ttl_days: int = 7) -> int:
-        """Delete state snapshots older than TTL.
+    async def purge_storage(self, prefix: str = "snapshots/") -> int:
+        """Remove all snapshot objects under the given storage prefix.
 
-        Note: "snapshots" in this codebase means *session state snapshots*
-        stored as MongoDB documents (SnapshotDocument), NOT sandbox container
-        tarballs. TTL cleanup is handled by MaintenanceService.cleanup_old_snapshots()
-        which runs as a periodic background task in lifespan.py.
+        This is a destructive best-effort sweep that deletes every object
+        matching the prefix. TTL-based cleanup of snapshot documents is
+        handled by application-level maintenance routines.
 
         Args:
-            ttl_days: Time-to-live in days
+            prefix: Object key prefix to sweep (default ``snapshots/``).
 
         Returns:
-            Number of snapshots deleted
+            Number of objects successfully deleted.
         """
-        logger.info("Cleanup triggered: deleting state snapshots older than %d days", ttl_days)
+        logger.info("Storage purge triggered for prefix=%s", prefix)
         try:
-            from app.application.services.maintenance_service import get_maintenance_service
-
-            service = get_maintenance_service()
-            result = await service.cleanup_old_snapshots(ttl_days=ttl_days)
-            return result.get("documents_deleted", 0)
+            all_objects = await self.storage.list_objects(prefix=prefix)
+            deleted = 0
+            failed_keys: list[str] = []
+            for obj_key in all_objects:
+                try:
+                    await self.storage.delete(obj_key)
+                    deleted += 1
+                except Exception as exc:
+                    logger.debug("Failed to delete %s: %s", obj_key, exc)
+                    failed_keys.append(obj_key)
+            if failed_keys:
+                logger.warning(
+                    "Failed to delete %d object(s): %s",
+                    len(failed_keys),
+                    failed_keys[:5],
+                )
+            return deleted
         except Exception as e:
-            logger.warning("Snapshot cleanup failed: %s", e)
+            logger.warning("Storage purge failed: %s", e, exc_info=True)
             return 0
