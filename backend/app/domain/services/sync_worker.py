@@ -14,7 +14,7 @@ from typing import Any
 
 from app.domain.exceptions.base import ConfigurationException
 from app.domain.models.sync_outbox import OutboxEntry, OutboxOperation, OutboxStatus
-from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepository
 from app.domain.repositories.vector_memory_repository import VectorMemoryRepository
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class SyncWorker:
 
     def __init__(
         self,
-        outbox_repo: SyncOutboxRepositoryProtocol,
+        outbox_repo: SyncOutboxRepository,
         qdrant_repo: VectorMemoryRepository,
         poll_interval: float = 1.0,  # Poll every 1 second
         batch_size: int = 100,

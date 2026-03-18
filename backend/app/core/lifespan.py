@@ -556,7 +556,7 @@ async def lifespan(app: FastAPI):
             try:
                 from app.domain.services.sync_worker import SyncWorker, set_sync_worker, start_sync_worker
                 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-                from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
+                from app.infrastructure.repositories.sync_outbox_repository import MongoSyncOutboxRepository as SyncOutboxRepository
 
                 set_sync_worker(
                     SyncWorker(
@@ -576,7 +576,7 @@ async def lifespan(app: FastAPI):
                 from app.domain.services.reconciliation_job import ReconciliationJob, set_reconciliation_job
                 from app.infrastructure.repositories.mongo_memories_collection import MongoMemoriesCollection
                 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-                from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
+                from app.infrastructure.repositories.sync_outbox_repository import MongoSyncOutboxRepository as SyncOutboxRepository
 
                 set_reconciliation_job(
                     ReconciliationJob(
