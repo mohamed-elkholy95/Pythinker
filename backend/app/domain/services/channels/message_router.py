@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.core import prometheus_metrics as pm
 from app.domain.models.channel import ChannelType, InboundMessage, OutboundMessage
+from app.domain.models.session import ReasoningVisibility, ThinkingLevel
 from app.domain.services.channels.telegram_delivery_policy import TelegramDeliveryPolicy
 
 if TYPE_CHECKING:
@@ -51,8 +52,8 @@ SLASH_COMMANDS = frozenset(
         "/models",
     }
 )
-_REASONING_VISIBILITY_LEVELS = frozenset({"off", "on", "stream"})
-_THINKING_LEVELS = frozenset({"off", "low", "medium", "high"})
+_REASONING_VISIBILITY_VALUES = frozenset(v.value for v in ReasoningVisibility)
+_THINKING_LEVEL_VALUES = frozenset(v.value for v in ThinkingLevel)
 _TOGGLE_LEVELS = frozenset({"off", "on"})
 
 HELP_TEXT = (
@@ -636,7 +637,7 @@ class MessageRouter:
                     f"Current reasoning level: {current}.\nValid levels: off, on, stream",
                 )
                 return
-            if level not in _REASONING_VISIBILITY_LEVELS:
+            if level not in _REASONING_VISIBILITY_VALUES:
                 yield self._make_reply(
                     message,
                     f'Unrecognized reasoning level "{level}". Valid levels: off, on, stream.',
@@ -663,7 +664,7 @@ class MessageRouter:
                     f"Current thinking level: {current}.\nValid levels: off, low, medium, high",
                 )
                 return
-            if level not in _THINKING_LEVELS:
+            if level not in _THINKING_LEVEL_VALUES:
                 yield self._make_reply(
                     message,
                     f'Unrecognized thinking level "{level}". Valid levels: off, low, medium, high.',

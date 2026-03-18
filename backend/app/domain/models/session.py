@@ -75,6 +75,42 @@ class TakeoverReason(str, Enum):
     VERIFICATION = "verification"
 
 
+class ReasoningVisibility(str, Enum):
+    """Controls Telegram reasoning lane visibility."""
+
+    OFF = "off"
+    ON = "on"
+    STREAM = "stream"
+
+
+class ThinkingLevel(str, Enum):
+    """Controls LLM extended thinking effort."""
+
+    OFF = "off"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class PendingAction(BaseModel):
+    """Value object representing a tool call awaiting user confirmation."""
+
+    tool_call_id: str
+    tool_name: str
+    function_name: str
+    function_args: dict = Field(default_factory=dict)
+    security_risk: str | None = None
+    security_reason: str | None = None
+    security_suggestions: list[str] | None = None
+
+
+class PendingActionStatus(str, Enum):
+    """Status of a pending action confirmation flow."""
+
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
+    REJECTED = "rejected"
+
+
 class Session(BaseModel):
     """Session model"""
 
@@ -99,8 +135,8 @@ class Session(BaseModel):
     is_shared: bool = False  # Whether this session is shared publicly
     mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)
     research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy: fast_search or deep_research
-    pending_action: dict | None = None
-    pending_action_status: str | None = None
+    pending_action: PendingAction | None = None
+    pending_action_status: PendingActionStatus | None = None
     # Workspace metadata (sanitized)
     project_name: str | None = None
     project_path: str | None = None
@@ -134,8 +170,8 @@ class Session(BaseModel):
     takeover_reason: TakeoverReason | None = None
 
     # Telegram option commands (channel-level state, not runtime behavior)
-    reasoning_visibility: str | None = None  # off | on | stream — controls Telegram reasoning lane
-    thinking_level: str | None = None  # off | low | medium | high — controls LLM thinking effort
+    reasoning_visibility: ReasoningVisibility | None = None
+    thinking_level: ThinkingLevel | None = None
     verbose_mode: str | None = None  # off | on — controls verbose output
     elevated_mode: str | None = None  # off | on — controls elevated execution mode
 
