@@ -57,8 +57,11 @@ _FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
     "ArialUnicode": (
         Path("/Library/Fonts/Arial Unicode.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        Path("C:/Windows/Fonts/ARIALUNI.TTF"),
     ),
     "Arial": (
+        Path("/usr/share/fonts/truetype/msttcorefonts/Arial.ttf"),
+        Path("/usr/local/share/fonts/Arial.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
         Path("/Library/Fonts/Arial.ttf"),
         Path("C:/Windows/Fonts/arial.ttf"),

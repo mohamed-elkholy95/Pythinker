@@ -162,15 +162,21 @@ jobs:
 
       - name: Deploy via SSH
         if: needs.changes.outputs.any_app == 'true'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
+          envs: GHCR_TOKEN
           script: |
             set -euo pipefail
             cd /opt/pythinker-deploy
+
+            echo "==> Authenticating to ghcr.io..."
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
 
             echo "==> Pulling latest compose file..."
             git pull origin main --ff-only
