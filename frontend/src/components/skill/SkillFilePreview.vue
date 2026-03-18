@@ -52,6 +52,7 @@
 import { computed } from 'vue'
 import { FileText, Copy } from 'lucide-vue-next'
 import { marked } from 'marked'
+import { sanitizeHtml } from '@/utils/sanitize'
 import type { SkillPackageFile } from '@/types/message'
 
 interface Props {
@@ -136,10 +137,11 @@ const displayContent = computed(() => {
 // Rendered markdown
 const renderedMarkdown = computed(() => {
   if (!isMarkdown.value) return ''
-  return marked(displayContent.value, {
+  const rawHtml = marked(displayContent.value, {
     breaks: true,
     gfm: true,
   })
+  return sanitizeHtml(rawHtml as string)
 })
 
 // Format YAML value for display (handle long strings)
