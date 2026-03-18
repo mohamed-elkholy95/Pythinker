@@ -39,7 +39,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
+from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, ResearchMode, SessionStatus
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
@@ -204,7 +204,7 @@ class AgentTaskRunner(TaskRunner):
         # Tool metadata caches for enhanced UI
         self._tool_start_times: dict[str, float] = {}
         self._file_before_cache: dict[str, str] = {}
-        self._pending_tool_calls: dict[str, dict] = {}
+        self._pending_tool_calls: dict[str, PendingAction] = {}
         self._cancel_event = asyncio.Event()
         self._cancel_token = CancellationToken(event=self._cancel_event, session_id=self._session_id)
         self._terminal_status: SessionStatus | None = None
@@ -1228,11 +1228,11 @@ class AgentTaskRunner(TaskRunner):
             return
 
         pending = session.pending_action
-        if pending.get("tool_call_id") != action_id:
+        if pending.tool_call_id != action_id:
             logger.warning(
                 "Pending action id mismatch for session %s: %s != %s",
                 self._session_id,
-                pending.get("tool_call_id"),
+                pending.tool_call_id,
                 action_id,
             )
 
@@ -1240,18 +1240,18 @@ class AgentTaskRunner(TaskRunner):
             await self._session_repository.update_pending_action(
                 self._session_id,
                 None,
-                "rejected",
+                PendingActionStatus.REJECTED,
             )
             reject_event = ToolEvent(
                 status=ToolStatus.CALLED,
-                tool_call_id=pending.get("tool_call_id"),
-                tool_name=pending.get("tool_name"),
-                function_name=pending.get("function_name"),
-                function_args=pending.get("function_args", {}),
+                tool_call_id=pending.tool_call_id,
+                tool_name=pending.tool_name,
+                function_name=pending.function_name,
+                function_args=pending.function_args,
                 function_result=ToolResult(success=False, message="Action rejected by user."),
-                security_risk=pending.get("security_risk"),
-                security_reason=pending.get("security_reason"),
-                security_suggestions=pending.get("security_suggestions"),
+                security_risk=pending.security_risk,
+                security_reason=pending.security_reason,
+                security_suggestions=pending.security_suggestions,
                 confirmation_state="rejected",
             )
             await self._put_and_add_event(task, reject_event)
@@ -1266,10 +1266,10 @@ class AgentTaskRunner(TaskRunner):
             logger.error("No tool execution agent available for session %s", self._session_id)
             return
 
-        function_name = pending.get("function_name")
-        function_args = pending.get("function_args", {})
-        tool_call_id = pending.get("tool_call_id")
-        tool_name = pending.get("tool_name")
+        function_name = pending.function_name
+        function_args = pending.function_args
+        tool_call_id = pending.tool_call_id
+        tool_name = pending.tool_name
 
         calling_event = ToolEvent(
             status=ToolStatus.CALLING,
@@ -1277,9 +1277,9 @@ class AgentTaskRunner(TaskRunner):
             tool_name=tool_name,
             function_name=function_name,
             function_args=function_args,
-            security_risk=pending.get("security_risk"),
-            security_reason=pending.get("security_reason"),
-            security_suggestions=pending.get("security_suggestions"),
+            security_risk=pending.security_risk,
+            security_reason=pending.security_reason,
+            security_suggestions=pending.security_suggestions,
             confirmation_state="confirmed",
         )
         emitted_events = await self._handle_tool_event(calling_event)
@@ -1305,9 +1305,9 @@ class AgentTaskRunner(TaskRunner):
             function_name=function_name,
             function_args=function_args,
             function_result=result,
-            security_risk=pending.get("security_risk"),
-            security_reason=pending.get("security_reason"),
-            security_suggestions=pending.get("security_suggestions"),
+            security_risk=pending.security_risk,
+            security_reason=pending.security_reason,
+            security_suggestions=pending.security_suggestions,
             confirmation_state="confirmed",
         )
         emitted_events = await self._handle_tool_event(called_event)
@@ -1318,7 +1318,7 @@ class AgentTaskRunner(TaskRunner):
         await self._session_repository.update_pending_action(
             self._session_id,
             None,
-            "confirmed",
+            None,
         )
 
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
@@ -1502,20 +1502,20 @@ class AgentTaskRunner(TaskRunner):
                 self._tool_start_times[event.tool_call_id] = time.perf_counter()
 
                 if event.confirmation_state == "awaiting_confirmation":
-                    pending_action = {
-                        "tool_call_id": event.tool_call_id,
-                        "tool_name": event.tool_name,
-                        "function_name": event.function_name,
-                        "function_args": event.function_args,
-                        "security_risk": event.security_risk,
-                        "security_reason": event.security_reason,
-                        "security_suggestions": event.security_suggestions,
-                    }
+                    pending_action = PendingAction(
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.tool_name,
+                        function_name=event.function_name,
+                        function_args=event.function_args,
+                        security_risk=event.security_risk,
+                        security_reason=event.security_reason,
+                        security_suggestions=event.security_suggestions,
+                    )
                     self._pending_tool_calls[event.tool_call_id] = pending_action
                     await self._session_repository.update_pending_action(
                         self._session_id,
                         pending_action,
-                        "awaiting_confirmation",
+                        PendingActionStatus.AWAITING_CONFIRMATION,
                     )
 
                 # Cache original file content for diff generation (use handler's helper)

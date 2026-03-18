@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 from app.domain.exceptions.base import BusinessRuleViolation, SessionNotFoundException
 from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, Session, SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
 from app.infrastructure.models.documents import SessionDocument
 
@@ -339,15 +339,15 @@ class MongoSessionRepository(SessionRepository):
     async def update_pending_action(
         self,
         session_id: str,
-        pending_action: dict | None,
-        status: str | None,
+        pending_action: PendingAction | None,
+        status: PendingActionStatus | None,
     ) -> None:
         """Update pending action details for confirmation flow."""
         result = await SessionDocument.find_one(SessionDocument.session_id == session_id).update(
             {
                 "$set": {
-                    "pending_action": pending_action,
-                    "pending_action_status": status,
+                    "pending_action": pending_action.model_dump() if pending_action else None,
+                    "pending_action_status": status.value if status else None,
                     "updated_at": datetime.now(UTC),
                 }
             }

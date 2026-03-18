@@ -15,7 +15,17 @@ from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.pricing_snapshot import PricingSnapshot
 from app.domain.models.screenshot import SessionScreenshot
-from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus, TakeoverState
+from app.domain.models.session import (
+    AgentMode,
+    PendingAction,
+    PendingActionStatus,
+    ReasoningVisibility,
+    ResearchMode,
+    Session,
+    SessionStatus,
+    TakeoverState,
+    ThinkingLevel,
+)
 from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
 from app.domain.models.user import User, UserRole
@@ -144,7 +154,6 @@ _KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "phase_transition",
         "checkpoint_saved",
         "wide_research",
-        "deep_research",
         "thought",
         "confidence",
         "canvas_update",
@@ -206,8 +215,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
     research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy
-    pending_action: dict[str, Any] | None = None
-    pending_action_status: str | None = None
+    pending_action: PendingAction | None = None
+    pending_action_status: PendingActionStatus | None = None
     # Workspace metadata (sanitized)
     project_name: str | None = None
     project_path: str | None = None
@@ -244,8 +253,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     takeover_reason: str | None = None  # Reason for current takeover
 
     # Telegram option commands (channel-level state, not runtime behavior)
-    reasoning_visibility: str | None = None  # off | on | stream
-    thinking_level: str | None = None  # off | low | medium | high
+    reasoning_visibility: ReasoningVisibility | None = None
+    thinking_level: ThinkingLevel | None = None
     verbose_mode: str | None = None  # off | on
     elevated_mode: str | None = None  # off | on
 

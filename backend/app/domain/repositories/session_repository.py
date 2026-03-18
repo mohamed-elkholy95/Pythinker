@@ -3,7 +3,7 @@ from typing import Any, Protocol
 
 from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, Session, SessionStatus
 
 
 class SessionRepository(Protocol):
@@ -84,8 +84,8 @@ class SessionRepository(Protocol):
     async def update_pending_action(
         self,
         session_id: str,
-        pending_action: dict | None,
-        status: str | None,
+        pending_action: PendingAction | None,
+        status: PendingActionStatus | None,
     ) -> None:
         """Update pending action details for confirmation flow."""
         ...

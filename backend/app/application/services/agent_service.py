@@ -1634,8 +1634,8 @@ class AgentService:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise NotFoundError("Session not found")
 
-        pending_action = session.pending_action or {}
-        if pending_action.get("tool_call_id") != action_id:
+        pending_action = session.pending_action
+        if not pending_action or pending_action.tool_call_id != action_id:
             logger.warning(
                 "Action %s does not match pending action for session %s",
                 action_id,
