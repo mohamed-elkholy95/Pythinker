@@ -346,7 +346,7 @@ class ManagedSandbox:
             },
             "security_opt": ["no-new-privileges:true"],
             "cap_drop": ["ALL"],
-            "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
+            "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"],
             "tmpfs": {
                 "/run": "size=50M,nosuid,nodev",
                 "/tmp": "size=300M,nosuid,nodev",
