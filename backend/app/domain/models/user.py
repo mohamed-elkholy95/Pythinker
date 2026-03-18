@@ -34,10 +34,17 @@ class User(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v):
-        if not v or "@" not in v:
-            raise ValueError("Valid email is required")
-        return v.strip().lower()
+    def validate_email(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Email is required")
+        v = v.strip().lower()
+        # Basic structural validation: user@domain with non-empty parts
+        if "@" not in v:
+            raise ValueError("Email must contain @")
+        local, _, domain = v.partition("@")
+        if not local or not domain or "." not in domain:
+            raise ValueError("Invalid email format: must be user@domain.tld")
+        return v
 
     def update_last_login(self):
         """Update last login timestamp"""
