@@ -9,7 +9,6 @@ from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, Progre
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agent_domain_service import AgentDomainService
 
-_LIVENESS_PATCH = "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness"
 _LOOP_TIME_PATCH = "app.domain.services.agent_domain_service.asyncio.get_event_loop"
 _SLEEP_PATCH = "asyncio.sleep"
 
@@ -27,7 +26,9 @@ def _fast_loop_time():
     return _get_loop
 
 
-def _build_service(session: Session, task: SimpleNamespace) -> tuple[AgentDomainService, AsyncMock]:
+def _build_service(
+    session: Session, task: SimpleNamespace, *, relay: AsyncMock | None = None
+) -> tuple[AgentDomainService, AsyncMock]:
     session_repo = AsyncMock()
     session_repo.find_by_id_and_user_id = AsyncMock(return_value=session)
     session_repo.find_by_id = AsyncMock(return_value=session)
@@ -50,6 +51,7 @@ def _build_service(session: Session, task: SimpleNamespace) -> tuple[AgentDomain
         file_storage=AsyncMock(),
         mcp_repository=AsyncMock(),
         search_engine=AsyncMock(),
+        task_output_relay=relay,
     )
     teardown = AsyncMock()
     service._teardown_session_runtime = teardown
@@ -109,10 +111,12 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
 
 
 @pytest.mark.asyncio
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
-async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down(mock_liveness: AsyncMock) -> None:
+async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down() -> None:
     """An orphaned RUNNING session (stale > 180s) with no active task should emit
     an ErrorEvent and be torn down as CANCELLED."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     task = None
     session = Session(
         id="session-id",
@@ -126,7 +130,7 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
         updated_at=datetime.now(UTC) - timedelta(seconds=240),
     )
 
-    service, teardown = _build_service(session, task)
+    service, teardown = _build_service(session, task, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 1
@@ -138,12 +142,14 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
 @pytest.mark.asyncio
 @patch(_SLEEP_PATCH, new_callable=AsyncMock)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
 async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
-    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+    mock_loop: MagicMock, mock_sleep: AsyncMock
 ) -> None:
     """A RUNNING session with no task but updated < 180s ago is likely a reconnect
     race — should emit ProgressEvent then DoneEvent instead of cancelling the session."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     task = None
     session = Session(
         id="session-id",
@@ -157,7 +163,7 @@ async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
         updated_at=datetime.now(UTC),
     )
 
-    service, teardown = _build_service(session, task)
+    service, teardown = _build_service(session, task, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 2
@@ -170,12 +176,14 @@ async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
 @pytest.mark.asyncio
 @patch(_SLEEP_PATCH, new_callable=AsyncMock)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
 async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel(
-    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+    mock_loop: MagicMock, mock_sleep: AsyncMock
 ) -> None:
     """A RUNNING session at 150s (within 180s grace window, past old 30s threshold)
     should emit ProgressEvent then DoneEvent — the SSE reconnection grace period protects it."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     task = None
     session = Session(
         id="session-id",
@@ -189,7 +197,7 @@ async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel(
         updated_at=datetime.now(UTC) - timedelta(seconds=150),
     )
 
-    service, teardown = _build_service(session, task)
+    service, teardown = _build_service(session, task, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 2
@@ -201,11 +209,13 @@ async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel(
 @pytest.mark.asyncio
 @patch(_SLEEP_PATCH, new_callable=AsyncMock)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
 async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done(
-    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+    mock_loop: MagicMock, mock_sleep: AsyncMock
 ) -> None:
     """Naive updated_at timestamps must not crash age arithmetic in reconnect races."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     task = None
     session = Session(
         id="session-id",
@@ -219,7 +229,7 @@ async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_
         updated_at=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
     )
 
-    service, teardown = _build_service(session, task)
+    service, teardown = _build_service(session, task, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 2
