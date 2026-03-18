@@ -523,6 +523,11 @@ class TestRoundRobinConcurrency:
             f"Average lock acquisition time {avg_ms:.3f}ms exceeds 5ms threshold. "
             f"Total: {elapsed_ms:.1f}ms for {num_requests} requests"
         )
+        # Tighter bound to catch real regressions (< 2ms expected locally)
+        assert elapsed_ms < 2 * num_requests, (
+            f"Total elapsed {elapsed_ms:.1f}ms exceeds 2x request count — "
+            f"avg {avg_ms:.3f}ms/call suggests a real performance regression"
+        )
 
     async def test_round_robin_lock_exists(self):
         """Verify the lock attribute is created during __init__."""
