@@ -108,7 +108,8 @@ class QdrantTaskRepository(TaskArtifactRepository):
             )
         except Exception as e:  # Broad catch: qdrant_client uses varied exception types (gRPC/REST)
             if not self._is_vector_name_error(e):
-                raise
+                logger.warning("Qdrant store_task_artifact failed for %s: %s", artifact_id, e)
+                return
 
             use_named_vectors = await self._flip_vector_mode()
             logger.warning(
@@ -116,16 +117,19 @@ class QdrantTaskRepository(TaskArtifactRepository):
                 self._collection,
                 "named" if use_named_vectors else "unnamed",
             )
-            await get_qdrant().client.upsert(
-                collection_name=self._collection,
-                points=[
-                    models.PointStruct(
-                        id=artifact_id,
-                        vector={"dense": embedding} if use_named_vectors else embedding,
-                        payload=payload,
-                    )
-                ],
-            )
+            try:
+                await get_qdrant().client.upsert(
+                    collection_name=self._collection,
+                    points=[
+                        models.PointStruct(
+                            id=artifact_id,
+                            vector={"dense": embedding} if use_named_vectors else embedding,
+                            payload=payload,
+                        )
+                    ],
+                )
+            except Exception as retry_e:
+                logger.warning("Qdrant store_task_artifact retry failed for %s: %s", artifact_id, retry_e)
 
     async def find_similar_tasks(
         self,
@@ -164,7 +168,8 @@ class QdrantTaskRepository(TaskArtifactRepository):
             results = await get_qdrant().client.query_points(**query_kwargs)
         except Exception as e:  # Broad catch: qdrant_client uses varied exception types (gRPC/REST)
             if not self._is_vector_name_error(e):
-                raise
+                logger.warning("Qdrant find_similar_tasks failed for user %s: %s", user_id, e)
+                return []
 
             use_named_vectors = await self._flip_vector_mode()
             logger.warning(
@@ -176,7 +181,11 @@ class QdrantTaskRepository(TaskArtifactRepository):
                 query_kwargs["using"] = "dense"
             else:
                 query_kwargs.pop("using", None)
-            results = await get_qdrant().client.query_points(**query_kwargs)
+            try:
+                results = await get_qdrant().client.query_points(**query_kwargs)
+            except Exception as retry_e:
+                logger.warning("Qdrant find_similar_tasks retry failed for user %s: %s", user_id, retry_e)
+                return []
 
         return [
             {
@@ -192,11 +201,14 @@ class QdrantTaskRepository(TaskArtifactRepository):
 
     async def delete_user_artifacts(self, user_id: str) -> None:
         """Delete all task artifacts for a user."""
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
-                )
-            ),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+                    )
+                ),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_user_artifacts failed for user %s: %s", user_id, e)

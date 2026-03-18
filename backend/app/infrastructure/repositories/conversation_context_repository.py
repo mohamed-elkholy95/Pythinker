@@ -69,10 +69,14 @@ class ConversationContextRepository:
                 )
             )
 
-        await get_qdrant().client.upsert(
-            collection_name=self._collection,
-            points=points,
-        )
+        try:
+            await get_qdrant().client.upsert(
+                collection_name=self._collection,
+                points=points,
+            )
+        except Exception as e:
+            logger.warning("Qdrant upsert_batch failed (%d turns): %s", len(turns), e)
+            return
         logger.debug("Batch upserted %d conversation turns to Qdrant", len(turns))
 
     async def search_session_turns(
@@ -157,6 +161,9 @@ class ConversationContextRepository:
                     limit=limit,
                     score_threshold=min_score,
                 )
+        except Exception as e:
+            logger.warning("Qdrant search_session_turns failed for session %s: %s", session_id, e)
+            return []
         finally:
             duration = time.time() - start_time
             qdrant_query_duration_seconds.observe(
@@ -251,6 +258,14 @@ class ConversationContextRepository:
                     limit=limit,
                     score_threshold=min_score,
                 )
+        except Exception as e:
+            logger.warning(
+                "Qdrant search_cross_session failed for user %s (exclude session %s): %s",
+                user_id,
+                exclude_session_id,
+                e,
+            )
+            return []
         finally:
             duration = time.time() - start_time
             qdrant_query_duration_seconds.observe(
@@ -300,6 +315,9 @@ class ConversationContextRepository:
                 limit=limit,
                 order_by=models.OrderBy(key="turn_number", direction=models.Direction.ASC),
             )
+        except Exception as e:
+            logger.warning("Qdrant get_recent_turns failed for session %s: %s", session_id, e)
+            return []
         finally:
             duration = time.time() - start_time
             qdrant_query_duration_seconds.observe(
@@ -324,34 +342,46 @@ class ConversationContextRepository:
 
     async def delete_session_context(self, session_id: str) -> None:
         """Delete all context for a session."""
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id))]
-                )
-            ),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id))]
+                    )
+                ),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_session_context failed for session %s: %s", session_id, e)
+            return
         logger.info("Deleted conversation context for session %s", session_id)
 
     async def delete_user_context(self, user_id: str) -> None:
         """Delete all context for a user."""
-        await get_qdrant().client.delete(
-            collection_name=self._collection,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
-                )
-            ),
-        )
+        try:
+            await get_qdrant().client.delete(
+                collection_name=self._collection,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+                    )
+                ),
+            )
+        except Exception as e:
+            logger.warning("Qdrant delete_user_context failed for user %s: %s", user_id, e)
+            return
         logger.info("Deleted all conversation context for user %s", user_id)
 
     async def count_session_turns(self, session_id: str) -> int:
         """Count stored turns for a session."""
-        result = await get_qdrant().client.count(
-            collection_name=self._collection,
-            count_filter=models.Filter(
-                must=[models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id))]
-            ),
-        )
+        try:
+            result = await get_qdrant().client.count(
+                collection_name=self._collection,
+                count_filter=models.Filter(
+                    must=[models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id))]
+                ),
+            )
+        except Exception as e:
+            logger.warning("Qdrant count_session_turns failed for session %s: %s", session_id, e)
+            return 0
         return result.count
