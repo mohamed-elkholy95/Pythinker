@@ -38,6 +38,7 @@ from app.domain.services.stream_guard import (
     unregister_active_stream,
 )
 from app.domain.utils.cancellation import CancellationToken
+from app.infrastructure.external.http_pool import HTTPClientPool
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,
@@ -707,8 +708,8 @@ async def takeover_navigation_action(
     sandbox = await _resolve_user_sandbox_for_session(session_id, current_user.id, agent_service, sandbox_cls)
     url = f"{sandbox.base_url}/api/v1/navigation/{action}"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(url, headers=_sandbox_http_headers())
+        client = await HTTPClientPool.get_client(name="sandbox-navigation", timeout=httpx.Timeout(10.0))
+        response = await client.post(url, headers=_sandbox_http_headers())
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         logger.error("Sandbox navigation action failed: %s %s", action, _safe_exc_text(e))
@@ -744,8 +745,8 @@ async def takeover_navigation_history(
     sandbox = await _resolve_user_sandbox_for_session(session_id, current_user.id, agent_service, sandbox_cls)
     url = f"{sandbox.base_url}/api/v1/navigation/history"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, headers=_sandbox_http_headers())
+        client = await HTTPClientPool.get_client(name="sandbox-navigation", timeout=httpx.Timeout(10.0))
+        response = await client.get(url, headers=_sandbox_http_headers())
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPStatusError as e:

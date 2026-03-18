@@ -22,6 +22,7 @@ from app.application.errors.exceptions import BadRequestError, NotFoundError
 from app.core import prometheus_metrics as pm
 from app.domain.models.channel import ChannelType
 from app.domain.models.user import User
+from app.infrastructure.external.http_pool import HTTPClientPool
 from app.infrastructure.repositories.user_channel_repository import MongoUserChannelRepository
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.redis import get_redis
@@ -67,9 +68,9 @@ async def _fetch_telegram_bot_username_from_token(token: str) -> str | None:
     """Resolve bot username via Telegram ``getMe`` using ``TELEGRAM_BOT_TOKEN``."""
     api_url = f"https://api.telegram.org/bot{token}/getMe"
     try:
-        async with httpx.AsyncClient(timeout=_TELEGRAM_BOT_API_TIMEOUT_SECONDS) as client:
-            response = await client.get(api_url)
-            response.raise_for_status()
+        client = await HTTPClientPool.get_client(name="telegram-api", timeout=httpx.Timeout(_TELEGRAM_BOT_API_TIMEOUT_SECONDS))
+        response = await client.get(api_url)
+        response.raise_for_status()
         payload = response.json()
     except Exception as exc:
         logger.warning("Failed to resolve Telegram bot username via getMe: %s", exc)
