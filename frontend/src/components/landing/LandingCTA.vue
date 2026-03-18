@@ -6,7 +6,7 @@
       <p :ref="revealRef" class="cta-sub scroll-reveal">Open source. Self-hosted. Zero data leakage.</p>
       <div :ref="revealRef" class="cta-actions scroll-reveal">
         <a href="/login" class="cta-btn cta-btn--primary">Get Started Free <ArrowRight :size="18" /></a>
-        <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="cta-btn cta-btn--secondary">
+        <a href="https://github.com/mohamed-elkholy95/Pythinker" target="_blank" rel="noopener noreferrer" class="cta-btn cta-btn--secondary">
           <Github :size="18" /> View on GitHub
         </a>
       </div>
