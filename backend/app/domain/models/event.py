@@ -105,7 +105,7 @@ class SearchToolContent(BaseModel):
 class ShellToolContent(BaseModel):
     """Shell tool content"""
 
-    console: Any
+    console: list[dict[str, str]] | str
 
 
 class FileToolContent(BaseModel):
@@ -859,22 +859,6 @@ class WideResearchEvent(BaseEvent):
     errors: list[str] = Field(default_factory=list)
 
 
-class LegacyDeepResearchEvent(BaseEvent):
-    """Legacy event type for backward compatibility with old sessions.
-
-    DeepResearchEvent was removed but MongoDB may still contain these events.
-    This stub allows SessionDocument deserialization to succeed without crashing.
-    """
-
-    type: Literal["deep_research"] = "deep_research"
-    research_id: str = ""
-    status: str = ""
-    total_queries: int = 0
-    completed_queries: int = 0
-    queries: list[dict[str, Any]] = Field(default_factory=list)
-    auto_run: bool = False
-
-
 class ThoughtEvent(BaseEvent):
     """Thought event for Chain-of-Thought reasoning.
 
@@ -1029,7 +1013,6 @@ AgentEvent = Annotated[
         PhaseTransitionEvent,
         CheckpointSavedEvent,
         WideResearchEvent,
-        LegacyDeepResearchEvent,
         ThoughtEvent,
         ConfidenceEvent,
         CanvasUpdateEvent,
