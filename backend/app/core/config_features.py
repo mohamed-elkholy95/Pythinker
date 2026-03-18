@@ -226,6 +226,9 @@ class TimelineSettingsMixin:
 class FeatureFlagsSettingsMixin:
     """Agent enhancement feature flags, hallucination prevention, and research settings."""
 
+    # Skills configuration
+    max_enabled_skills: int = 5  # Maximum concurrent enabled skills per user
+
     # Agent Enhancement Feature Flags (Phase 0+)
     feature_plan_validation_v2: bool = False
     feature_reflection_advanced: bool = False
