@@ -4,7 +4,7 @@
       <div class="footer-grid">
         <div class="footer-brand">
           <a href="/" class="footer-logo" aria-label="Pythinker home">
-            <img src="/logo.png" alt="" width="24" height="24" class="footer-logo-img" />
+            <img src="/pythinker_animated.svg" alt="" width="28" height="28" class="footer-logo-img" />
             <PythinkerLogoTextIcon />
           </a>
           <p class="footer-tagline">AI agents that run on your infrastructure.</p>
@@ -44,7 +44,7 @@ const linkGroups = [
   ]},
   { title: 'Resources', links: [
     { label: 'Documentation', href: '/docs' },
-    { label: 'GitHub', href: 'https://github.com', external: true },
+    { label: 'GitHub', href: 'https://github.com/mohamed-elkholy95/Pythinker', external: true },
   ]},
   { title: 'Legal', links: [
     { label: 'Privacy Policy', href: '/privacy' },
@@ -63,7 +63,7 @@ const scrollTo = (href: string) => {
 .footer-grid { display: flex; justify-content: space-between; gap: 48px; }
 .footer-brand { max-width: 280px; }
 .footer-logo { display: flex; align-items: center; gap: 8px; text-decoration: none; margin-bottom: 12px; }
-.footer-logo-img { width: 24px; height: 24px; border-radius: 5px; }
+.footer-logo-img { width: 28px; height: 28px; }
 .footer-tagline { font-size: 14px; line-height: 1.5; color: var(--text-tertiary); }
 .footer-links-group { display: flex; gap: 56px; }
 .footer-col-title {
