@@ -16,6 +16,15 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+class SyncState(str, Enum):
+    """Qdrant sync status for long-term memories."""
+
+    PENDING = "pending"
+    SYNCED = "synced"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+
+
 class MemoryType(str, Enum):
     """Types of memories that can be stored."""
 
@@ -99,9 +108,9 @@ class MemoryEntry(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in this memory's accuracy")
 
     # Sync state tracking (Phase 1: Foundation for Phase 2 reliability)
-    sync_state: str = Field(
-        default="pending",
-        description="Qdrant sync status: pending, synced, failed, dead_letter",
+    sync_state: SyncState = Field(
+        default=SyncState.PENDING,
+        description="Qdrant sync status",
     )
     sync_attempts: int = Field(default=0, description="Number of sync retry attempts")
     last_sync_attempt: datetime | None = Field(default=None, description="Timestamp of last sync attempt")
