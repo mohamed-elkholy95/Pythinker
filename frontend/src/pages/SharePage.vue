@@ -103,8 +103,8 @@
               fill="var(--text-onblack)"></path>
           </svg>
         </button>
-        <div class="text-center text-[var(--text-primary)] whitespace-pre-line"
-          v-html="$t('You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.', { countdown: `<strong>${countdown}</strong>` })">
+        <div class="text-center text-[var(--text-primary)] whitespace-pre-line">
+          {{ $t('You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.', { countdown }) }}
         </div>
       </div>
     </div>
