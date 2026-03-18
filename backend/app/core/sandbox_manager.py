@@ -499,8 +499,14 @@ class ManagedSandbox:
 
             if self.container:
                 container = self.container
-                await asyncio.to_thread(container.stop, timeout=10)
-                await asyncio.to_thread(container.remove, force=True)
+                try:
+                    await asyncio.to_thread(container.stop, timeout=10)
+                except Exception as e:
+                    logger.warning(f"Error stopping sandbox {self.session_id}: {e}")
+                try:
+                    await asyncio.to_thread(container.remove, force=True)
+                except Exception as e:
+                    logger.warning(f"Error removing sandbox {self.session_id}: {e}")
 
         except Exception as e:
             logger.warning(f"Error during sandbox destruction for {self.session_id}: {e}")
