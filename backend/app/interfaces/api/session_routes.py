@@ -25,7 +25,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import Session, SessionStatus
-from app.domain.models.user import User
+from app.domain.models.user import User, UserRole
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.stream_guard import (
     StreamErrorCategory,
@@ -46,6 +46,7 @@ from app.interfaces.dependencies import (
     get_optional_current_user,
     get_sandbox_cls,
     get_screenshot_query_service,
+    get_session_repository,
     get_token_service,
     verify_signature_websocket,
 )
@@ -551,6 +552,7 @@ async def cancel_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    session_repo=Depends(get_session_repository),
 ) -> dict[str, str]:
     """Request graceful cancellation of a running session.
 
@@ -559,6 +561,12 @@ async def cancel_session(
     Returns 202 Accepted immediately; the flow transitions to
     'cancelled' asynchronously.
     """
+    session = await session_repo.get_by_id(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized to cancel this session")
+
     agent_service.request_cancellation(session_id)
     logger.info("Cancellation requested for session %s by user %s", session_id, current_user.id)
     return {"status": "cancelling", "session_id": session_id}
