@@ -62,9 +62,9 @@ class Agent(BaseModel):
     @field_validator("temperature")
     @classmethod
     def validate_temperature(cls, v: float) -> float:
-        """Validate temperature is between 0 and 1"""
-        if not 0 <= v <= 1:
-            raise ValueError("Temperature must be between 0 and 1")
+        """Validate temperature is between 0 and 2 (LLMs accept up to 2.0)"""
+        if not 0 <= v <= 2:
+            raise ValueError("Temperature must be between 0 and 2")
         return v
 
     @field_validator("max_tokens")
