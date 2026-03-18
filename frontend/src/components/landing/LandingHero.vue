@@ -9,21 +9,22 @@
           <Transition appear name="fade-up">
             <span class="hero-badge">
               <Server :size="14" class="hero-badge-icon" />
-              Your Personal AI Assistant
+              Personal AI Agent &middot; Works Autonomously
             </span>
           </Transition>
 
           <Transition appear name="fade-up-d1">
             <h1 class="hero-headline">
-              Your AI. Your Tools.<br />
-              <span class="hero-headline-accent">Your Infrastructure.</span>
+              Give It a Task.<br />
+              <span class="hero-headline-accent">It Gets It Done.</span>
             </h1>
           </Transition>
 
           <Transition appear name="fade-up-d2">
             <p class="hero-sub">
-              An AI agent that browses the web, runs code, manages files, and
-              researches &mdash; all in isolated Docker sandboxes you control.
+              Your personal AI agent that researches, browses, codes, and completes
+              tasks autonomously &mdash; no babysitting needed. Connect it via Telegram
+              or the web and let it work while you don't.
             </p>
           </Transition>
 

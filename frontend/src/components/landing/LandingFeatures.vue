@@ -1,9 +1,9 @@
 <template>
   <section id="features" class="features-section">
     <div class="features-inner">
-      <h2 :ref="revealRef" class="section-heading scroll-reveal">Everything an AI Agent Needs</h2>
+      <h2 :ref="revealRef" class="section-heading scroll-reveal">What Pythinker Does For You</h2>
       <p :ref="revealRef" class="section-sub scroll-reveal">
-        A complete toolkit for autonomous task execution — all running in isolated Docker sandboxes.
+        One agent with real tools — it browses, codes, researches, and delivers results while you focus on what matters.
       </p>
       <div class="features-grid">
         <div v-for="(f, i) in features" :key="f.title" :ref="revealRef"
@@ -20,23 +20,23 @@
 </template>
 
 <script setup lang="ts">
-import { Globe, Terminal as TerminalIcon, FileText, Search, Palette, Server } from 'lucide-vue-next'
+import { Globe, Terminal as TerminalIcon, FileText, Search, MessageCircle, Server } from 'lucide-vue-next'
 import { useScrollReveal } from '../../composables/useScrollReveal'
 const { revealRef } = useScrollReveal()
 
 const features = [
-  { title: 'Browser Agent', icon: Globe, color: 'blue',
-    description: 'Navigate websites, fill forms, extract data — see everything in real-time via live screencast.' },
-  { title: 'Terminal & Code', icon: TerminalIcon, color: 'green',
-    description: 'Execute shell commands and run code in isolated containers with full output streaming.' },
-  { title: 'File Management', icon: FileText, color: 'amber',
-    description: 'Read, write, and organize files within the sandbox filesystem with full access control.' },
+  { title: 'Browses the Web', icon: Globe, color: 'blue',
+    description: 'Opens websites, fills forms, clicks buttons, and extracts data — you watch everything live.' },
+  { title: 'Runs Code & Commands', icon: TerminalIcon, color: 'green',
+    description: 'Writes and executes code, installs packages, runs scripts — all in a secure sandbox.' },
+  { title: 'Reads & Writes Files', icon: FileText, color: 'amber',
+    description: 'Creates reports, saves data, organizes files — delivers downloadable results when done.' },
   { title: 'Deep Research', icon: Search, color: 'purple',
-    description: 'Multi-query parallel research with citation-aware summaries and structured reports.' },
-  { title: 'Visual Design', icon: Palette, color: 'pink',
-    description: 'Create and iterate on visual designs with canvas capabilities and real-time preview.' },
-  { title: 'Self-Hosted', icon: Server, color: 'teal',
-    description: 'Deploy on your own infrastructure. Your data never leaves your control. Zero vendor lock-in.' },
+    description: 'Searches multiple sources in parallel, cross-references data, and compiles cited reports.' },
+  { title: 'Telegram & Apps', icon: MessageCircle, color: 'pink',
+    description: 'Send tasks from Telegram and get results back. No need to open a browser — just message.' },
+  { title: 'Self-Hosted & Private', icon: Server, color: 'teal',
+    description: 'Runs on your own server. Your data stays yours. Open source with zero vendor lock-in.' },
 ]
 </script>
 

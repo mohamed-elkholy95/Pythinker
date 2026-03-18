@@ -38,25 +38,25 @@ const { revealRef } = useScrollReveal()
 
 const steps = [
   {
-    title: 'Describe Your Task',
+    title: 'Tell It What You Need',
     icon: MessageSquare,
     color: 'blue',
     description:
-      'Tell the agent what you need in natural language — research, code, browsing, or any combination.',
+      'Type your task in plain language — from the web, Telegram, or any connected app. No setup required.',
   },
   {
-    title: 'Agent Plans & Executes',
+    title: 'It Works Autonomously',
     icon: Cpu,
     color: 'purple',
     description:
-      'The agent creates a plan, selects tools, and executes in an isolated Docker sandbox — you watch in real-time.',
+      'Pythinker plans the steps, picks the right tools, and executes — you can watch live or walk away.',
   },
   {
-    title: 'Get Results',
+    title: 'You Get the Results',
     icon: CheckCircle,
     color: 'green',
     description:
-      'Receive structured outputs: reports, files, code, screenshots — all from your own infrastructure.',
+      'Reports, files, code, screenshots — delivered and ready. Everything runs on your own server.',
   },
 ]
 </script>
