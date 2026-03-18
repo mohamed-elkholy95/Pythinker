@@ -9,7 +9,9 @@ from datetime import UTC, datetime
 
 from pymongo import ASCENDING, IndexModel
 from pymongo.database import Database
+from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure
 
+from app.domain.exceptions.base import DuplicateResourceException, IntegrationException
 from app.domain.models.knowledge_base import DocumentStatus, KnowledgeBase, KnowledgeDocument
 from app.infrastructure.storage.mongodb import get_mongodb
 
@@ -56,7 +58,14 @@ class MongoKnowledgeRepository:
 
     async def create_knowledge_base(self, kb: KnowledgeBase) -> KnowledgeBase:
         col = self._db[self.COLLECTION_KB]
-        await col.insert_one(kb.model_dump())
+        try:
+            await col.insert_one(kb.model_dump())
+        except DuplicateKeyError as e:
+            logger.warning("Knowledge base already exists: %s — %s", kb.id, e)
+            raise DuplicateResourceException(f"Knowledge base already exists: {kb.id}") from e
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("MongoDB error creating knowledge base %s: %s", kb.id, e)
+            raise IntegrationException(f"Failed to create knowledge base: {e}", service="mongodb") from e
         return kb
 
     async def get_knowledge_base(self, kb_id: str, user_id: str) -> KnowledgeBase | None:
@@ -91,7 +100,14 @@ class MongoKnowledgeRepository:
 
     async def create_document(self, doc: KnowledgeDocument) -> KnowledgeDocument:
         col = self._db[self.COLLECTION_DOCS]
-        await col.insert_one(doc.model_dump())
+        try:
+            await col.insert_one(doc.model_dump())
+        except DuplicateKeyError as e:
+            logger.warning("Knowledge document already exists: %s — %s", doc.id, e)
+            raise DuplicateResourceException(f"Knowledge document already exists: {doc.id}") from e
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("MongoDB error creating knowledge document %s: %s", doc.id, e)
+            raise IntegrationException(f"Failed to create knowledge document: {e}", service="mongodb") from e
         return doc
 
     async def get_document(self, doc_id: str) -> KnowledgeDocument | None:
