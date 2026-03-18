@@ -18,6 +18,7 @@ import httpx
 
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool, ManagedHTTPClient
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
@@ -63,19 +64,23 @@ class JinaSearchEngine(SearchEngineBase):
         self.base_url = "https://s.jina.ai/"
         logger.info("Jina search initialized with %d API key(s)", len(key_configs))
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create shared HTTP client.
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get a pooled HTTP client for Jina Search.
 
         Auth header is not baked into the shared client. It is injected
         per-request so key rotation can reuse the same connection pool.
         """
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-            )
-        return self._client
+        config = HTTPClientConfig(
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=self.timeout,
+            connect_timeout=10.0,
+            read_timeout=self.timeout,
+        )
+        return await HTTPClientPool.get_client(
+            name="search-jinasearchengine",
+            config=config,
+            follow_redirects=True,
+        )
 
     def _get_date_range_mapping(self) -> dict[str, str]:
         """Jina does not expose native date filters; use query hints."""
@@ -93,7 +98,7 @@ class JinaSearchEngine(SearchEngineBase):
             actual_query = f"{query} {date_hint}"
         return {"q": actual_query}
 
-    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+    async def _execute_request(self, client: ManagedHTTPClient, params: dict[str, Any]) -> httpx.Response:
         return await client.post(self.base_url, json=params)
 
     @staticmethod

@@ -19,6 +19,7 @@ import httpx
 
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool, ManagedHTTPClient
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
@@ -89,20 +90,24 @@ class BraveSearchEngine(SearchEngineBase):
         self.base_url = "https://api.search.brave.com/res/v1/web/search"
         logger.info(f"Brave search initialized with {len(key_configs)} API key(s)")
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create shared HTTP client.
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get a pooled HTTP client for Brave Search.
 
-        Auth header (X-Subscription-Token) is NOT baked in here - it is injected
+        Auth header (X-Subscription-Token) is NOT baked in here — it is injected
         as a per-request header in search() so the connection pool is reused
         across all key rotations without needing to close and recreate the client.
         """
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"Accept": "application/json", "Accept-Encoding": "gzip"},
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-            )
-        return self._client
+        config = HTTPClientConfig(
+            headers={"Accept": "application/json", "Accept-Encoding": "gzip"},
+            timeout=self.timeout,
+            connect_timeout=10.0,
+            read_timeout=self.timeout,
+        )
+        return await HTTPClientPool.get_client(
+            name="search-bravesearchengine",
+            config=config,
+            follow_redirects=True,
+        )
 
     def _get_date_range_mapping(self) -> dict[str, str]:
         """Brave API freshness parameter mapping."""
@@ -128,7 +133,7 @@ class BraveSearchEngine(SearchEngineBase):
 
         return params
 
-    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+    async def _execute_request(self, client: ManagedHTTPClient, params: dict[str, Any]) -> httpx.Response:
         """Execute GET request to Brave API."""
         return await client.get(self.base_url, params=params)
 

@@ -20,6 +20,7 @@ import httpx
 
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool, ManagedHTTPClient
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
@@ -119,20 +120,24 @@ class SerperSearchEngine(SearchEngineBase):
         self.base_url = "https://google.serper.dev/search"
         logger.info(f"Serper search initialized with {len(key_configs)} API key(s)")
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create shared HTTP client.
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get a pooled HTTP client for Serper Search.
 
         Auth header (X-API-Key) is NOT baked in here — it is injected as a
         per-request header in search() so the connection pool is reused across
         all key rotations without needing to close and recreate the client.
         """
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-            )
-        return self._client
+        config = HTTPClientConfig(
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=self.timeout,
+            connect_timeout=10.0,
+            read_timeout=self.timeout,
+        )
+        return await HTTPClientPool.get_client(
+            name="search-serpersearchengine",
+            config=config,
+            follow_redirects=True,
+        )
 
     def _get_date_range_mapping(self) -> dict[str, str]:
         """Google tbs parameter mapping via Serper."""
@@ -158,7 +163,7 @@ class SerperSearchEngine(SearchEngineBase):
 
         return params
 
-    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+    async def _execute_request(self, client: ManagedHTTPClient, params: dict[str, Any]) -> httpx.Response:
         """Satisfy abstract base contract. Not called — search() drives the full flow."""
         return await client.post(self.base_url, json=params)
 
