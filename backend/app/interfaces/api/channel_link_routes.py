@@ -41,13 +41,20 @@ router = APIRouter(prefix="/channel-links", tags=["channel-links"])
 
 # Link code configuration
 _CODE_ALPHABET = string.ascii_uppercase + string.digits
+
+
 def _code_length() -> int:
     from app.core.config import get_settings
+
     return get_settings().channel_link_code_length
+
 
 def _code_ttl_seconds() -> int:
     from app.core.config import get_settings
+
     return get_settings().channel_link_code_ttl_seconds
+
+
 _REDIS_KEY_PREFIX = "channel_link"
 _DEFAULT_TELEGRAM_BOT_USERNAME = "pythinker_bot"
 _TELEGRAM_BOT_API_TIMEOUT_SECONDS = 5.0
