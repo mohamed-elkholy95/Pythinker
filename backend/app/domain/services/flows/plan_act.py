@@ -267,7 +267,7 @@ class PlanActFlow(BaseFlow):
         self._planning_start_time: float | None = None
 
         # Conversation context: real-time retrieval for step execution
-        from app.domain.services.conversation_context_service import get_conversation_context_service
+        from app.application.providers.conversation_context import get_conversation_context_service
 
         self._conversation_context_service = get_conversation_context_service()
 
