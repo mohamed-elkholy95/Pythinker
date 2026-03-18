@@ -861,10 +861,8 @@ class PlanActFlow(BaseFlow):
             return False
 
         try:
-            # Quick browser health check via sandbox
-            from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
-
-            sandbox = await DockerSandbox.get(session.sandbox_id)
+            # Quick browser health check via the already-injected sandbox
+            sandbox = self._sandbox
             if not sandbox:
                 logger.debug(f"Sandbox {session.sandbox_id} not found")
                 return False
