@@ -37,7 +37,7 @@ from app.interfaces.schemas.prompt_optimization import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/prompt-optimization",
+    prefix="/prompt-optimization",
     tags=["prompt-optimization"],
 )
 
