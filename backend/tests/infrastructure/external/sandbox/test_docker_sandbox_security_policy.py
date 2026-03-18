@@ -37,6 +37,7 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
                 sandbox_framework_port=8082,
                 sandbox_streaming_mode=StreamingMode.CDP_ONLY,
                 sandbox_api_secret=None,
+                sandbox_lifecycle_mode="static",
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]
