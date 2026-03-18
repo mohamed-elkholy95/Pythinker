@@ -112,13 +112,13 @@ if [ "$DRY_RUN" = true ]; then
     info "[DRY RUN] Would update frontend/package.json version to ${VERSION}"
 else
     # Update pyproject.toml
-    sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" "$REPO_ROOT/backend/pyproject.toml"
+    sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "$REPO_ROOT/backend/pyproject.toml"
     ok "Updated backend/pyproject.toml"
 
     # Update package.json (match the top-level "version" field only)
     cd "$REPO_ROOT/frontend"
     npm pkg set version="$VERSION" 2>/dev/null || \
-        sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
+        sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
     cd "$REPO_ROOT"
     ok "Updated frontend/package.json"
 fi
