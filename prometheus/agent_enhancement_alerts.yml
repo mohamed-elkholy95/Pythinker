@@ -13,7 +13,7 @@ groups:
         annotations:
           summary: "High response recovery trigger rate detected"
           description: "Recovery triggers are occurring at {{ $value | humanize }} per second (> 10/min threshold). This indicates potential issues with LLM output quality or tool execution reliability. Recovery reason: {{ $labels.recovery_reason }}. Agent type: {{ $labels.agent_type }}."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-recovery-rate.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/high-recovery-rate.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 2: Low Tool Cache Hit Rate
@@ -27,7 +27,7 @@ groups:
         annotations:
           summary: "Tool definition cache hit rate is low"
           description: "Cache hit rate is {{ $value | humanizePercentage }} (< 50% threshold). This may indicate excessive cache invalidations, short TTL, or inadequate cache warming. Consider increasing cache size or TTL."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/low-cache-hit-rate.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/low-cache-hit-rate.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 3: Frequent Snapshot Budget Violations
@@ -41,7 +41,7 @@ groups:
         annotations:
           summary: "Frequent failure snapshot budget violations"
           description: "Snapshot budget violations are occurring at {{ $value | humanize }} per second (> 2/min threshold). This indicates failure contexts are too large. Violation type: {{ $labels.violation_type }}. Consider reducing snapshot token budget or improving truncation logic."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/snapshot-budget-violations.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/snapshot-budget-violations.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 4: Recovery Budget Exhaustion
@@ -55,7 +55,7 @@ groups:
         annotations:
           summary: "Recovery attempts are exhausting retry budgets"
           description: "Recovery budget exhaustion is occurring at {{ $value | humanize }} per second (> 1/min threshold). This indicates repeated failures with no successful recovery. Agent type: {{ $labels.agent_type }}. Immediate investigation required."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/recovery-budget-exhausted.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/recovery-budget-exhausted.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 5: High Duplicate Suppression Override Rate
@@ -69,7 +69,7 @@ groups:
         annotations:
           summary: "High duplicate suppression override rate"
           description: "{{ $value | humanizePercentage }} of duplicate queries are being overridden (> 50% threshold). Override reason: {{ $labels.override_reason }}. This may indicate quality threshold is too high or LLM output quality issues."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-override-rate.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/high-override-rate.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 6: High Tool Argument Rejection Rate
@@ -83,7 +83,7 @@ groups:
         annotations:
           summary: "High rate of tool argument rejections (potential security issue)"
           description: "Tool arguments are being rejected at {{ $value | humanize }} per second (> 2/min threshold). Tool: {{ $labels.tool_name }}. Rejection reason: {{ $labels.rejection_reason }}. This may indicate malicious input or LLM confusion about tool schemas."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-rejection-rate.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/high-rejection-rate.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 7: Cache Invalidation Storm
@@ -97,7 +97,7 @@ groups:
         annotations:
           summary: "Excessive cache invalidations detected"
           description: "Cache invalidations are occurring at {{ $value | humanize }} per second (> 2/min threshold). Invalidation reason: {{ $labels.invalidation_reason }}. This may indicate MCP configuration is changing too frequently or invalidation logic issues."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/cache-invalidation-storm.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/cache-invalidation-storm.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Alert 8: Recovery Duration Degradation
@@ -111,7 +111,7 @@ groups:
         annotations:
           summary: "P95 recovery duration is degraded"
           description: "95th percentile recovery duration is {{ $value | humanizeDuration }} (> 5s threshold). Recovery reason: {{ $labels.recovery_reason }}. This indicates recovery attempts are taking too long, impacting user experience."
-          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/slow-recovery.md"
+          runbook_url: "https://github.com/mohamed-elkholy95/Pythinker/blob/main/docs/runbooks/slow-recovery.md"
           dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
 
       # Recording Rules for Easier Querying
