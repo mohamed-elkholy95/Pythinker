@@ -254,14 +254,15 @@ class SnapshotManager:
         return []
 
     async def cleanup_old_snapshots(self, ttl_days: int = 7) -> int:
-        """Delete old snapshot objects from storage.
+        """Delete all snapshot objects from storage (best-effort sweep).
 
-        Removes snapshot tarballs from MinIO/S3 storage. For MongoDB document
-        cleanup, use MaintenanceService.cleanup_old_snapshots() which runs
-        as a periodic background task in lifespan.py.
+        Removes snapshot tarballs from MinIO/S3 storage. TTL-based filtering
+        is handled at the MongoDB document level by the lifespan background
+        task; this method performs a storage-level sweep of all objects under
+        the ``snapshots/`` prefix.
 
         Args:
-            ttl_days: Time-to-live in days
+            ttl_days: Time-to-live in days (used for logging context)
 
         Returns:
             Number of snapshots deleted
@@ -270,12 +271,19 @@ class SnapshotManager:
         try:
             all_objects = await self.storage.list_objects(prefix="snapshots/")
             deleted = 0
+            failed_keys: list[str] = []
             for obj_key in all_objects:
                 try:
                     await self.storage.delete(obj_key)
                     deleted += 1
                 except Exception:
-                    logger.debug("Failed to delete snapshot object: %s", obj_key)
+                    failed_keys.append(obj_key)
+            if failed_keys:
+                logger.warning(
+                    "Failed to delete %d snapshot object(s): %s",
+                    len(failed_keys),
+                    failed_keys[:5],
+                )
             return deleted
         except Exception as e:
             logger.warning("Snapshot cleanup failed: %s", e)

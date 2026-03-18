@@ -517,11 +517,16 @@ class TestRoundRobinConcurrency:
         await asyncio.gather(*tasks)
         elapsed_ms = (time.perf_counter() - start) * 1000
 
-        # Average time per call should be well under 5ms (relaxed for CI runners)
+        # CI-tolerant upper bound (shared runners have noisy neighbors)
         avg_ms = elapsed_ms / num_requests
         assert avg_ms < 5.0, (
             f"Average lock acquisition time {avg_ms:.3f}ms exceeds 5ms threshold. "
             f"Total: {elapsed_ms:.1f}ms for {num_requests} requests"
+        )
+        # Tighter bound to catch real regressions (< 2ms expected locally)
+        assert elapsed_ms < 2 * num_requests, (
+            f"Total elapsed {elapsed_ms:.1f}ms exceeds 2x request count — "
+            f"avg {avg_ms:.3f}ms/call suggests a real performance regression"
         )
 
     async def test_round_robin_lock_exists(self):
