@@ -186,21 +186,6 @@ export const useToolStore = defineStore('tool', () => {
     realTime.value = true
   }
 
-  /** @deprecated Use clearAll() instead */
-  function clearTimeline() {
-    clearAll()
-  }
-
-  /** @deprecated Use setStreamingContent() per tool_call_id instead */
-  function appendStreamContent(_content: string) {
-    // Legacy no-op — streaming is now per-tool_call_id
-  }
-
-  /** @deprecated Use clearAll() instead */
-  function clearStreamBuffer() {
-    streamingContentBuffer.value = new Map()
-  }
-
   return {
     // State
     lastTool,
@@ -226,8 +211,5 @@ export const useToolStore = defineStore('tool', () => {
     getSearchSources,
     setRealTime,
     clearAll,
-    clearTimeline,
-    appendStreamContent,
-    clearStreamBuffer,
   }
 })
