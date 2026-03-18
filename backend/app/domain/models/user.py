@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import Enum
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class UserRole(str, Enum):
@@ -21,8 +21,8 @@ class User(BaseModel):
     totp_secret: str | None = None
     email_verified: bool = False
     totp_enabled: bool = False
-    created_at: datetime = datetime.now(UTC)
-    updated_at: datetime = datetime.now(UTC)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_login_at: datetime | None = None
 
     @field_validator("fullname")
