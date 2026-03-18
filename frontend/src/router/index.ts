@@ -12,6 +12,8 @@ const SharePage = () => import('../pages/SharePage.vue')
 const SessionHistoryPage = () => import('../pages/SessionHistoryPage.vue')
 const CanvasPage = () => import('../pages/CanvasPage.vue')
 const NotFoundPage = () => import('../pages/NotFoundPage.vue')
+const PrivacyPage = () => import('../pages/PrivacyPage.vue')
+const TermsPage = () => import('../pages/TermsPage.vue')
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +22,18 @@ export const router = createRouter({
       path: '/',
       name: 'landing',
       component: LandingPage,
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/privacy',
+      name: 'privacy',
+      component: PrivacyPage,
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/terms',
+      name: 'terms',
+      component: TermsPage,
       meta: { requiresAuth: false },
     },
     {
