@@ -92,7 +92,7 @@ class Session(BaseModel):
     dev_command: str | None = None
     build_command: str | None = None
     test_command: str | None = None
-    port: int | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
     env_var_keys: list[str] | None = None
     secret_keys: list[str] | None = None
     git_remote: dict | None = None
@@ -103,12 +103,12 @@ class Session(BaseModel):
 
     # Budget tracking (leverages existing usage system)
     budget_limit: float | None = None  # USD limit
-    budget_warning_threshold: float = 0.8  # Warn at 80%
+    budget_warning_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # Warn at 80%
     budget_paused: bool = False  # Session paused due to budget
 
     # Execution metadata
     iteration_limit_override: int | None = None  # Override default iterations
-    complexity_score: float | None = None  # Assessed task complexity (0.0-1.0)
+    complexity_score: float | None = Field(default=None, ge=0.0, le=1.0)  # Assessed task complexity
 
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
