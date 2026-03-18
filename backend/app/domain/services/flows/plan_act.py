@@ -378,9 +378,17 @@ class PlanActFlow(BaseFlow):
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
         # Pending events queue for skill delivery events from tools
         self._pending_events: list[BaseEvent] = []
+        _skill_package_repo = None
+        try:
+            from app.infrastructure.repositories.mongo_skill_package_repository import MongoSkillPackageRepository
+
+            _skill_package_repo = MongoSkillPackageRepository()
+        except Exception as _spr_exc:
+            logger.warning("SkillPackageRepository unavailable: %s", _spr_exc)
         skill_tools = get_skill_creator_tools(
             user_id=user_id,
             emit_event=lambda e: self._pending_events.append(e),
+            skill_package_repo=_skill_package_repo,
         )
         tools.extend(skill_tools)
         logger.debug(f"Added {len(skill_tools)} skill creator tools for Agent {agent_id}")

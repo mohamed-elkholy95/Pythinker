@@ -10,6 +10,8 @@ Architecture:
     with a hallucination_score (ratio of unsupported claims).
 
 Usage:
+    from app.application.providers.grounding_verifier import get_llm_grounding_verifier
+
     verifier = get_llm_grounding_verifier()
     result = await verifier.verify(
         response_text="The population of France is 69 million.",
@@ -202,36 +204,3 @@ class LLMGroundingVerifier:
                 skipped=True,
                 skip_reason=f"JSON parse error: {e}",
             )
-
-
-# ── Singleton factory ──────────────────────────────────────────────
-
-_instance: LLMGroundingVerifier | None = None
-
-
-def get_llm_grounding_verifier() -> LLMGroundingVerifier:
-    """Get or create the singleton LLMGroundingVerifier.
-
-    Uses FAST_MODEL tier via model_router for cost-efficient verification.
-    """
-    global _instance
-    if _instance is None:
-        from app.core.config import get_settings
-        from app.domain.services.agents.model_router import ModelTier, get_model_router
-        from app.infrastructure.external.llm.universal_llm import UniversalLLM
-
-        settings = get_settings()
-        router = get_model_router()
-
-        # Use FAST tier — verification is classification, not generation
-        model_config = router._get_config(ModelTier.FAST)
-
-        llm = UniversalLLM(
-            model_name=settings.hallucination_verifier_model or model_config.model_name,
-        )
-
-        _instance = LLMGroundingVerifier(
-            llm=llm,
-            max_claims=settings.hallucination_max_claims,
-        )
-    return _instance

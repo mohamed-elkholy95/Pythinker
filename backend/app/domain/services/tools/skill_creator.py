@@ -14,6 +14,7 @@ from uuid import uuid4
 from app.domain.models.event import SkillDeliveryEvent, SkillPackageFileData
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.models.tool_result import ToolResult
+from app.domain.repositories.skill_package_repository import SkillPackageRepository
 from app.domain.services.skill_packager import get_skill_packager
 from app.domain.services.skill_validator import CustomSkillValidator
 from app.domain.services.tools.base import BaseTool, tool
@@ -35,16 +36,20 @@ class SkillCreatorTool(BaseTool):
         self,
         user_id: str | None = None,
         emit_event: Callable[[Any], None] | None = None,
+        skill_package_repo: SkillPackageRepository | None = None,
     ):
         """Initialize the skill creator tool.
 
         Args:
             user_id: The ID of the user creating skills (required for ownership)
             emit_event: Optional callback to emit events to the frontend
+            skill_package_repo: Repository for persisting skill packages.
+                When ``None`` the save step is skipped silently.
         """
         super().__init__()
         self._user_id = user_id
         self._emit_event = emit_event
+        self._skill_package_repo = skill_package_repo
 
     @tool(
         name="skill_create",
@@ -246,36 +251,28 @@ class SkillCreatorTool(BaseTool):
             )
 
             # Save package to database for later retrieval
-            try:
-                from app.core.config import get_settings
-                from app.infrastructure.storage.mongodb import get_mongodb
-
-                settings = get_settings()
-                mongodb = get_mongodb()
-                db = mongodb.client[settings.mongodb_database]
-                packages_collection = db.get_collection("skill_packages")
-
-                package_doc = {
-                    "id": package.id,
-                    "name": package.name,
-                    "description": package.description,
-                    "version": package.version,
-                    "icon": package.icon,
-                    "category": package.category,
-                    "author": package.author,
-                    "skill_id": skill_id,
-                    "file_tree": package.file_tree,
-                    "files": [
-                        {"path": f.path, "content": f.content, "size": f.size, "file_type": f.file_type}
-                        for f in package.files
-                    ],
-                    "file_id": package.file_id,
-                    "created_at": datetime.now(UTC),
-                }
-                await packages_collection.insert_one(package_doc)
-                logger.info(f"Saved skill package {package.id} to database")
-            except Exception as e:
-                logger.warning(f"Failed to save skill package to database: {e}")
+            if self._skill_package_repo is not None:
+                try:
+                    package_doc = {
+                        "id": package.id,
+                        "name": package.name,
+                        "description": package.description,
+                        "version": package.version,
+                        "icon": package.icon,
+                        "category": package.category,
+                        "author": package.author,
+                        "skill_id": skill_id,
+                        "file_tree": package.file_tree,
+                        "files": [
+                            {"path": f.path, "content": f.content, "size": f.size, "file_type": f.file_type}
+                            for f in package.files
+                        ],
+                        "file_id": package.file_id,
+                        "created_at": datetime.now(UTC),
+                    }
+                    await self._skill_package_repo.save_package(package_doc)
+                except Exception as e:
+                    logger.warning(f"Failed to save skill package to database: {e}")
 
             # Emit skill delivery event if callback provided
             if self._emit_event:
@@ -456,18 +453,21 @@ class SkillDeleteTool(BaseTool):
 def get_skill_creator_tools(
     user_id: str | None = None,
     emit_event: Callable[[Any], None] | None = None,
+    skill_package_repo: SkillPackageRepository | None = None,
 ) -> list[BaseTool]:
     """Get all skill creator tools.
 
     Args:
         user_id: The user ID for ownership tracking
         emit_event: Optional callback to emit events to the frontend
+        skill_package_repo: Repository for persisting skill packages.
+            When ``None`` the save step is skipped silently.
 
     Returns:
         List of skill creator tools
     """
     return [
-        SkillCreatorTool(user_id=user_id, emit_event=emit_event),
+        SkillCreatorTool(user_id=user_id, emit_event=emit_event, skill_package_repo=skill_package_repo),
         SkillListTool(user_id=user_id),
         SkillDeleteTool(user_id=user_id),
     ]

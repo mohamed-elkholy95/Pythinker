@@ -232,7 +232,7 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "research query")
@@ -253,7 +253,7 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -272,7 +272,7 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -291,7 +291,7 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -310,7 +310,7 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -380,7 +380,7 @@ class TestSourceGroundingContext:
         mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination("# Report\n\nContent.", "query")

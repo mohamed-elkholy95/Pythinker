@@ -22,6 +22,7 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
+from app.domain.external.task_output_relay import TaskOutputRelay
 from app.domain.models.event import (
     AgentEvent,
     BaseEvent,
@@ -42,8 +43,6 @@ from app.domain.services.agents.agent_task_factory import AgentTaskFactory
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.workspace import get_session_workspace_initializer
 from app.domain.utils.cancellation import CancellationToken
-from app.infrastructure.external.message_queue.redis_stream_queue import RedisStreamQueue
-from app.infrastructure.external.task.redis_task import RedisStreamTask
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -73,6 +72,7 @@ class AgentDomainService:
         memory_service: Optional["MemoryService"] = None,
         mongodb_db: Any | None = None,  # MongoDB database for workflow checkpointing
         usage_recorder: Callable[..., Coroutine[Any, Any, object | None]] | None = None,
+        task_output_relay: TaskOutputRelay | None = None,
     ):
         self._session_repository = session_repository
         self._sandbox_cls = sandbox_cls
@@ -81,6 +81,7 @@ class AgentDomainService:
         self._task_cls = task_cls
         self._file_storage = file_storage
         self._memory_service = memory_service
+        self._task_output_relay = task_output_relay
 
         # Conversation context: real-time vectorization during active sessions
         from app.domain.services.conversation_context_service import get_conversation_context_service
@@ -807,9 +808,13 @@ class AgentDomainService:
                             terminal_status = SessionStatus.FAILED
                         else:
                             # --- Reconnect liveness check ---
-                            # Use Redis liveness signal to detect if a task is still running
+                            # Use liveness signal to detect if a task is still running
                             # on another worker (cross-worker safe).
-                            live_task_id = await RedisStreamTask.get_liveness(session_id)
+                            live_task_id = (
+                                await self._task_output_relay.get_live_task_id(session_id)
+                                if self._task_output_relay
+                                else None
+                            )
 
                             if live_task_id:
                                 # Task is alive — poll its output stream directly
@@ -818,10 +823,10 @@ class AgentDomainService:
                                     live_task_id,
                                     session_id,
                                 )
-                                output_stream = RedisStreamQueue(f"task:output:{live_task_id}")
                                 poll_deadline = asyncio.get_event_loop().time() + 120.0
                                 while asyncio.get_event_loop().time() < poll_deadline:
-                                    event_id_out, event_data = await output_stream.get(
+                                    event_id_out, event_data = await self._task_output_relay.get_task_output(
+                                        task_id=live_task_id,
                                         start_id=latest_event_id or "0",
                                         block_ms=2000,
                                     )
@@ -851,7 +856,7 @@ class AgentDomainService:
                                             break
                                     else:
                                         # Check if liveness key expired
-                                        still_alive = await RedisStreamTask.get_liveness(session_id)
+                                        still_alive = await self._task_output_relay.get_live_task_id(session_id)
                                         if not still_alive:
                                             break
                                 if terminal_status is None:
@@ -876,7 +881,11 @@ class AgentDomainService:
                                     bounded_deadline = asyncio.get_event_loop().time() + 15.0
                                     found_live = False
                                     while asyncio.get_event_loop().time() < bounded_deadline:
-                                        late_task_id = await RedisStreamTask.get_liveness(session_id)
+                                        late_task_id = (
+                                            await self._task_output_relay.get_live_task_id(session_id)
+                                            if self._task_output_relay
+                                            else None
+                                        )
                                         if late_task_id:
                                             found_live = True
                                             logger.info(
@@ -884,9 +893,9 @@ class AgentDomainService:
                                                 session_id,
                                                 late_task_id,
                                             )
-                                            output_stream = RedisStreamQueue(f"task:output:{late_task_id}")
                                             while True:
-                                                ev_id, ev_data = await output_stream.get(
+                                                ev_id, ev_data = await self._task_output_relay.get_task_output(
+                                                    task_id=late_task_id,
                                                     start_id=latest_event_id or "0",
                                                     block_ms=2000,
                                                 )
@@ -915,7 +924,9 @@ class AgentDomainService:
                                                         terminal_status = SessionStatus.FAILED
                                                         break
                                                 else:
-                                                    still_alive = await RedisStreamTask.get_liveness(session_id)
+                                                    still_alive = await self._task_output_relay.get_live_task_id(
+                                                        session_id
+                                                    )
                                                     if not still_alive:
                                                         break
                                             if terminal_status is None:
