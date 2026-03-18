@@ -1,0 +1,200 @@
+"""
+File operation API interfaces
+"""
+
+import os
+from fastapi import APIRouter, UploadFile, File, Form
+from fastapi.responses import FileResponse
+
+from app.schemas.file import (
+    FileReadRequest,
+    FileWriteRequest,
+    FileReplaceRequest,
+    FileSearchRequest,
+    FileFindRequest,
+    FileDeleteRequest,
+    FileListRequest,
+)
+from app.schemas.response import Response
+from app.services.file import SANDBOX_ALLOWED_DIRS, file_service
+
+router = APIRouter()
+
+
+@router.post("/read", response_model=Response)
+async def read_file(request: FileReadRequest):
+    """
+    Read file content
+    """
+    result = await file_service.read_file(
+        file=request.file,
+        start_line=request.start_line,
+        end_line=request.end_line,
+        sudo=request.sudo,
+        max_length=request.max_length,
+    )
+
+    # Construct response
+    return Response(
+        success=True, message="File read successfully", data=result.model_dump()
+    )
+
+
+@router.post("/write", response_model=Response)
+async def write_file(request: FileWriteRequest):
+    """
+    Write file content
+    """
+    result = await file_service.write_file(
+        file=request.file,
+        content=request.content,
+        append=request.append,
+        leading_newline=request.leading_newline,
+        trailing_newline=request.trailing_newline,
+        sudo=request.sudo,
+    )
+
+    # Construct response
+    return Response(
+        success=True, message="File written successfully", data=result.model_dump()
+    )
+
+
+@router.post("/replace", response_model=Response)
+async def replace_in_file(request: FileReplaceRequest):
+    """
+    Replace string in file
+    """
+    result = await file_service.str_replace(
+        file=request.file,
+        old_str=request.old_str,
+        new_str=request.new_str,
+        sudo=request.sudo,
+    )
+
+    # Construct response
+    return Response(
+        success=True,
+        message=f"Replacement completed, replaced {result.replaced_count} occurrences",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/search", response_model=Response)
+async def search_in_file(request: FileSearchRequest):
+    """
+    Search in file content
+    """
+    result = await file_service.find_in_content(
+        file=request.file, regex=request.regex, sudo=request.sudo
+    )
+
+    # Construct response
+    return Response(
+        success=True,
+        message=f"Search completed, found {len(result.matches)} matches",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/find", response_model=Response)
+async def find_files(request: FileFindRequest):
+    """
+    Find files by name pattern
+    """
+    result = await file_service.find_by_name(
+        path=request.path, glob_pattern=request.glob
+    )
+
+    # Construct response
+    return Response(
+        success=True,
+        message=f"Search completed, found {len(result.files)} files",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/delete", response_model=Response)
+async def delete_file(request: FileDeleteRequest):
+    """
+    Delete file or directory
+    """
+    result = await file_service.delete_file(path=request.path, sudo=request.sudo)
+
+    return Response(
+        success=True,
+        message="Path deleted successfully",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/list", response_model=Response)
+async def list_directory(request: FileListRequest):
+    """
+    List directory entries
+    """
+    result = await file_service.list_dir(
+        path=request.path,
+        include_hidden=bool(request.include_hidden),
+    )
+
+    return Response(
+        success=True,
+        message=f"Listed {len(result.entries)} entries",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...), path: str = Form(None)):
+    """
+    Upload file using streaming
+    """
+    if not path:
+        # Default upload location within the sandbox base directory.
+        # Use only the basename of the original filename to prevent traversal.
+        safe_filename = os.path.basename(file.filename) if file.filename else "upload"
+        upload_dir = str(SANDBOX_ALLOWED_DIRS[0] / "uploads")
+        path = os.path.join(upload_dir, safe_filename)
+
+    result = await file_service.upload_file(path=path, file_stream=file)
+
+    return Response(
+        success=True, message="File uploaded successfully", data=result.model_dump()
+    )
+
+
+@router.post("/exists", response_model=Response)
+async def file_exists(request: FileReadRequest):
+    """
+    Check if a file exists (path-validated, no 404 noise).
+    """
+    try:
+        validated = file_service._normalize_path(request.file)
+        exists = os.path.exists(validated)
+    except Exception:
+        exists = False
+
+    return Response(
+        success=True,
+        message="File exists check completed",
+        data={"exists": exists, "path": request.file},
+    )
+
+
+@router.get("/download")
+async def download_file(path: str):
+    """
+    Download file using FileResponse
+    """
+    # ensure_file validates the path against SANDBOX_ALLOWED_DIRS and checks existence.
+    # Use _normalize_path to obtain the validated, resolved path for FileResponse.
+    validated_path = file_service._normalize_path(path)
+    file_service.ensure_file(validated_path)
+
+    # Determine filename from the validated path
+    filename = os.path.basename(validated_path)
+
+    return FileResponse(
+        path=validated_path, filename=filename, media_type="application/octet-stream"
+    )

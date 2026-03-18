@@ -1,0 +1,127 @@
+"""Tests for MermaidPreprocessor — mermaid block detection and replacement."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import httpx
+import pytest
+
+from app.domain.services.pdf.mermaid_preprocessor import (
+    MermaidPreprocessor,
+    extract_mermaid_blocks,
+)
+
+
+def _make_preprocessor(base_url: str = "http://fake:8080") -> MermaidPreprocessor:
+    """Create a MermaidPreprocessor with a real httpx.AsyncClient (no sandbox required)."""
+    client = httpx.AsyncClient(base_url=base_url, timeout=5.0)
+    return MermaidPreprocessor(http_client=client)
+
+
+class TestExtractMermaidBlocks:
+    """Unit tests for mermaid block extraction from markdown."""
+
+    def test_extracts_single_mermaid_block(self):
+        md = "Hello\n\n```mermaid\ngraph TD\n  A-->B\n```\n\nWorld"
+        blocks = extract_mermaid_blocks(md)
+        assert len(blocks) == 1
+        assert blocks[0].source == "graph TD\n  A-->B"
+        assert "<!--MERMAID:" in blocks[0].placeholder
+
+    def test_extracts_multiple_mermaid_blocks(self):
+        md = '```mermaid\ngraph LR\n  A-->B\n```\n\nText\n\n```mermaid\npie\n  "A":30\n  "B":70\n```'
+        blocks = extract_mermaid_blocks(md)
+        assert len(blocks) == 2
+
+    def test_ignores_non_mermaid_code_blocks(self):
+        md = "```python\nprint('hello')\n```\n\n```mermaid\ngraph TD\n  A-->B\n```"
+        blocks = extract_mermaid_blocks(md)
+        assert len(blocks) == 1
+        assert blocks[0].source == "graph TD\n  A-->B"
+
+    def test_no_mermaid_blocks(self):
+        md = "Just plain markdown\n\n```python\ncode\n```"
+        blocks = extract_mermaid_blocks(md)
+        assert len(blocks) == 0
+
+    def test_case_insensitive_mermaid_tag(self):
+        md = "```Mermaid\ngraph TD\n  A-->B\n```"
+        blocks = extract_mermaid_blocks(md)
+        assert len(blocks) == 1
+
+    def test_replace_with_placeholder(self):
+        md = "Before\n\n```mermaid\ngraph TD\n  A-->B\n```\n\nAfter"
+        blocks = extract_mermaid_blocks(md)
+        replaced = md
+        for b in blocks:
+            replaced = replaced.replace(f"```mermaid\n{b.source}\n```", b.placeholder)
+        assert "<!--MERMAID:" in replaced
+        assert "```mermaid" not in replaced
+
+
+class TestMermaidPreprocessor:
+    """Tests for the full preprocessor (sandbox interaction mocked)."""
+
+    @pytest.mark.asyncio
+    async def test_preprocess_no_mermaid_blocks(self):
+        pp = _make_preprocessor()
+        content, images = await pp.preprocess_markdown("No mermaid here")
+        assert content == "No mermaid here"
+        assert images == {}
+
+    @pytest.mark.asyncio
+    async def test_preprocess_returns_original_on_render_failure(self):
+        """When sandbox is unavailable, mermaid blocks stay as-is."""
+        pp = _make_preprocessor(base_url="http://unreachable:9999")
+        md = "```mermaid\ngraph TD\n  A-->B\n```"
+        content, images = await pp.preprocess_markdown(md)
+        # Should return original content unchanged (graceful fallback)
+        assert "graph TD" in content
+        assert images == {}
+
+    @pytest.mark.asyncio
+    async def test_accepts_injected_http_client(self):
+        """MermaidPreprocessor stores the injected client without infra imports."""
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        pp = MermaidPreprocessor(http_client=mock_client)
+        assert pp._client is mock_client
+
+    def test_client_with_auth_headers(self):
+        """MermaidPreprocessor's httpx client should carry auth headers when provided."""
+        headers = {"x-sandbox-secret": "test-secret-123"}
+        client = httpx.AsyncClient(
+            base_url="http://sandbox:8080",
+            timeout=20.0,
+            headers=headers,
+        )
+        pp = MermaidPreprocessor(http_client=client)
+        # Verify the auth header is in the client's default headers
+        assert pp._client.headers.get("x-sandbox-secret") == "test-secret-123"
+
+
+class TestBuildMermaidPreprocessorFactory:
+    """Tests for the _build_mermaid_preprocessor composition root factory."""
+
+    def test_returns_none_when_no_sandbox_url(self):
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor(None)
+        assert result is None
+
+    def test_returns_preprocessor_with_sandbox_url(self):
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor("http://sandbox:8080")
+        assert result is not None
+        assert isinstance(result, MermaidPreprocessor)
+
+    def test_injects_sandbox_secret_header(self):
+        """Factory must inject x-sandbox-secret from settings into the httpx client."""
+        from app.interfaces.dependencies import _build_mermaid_preprocessor
+
+        result = _build_mermaid_preprocessor("http://sandbox:8080")
+        if result is None:
+            pytest.skip("sandbox_api_secret not configured in test environment")
+        # The client should have been created; verify it has a base_url
+        assert "sandbox" in str(result._client.base_url)

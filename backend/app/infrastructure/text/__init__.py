@@ -1,0 +1,1 @@
+"""Text correction infrastructure adapters."""

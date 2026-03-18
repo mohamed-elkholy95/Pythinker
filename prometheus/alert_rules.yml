@@ -1,0 +1,362 @@
+# Prometheus Alerting Rules for Pythinker AI Agent
+# These rules define when to trigger alerts based on metrics
+
+groups:
+  - name: pythinker_errors
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(pythinker_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: "{{ $labels.component }}"
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate for {{ $labels.type }} in {{ $labels.component }} is {{ $value | humanize }} errors/sec (threshold: 0.1/sec)"
+
+      # Connection pool exhaustion alert
+      - alert: BrowserConnectionPoolExhausted
+        expr: increase(pythinker_errors_total{type="connection_pool_exhausted"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: browser
+        annotations:
+          summary: "Browser connection pool exhausted"
+          description: "Browser connection pool has been exhausted {{ $value }} times in the last 5 minutes. Consider increasing pool size."
+
+      # Unhandled exceptions alert
+      - alert: UnhandledExceptions
+        expr: increase(pythinker_errors_total{type="unhandled_exception"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Unhandled exceptions detected"
+          description: "{{ $value }} unhandled exceptions occurred in the last 5 minutes. Check logs immediately."
+
+      # Timeout errors alert
+      - alert: HighTimeoutRate
+        expr: rate(pythinker_errors_total{type="timeout"}[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High timeout rate"
+          description: "Timeout error rate is {{ $value | humanize }}/sec. System may be overloaded."
+
+  - name: pythinker_service_health
+    interval: 30s
+    rules:
+      # Backend service down
+      - alert: BackendDown
+        expr: up{job="pythinker-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Backend service is down"
+          description: "The Pythinker backend service has been down for more than 1 minute."
+
+      # No metrics being collected
+      - alert: NoMetricsCollected
+        expr: absent(pythinker_active_sessions)
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "No metrics being collected"
+          description: "Prometheus is not receiving metrics from the backend. Check metric endpoint."
+
+  - name: pythinker_performance
+    interval: 30s
+    rules:
+      # High LLM error rate
+      - alert: HighLLMErrorRate
+        expr: |
+          sum(rate(pythinker_llm_calls_total{status="error"}[5m]))
+          /
+          sum(rate(pythinker_llm_calls_total[5m]))
+          > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "High LLM error rate"
+          description: "LLM error rate is {{ $value | humanizePercentage }}. Check LLM API status and credentials."
+
+      # High tool error rate
+      - alert: HighToolErrorRate
+        expr: |
+          sum(rate(pythinker_tool_calls_total{status="error"}[5m]))
+          /
+          sum(rate(pythinker_tool_calls_total[5m]))
+          > 0.15
+        for: 3m
+        labels:
+          severity: warning
+          component: tools
+        annotations:
+          summary: "High tool execution error rate"
+          description: "Tool error rate is {{ $value | humanizePercentage }}. Check tool implementations."
+
+      # Slow LLM latency
+      - alert: SlowLLMLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(pythinker_llm_latency_seconds_bucket[5m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "Slow LLM response times"
+          description: "95th percentile LLM latency is {{ $value | humanizeDuration }}. Expected < 30s."
+
+  - name: pythinker_capacity
+    interval: 30s
+    rules:
+      # High concurrent sessions
+      - alert: HighConcurrentSessions
+        expr: pythinker_active_sessions > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "High number of concurrent sessions"
+          description: "{{ $value }} concurrent sessions are active. Consider scaling resources."
+
+      # LLM queue backing up
+      - alert: LLMQueueBackup
+        expr: pythinker_llm_queue_waiting > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "LLM request queue backing up"
+          description: "{{ $value }} requests waiting in LLM queue. System may be overloaded."
+
+  - name: pythinker_cache
+    interval: 60s
+    rules:
+      # Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(pythinker_cache_hits_total[10m]))
+          /
+          (sum(rate(pythinker_cache_hits_total[10m])) + sum(rate(pythinker_cache_misses_total[10m])))
+          < 0.3
+        for: 10m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}. Consider cache tuning or warming."
+
+  - name: pythinker_hardening
+    interval: 30s
+    rules:
+      # Sandbox creation failure burst (Task 9)
+      - alert: SandboxCreationFailureBurst
+        expr: rate(pythinker_sandbox_health_check_total{status="failed"}[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          component: sandbox
+        annotations:
+          summary: "Sandbox creation failure burst"
+          description: "Sandbox health check failure rate is {{ $value }}/sec. Check sandbox image and host resources."
+
+      # Security gate block ratio rising (Task 7/9)
+      - alert: SecurityBlockRatioRising
+        expr: rate(pythinker_security_gate_blocks_total[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Security gate block rate rising"
+          description: "Security gate blocking at {{ $value }}/sec. Review blocked operations."
+
+  - name: pythinker_replay
+    interval: 30s
+    rules:
+      # High screenshot capture error ratio
+      - alert: HighReplayCaptureErrorRate
+        expr: |
+          (
+            sum(rate(pythinker_screenshot_captures_total{status="error"}[10m]))
+            /
+            clamp_min(sum(rate(pythinker_screenshot_captures_total[10m])), 0.000001)
+          ) > 0.2
+          and
+          sum(rate(pythinker_screenshot_captures_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "High screenshot capture error rate"
+          description: "Replay screenshot capture errors exceed 20% over 10m (value={{ $value | humanizePercentage }})."
+
+      # High screenshot fetch error ratio
+      - alert: HighReplayFetchErrorRate
+        expr: |
+          (
+            sum(rate(pythinker_screenshot_fetch_total{status="error"}[10m]))
+            /
+            clamp_min(sum(rate(pythinker_screenshot_fetch_total[10m])), 0.000001)
+          ) > 0.1
+          and
+          sum(rate(pythinker_screenshot_fetch_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "High screenshot fetch error rate"
+          description: "Replay screenshot fetch errors exceed 10% over 10m (value={{ $value | humanizePercentage }})."
+
+      # Slow screenshot capture p95 latency
+      - alert: SlowReplayCaptureLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(pythinker_screenshot_capture_latency_seconds_bucket{status="success"}[10m]))
+          ) > 2
+          and
+          sum(rate(pythinker_screenshot_captures_total{status="success"}[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "Slow replay screenshot capture latency"
+          description: "Replay screenshot capture p95 latency is above 2 seconds over the last 10 minutes."
+
+  - name: pythinker_fast_ack
+    interval: 30s
+    rules:
+      # High fallback ratio for fast acknowledgment refinement
+      - alert: FastAckHighFallbackRate
+        expr: |
+          (
+            sum(rate(fast_ack_refiner_total{status="fallback"}[10m]))
+            /
+            clamp_min(sum(rate(fast_ack_refiner_total[10m])), 0.000001)
+          ) > 0.2
+          and
+          sum(rate(fast_ack_refiner_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment fallback rate is high"
+          description: "Fast ack fallback ratio is above 20% over the last 10m (value={{ $value | humanizePercentage }})."
+
+      # High p95 latency for fast acknowledgment path
+      - alert: FastAckHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(fast_ack_refiner_latency_seconds_bucket[10m]))
+          ) > 0.3
+          and
+          sum(rate(fast_ack_refiner_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment latency p95 is high"
+          description: "Fast ack p95 latency is above 300ms for at least 5m (value={{ $value | humanizeDuration }})."
+
+      # Timeout fallbacks indicate refinement path is not responding quickly enough
+      - alert: FastAckTimeoutSpike
+        expr: |
+          increase(fast_ack_refiner_total{status="fallback", reason="timeout"}[10m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment timeout spike detected"
+          description: "More than 10 timeout fallbacks occurred in the last 10 minutes."
+
+  - name: pythinker_redis
+    interval: 30s
+    rules:
+      - alert: RedisExporterDown
+        expr: up{job="redis-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis exporter is down"
+          description: "Prometheus cannot scrape redis_exporter for more than 2 minutes."
+
+      - alert: RedisCacheExporterDown
+        expr: up{job="redis-cache-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis_cache
+        annotations:
+          summary: "Redis cache exporter is down"
+          description: "Prometheus cannot scrape redis-cache-exporter for more than 2 minutes."
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_config_maxmemory > 0
+          and
+          (redis_memory_used_bytes / redis_config_maxmemory) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis memory usage above 80%"
+          description: "Redis is using more than 80% of configured maxmemory for over 5 minutes."
+
+      - alert: RedisEvictionSpike
+        expr: increase(redis_evicted_keys_total[10m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis evictions spiking"
+          description: "More than 100 keys were evicted in the last 10 minutes."
+
+      - alert: RedisOperationFailures
+        expr: increase(pythinker_redis_operation_failures_total[10m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis operation failures detected"
+          description: "Redis operations are failing after retries (more than 5 in 10 minutes)."
+
+      - alert: RateLimitFallbackActive
+        expr: increase(pythinker_rate_limit_fallback_total[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Rate-limit fallback mode active"
+          description: "API rate limiting switched to in-memory fallback due to Redis unavailability."

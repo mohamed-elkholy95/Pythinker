@@ -1,0 +1,197 @@
+name: Test and Lint
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - '*.md'
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
+      - '.github/disabled-workflows/**'
+      - '.github/workflows/copilot-setup-steps.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - '*.md'
+
+permissions:
+  contents: read
+
+# Cancel in-progress runs on the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Detect which paths changed to skip expensive steps (not jobs —
+  # jobs must always run so required status checks pass)
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
+  backend-lint:
+    name: Backend Lint (Ruff)
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Skip — no backend changes
+        if: needs.changes.outputs.backend != 'true'
+        working-directory: .
+        run: echo "No backend changes detected, skipping lint."
+
+      - name: Checkout code
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        if: needs.changes.outputs.backend == 'true'
+        run: pip install "ruff>=0.8.0"
+
+      - name: Run Ruff linter
+        if: needs.changes.outputs.backend == 'true'
+        run: ruff check .
+
+      - name: Run Ruff formatter check
+        if: needs.changes.outputs.backend == 'true'
+        run: ruff format --check .
+
+  backend-test:
+    name: Backend Tests (pytest)
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Skip — no backend changes
+        if: needs.changes.outputs.backend != 'true'
+        working-directory: .
+        run: echo "No backend changes detected, skipping tests."
+
+      - name: Checkout code
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/tests/requirements.txt
+
+      - name: Install dependencies
+        if: needs.changes.outputs.backend == 'true'
+        run: |
+          pip install --upgrade pip
+          pip install "setuptools<82"
+          pip install -r requirements.txt
+          pip install -r tests/requirements.txt
+
+      - name: Run unit and domain tests
+        if: needs.changes.outputs.backend == 'true'
+        env:
+          MONGODB_URI: mongodb://localhost:27017
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          API_KEY: test-api-key-for-ci
+          JWT_SECRET_KEY: test-secret-key-for-ci
+          PASSWORD_SALT: test-salt-for-ci
+          AUTH_PROVIDER: none
+          ENVIRONMENT: testing
+        run: pytest tests/ -v --tb=short -m "not integration" --ignore=tests/integration --ignore=tests/load
+
+  frontend:
+    name: Frontend (Lint + Types + Tests)
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Skip — no frontend changes
+        if: needs.changes.outputs.frontend != 'true'
+        working-directory: .
+        run: echo "No frontend changes detected, skipping."
+
+      - name: Checkout code
+        if: needs.changes.outputs.frontend == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        if: needs.changes.outputs.frontend == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        if: needs.changes.outputs.frontend == 'true'
+        run: bun install
+
+      - name: Run ESLint
+        if: needs.changes.outputs.frontend == 'true'
+        run: bun run lint:check
+
+      - name: Run TypeScript check
+        if: needs.changes.outputs.frontend == 'true'
+        run: bun run type-check
+
+      - name: Run tests
+        if: needs.changes.outputs.frontend == 'true'
+        run: bun run test:run

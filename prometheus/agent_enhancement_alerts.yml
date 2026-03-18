@@ -1,0 +1,125 @@
+groups:
+  - name: agent_enhancements
+    interval: 30s
+    rules:
+      # Alert 1: High Recovery Trigger Rate
+      - alert: HighRecoveryTriggerRate
+        expr: rate(agent_response_recovery_trigger_total[5m]) > 0.167
+        for: 5m
+        labels:
+          severity: warning
+          component: agent
+          category: recovery
+        annotations:
+          summary: "High response recovery trigger rate detected"
+          description: "Recovery triggers are occurring at {{ $value | humanize }} per second (> 10/min threshold). This indicates potential issues with LLM output quality or tool execution reliability. Recovery reason: {{ $labels.recovery_reason }}. Agent type: {{ $labels.agent_type }}."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-recovery-rate.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 2: Low Tool Cache Hit Rate
+      - alert: LowToolCacheHitRate
+        expr: agent_tool_cache_hit_rate{window="5m"} < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: agent
+          category: cache
+        annotations:
+          summary: "Tool definition cache hit rate is low"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (< 50% threshold). This may indicate excessive cache invalidations, short TTL, or inadequate cache warming. Consider increasing cache size or TTL."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/low-cache-hit-rate.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 3: Frequent Snapshot Budget Violations
+      - alert: FrequentSnapshotBudgetViolations
+        expr: rate(agent_failure_snapshot_budget_violations_total[5m]) > 0.033
+        for: 5m
+        labels:
+          severity: warning
+          component: agent
+          category: snapshot
+        annotations:
+          summary: "Frequent failure snapshot budget violations"
+          description: "Snapshot budget violations are occurring at {{ $value | humanize }} per second (> 2/min threshold). This indicates failure contexts are too large. Violation type: {{ $labels.violation_type }}. Consider reducing snapshot token budget or improving truncation logic."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/snapshot-budget-violations.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 4: Recovery Budget Exhaustion
+      - alert: RecoveryBudgetExhausted
+        expr: rate(agent_response_recovery_failure_total{recovery_reason="budget_exhausted"}[5m]) > 0.017
+        for: 5m
+        labels:
+          severity: critical
+          component: agent
+          category: recovery
+        annotations:
+          summary: "Recovery attempts are exhausting retry budgets"
+          description: "Recovery budget exhaustion is occurring at {{ $value | humanize }} per second (> 1/min threshold). This indicates repeated failures with no successful recovery. Agent type: {{ $labels.agent_type }}. Immediate investigation required."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/recovery-budget-exhausted.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 5: High Duplicate Suppression Override Rate
+      - alert: HighDuplicateSuppressionOverrideRate
+        expr: (rate(agent_duplicate_query_override_total[5m]) / (rate(agent_duplicate_query_blocked_total[5m]) + rate(agent_duplicate_query_override_total[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: info
+          component: agent
+          category: duplicate_suppression
+        annotations:
+          summary: "High duplicate suppression override rate"
+          description: "{{ $value | humanizePercentage }} of duplicate queries are being overridden (> 50% threshold). Override reason: {{ $labels.override_reason }}. This may indicate quality threshold is too high or LLM output quality issues."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-override-rate.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 6: High Tool Argument Rejection Rate
+      - alert: HighToolArgumentRejectionRate
+        expr: rate(agent_tool_args_rejected_total[5m]) > 0.033
+        for: 5m
+        labels:
+          severity: warning
+          component: agent
+          category: security
+        annotations:
+          summary: "High rate of tool argument rejections (potential security issue)"
+          description: "Tool arguments are being rejected at {{ $value | humanize }} per second (> 2/min threshold). Tool: {{ $labels.tool_name }}. Rejection reason: {{ $labels.rejection_reason }}. This may indicate malicious input or LLM confusion about tool schemas."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/high-rejection-rate.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 7: Cache Invalidation Storm
+      - alert: CacheInvalidationStorm
+        expr: rate(agent_tool_cache_invalidations_total[5m]) > 0.033
+        for: 2m
+        labels:
+          severity: warning
+          component: agent
+          category: cache
+        annotations:
+          summary: "Excessive cache invalidations detected"
+          description: "Cache invalidations are occurring at {{ $value | humanize }} per second (> 2/min threshold). Invalidation reason: {{ $labels.invalidation_reason }}. This may indicate MCP configuration is changing too frequently or invalidation logic issues."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/cache-invalidation-storm.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Alert 8: Recovery Duration Degradation
+      - alert: RecoveryDurationDegradation
+        expr: histogram_quantile(0.95, rate(agent_response_recovery_duration_seconds_bucket[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: agent
+          category: performance
+        annotations:
+          summary: "P95 recovery duration is degraded"
+          description: "95th percentile recovery duration is {{ $value | humanizeDuration }} (> 5s threshold). Recovery reason: {{ $labels.recovery_reason }}. This indicates recovery attempts are taking too long, impacting user experience."
+          runbook_url: "https://github.com/mohamedelkholy/pythinker/blob/main/docs/runbooks/slow-recovery.md"
+          dashboard_url: "http://localhost:3001/d/pythinker-agent-enhancements"
+
+      # Recording Rules for Easier Querying
+      - record: agent:recovery_success_rate:5m
+        expr: rate(agent_response_recovery_success_total[5m]) / (rate(agent_response_recovery_success_total[5m]) + rate(agent_response_recovery_failure_total[5m]))
+
+      - record: agent:duplicate_suppression_effectiveness:5m
+        expr: rate(agent_duplicate_query_blocked_total[5m]) / (rate(agent_duplicate_query_blocked_total[5m]) + rate(agent_duplicate_query_override_total[5m]))
+
+      - record: agent:tool_cache_hit_rate_calculated:5m
+        expr: rate(agent_tool_definition_cache_hits_total[5m]) / (rate(agent_tool_definition_cache_hits_total[5m]) + rate(agent_tool_definition_cache_misses_total[5m]))

@@ -1,0 +1,360 @@
+"""Wide research orchestrator for parallel multi-agent research."""
+
+import asyncio
+import inspect
+import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol
+
+from app.domain.models.research_task import ResearchStatus, ResearchTask
+
+if TYPE_CHECKING:
+    from app.domain.services.agents.critic_agent import CriticAgent
+
+logger = logging.getLogger(__name__)
+
+
+class SearchToolProtocol(Protocol):
+    """Protocol for search tool interface."""
+
+    async def execute(self, query: str) -> dict[str, Any]: ...
+
+
+class LLMProtocol(Protocol):
+    """Protocol for LLM interface."""
+
+    async def complete(self, prompt: str) -> str: ...
+
+
+class WideResearchOrchestrator:
+    """
+    Orchestrates wide research using parallel sub-agents.
+
+    Implements Pythinker AI's "Wide Research" pattern:
+    - Decomposes research into independent sub-tasks
+    - Executes sub-tasks in parallel with separate contexts
+    - Ensures consistent quality across all items (100th = 1st)
+    - Synthesizes results into unified output
+    """
+
+    MAX_RESULTS_PER_QUERY = 5
+    MAX_SOURCES_IN_SYNTHESIS = 3
+
+    def __init__(
+        self,
+        session_id: str,
+        search_tool: SearchToolProtocol,
+        llm: LLMProtocol | None,
+        max_concurrency: int = 10,
+        on_progress: Callable[[ResearchTask], Any] | None = None,
+        critic: "CriticAgent | None" = None,
+    ):
+        """
+        Initialize the wide research orchestrator.
+
+        Args:
+            session_id: The session identifier for this research
+            search_tool: Tool for executing search queries
+            llm: Language model for synthesis
+            max_concurrency: Maximum number of parallel tasks
+            on_progress: Optional callback for progress updates
+            critic: Optional CriticAgent for quality review of synthesis
+        """
+        self.session_id = session_id
+        self.search_tool = search_tool
+        self.llm = llm
+        self.max_concurrency = max_concurrency
+        self.on_progress = on_progress
+        self.critic = critic
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def decompose(
+        self,
+        queries: list[str],
+        parent_id: str,
+    ) -> list[ResearchTask]:
+        """
+        Decompose a list of queries into independent research tasks.
+
+        Each task gets its own context and can be processed without
+        interference from other tasks.
+
+        Args:
+            queries: List of research queries to decompose
+            parent_id: ID of the parent research request
+
+        Returns:
+            List of ResearchTask objects ready for parallel execution
+        """
+        return [
+            ResearchTask(
+                query=query,
+                parent_task_id=parent_id,
+                index=i,
+                total=len(queries),
+            )
+            for i, query in enumerate(queries)
+        ]
+
+    async def _execute_single(self, task: ResearchTask) -> ResearchTask:
+        """
+        Execute a single research task with isolated context.
+
+        Uses semaphore to limit concurrency and prevent resource exhaustion.
+
+        Args:
+            task: The research task to execute
+
+        Returns:
+            The task with updated status and results
+        """
+        async with self._semaphore:
+            logger.debug(
+                "Starting research task %d/%d: %s",
+                task.index + 1,
+                task.total,
+                task.query,
+            )
+            task.start()
+            if self.on_progress:
+                result = self.on_progress(task)
+                if inspect.iscoroutine(result):
+                    await result
+
+            try:
+                # Search for information
+                search_result = await self.search_tool.execute(query=task.query)
+
+                # Extract sources and content
+                sources = []
+                content_parts = []
+                if isinstance(search_result, dict) and "results" in search_result:
+                    for r in search_result["results"][: self.MAX_RESULTS_PER_QUERY]:
+                        if "url" in r:
+                            sources.append(r["url"])
+                        if "content" in r:
+                            content_parts.append(r["content"])
+                        elif "snippet" in r:
+                            content_parts.append(r["snippet"])
+
+                # Build result from content parts
+                result = "\n\n".join(content_parts) if content_parts else "No results found"
+                task.complete(result, sources)
+                logger.debug(
+                    "Completed research task %d/%d with %d sources",
+                    task.index + 1,
+                    task.total,
+                    len(sources),
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Research task %d/%d failed: %s",
+                    task.index + 1,
+                    task.total,
+                    str(e),
+                )
+                task.fail(str(e))
+
+            if self.on_progress:
+                result = self.on_progress(task)
+                if inspect.iscoroutine(result):
+                    await result
+
+            return task
+
+    async def execute_parallel(
+        self,
+        tasks: list[ResearchTask],
+    ) -> list[ResearchTask]:
+        """
+        Execute all research tasks in parallel.
+
+        Uses semaphore to limit concurrency and prevent resource exhaustion.
+        Each task runs in its own context, ensuring the 100th item gets
+        the same quality attention as the 1st.
+
+        Args:
+            tasks: List of research tasks to execute
+
+        Returns:
+            List of tasks with updated statuses and results
+        """
+        results = await asyncio.gather(
+            *[self._execute_single(task) for task in tasks],
+            return_exceptions=True,
+        )
+
+        # Handle any exceptions that weren't caught
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                tasks[i].fail(str(result))
+
+        return tasks
+
+    async def execute_with_dependencies(
+        self,
+        tasks: list[ResearchTask],
+        parallel_groups: list[list[int]],
+    ) -> list[ResearchTask]:
+        """Execute tasks respecting dependency ordering with context inheritance.
+
+        Processes task groups level-by-level.  After each level completes,
+        completed results are appended as context to queries in the next
+        level — implementing the MindSearch ``user_context_template`` pattern
+        where child queries benefit from parent answers.
+
+        Args:
+            tasks: All research tasks (indices must match ``parallel_groups``).
+            parallel_groups: Groups of task indices; each group can run in
+                parallel, but groups are processed sequentially.
+
+        Returns:
+            List of tasks with updated statuses and results.
+        """
+        task_by_index = {t.index: t for t in tasks}
+        completed_context: dict[int, str] = {}  # index -> result snippet
+
+        for group_idx, group in enumerate(parallel_groups):
+            # Enrich queries with context from previously completed tasks
+            group_tasks: list[ResearchTask] = []
+            for task_index in group:
+                task = task_by_index.get(task_index)
+                if not task:
+                    continue
+
+                # Inject context from completed dependencies
+                if completed_context:
+                    context_parts = [f"[Prior finding]: {snippet}" for snippet in completed_context.values()]
+                    context_str = "\n".join(context_parts)
+                    # Enrich query with parent context (max 500 chars per snippet)
+                    task.query = f"{task.query}\n\nContext from prior research:\n{context_str}"
+
+                group_tasks.append(task)
+
+            if not group_tasks:
+                continue
+
+            logger.debug(
+                "Executing dependency group %d/%d (%d tasks)",
+                group_idx + 1,
+                len(parallel_groups),
+                len(group_tasks),
+            )
+
+            # Execute this group in parallel
+            results = await asyncio.gather(
+                *[self._execute_single(t) for t in group_tasks],
+                return_exceptions=True,
+            )
+
+            # Capture results for context inheritance
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    group_tasks[i].fail(str(result))
+                elif result.status == ResearchStatus.COMPLETED and result.result:
+                    # Truncate context to prevent prompt bloat
+                    completed_context[result.index] = result.result[:500]
+
+        return tasks
+
+    async def synthesize(
+        self,
+        tasks: list[ResearchTask],
+        synthesis_prompt: str | None = None,
+    ) -> str:
+        """
+        Synthesize all research results into a unified report.
+
+        This is the aggregation phase where a main agent combines
+        the independent findings into a coherent output.
+
+        Args:
+            tasks: List of completed research tasks
+            synthesis_prompt: Optional prompt for LLM synthesis
+
+        Returns:
+            Synthesized research report
+        """
+        completed = [t for t in tasks if t.status == ResearchStatus.COMPLETED]
+
+        if not completed:
+            return "No research results to synthesize."
+
+        # Build synthesis input
+        logger.debug("Synthesizing %d completed research tasks", len(completed))
+        findings = []
+        for task in completed:
+            finding = f"### {task.query}\n{task.result}"
+            if task.sources:
+                finding += f"\n\nSources: {', '.join(task.sources[: self.MAX_SOURCES_IN_SYNTHESIS])}"
+            findings.append(finding)
+
+        synthesis_input = "\n\n---\n\n".join(findings)
+
+        # Use LLM to synthesize if available
+        if synthesis_prompt and self.llm:
+            prompt = f"{synthesis_prompt}\n\n## Research Findings\n\n{synthesis_input}"
+            return await self.llm.complete(prompt)
+
+        return synthesis_input
+
+    async def synthesize_with_review(
+        self,
+        tasks: list[ResearchTask],
+        synthesis_prompt: str | None = None,
+        max_revisions: int = 2,
+    ) -> str:
+        """
+        Synthesize results with critic review loop.
+
+        Implements self-correction pattern:
+        1. Synthesize initial result
+        2. Critic reviews
+        3. If not approved, revise and re-review (up to max_revisions)
+
+        Args:
+            tasks: List of completed research tasks
+            synthesis_prompt: Optional prompt for LLM synthesis
+            max_revisions: Maximum number of revision attempts
+
+        Returns:
+            Synthesized research report (possibly revised)
+        """
+        result = await self.synthesize(tasks, synthesis_prompt)
+
+        if not self.critic:
+            return result
+
+        for _ in range(max_revisions):
+            review = await self.critic.review(
+                output=result,
+                task=synthesis_prompt or "Synthesize research findings",
+                criteria=["accuracy", "completeness", "coherence"],
+            )
+
+            if review.approved:
+                return result
+
+            # Revise based on feedback
+            if self.llm and review.issues:
+                revision_prompt = f"""
+The following synthesis was reviewed and needs improvement.
+
+## Original Synthesis
+{result}
+
+## Issues Found
+{chr(10).join(f"- {issue}" for issue in review.issues)}
+
+## Suggestions
+{chr(10).join(f"- {s}" for s in review.suggestions)}
+
+Please provide an improved synthesis addressing these issues.
+"""
+                result = await self.llm.complete(revision_prompt)
+            else:
+                # No LLM available for revision, return current result
+                break
+
+        return result

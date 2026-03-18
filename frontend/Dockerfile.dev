@@ -1,0 +1,30 @@
+# Development Dockerfile using Node.js for better Vite compatibility
+# Note: Bun has issues with Vite's WebSocket proxy (socket.destroySoon not implemented)
+FROM node:22-slim
+
+# Install dependencies with npm for reliable registry resolution
+RUN npm install -g npm@11.8.0
+
+# Set working directory
+WORKDIR /app
+
+# Copy lockfile for deterministic dependency installs
+COPY package.json package-lock.json ./
+
+# Install exact dependency tree from lockfile
+RUN npm ci
+
+# Development bootstrap script: re-sync deps when lockfile changes
+COPY dev-start.sh /usr/local/bin/dev-start.sh
+RUN chmod +x /usr/local/bin/dev-start.sh
+
+# Copy source code into image (compose watch syncs changes at runtime)
+COPY src/ ./src/
+COPY public/ ./public/
+COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json env.d.ts ./
+
+# Expose Vite dev server port
+EXPOSE 5174
+
+# Start development server with lockfile-aware dependency sync
+CMD ["/usr/local/bin/dev-start.sh"]

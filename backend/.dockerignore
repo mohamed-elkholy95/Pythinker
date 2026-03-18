@@ -1,0 +1,57 @@
+# Virtual environments (9+ GB if copied)
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Linting caches
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Documentation (not needed at runtime)
+docs/
+*.md
+!run.sh
+
+# Dev files
+*.old
+Dockerfile.old
+requirements-dev.txt
+pyproject.toml
+# dev.sh intentionally NOT excluded — needed by docker-compose.yml
+
+# Standalone scripts (not needed at runtime)
+check_*.py
+test_*.py
+reseed_skills.py
+
+# Data & results
+results/
+data/
+*.sqlite3
+
+# Environment files (secrets — never bake into images)
+.env
+.env.*
+!.env.example

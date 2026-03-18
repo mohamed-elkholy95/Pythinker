@@ -1,0 +1,4 @@
+# Full sandbox dependency set.
+# For minimal runtime dependencies only, install requirements.runtime.txt.
+-r requirements.runtime.txt
+-r requirements.addons.txt

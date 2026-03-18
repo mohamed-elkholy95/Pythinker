@@ -1,0 +1,111 @@
+name: Bug Report
+description: Report a bug to help us improve Pythinker
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      value: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Send message '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots / Logs
+      description: |
+        If applicable, add screenshots or paste relevant logs.
+        Tip: Run `docker logs pythinker-main-backend-1 --tail 50` for backend logs.
+      render: shell
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Ubuntu 24.04
+        - Ubuntu 22.04
+        - macOS 15 (Sequoia)
+        - macOS 14 (Sonoma)
+        - Windows 11
+        - Other (specify in Additional Context)
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker Version
+      placeholder: "e.g., 28.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Firefox
+        - Safari
+        - Edge
+        - Other
+    validations:
+      required: false
+
+  - type: input
+    id: llm-provider
+    attributes:
+      label: LLM Provider
+      placeholder: "e.g., OpenAI GPT-4o, DeepSeek, Kimi, GLM"
+
+  - type: input
+    id: version
+    attributes:
+      label: Pythinker Version
+      placeholder: "e.g., latest, v1.0.1, commit hash"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem.

@@ -1,0 +1,212 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# ─────────────────────────────────────────────────────────────
+# CodeRabbit Configuration — Pythinker
+# AI Agent system: FastAPI (DDD) + Vue 3 + Docker sandboxes
+# ─────────────────────────────────────────────────────────────
+
+language: en-US
+tone_instructions: >
+  Be direct and technical. Focus on correctness, security, and performance.
+  Avoid filler praise. Flag anti-patterns from the project's CLAUDE.md
+  (god classes, leaky abstractions, circular deps, magic strings, deep nesting).
+
+early_access: true
+
+enable_free_tier: true
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  auto_title_placeholder: "@coderabbitai"
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  sequence_diagrams: true
+
+  path_instructions:
+    # ── Backend: Domain-Driven Design ──
+    - path: "backend/app/domain/**"
+      instructions: >
+        This is the DDD domain layer. Enforce:
+        - No imports from infrastructure, interfaces, or application layers
+        - Dependencies point inward only (Domain → Application → Infrastructure → Interfaces)
+        - Business logic belongs here, not in API routes
+        - Full Python type hints required; no untyped functions
+        - Use snake_case for functions, PascalCase for classes
+        - Pydantic v2: @field_validator must be @classmethod; prefer @computed_field
+
+    - path: "backend/app/application/**"
+      instructions: >
+        Application/use-case layer. Enforce:
+        - Orchestration only — no business logic (belongs in domain)
+        - No direct infrastructure imports (depend on domain abstractions)
+        - DTOs for data transfer, not domain models
+
+    - path: "backend/app/infrastructure/**"
+      instructions: >
+        Infrastructure layer. Enforce:
+        - Must implement domain protocols/abstractions
+        - Never use httpx.AsyncClient directly — always use HTTPClientPool
+        - Never create direct API clients — always use APIKeyPool
+        - Pydantic v2 patterns: @field_validator as @classmethod
+        - All external service calls wrapped in try/except (non-blocking error handling)
+
+    - path: "backend/app/interfaces/api/**"
+      instructions: >
+        API interface layer (FastAPI routes). Enforce:
+        - No business logic — delegate to application/domain services
+        - Use dependency injection (FastAPI Depends)
+        - Proper request/response schemas (Pydantic models)
+        - OWASP security: no command injection, SQL injection, XSS
+
+    - path: "backend/app/core/**"
+      instructions: >
+        Core configuration. Enforce:
+        - Pydantic Settings with @computed_field for derived properties
+        - 12-factor app pattern (environment variables)
+        - No business logic
+
+    # ── Frontend: Vue 3 + TypeScript ──
+    - path: "frontend/src/components/**"
+      instructions: >
+        Vue 3 components. Enforce:
+        - Composition API with <script setup lang="ts"> only
+        - No Options API
+        - PascalCase component names
+        - TypeScript strict mode — no 'any' types
+        - 2-space indentation
+        - Reuse existing composables (40+ available: useSSE, useAuth, useSandbox, etc.)
+
+    - path: "frontend/src/composables/**"
+      instructions: >
+        Vue composables. Enforce:
+        - Follow useX naming convention
+        - Return typed objects, not tuples
+        - Handle cleanup (onUnmounted)
+        - Check for existing composables before creating new ones
+
+    - path: "frontend/src/stores/**"
+      instructions: >
+        Pinia stores. Enforce:
+        - Setup store syntax (composition API style)
+        - Typed state, getters, and actions
+        - No direct API calls — use composables or services
+
+    # ── Docker & Infrastructure ──
+    - path: "docker-compose*.yml"
+      instructions: >
+        Docker Compose files. Check:
+        - Multi-stage builds for production
+        - Non-root users in containers
+        - No secrets baked into images
+        - Proper health checks
+        - Compose Watch config for development
+
+    - path: "**/Dockerfile*"
+      instructions: >
+        Dockerfiles. Enforce:
+        - Multi-stage builds (builder + runtime)
+        - Non-root USER directive
+        - Minimal final image (no build tools in runtime)
+        - Layer caching optimization (COPY requirements before source)
+        - No secrets in build args or ENV
+
+    # ── Tests ──
+    - path: "backend/tests/**"
+      instructions: >
+        Python tests. Enforce:
+        - pytest style (no unittest classes unless necessary)
+        - asyncio_mode = "auto" (no manual @pytest.mark.asyncio needed)
+        - Proper markers: @pytest.mark.integration, @pytest.mark.unit, etc.
+        - Use fixtures for setup/teardown
+        - No hardcoded credentials or API keys
+
+    - path: "frontend/src/**/*.test.*"
+      instructions: >
+        Frontend tests. Enforce:
+        - Vitest + Vue Test Utils
+        - Component testing with proper mounting
+        - TypeScript strict — no 'any' in tests
+
+    # ── Sandbox ──
+    - path: "sandbox/**"
+      instructions: >
+        Sandbox environment (Docker container runtime). Check:
+        - Security: no privilege escalation
+        - Resource limits enforced
+        - Proper cleanup of temporary files
+
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/node_modules/**"
+    - "!**/*.pyc"
+    - "!**/uv.lock"
+    - "!**/bun.lockb"
+    - "!**/.env"
+    - "!**/.env.*"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!**/*.min.js"
+    - "!**/*.min.css"
+    - "!**/nanobot/**"
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+      - "wip"
+    drafts: false
+    base_branches:
+      - main
+
+  tools:
+    # ── Python Static Analysis ──
+    ruff:
+      enabled: true
+    ast-grep:
+      enabled: true
+      essential_rules: true
+      packages:
+        - python-security-patterns
+
+    # ── Frontend Static Analysis ──
+    eslint:
+      enabled: true
+    biome:
+      enabled: false
+
+    # ── General ──
+    shellcheck:
+      enabled: true
+    markdownlint:
+      enabled: true
+      config:
+        MD013: false  # Line length — not enforced
+    github-checks:
+      enabled: true
+      timeout_ms: 120000
+    languagetool:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  jira:
+    project_keys: []
+  linear:
+    team_keys: []
+  pull_requests:
+    scope: auto

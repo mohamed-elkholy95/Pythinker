@@ -1,0 +1,82 @@
+# Dependabot configuration
+# See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Python backend dependencies
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    reviewers:
+      - "mohamed-elkholy95"
+    open-pull-requests-limit: 10
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Frontend (npm/bun) dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "javascript"
+    reviewers:
+      - "mohamed-elkholy95"
+    open-pull-requests-limit: 10
+    groups:
+      js-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "type: infrastructure"
+    reviewers:
+      - "mohamed-elkholy95"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "type: infrastructure"
+    reviewers:
+      - "mohamed-elkholy95"
+
+  - package-ecosystem: "docker"
+    directory: "/sandbox"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "type: infrastructure"
+    reviewers:
+      - "mohamed-elkholy95"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci/cd"
+    reviewers:
+      - "mohamed-elkholy95"
