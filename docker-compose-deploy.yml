@@ -30,7 +30,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/ >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
