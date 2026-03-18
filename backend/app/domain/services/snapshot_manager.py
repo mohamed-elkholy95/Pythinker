@@ -73,7 +73,7 @@ class SnapshotManager:
     Features:
     - Async snapshot capture (non-blocking teardown)
     - Delta compression (only changed files)
-    - Automatic cleanup (TTL-based)
+    - Storage purge (best-effort sweep)
     - S3-compatible storage (MinIO)
     """
 
@@ -257,9 +257,8 @@ class SnapshotManager:
         """Remove all snapshot objects under the given storage prefix.
 
         This is a destructive best-effort sweep that deletes every object
-        matching the prefix. For TTL-based cleanup of snapshot *documents*,
-        see ``MaintenanceService.cleanup_old_snapshots()`` in the application
-        layer.
+        matching the prefix. TTL-based cleanup of snapshot documents is
+        handled by application-level maintenance routines.
 
         Args:
             prefix: Object key prefix to sweep (default ``snapshots/``).
