@@ -3321,19 +3321,20 @@ class PlanActFlow(BaseFlow):
                             if hasattr(step_executor, "_token_manager"):
                                 step_executor._token_manager.mark_step_completed()
 
-                            # Check if stuck recovery was exhausted — force-fail the step
+                            # Check if stuck recovery was exhausted — step already marked
+                            # TERMINATED by execute_step; only force-fail if not already set.
                             if (
                                 hasattr(step_executor, "is_stuck_recovery_exhausted")
                                 and step_executor.is_stuck_recovery_exhausted()
-                                and step.status != ExecutionStatus.FAILED
+                                and step.status not in (ExecutionStatus.FAILED, ExecutionStatus.TERMINATED)
                             ):
                                 logger.warning(f"Step {step.id} stuck recovery exhausted — force-failing and advancing")
                                 step.success = False
                                 step.error = step.error or "Stuck — exceeded retry limit. Moving to next step."
-                                step.status = ExecutionStatus.FAILED
+                                step.status = ExecutionStatus.TERMINATED
                                 step.notes = (
                                     step.notes or ""
-                                ) + "\n[Auto-failed: agent stuck in loop, recovery exhausted]"
+                                ) + "\n[Auto-terminated: agent stuck in loop, recovery exhausted]"
                                 # Reset stuck detector for fresh detection on next step
                                 step_executor.reset_reliability_state()
                                 break

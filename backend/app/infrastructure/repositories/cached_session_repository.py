@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 
 # Cache key patterns
 _SESSION_KEY = "session:{session_id}"
-_SESSION_TTL = 900  # 15 minutes (research sessions can last 30-60 min)
+def _get_session_ttl() -> int:
+    """Get session cache TTL from settings."""
+    from app.core.config import get_settings
+    return get_settings().session_cache_ttl_seconds
 
 
 class CachedSessionRepository(SessionRepository):
@@ -57,7 +60,7 @@ class CachedSessionRepository(SessionRepository):
 
         # Populate cache
         with contextlib.suppress(Exception):
-            await self._cache.set(key, session.model_dump(mode="json"), ttl=_SESSION_TTL)
+            await self._cache.set(key, session.model_dump(mode="json"), ttl=_get_session_ttl())
 
         return session
 

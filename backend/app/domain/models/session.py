@@ -64,6 +64,17 @@ class SandboxLifecycleMode(str, Enum):
     EPHEMERAL = "ephemeral"
 
 
+class TakeoverReason(str, Enum):
+    """Reason for browser takeover request."""
+
+    MANUAL = "manual"
+    CAPTCHA = "captcha"
+    LOGIN = "login"
+    TWO_FA = "2fa"
+    PAYMENT = "payment"
+    VERIFICATION = "verification"
+
+
 class Session(BaseModel):
     """Session model"""
 
@@ -120,7 +131,7 @@ class Session(BaseModel):
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
     takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
-    takeover_reason: str | None = None  # Reason for current takeover (manual|captcha|login|2fa|payment|verification)
+    takeover_reason: TakeoverReason | None = None
 
     # Telegram option commands (channel-level state, not runtime behavior)
     reasoning_visibility: str | None = None  # off | on | stream — controls Telegram reasoning lane
