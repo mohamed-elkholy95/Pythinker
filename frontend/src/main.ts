@@ -37,6 +37,15 @@ router.beforeEach(async (to, _, next) => {
   const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth)
   const hasToken = !!getStoredToken()
 
+  // When auth is disabled, skip landing and login pages → go straight to chat
+  if (to.name === 'landing' || to.path === '/login') {
+    const authProvider = await getCachedAuthProvider()
+    if (authProvider === 'none') {
+      next('/chat')
+      return
+    }
+  }
+
   // Authenticated users skip the public landing page → go straight to app
   if (to.name === 'landing' && hasToken) {
     next('/chat')
