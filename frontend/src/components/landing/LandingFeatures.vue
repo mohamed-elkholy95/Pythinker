@@ -41,7 +41,7 @@ const features = [
 </script>
 
 <style scoped>
-.features-section { position: relative; padding: 120px 24px; }
+.features-section { position: relative; padding: 72px 24px; }
 .features-inner { max-width: 1100px; margin: 0 auto; }
 .section-heading {
   font-family: var(--font-display); font-size: 42px; font-weight: 400;
