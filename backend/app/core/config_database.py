@@ -63,6 +63,8 @@ class RedisSettingsMixin:
     redis_cache_ttl_jitter_percent: float = 0.1  # ±10% jitter on TTL
     # Stale-while-revalidate pattern (Phase 2B)
     redis_cache_swr_enabled: bool = False
+    # Session cache TTL for CachedSessionRepository (seconds)
+    session_cache_ttl_seconds: int = 900  # 15 minutes
 
 
 class StorageSettingsMixin:

@@ -117,12 +117,28 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def generate_supervisor_password(self) -> "Settings":
-        """Generate random supervisor password if not explicitly configured."""
+        """Generate random supervisor password if not explicitly configured.
+
+        IMPORTANT: When SUPERVISOR_RPC_PASSWORD is set via environment (even to
+        a default value), we MUST use that exact value because supervisord reads
+        the same env var via %(ENV_SUPERVISOR_RPC_PASSWORD)s interpolation.
+        Replacing it here would create a mismatch → 401 Unauthorized on RPC.
+        Only generate a random password when truly empty (no env var set at all).
+        """
         import logging
-        if not self.SUPERVISOR_RPC_PASSWORD or self.SUPERVISOR_RPC_PASSWORD == "supervisor-dev-password":
+        import os
+
+        env_value = os.environ.get("SUPERVISOR_RPC_PASSWORD", "")
+        if env_value:
+            # Env var is set — use it as-is to stay in sync with supervisord
+            self.SUPERVISOR_RPC_PASSWORD = env_value
+        elif not self.SUPERVISOR_RPC_PASSWORD:
+            # No env var and no default — generate a random password and
+            # export it so supervisord %(ENV_*) interpolation also picks it up
             self.SUPERVISOR_RPC_PASSWORD = _secrets.token_urlsafe(24)
+            os.environ["SUPERVISOR_RPC_PASSWORD"] = self.SUPERVISOR_RPC_PASSWORD
             logging.getLogger(__name__).warning(
-                "SUPERVISOR_RPC_PASSWORD not set or using default — generated random password. "
+                "SUPERVISOR_RPC_PASSWORD not set — generated random password. "
                 "Set SUPERVISOR_RPC_PASSWORD environment variable to use a fixed password."
             )
         return self

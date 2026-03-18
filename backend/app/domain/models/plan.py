@@ -36,6 +36,7 @@ class ExecutionStatus(str, Enum):
     FAILED = "failed"
     BLOCKED = "blocked"  # Step failed and blocks dependent steps
     SKIPPED = "skipped"  # Step skipped due to condition or optimization
+    TERMINATED = "terminated"  # Step force-terminated by stuck-recovery (distinct from normal completion)
 
     @classmethod
     def get_status_marks(cls) -> dict[str, str]:
@@ -47,6 +48,7 @@ class ExecutionStatus(str, Enum):
             cls.FAILED.value: "[✗]",
             cls.BLOCKED.value: "[!]",
             cls.SKIPPED.value: "[-]",
+            cls.TERMINATED.value: "[⊘]",
         }
 
     @classmethod
@@ -57,7 +59,7 @@ class ExecutionStatus(str, Enum):
     @classmethod
     def get_terminal_statuses(cls) -> list[str]:
         """Get statuses that indicate step is done (no further action needed)."""
-        return [cls.COMPLETED.value, cls.FAILED.value, cls.BLOCKED.value, cls.SKIPPED.value]
+        return [cls.COMPLETED.value, cls.FAILED.value, cls.BLOCKED.value, cls.SKIPPED.value, cls.TERMINATED.value]
 
     @classmethod
     def get_success_statuses(cls) -> list[str]:
