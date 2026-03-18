@@ -5,10 +5,12 @@ which sets the cooperative CancellationToken event, causing PlanActFlow._check_c
 to raise CancelledError between steps.
 """
 
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.models.user import UserRole
 from app.domain.services.flows.cancellation import CancellationSignal
 
 
@@ -39,13 +41,16 @@ async def test_cancel_endpoint_calls_request_cancellation() -> None:
 
     mock_user = MagicMock()
     mock_user.id = "test-user"
+    mock_user.role = UserRole.USER
 
     mock_agent_service = MagicMock()
+    mock_session_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(user_id="test-user")))
 
     result = await cancel_session(
         session_id="test-session-123",
         current_user=mock_user,
         agent_service=mock_agent_service,
+        session_repo=mock_session_repo,
     )
 
     mock_agent_service.request_cancellation.assert_called_once_with("test-session-123")
@@ -60,10 +65,12 @@ async def test_cancel_endpoint_is_idempotent() -> None:
 
     mock_user = MagicMock()
     mock_user.id = "test-user"
+    mock_user.role = UserRole.USER
     mock_agent_service = MagicMock()
+    mock_session_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(user_id="test-user")))
 
-    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service)
-    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service)
+    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service, session_repo=mock_session_repo)
+    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service, session_repo=mock_session_repo)
 
     assert mock_agent_service.request_cancellation.call_count == 2
 
@@ -75,9 +82,16 @@ async def test_cancel_endpoint_returns_202_shape() -> None:
 
     mock_user = MagicMock()
     mock_user.id = "test-user"
+    mock_user.role = UserRole.USER
     mock_agent_service = MagicMock()
+    mock_session_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(user_id="test-user")))
 
-    result = await cancel_session("abc-123", current_user=mock_user, agent_service=mock_agent_service)
+    result = await cancel_session(
+        "abc-123",
+        current_user=mock_user,
+        agent_service=mock_agent_service,
+        session_repo=mock_session_repo,
+    )
 
     assert isinstance(result, dict)
     assert "status" in result

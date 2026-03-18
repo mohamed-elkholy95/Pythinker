@@ -63,6 +63,7 @@ def get_write_coalescer() -> WriteCoalescer:
     global _write_coalescer
     if _write_coalescer is None:
         from app.core.config import get_settings
+
         _write_coalescer = WriteCoalescer(delay_ms=get_settings().write_coalescer_delay_ms)
     return _write_coalescer
 

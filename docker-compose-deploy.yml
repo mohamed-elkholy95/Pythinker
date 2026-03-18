@@ -324,7 +324,6 @@ services:
   # ---------------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:v1.16.3
-    container_name: pythinker-qdrant
     mem_limit: 1g
     ports:
       - "127.0.0.1:6333:6333"
@@ -346,21 +345,15 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
-    external: true
   redis_runtime_data:
     name: pythinker-redis-runtime-data
-    external: true
   qdrant_data:
     name: pythinker-qdrant-data
-    external: true
   minio_data:
     name: pythinker-minio-data
-    external: true
   dspy_cache:
     name: pythinker-dspy-cache
-    external: true
 
 networks:
   pythinker-network:
     name: pythinker-network
-    external: true

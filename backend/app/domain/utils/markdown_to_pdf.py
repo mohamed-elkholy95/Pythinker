@@ -54,6 +54,15 @@ _FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
         Path("/Library/Fonts/DejaVu Sans.ttf"),
         Path("C:/Windows/Fonts/DejaVuSans.ttf"),
     ),
+    "ArialUnicode": (
+        Path("/Library/Fonts/Arial Unicode.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+    ),
+    "Arial": (
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+        Path("/Library/Fonts/Arial.ttf"),
+        Path("C:/Windows/Fonts/arial.ttf"),
+    ),
     "LiberationSans": (
         Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
         Path("/Library/Fonts/LiberationSans-Regular.ttf"),
@@ -68,9 +77,12 @@ _FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
         Path("/usr/local/share/fonts/unifont.otf"),
     ),
 }
-_FONT_FALLBACK_ORDER: tuple[str, ...] = ("DejaVuSans", "LiberationSans", "FreeSans", "Unifont")
+_FONT_FALLBACK_ORDER: tuple[str, ...] = ("DejaVuSans", "ArialUnicode", "Arial", "LiberationSans", "FreeSans", "Unifont")
 _FONT_KEY_ALIASES: dict[str, str] = {
     "dejavusans": "DejaVuSans",
+    "arialunicode": "ArialUnicode",
+    "arialunicodems": "ArialUnicode",
+    "arial": "Arial",
     "liberationsans": "LiberationSans",
     "freesans": "FreeSans",
     "unifont": "Unifont",

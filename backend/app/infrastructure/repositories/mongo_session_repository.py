@@ -256,6 +256,8 @@ class MongoSessionRepository(SessionRepository):
         # Search for file with matching path
         for file_data in doc.get("files") or []:
             if file_data.get("file_path") == file_path:
+                if "filename" not in file_data and file_data.get("file_name"):
+                    file_data = {**file_data, "filename": file_data["file_name"]}
                 return FileInfo.model_validate(file_data)
         return None
 
@@ -267,10 +269,14 @@ class MongoSessionRepository(SessionRepository):
     async def get_all(self, limit: int = 100) -> list[Session]:
         """Get all sessions (lightweight — excludes events/files)."""
         collection = SessionDocument.get_pymongo_collection()
-        cursor = collection.find(
-            {},
-            projection={"events": 0, "files": 0},
-        ).sort("latest_message_at", -1).limit(limit)
+        cursor = (
+            collection.find(
+                {},
+                projection={"events": 0, "files": 0},
+            )
+            .sort("latest_message_at", -1)
+            .limit(limit)
+        )
 
         sessions: list[Session] = []
         async for doc in cursor:

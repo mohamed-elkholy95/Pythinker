@@ -101,7 +101,7 @@ def mock_service() -> AsyncMock:
 def client(mock_service: AsyncMock) -> TestClient:
     """Minimal FastAPI TestClient with only the prompt-optimization router."""
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(router, prefix="/api/v1")
 
     app.dependency_overrides[require_admin_user] = lambda: _make_admin_user()
     app.dependency_overrides[get_prompt_optimization_service] = lambda: mock_service

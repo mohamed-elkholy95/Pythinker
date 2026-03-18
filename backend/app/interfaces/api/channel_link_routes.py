@@ -68,7 +68,9 @@ async def _fetch_telegram_bot_username_from_token(token: str) -> str | None:
     """Resolve bot username via Telegram ``getMe`` using ``TELEGRAM_BOT_TOKEN``."""
     api_url = f"https://api.telegram.org/bot{token}/getMe"
     try:
-        client = await HTTPClientPool.get_client(name="telegram-api", timeout=httpx.Timeout(_TELEGRAM_BOT_API_TIMEOUT_SECONDS))
+        client = await HTTPClientPool.get_client(
+            name="telegram-api", timeout=httpx.Timeout(_TELEGRAM_BOT_API_TIMEOUT_SECONDS)
+        )
         response = await client.get(api_url)
         response.raise_for_status()
         payload = response.json()

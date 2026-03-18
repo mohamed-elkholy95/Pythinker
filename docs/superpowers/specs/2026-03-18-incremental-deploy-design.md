@@ -64,7 +64,7 @@ A production-ready compose file that references pre-built images instead of buil
 
 **Port 5174 note:** The frontend is mapped to host port 5174 to match the current VPS setup. Dokploy/Traefik routes external traffic to this port. The container internally runs Nginx on port 80.
 
-### 2. Modified CI Workflow (`.github/workflows/docker-build-and-push.yml`)
+### 2. Modified CI Workflow (`.github/workflows/deploy.yml`)
 
 **Changes from current:**
 - **Trigger:** Add `push: branches: [main]` alongside existing `push: tags: [v*]`
@@ -82,6 +82,9 @@ A production-ready compose file that references pre-built images instead of buil
 | backend | `backend/**` |
 | frontend | `frontend/**` |
 | sandbox | `sandbox/**` |
+| deploy_config | `docker-compose-deploy.yml` |
+
+**Deploy-config-only pushes:** When only `docker-compose-deploy.yml` changes (no app code), the `any_app` flag is still `true` so the deploy job runs `git pull` + `docker compose up -d` to apply the updated compose config. No image builds are triggered.
 
 Gateway does not need its own build — it uses the backend image.
 
@@ -153,7 +156,7 @@ Before the first CI deploy can succeed:
 2. **Create deploy directory on VPS:** Clone repo to `/opt/pythinker-deploy/`, copy `.env`.
 3. **Add GitHub Secrets:** `VPS_SSH_KEY`, `VPS_HOST`, `VPS_USER`.
 4. **Disable Dokploy auto-deploy** for the Pythinker project.
-5. **Stop old Dokploy-managed containers:** `docker compose -f /etc/dokploy/compose/pythinker-pythinker-akwnya/code/docker-compose.yml down` (data volumes persist).
+5. **Stop old Dokploy-managed containers:** Find Dokploy's compose dir (the path contains an installation-specific ID, e.g., `pythinker-pythinker-akwnya`). Verify the path on VPS with: `docker inspect <any-pythinker-container> --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'`. Then: `docker compose -f <path>/docker-compose.yml down` (data volumes persist).
 
 ### 7. Failure Handling
 
@@ -178,6 +181,39 @@ Before the first CI deploy can succeed:
 - Infrastructure services — MongoDB, Redis, Qdrant, MinIO untouched
 - Dokploy dashboard — still shows all containers and logs
 - Existing version-tag CI workflow — still works for releases
+
+## Lessons Learned (2026-03-18 Incident)
+
+During the first deployment attempt, four cascading issues were discovered:
+
+### 1. Sandbox Supervisor Password Mismatch (FIXED — `sandbox/app/core/config.py`)
+
+**Root cause:** The Pydantic `@model_validator` in sandbox config replaced `"supervisor-dev-password"` with a random token at runtime. But supervisord (the parent process) had already read the original env var value via `%(ENV_SUPERVISOR_RPC_PASSWORD)s` interpolation at startup. Result: 401 Unauthorized on every RPC call, sandbox app crashed to FATAL state.
+
+**Fix:** The validator now has three branches:
+1. `os.environ["SUPERVISOR_RPC_PASSWORD"]` is set (even to a default) → use it as-is
+2. Env var is empty AND pydantic field is empty → generate random password + export to `os.environ`
+3. Password set via `.env` file but not in `os.environ` → sync it to `os.environ`
+
+All three paths ensure `os.environ` and `self.SUPERVISOR_RPC_PASSWORD` stay in sync with supervisord.
+
+### 2. Container Name Conflict (FIXED — `docker-compose-deploy.yml`)
+
+**Root cause:** `container_name: pythinker-qdrant` was hardcoded. If any other Compose project already had a container with that name (e.g., Dokploy's stack), `docker compose up` failed with "name already in use".
+
+**Fix:** Removed all `container_name:` directives. Services are discoverable via Docker DNS using the Compose service name (e.g., `qdrant`), not the container name.
+
+### 3. Volume & Network `external: true` Removal (FIXED — `docker-compose-deploy.yml`)
+
+**Root cause:** Volumes and the network marked `external: true` required manual pre-creation before first deploy. If they didn't exist, `docker compose up` failed immediately.
+
+**Fix:** Removed `external: true` from all five volume definitions and the `pythinker-network` network. Named volumes (with explicit `name:`) persist across `down`/`up` cycles by default and are auto-created on first run. The network is also auto-created with its explicit name.
+
+### 4. Deploy Health Check Gap (FIXED — `.github/workflows/deploy.yml`)
+
+**Root cause:** The deploy health check only verified the backend (`localhost:8000/health`). The sandbox could be down without CI noticing.
+
+**Fix:** Added sandbox health check (`localhost:8083/health`) to the deploy verification step with the same 30-retry/2s-interval pattern.
 
 ## Non-Goals
 

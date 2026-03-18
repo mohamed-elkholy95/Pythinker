@@ -109,7 +109,9 @@ class TestSweepWorkspaceFiles:
         )
         # report.md is already tracked
         session = MagicMock()
-        session.files = [FileInfo(file_id="existing", file_path="/workspace/test-session/report.md")]
+        session.files = [
+            FileInfo(file_id="existing", filename="report.md", file_path="/workspace/test-session/report.md")
+        ]
         mock_session_repository.find_by_id = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()

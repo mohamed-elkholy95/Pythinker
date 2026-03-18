@@ -228,7 +228,10 @@ class TestRewriteChartImageUrls:
         assert event.content == "Just text."
 
     def test_empty_content_no_error(self):
-        event = self._make_report(content="", attachments=[FileInfo(file_id="x", content_type="image/png")])
+        event = self._make_report(
+            content="",
+            attachments=[FileInfo(file_id="x", filename="comparison-chart-report-1.png", content_type="image/png")],
+        )
         AgentTaskRunner._rewrite_chart_image_urls(event)
         assert event.content == ""
 

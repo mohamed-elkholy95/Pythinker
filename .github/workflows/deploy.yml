@@ -42,6 +42,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       sandbox: ${{ steps.filter.outputs.sandbox }}
+      deploy_config: ${{ steps.filter.outputs.deploy_config }}
       any_app: ${{ steps.check.outputs.any_app }}
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +58,8 @@ jobs:
               - 'frontend/**'
             sandbox:
               - 'sandbox/**'
+            deploy_config:
+              - 'docker-compose-deploy.yml'
 
       - name: Check if any app service changed
         id: check
@@ -64,6 +67,7 @@ jobs:
           if [ "${{ steps.filter.outputs.backend }}" = "true" ] || \
              [ "${{ steps.filter.outputs.frontend }}" = "true" ] || \
              [ "${{ steps.filter.outputs.sandbox }}" = "true" ] || \
+             [ "${{ steps.filter.outputs.deploy_config }}" = "true" ] || \
              [ "${{ inputs.force_build_all }}" = "true" ]; then
             echo "any_app=true" >> "$GITHUB_OUTPUT"
           else
@@ -186,6 +190,20 @@ jobs:
               if [ "$i" -eq 30 ]; then
                 echo "ERROR: Backend health check failed after 30 attempts"
                 docker compose -f docker-compose-deploy.yml logs --tail 50 backend
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "==> Waiting for sandbox health..."
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8083/health >/dev/null 2>&1; then
+                echo "Sandbox healthy!"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "ERROR: Sandbox health check failed after 30 attempts"
+                docker compose -f docker-compose-deploy.yml logs --tail 50 sandbox
                 exit 1
               fi
               sleep 2
