@@ -253,23 +253,23 @@ class SnapshotManager:
         # For now, return empty list (MinIO SDK would provide bucket listing)
         return []
 
-    async def cleanup_old_snapshots(self, ttl_days: int = 7) -> int:
-        """Delete all snapshot objects from storage (best-effort sweep).
+    async def purge_storage(self, prefix: str = "snapshots/") -> int:
+        """Remove all snapshot objects under the given storage prefix.
 
-        Removes snapshot tarballs from MinIO/S3 storage. TTL-based filtering
-        is handled at the MongoDB document level by the lifespan background
-        task; this method performs a storage-level sweep of all objects under
-        the ``snapshots/`` prefix.
+        This is a destructive best-effort sweep that deletes every object
+        matching the prefix. For TTL-based cleanup of snapshot *documents*,
+        see ``MaintenanceService.cleanup_old_snapshots()`` in the application
+        layer.
 
         Args:
-            ttl_days: Time-to-live in days (used for logging context)
+            prefix: Object key prefix to sweep (default ``snapshots/``).
 
         Returns:
-            Number of snapshots deleted
+            Number of objects successfully deleted.
         """
-        logger.info("Cleanup triggered: deleting storage snapshots older than %d days", ttl_days)
+        logger.info("Storage purge triggered for prefix=%s", prefix)
         try:
-            all_objects = await self.storage.list_objects(prefix="snapshots/")
+            all_objects = await self.storage.list_objects(prefix=prefix)
             deleted = 0
             failed_keys: list[str] = []
             for obj_key in all_objects:
@@ -280,11 +280,11 @@ class SnapshotManager:
                     failed_keys.append(obj_key)
             if failed_keys:
                 logger.warning(
-                    "Failed to delete %d snapshot object(s): %s",
+                    "Failed to delete %d object(s): %s",
                     len(failed_keys),
                     failed_keys[:5],
                 )
             return deleted
         except Exception as e:
-            logger.warning("Snapshot cleanup failed: %s", e)
+            logger.warning("Storage purge failed: %s", e)
             return 0
