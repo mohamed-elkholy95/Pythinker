@@ -549,12 +549,8 @@ class MongoMemoryRepository(MemoryRepository):
         self, memory_ids: list[str], merged_content: str, keep_original: bool = False
     ) -> MemoryEntry:
         """Merge multiple memories into one."""
-        # Fetch original memories
-        originals = []
-        for mid in memory_ids:
-            mem = await self.get_by_id(mid)
-            if mem:
-                originals.append(mem)
+        # Fetch original memories in a single batch query
+        originals = await self.get_by_ids(memory_ids)
 
         if not originals:
             raise MergeException("No valid memories to merge")
