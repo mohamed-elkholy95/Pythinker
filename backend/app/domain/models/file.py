@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class FileInfo(BaseModel):
     file_id: str | None = None
-    filename: str | None = None
+    filename: str  # Required — a FileInfo without a name is meaningless
     file_path: str | None = None
     content_type: str | None = None
     size: int | None = None
