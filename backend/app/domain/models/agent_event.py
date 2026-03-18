@@ -46,6 +46,11 @@ class AgentEventType(StrEnum):
     TASK_FAILED = "task_failed"
     TASK_CANCELLED = "task_cancelled"
 
+    # Session lifecycle events
+    SESSION_CREATED = "session_created"
+    SESSION_COMPLETED = "session_completed"
+    SESSION_FAILED = "session_failed"
+
     # Memory events
     MEMORY_RETRIEVED = "memory_retrieved"
     MEMORY_STORED = "memory_stored"
@@ -145,3 +150,35 @@ class TaskCompletedEvent(AgentEvent):
     total_tools_called: int
     total_tokens_used: int | None = None
     total_cost_usd: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# Session lifecycle events
+# ---------------------------------------------------------------------------
+
+
+class SessionCreatedEvent(AgentEvent):
+    """Session was created and is ready to accept messages."""
+
+    event_type: AgentEventType = AgentEventType.SESSION_CREATED
+    agent_id: str
+    source: str  # Channel origin: web, telegram, discord, cron, api
+    mode: str  # agent or discuss
+    research_mode: str  # fast_search, deep_research, deal_finding
+
+
+class SessionCompletedEvent(AgentEvent):
+    """Session finished successfully."""
+
+    event_type: AgentEventType = AgentEventType.SESSION_COMPLETED
+    total_tasks: int = 0
+    total_duration_seconds: float | None = None
+    total_cost_usd: float | None = None
+
+
+class SessionFailedEvent(AgentEvent):
+    """Session terminated due to an unrecoverable error."""
+
+    event_type: AgentEventType = AgentEventType.SESSION_FAILED
+    error_type: str | None = None
+    error_message: str | None = None
