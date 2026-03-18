@@ -41,8 +41,13 @@ router = APIRouter(prefix="/channel-links", tags=["channel-links"])
 
 # Link code configuration
 _CODE_ALPHABET = string.ascii_uppercase + string.digits
-_CODE_LENGTH = 22
-_CODE_TTL_SECONDS = 1800  # 30 minutes
+def _code_length() -> int:
+    from app.core.config import get_settings
+    return get_settings().channel_link_code_length
+
+def _code_ttl_seconds() -> int:
+    from app.core.config import get_settings
+    return get_settings().channel_link_code_ttl_seconds
 _REDIS_KEY_PREFIX = "channel_link"
 _DEFAULT_TELEGRAM_BOT_USERNAME = "pythinker_bot"
 _TELEGRAM_BOT_API_TIMEOUT_SECONDS = 5.0
@@ -51,7 +56,7 @@ _RESOLVED_TELEGRAM_BOT_USERNAME: str | None = None
 
 def _generate_link_code() -> str:
     """Generate a cryptographically random alphanumeric link code."""
-    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_code_length()))
 
 
 def _build_redis_key(code: str) -> str:
@@ -170,7 +175,7 @@ async def generate_link_code(
     payload = json.dumps({"user_id": current_user.id, "channel": channel_type.value})
 
     redis = get_redis()
-    await redis.call("setex", redis_key, _CODE_TTL_SECONDS, payload)
+    await redis.call("setex", redis_key, _code_ttl_seconds(), payload)
     pm.record_channel_link_code_generated(channel_type.value)
     code_prefix, code_sha256_12 = _code_fingerprint(code)
 
@@ -178,7 +183,7 @@ async def generate_link_code(
         "Generated link code for user=%s channel=%s ttl=%ss code_prefix=%s code_sha256_12=%s",
         current_user.id,
         channel_type.value,
-        _CODE_TTL_SECONDS,
+        _code_ttl_seconds(),
         code_prefix,
         code_sha256_12,
     )
@@ -194,7 +199,7 @@ async def generate_link_code(
         GenerateLinkCodeResponse(
             code=code,
             channel=channel_type.value,
-            expires_in_seconds=_CODE_TTL_SECONDS,
+            expires_in_seconds=_code_ttl_seconds(),
             instructions=_channel_instructions(channel_type.value, code),
             bind_command=bind_command,
             bot_url=bot_url,

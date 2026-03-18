@@ -87,6 +87,10 @@ class ChannelSettingsMixin:
     slack_app_token: str = ""
     slack_allowed_users: list[str] = Field(default_factory=list)
 
+    # ── Channel Link (Device Linking) ────────────────────────────────────
+    channel_link_code_length: int = 22
+    channel_link_code_ttl_seconds: int = 1800  # 30 minutes
+
     # ── Cron Scheduling ───────────────────────────────────────────────────
     cron_service_enabled: bool = False
     cron_max_jobs_per_user: int = 50
