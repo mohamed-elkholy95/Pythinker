@@ -130,10 +130,7 @@ class StateSnapshot(BaseModel):
         }
         expected_field = type_to_field.get(self.snapshot_type)
         if expected_field and getattr(self, expected_field) is None:
-            raise ValueError(
-                f"Snapshot type '{self.snapshot_type.value}' requires "
-                f"'{expected_field}' to be populated"
-            )
+            raise ValueError(f"Snapshot type '{self.snapshot_type.value}' requires '{expected_field}' to be populated")
         return self
 
     @classmethod
