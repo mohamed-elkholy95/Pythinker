@@ -1,4 +1,6 @@
+import secrets as _secrets
 from typing import List, Optional, Union
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
@@ -26,7 +28,7 @@ class Settings(BaseSettings):
 
     # Supervisord XML-RPC auth (unix_http_server/supervisorctl).
     SUPERVISOR_RPC_USERNAME: str = "supervisor"
-    SUPERVISOR_RPC_PASSWORD: str = "supervisor-dev-password"
+    SUPERVISOR_RPC_PASSWORD: str = ""
 
     # Log configuration
     LOG_LEVEL: str = "INFO"
@@ -110,6 +112,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SANDBOX_API_SECRET is required in production. "
                 "Set it via environment variable to authenticate sandbox API requests."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def generate_supervisor_password(self) -> "Settings":
+        """Generate random supervisor password if not explicitly configured."""
+        import logging
+        if not self.SUPERVISOR_RPC_PASSWORD or self.SUPERVISOR_RPC_PASSWORD == "supervisor-dev-password":
+            self.SUPERVISOR_RPC_PASSWORD = _secrets.token_urlsafe(24)
+            logging.getLogger(__name__).warning(
+                "SUPERVISOR_RPC_PASSWORD not set or using default — generated random password. "
+                "Set SUPERVISOR_RPC_PASSWORD environment variable to use a fixed password."
             )
         return self
 
