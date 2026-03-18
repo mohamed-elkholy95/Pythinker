@@ -37,13 +37,14 @@ router.beforeEach(async (to, _, next) => {
   const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth)
   const hasToken = !!getStoredToken()
 
+  // Fetch auth provider once for routes that need it
+  const needsAuthCheck = to.name === 'landing' || to.path === '/login' || requiresAuth
+  const authProvider = needsAuthCheck ? await getCachedAuthProvider() : undefined
+
   // When auth is disabled, skip landing and login pages → go straight to chat
-  if (to.name === 'landing' || to.path === '/login') {
-    const authProvider = await getCachedAuthProvider()
-    if (authProvider === 'none') {
-      next('/chat')
-      return
-    }
+  if ((to.name === 'landing' || to.path === '/login') && authProvider === 'none') {
+    next('/chat')
+    return
   }
 
   // Authenticated users skip the public landing page → go straight to app
@@ -53,8 +54,6 @@ router.beforeEach(async (to, _, next) => {
   }
 
   if (requiresAuth) {
-    const authProvider = await getCachedAuthProvider()
-
     // Bug #10 fix: when backend is unavailable (null), fail open for token holders
     // and redirect to login for users without tokens
     if (authProvider === 'none') {
@@ -62,7 +61,7 @@ router.beforeEach(async (to, _, next) => {
       return
     }
 
-    if (authProvider === null) {
+    if (authProvider === null || authProvider === undefined) {
       // Backend unavailable — allow token holders through (they'll get 401 later
       // if the token is actually invalid), redirect others to login
       if (hasToken) {
