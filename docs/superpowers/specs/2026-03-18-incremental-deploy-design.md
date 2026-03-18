@@ -1,224 +1,153 @@
-# Incremental Deployment via Pre-Built Images
+# Production Deployment via Dokploy + Pre-Built GHCR Images
 
 **Date:** 2026-03-18
-**Status:** Approved
+**Status:** Implemented
 **Author:** Mohamed Elkholy
 
-## Problem
-
-Every push to `main` triggers a full redeploy on the VPS via Dokploy. Dokploy clones the repo and runs `docker compose up --build` using `docker-compose.yml`, which:
-
-1. Rebuilds **all 4 app images** from source (~8GB total: backend 2GB, frontend 1GB, sandbox 2.8GB, gateway 2GB)
-2. Applies **development-level compose configurations** in production — `develop.watch` blocks, `BACKEND_ENABLE_RELOAD=1` env var, dev-tuned healthcheck intervals, and `Dockerfile.dev` for frontend (Vite dev server instead of Nginx)
-3. Takes significant time and CPU on a 4-core/16GB VPS that also runs other services
-
-**Note:** The backend and sandbox images are built from their production `Dockerfile` (multi-stage), so the built images themselves are production-grade. The issue is the compose-level dev configurations wrapping them.
-
-## Solution
-
-Pre-build Docker images in GitHub Actions CI, push to ghcr.io, and deploy by pulling images on the VPS. Only changed services are rebuilt.
-
-### Architecture
+## Architecture
 
 ```
 git push main
-  -> GitHub Actions: path-filter detects changed services
-  -> Build ONLY changed images -> push to ghcr.io (3-5 min)
-  -> Deploy job (gated on ALL builds passing) -> SSH to VPS
-  -> docker compose pull + up -d (10 sec)
-  -> Health check verification
+  → GitHub Actions CI: path-filter detects changed services
+  → Build ONLY changed images → push to ghcr.io (3-5 min)
+  → Dokploy: manual Deploy button pulls pre-built images (~10 sec)
+  → Traefik routes pythinker.com → frontend container (port 80)
 ```
 
-## Deliverables
+**Key decision:** Dokploy owns deployment and Traefik routing. CI only builds images. No SSH deploy step — Dokploy handles `docker compose pull + up -d`.
 
-### 1. `docker-compose-deploy.yml` (New File)
+## How It Works
 
-A production-ready compose file that references pre-built images instead of building from source.
+### CI Pipeline (`.github/workflows/deploy.yml`)
 
-**Key properties:**
-- All app services use `image: ghcr.io/mohamed-elkholy95/pythinker-<service>:<tag>`
-- `IMAGE_TAG` env var controls the tag (default: `latest`)
-- No `build:` directives on app services
-- No `develop.watch` blocks
-- Production entry points: `run.sh` for backend, Nginx for frontend
-- Gateway shares the backend image with a different command (net-new in deploy — see note below)
-- Infrastructure services (MongoDB, Redis, Qdrant, MinIO) remain unchanged (upstream images)
-- Same `.env` file, same volumes
-- Same healthchecks and resource limits as current dev compose
+Triggers on push to `main`. Builds only changed services:
 
-**Network topology:** Single flat `pythinker-network` bridge — matching the current dev compose behavior on the VPS. The production compose (`docker-compose-production.yml`) uses a two-network isolation model (`pythinker-prod` + `pythinker-backend-internal`), but adopting that topology is a separate concern and out of scope for this change. Database ports are already bound to `127.0.0.1` only, providing host-level isolation.
+| Path Filter | Service | Image |
+|-------------|---------|-------|
+| `backend/**` | backend | `ghcr.io/mohamed-elkholy95/pythinker-backend` |
+| `frontend/**` | frontend | `ghcr.io/mohamed-elkholy95/pythinker-frontend` |
+| `sandbox/**` | sandbox | `ghcr.io/mohamed-elkholy95/pythinker-sandbox` |
 
-**Gateway note:** The gateway service exists in the dev compose but **not** in `docker-compose-production.yml`. Including it in `docker-compose-deploy.yml` is intentional — it matches the current running state on the VPS (the gateway container is running today). This is a deliberate choice to preserve current functionality, not an accidental addition.
+Tags: `latest` + `sha-<short-hash>` on every push.
 
-**Services:**
-| Service | Image Source | Entry Point |
-|---------|-------------|-------------|
-| frontend | `ghcr.io/.../pythinker-frontend:${IMAGE_TAG}` | Nginx (port 80 inside container, mapped to host 5174) |
-| backend | `ghcr.io/.../pythinker-backend:${IMAGE_TAG}` | `run.sh` (uvicorn production) |
-| gateway | `ghcr.io/.../pythinker-backend:${IMAGE_TAG}` | `python -m app.interfaces.gateway.gateway_runner` |
-| sandbox | `ghcr.io/.../pythinker-sandbox:${IMAGE_TAG}` | Default (supervisord) |
-| mongodb | `mongo:7.0.28` | Unchanged |
-| redis | `redis:8.4-alpine` | Unchanged |
-| qdrant | `qdrant/qdrant:v1.16.3` | Unchanged |
-| minio | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | Unchanged |
+GitHub Secrets (configured):
+- `VPS_SSH_KEY` — ed25519 deploy key (`~/.ssh/pythinker_deploy`)
+- `VPS_HOST` — `72.60.164.225`
+- `VPS_USER` — `root`
 
-**Port 5174 note:** The frontend is mapped to host port 5174 to match the current VPS setup. Dokploy/Traefik routes external traffic to this port. The container internally runs Nginx on port 80.
+### Dokploy Configuration
 
-### 2. Modified CI Workflow (`.github/workflows/deploy.yml`)
-
-**Changes from current:**
-- **Trigger:** Add `push: branches: [main]` alongside existing `push: tags: [v*]`
-- **Path filtering:** Use `dorny/paths-filter` to detect which services changed
-- **Conditional builds:** Only build images for services with file changes. If no app files changed (e.g., docs-only commit), skip all builds and deploy.
-- **Tagging strategy:**
-  - On `main` push: `latest` + `sha-<short-hash>`
-  - On version tag: semver tags (existing behavior preserved)
-- **Deploy job:** Separate job with `needs: [build]` — only runs if **all** build matrix legs pass. This prevents version skew (e.g., new backend + old frontend).
-- **Sandbox build arg:** `ENABLE_SANDBOX_ADDONS` defaults to `0` in CI. Can be overridden via `workflow_dispatch` input for custom builds.
-
-**Path filter mapping:**
-| Service | Paths |
+| Setting | Value |
 |---------|-------|
-| backend | `backend/**` |
-| frontend | `frontend/**` |
-| sandbox | `sandbox/**` |
-| deploy_config | `docker-compose-deploy.yml` |
+| **Compose Path** | `docker-compose-deploy.yml` |
+| **Autodeploy** | OFF (manual deploy only) |
+| **Domain** | `pythinker.com` |
+| **Domain Port** | `80` (Nginx container port, NOT host port 5174) |
+| **Provider** | GitHub → `mohamed-elkholy95/Pythinker` |
 
-**Deploy-config-only pushes:** When only `docker-compose-deploy.yml` changes (no app code), the `any_app` flag is still `true` so the deploy job runs `git pull` + `docker compose up -d` to apply the updated compose config. No image builds are triggered.
+**Deploy flow:** Click Deploy → Dokploy clones repo → runs `docker compose -f docker-compose-deploy.yml up -d` → pulls GHCR images → starts containers → Traefik auto-routes via Docker labels.
 
-Gateway does not need its own build — it uses the backend image.
+### Compose File (`docker-compose-deploy.yml`)
 
-### 3. Deploy Mechanism
+Uses pre-built GHCR images (no `build:` directives):
 
-**Method:** SSH from GitHub Actions to VPS after images are pushed.
+| Service | Image | Internal Port |
+|---------|-------|---------------|
+| frontend | `ghcr.io/.../pythinker-frontend:latest` | 80 (Nginx) |
+| backend | `ghcr.io/.../pythinker-backend:latest` | 8000 |
+| gateway | `ghcr.io/.../pythinker-backend:latest` | (shares backend image) |
+| sandbox | `ghcr.io/.../pythinker-sandbox:latest` | 8080 |
+| mongodb | `mongo:7.0.28` | 27017 |
+| redis | `redis:8.4-alpine` | 6379 |
+| qdrant | `qdrant/qdrant:v1.16.3` | 6333/6334 |
+| minio | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | 9000/9001 |
 
-**GitHub Secrets required:**
-| Secret | Purpose |
-|--------|---------|
-| `VPS_SSH_KEY` | Private SSH key for VPS access |
-| `VPS_HOST` | VPS hostname or IP |
-| `VPS_USER` | SSH user (default: `root`) |
+**Networks:**
+- `pythinker-network` (external: true) — inter-service communication
+- `dokploy-network` (external: true) — Traefik routing (frontend only)
 
-**Deploy directory:** `/opt/pythinker-deploy/` — a dedicated directory **outside** Dokploy's managed path (`/etc/dokploy/compose/...`). This avoids conflicts with Dokploy's internal git state. The deploy directory contains only:
-- `docker-compose-deploy.yml` (pulled from repo via `git clone`/`git pull`)
-- `.env` symlinked or copied from the Dokploy-managed `.env`
+**Volumes:** All `external: true` with explicit names (e.g., `pythinker-mongodb-data`). Pre-created by Dokploy's initial deploy.
 
-**Deploy commands (executed via SSH):**
-```bash
-# First-time setup (manual, one-time):
-#   mkdir -p /opt/pythinker-deploy
-#   cd /opt/pythinker-deploy
-#   git clone https://github.com/mohamed-elkholy95/Pythinker.git .
-#   cp /etc/dokploy/compose/pythinker-pythinker-akwnya/code/.env .env
-#   docker compose -f docker-compose-deploy.yml pull
-#   docker compose -f docker-compose-deploy.yml up -d
+### Traefik Routing
 
-# CI deploy (every push):
-cd /opt/pythinker-deploy
-git pull origin main
-docker compose -f docker-compose-deploy.yml pull
-docker compose -f docker-compose-deploy.yml up -d --remove-orphans
-
-# Health check (fail CI if unhealthy)
-sleep 10
-curl -fsS http://localhost:8000/api/v1/health || exit 1
-
-# Cleanup
-docker image prune -f
+Dokploy injects Docker labels on the frontend container:
+```
+traefik.http.services.*.loadbalancer.server.port=80
+traefik.http.routers.*.rule=Host(`pythinker.com`)
+traefik.http.routers.*.tls.certresolver=letsencrypt
+traefik.docker.network=dokploy-network
 ```
 
-**Why separate directory:** Dokploy manages `/etc/dokploy/compose/pythinker-pythinker-akwnya/code/` and may pull/reset it during dashboard actions. Using `/opt/pythinker-deploy/` ensures CI and Dokploy never conflict.
+**Critical:** The Domain Port in Dokploy MUST be `80` (container port), not `5174` (host port). Traefik connects to containers directly on the Docker network, not through host port mappings.
 
-### 4. Dokploy Configuration Change
+## Deployment Workflow
 
-- **Disable** Dokploy's auto-deploy-on-push for the Pythinker project
-- Dokploy continues to provide: container monitoring, logs, dashboard visibility
-- Deploy is now handled exclusively by CI
-- The old containers under Dokploy's compose project will be stopped and replaced by containers from the new deploy directory
+### Routine Deploy (after code push)
 
-### 5. Rollback Strategy
+1. Push code to `main`
+2. CI builds changed images automatically (3-5 min)
+3. Go to Dokploy → Pythinker → click **Deploy**
+4. Dokploy pulls latest images from GHCR and restarts containers (~10 sec)
+5. Traefik auto-routes — site is live
 
-To rollback to a previous version:
+### Rollback
+
 ```bash
-# On VPS
-cd /opt/pythinker-deploy
+# On VPS — pin to a specific commit SHA
+cd /etc/dokploy/compose/pythinker-pythinker-akwnya/code
 IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull
 IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml up -d
 ```
 
-Every image is tagged with its commit SHA, so any previous build is pullable.
+### Force Rebuild All Images
 
-### 6. First-Time Setup Prerequisites
+```bash
+gh workflow run "Build & Deploy" --repo mohamed-elkholy95/Pythinker --ref main -f force_build_all=true
+```
 
-Before the first CI deploy can succeed:
+## Prerequisites (Already Configured)
 
-1. **Seed the `latest` tag:** Run the CI workflow manually via `workflow_dispatch` (or push any change to `main`). This creates the initial `latest` tag on ghcr.io. Without this, `docker compose pull` will fail with "image not found."
-2. **Create deploy directory on VPS:** Clone repo to `/opt/pythinker-deploy/`, copy `.env`.
-3. **Add GitHub Secrets:** `VPS_SSH_KEY`, `VPS_HOST`, `VPS_USER`.
-4. **Disable Dokploy auto-deploy** for the Pythinker project.
-5. **Stop old Dokploy-managed containers:** Find Dokploy's compose dir (the path contains an installation-specific ID, e.g., `pythinker-pythinker-akwnya`). Verify the path on VPS with: `docker inspect <any-pythinker-container> --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'`. Then: `docker compose -f <path>/docker-compose.yml down` (data volumes persist).
-
-### 7. Failure Handling
-
-| Failure | Behavior |
-|---------|----------|
-| CI build fails (1 or more images) | Deploy job does **not** run. VPS stays on previous version. |
-| VPS unreachable via SSH | Deploy job fails. Images are pushed to ghcr.io. Manual deploy possible. |
-| Health check fails after deploy | CI reports failure. Operator can rollback via SHA tag. |
-| `git pull` conflicts on VPS | Deploy fails. Manual resolution needed (should be rare — deploy dir only tracks compose files). |
-
-## Security Improvements (Side Effects)
-
-- No `--reload` flags in production (removes file watcher overhead)
-- Nginx serves frontend with proper caching headers and gzip
-- No `develop.watch` blocks (removes Docker API surface)
-- Production-tuned uvicorn (worker recycling, graceful shutdown)
-
-## What Does NOT Change
-
-- `.env` file on VPS — same variables, same secrets
-- Docker volumes — data persists across deploys
-- Infrastructure services — MongoDB, Redis, Qdrant, MinIO untouched
-- Dokploy dashboard — still shows all containers and logs
-- Existing version-tag CI workflow — still works for releases
+- [x] GitHub Secrets: `VPS_SSH_KEY`, `VPS_HOST`, `VPS_USER`
+- [x] GitHub Environment: `production`
+- [x] GHCR packages: public (no auth needed for pull)
+- [x] VPS: Docker logged into ghcr.io
+- [x] Dokploy: Compose Path = `docker-compose-deploy.yml`
+- [x] Dokploy: Autodeploy = OFF
+- [x] Dokploy: Domain port = `80`
+- [x] Networks: `pythinker-network` and `dokploy-network` exist on VPS
+- [x] Volumes: Pre-created with `pythinker-*` names
 
 ## Lessons Learned (2026-03-18 Incident)
 
-During the first deployment attempt, four cascading issues were discovered:
-
 ### 1. Sandbox Supervisor Password Mismatch (FIXED — `sandbox/app/core/config.py`)
 
-**Root cause:** The Pydantic `@model_validator` in sandbox config replaced `"supervisor-dev-password"` with a random token at runtime. But supervisord (the parent process) had already read the original env var value via `%(ENV_SUPERVISOR_RPC_PASSWORD)s` interpolation at startup. Result: 401 Unauthorized on every RPC call, sandbox app crashed to FATAL state.
+**Root cause:** Pydantic `@model_validator` replaced `"supervisor-dev-password"` with a random token. Supervisord (parent process) had already read the original env var → 401 Unauthorized → FATAL crash.
 
-**Fix:** The validator now has three branches:
-1. `os.environ["SUPERVISOR_RPC_PASSWORD"]` is set (even to a default) → use it as-is
-2. Env var is empty AND pydantic field is empty → generate random password + export to `os.environ`
-3. Password set via `.env` file but not in `os.environ` → sync it to `os.environ`
-
-All three paths ensure `os.environ` and `self.SUPERVISOR_RPC_PASSWORD` stay in sync with supervisord.
+**Fix:** Validator now respects the env var as-is. Three branches: env var set → use it; empty → generate + export; `.env` file only → sync to `os.environ`.
 
 ### 2. Container Name Conflict (FIXED — `docker-compose-deploy.yml`)
 
-**Root cause:** `container_name: pythinker-qdrant` was hardcoded. If any other Compose project already had a container with that name (e.g., Dokploy's stack), `docker compose up` failed with "name already in use".
+**Root cause:** `container_name: pythinker-qdrant` conflicted with Dokploy's containers.
 
-**Fix:** Removed all `container_name:` directives. Services are discoverable via Docker DNS using the Compose service name (e.g., `qdrant`), not the container name.
+**Fix:** Removed all `container_name:` directives. Services use Docker DNS via compose service names.
 
-### 3. Volume & Network `external: true` Removal (FIXED — `docker-compose-deploy.yml`)
+### 3. Traefik Port Mismatch
 
-**Root cause:** Volumes and the network marked `external: true` required manual pre-creation before first deploy. If they didn't exist, `docker compose up` failed immediately.
+**Root cause:** Dokploy read `ports: "5174:80"` and used `5174` as the Traefik backend port. But the container listens on `80` internally. Traefik connected to wrong port → 502 Bad Gateway.
 
-**Fix:** Removed `external: true` from all five volume definitions and the `pythinker-network` network. Named volumes (with explicit `name:`) persist across `down`/`up` cycles by default and are auto-created on first run. The network is also auto-created with its explicit name.
+**Fix:** Set Domain Port to `80` in Dokploy Domains tab. Traefik labels now correctly point to the container's internal Nginx port.
 
-### 4. Deploy Health Check Gap (FIXED — `.github/workflows/deploy.yml`)
+### 4. Frontend Planning Panel Covering Screencast (FIXED — `ChatPage.vue`)
 
-**Root cause:** The deploy health check only verified the backend (`localhost:8000/health`). The sandbox could be down without CI noticing.
+**Root cause:** Idle wait beacons (`wait_stage: "execution_wait"`) triggered the planning scaffold overlay, covering the live screencast during agent execution.
 
-**Fix:** Added sandbox health check (`localhost:8083/health`) to the deploy verification step with the same 30-retry/2s-interval pattern.
+**Fix:** `updatePlanProgressPresentation()` now skips events with `wait_stage` set, preserving screencast visibility during tool execution.
 
-## Non-Goals
+## Files Changed
 
-- Multi-node / swarm deployment (single VPS)
-- Blue-green or canary deployments (overkill for current scale)
-- Helm/Kubernetes migration
-- Two-network isolation topology (future enhancement, separate spec)
-- Changing the production compose file (`docker-compose-production.yml` with Traefik) — that's a separate concern
+| File | Change |
+|------|--------|
+| `docker-compose-deploy.yml` | GHCR images, dokploy-network, external volumes, curl healthcheck |
+| `.github/workflows/deploy.yml` | GHCR auth, sandbox health check, deploy_config filter |
+| `sandbox/app/core/config.py` | Supervisor password sync fix |
+| `frontend/src/pages/ChatPage.vue` | Skip idle beacons in planning presentation |
