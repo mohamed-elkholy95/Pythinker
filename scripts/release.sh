@@ -32,6 +32,15 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
+# Portable in-place sed (handles GNU vs BSD)
+sedi() {
+    if sed --version 2>/dev/null | grep -q 'GNU sed'; then
+        sed -i "$@"
+    else
+        sedi "$@"
+    fi
+}
+
 usage() {
     echo "Usage: $0 <VERSION> [--dry-run]"
     echo ""
@@ -112,13 +121,13 @@ if [ "$DRY_RUN" = true ]; then
     info "[DRY RUN] Would update frontend/package.json version to ${VERSION}"
 else
     # Update pyproject.toml
-    sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "$REPO_ROOT/backend/pyproject.toml"
+    sedi "s/^version = \".*\"/version = \"${VERSION}\"/" "$REPO_ROOT/backend/pyproject.toml"
     ok "Updated backend/pyproject.toml"
 
     # Update package.json (match the top-level "version" field only)
     cd "$REPO_ROOT/frontend"
     npm pkg set version="$VERSION" 2>/dev/null || \
-        sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
+        sedi "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
     cd "$REPO_ROOT"
     ok "Updated frontend/package.json"
 fi
