@@ -1203,8 +1203,16 @@ class PlaywrightBrowser:
     # ── Background task lifecycle ──────────────────────────────────────
 
     def _track_background_task(self, coro) -> asyncio.Task:
-        """Create a background task with automatic cleanup on completion."""
-        task = asyncio.get_running_loop().create_task(coro)
+        """Create a background task with automatic cleanup on completion.
+
+        If no event loop is running, closes the coroutine to prevent
+        'coroutine was never awaited' warnings and re-raises RuntimeError.
+        """
+        try:
+            task = asyncio.get_running_loop().create_task(coro)
+        except RuntimeError:
+            coro.close()
+            raise
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task

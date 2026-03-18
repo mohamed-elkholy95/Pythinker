@@ -170,13 +170,15 @@ class BrowserConnectionPool:
         Context7 validated: Background task tracking pattern to prevent GC warnings.
         """
         if self._cleanup_task is None or self._cleanup_task.done():
+            coro = self._cleanup_loop()
             try:
-                self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-                # Track task to prevent "unawaited coroutine" warnings
+                self._cleanup_task = asyncio.create_task(coro)
                 self._background_tasks.add(self._cleanup_task)
                 self._cleanup_task.add_done_callback(self._background_tasks.discard)
             except RuntimeError:
-                # No running event loop — cleanup will be started on first async access
+                # No running event loop — close coroutine to prevent
+                # "coroutine was never awaited" warning, start lazily later
+                coro.close()
                 logger.debug("No event loop for cleanup task; will start lazily")
                 self._cleanup_task = None
 
