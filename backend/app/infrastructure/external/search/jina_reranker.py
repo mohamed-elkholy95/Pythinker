@@ -12,6 +12,7 @@ import re
 import httpx
 
 from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool, ManagedHTTPClient
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
@@ -38,7 +39,6 @@ class JinaReranker:
         self.timeout = timeout
         self.model = model
         self.base_url = "https://api.jina.ai/v1/rerank"
-        self._client: httpx.AsyncClient | None = None
 
         all_keys = [api_key]
         if fallback_api_keys:
@@ -53,14 +53,19 @@ class JinaReranker:
         )
         self._max_retries = len(key_configs)
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-            )
-        return self._client
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get a pooled HTTP client for Jina Reranker."""
+        config = HTTPClientConfig(
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=self.timeout,
+            connect_timeout=10.0,
+            read_timeout=self.timeout,
+        )
+        return await HTTPClientPool.get_client(
+            name="search-jinareranker",
+            config=config,
+            follow_redirects=True,
+        )
 
     @staticmethod
     def _build_documents(items: list[SearchResultItem]) -> list[str]:

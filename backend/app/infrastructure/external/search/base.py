@@ -20,6 +20,7 @@ from app.core.retry import RetryConfig, calculate_delay
 from app.domain.external.search import SearchEngine
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,6 @@ class SearchEngineBase(ABC, SearchEngine):
             max_concurrent: Maximum concurrent in-flight requests for this provider
         """
         self.timeout = timeout or self.default_timeout
-        self._client: httpx.AsyncClient | None = None
         self._max_concurrent = max_concurrent
 
     @property
@@ -148,11 +148,11 @@ class SearchEngineBase(ABC, SearchEngine):
         ...
 
     @abstractmethod
-    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+    async def _execute_request(self, client: ManagedHTTPClient, params: dict[str, Any]) -> httpx.Response:
         """Execute the actual HTTP request.
 
         Args:
-            client: HTTP client instance
+            client: Managed HTTP client from the pool
             params: Request parameters from _build_request_params
 
         Returns:
@@ -184,25 +184,32 @@ class SearchEngineBase(ABC, SearchEngine):
             return self.BROWSER_HEADERS.copy()
         return {"Accept": "application/json", "Accept-Encoding": "gzip"}
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling.
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get a pooled HTTP client for this search engine.
+
+        Uses HTTPClientPool so connections are reused across requests and
+        Prometheus metrics are recorded automatically.
 
         Returns:
-            Async HTTP client
+            ManagedHTTPClient from the shared pool
         """
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers=self._get_headers(),
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-                follow_redirects=True,
-            )
-        return self._client
+        client_name = f"search-{self.__class__.__name__.lower()}"
+        config = HTTPClientConfig(
+            headers=self._get_headers(),
+            timeout=self.timeout,
+            connect_timeout=10.0,
+            read_timeout=self.timeout,
+        )
+        return await HTTPClientPool.get_client(
+            name=client_name,
+            config=config,
+            follow_redirects=True,
+        )
 
     async def close(self) -> None:
-        """Close HTTP client and release resources."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        """Release this engine's pooled HTTP client."""
+        client_name = f"search-{self.__class__.__name__.lower()}"
+        await HTTPClientPool.close_client(client_name)
 
     def _map_date_range(self, date_range: str | None) -> str | None:
         """Map standard date range to provider-specific value.
