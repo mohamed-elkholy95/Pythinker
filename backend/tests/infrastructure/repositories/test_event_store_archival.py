@@ -9,13 +9,8 @@ from app.infrastructure.repositories.event_store_repository import EventStoreRep
 
 
 @pytest.fixture
-def mock_db_client():
-    return MagicMock()
-
-
-@pytest.fixture
-def repo(mock_db_client):
-    return EventStoreRepository(db_client=mock_db_client)
+def repo():
+    return EventStoreRepository()
 
 
 class TestArchiveEventsBefore:

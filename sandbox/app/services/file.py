@@ -220,7 +220,9 @@ class FileService:
             if sudo:
                 mode = ">>" if append else ">"
                 parent_dir = os.path.dirname(file)
-                if parent_dir and not os.path.exists(parent_dir):
+                # Validate parent_dir is also within allowed dirs (defense-in-depth)
+                parent_dir = safe_resolve(parent_dir)
+                if not os.path.exists(parent_dir):
                     mkdir_cmd = f"sudo mkdir -p {shlex.quote(str(parent_dir))}"
                     mkdir_proc = await asyncio.create_subprocess_shell(
                         mkdir_cmd,
@@ -261,10 +263,9 @@ class FileService:
                     if os.path.exists(temp_file):
                         os.unlink(temp_file)
             else:
-                # Ensure directory exists
-                parent_dir = os.path.dirname(file)
-                if parent_dir:
-                    os.makedirs(parent_dir, exist_ok=True)
+                # Ensure directory exists (parent_dir validated via safe_resolve)
+                parent_dir = safe_resolve(os.path.dirname(file))
+                os.makedirs(parent_dir, exist_ok=True)
 
                 # Asynchronously write file
                 def write_file_async():
@@ -399,7 +400,7 @@ class FileService:
             total_size = 0
 
             # Ensure directory exists
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            os.makedirs(safe_resolve(os.path.dirname(path)), exist_ok=True)
 
             # Stream write directly to target file
             def write_stream_direct():

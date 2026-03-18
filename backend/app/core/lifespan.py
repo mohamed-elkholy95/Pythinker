@@ -178,8 +178,7 @@ async def _run_periodic_event_archival(
             from app.core.prometheus_metrics import event_store_archival_runs
             from app.infrastructure.repositories.event_store_repository import EventStoreRepository
 
-            db = get_mongodb().client[settings.mongodb_database]
-            event_repo = EventStoreRepository(db_client=db)
+            event_repo = EventStoreRepository()
             cutoff = datetime.now(UTC) - timedelta(days=settings.mongodb_event_retention_days)
             archived = await event_repo.archive_events_before(cutoff)
             event_store_archival_runs.inc(labels={"status": "success"})

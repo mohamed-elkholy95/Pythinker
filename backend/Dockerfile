@@ -16,11 +16,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (standalone binary — faster than pip install uv)
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# Pinned to 0.7.12+ for patched jsonwebtoken Rust crate (CVE-2026-25537)
+RUN curl -LsSf https://astral.sh/uv/0.7.12/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Install Python dependencies (largest layer — cached unless requirements.txt changes)
 COPY requirements.txt .
-RUN uv pip install --system --no-cache "setuptools<81" Cython && \
+# Step 1: Upgrade pip/setuptools/wheel to patch bundled vulnerable versions
+#   - pip>=25.1 fixes CVE-2026-1703, CVE-2025-8869
+#   - setuptools>=78.1.0 vendors jaraco.context>=6.1.0 (CVE-2026-23949)
+#   - wheel>=0.46.2 fixes permission traversal (CVE-2026-24049)
+RUN uv pip install --system --no-cache "pip>=25.1" "setuptools>=78.1.0,<81" "wheel>=0.46.2" Cython && \
     uv pip install --system --no-cache --no-build-isolation editdistpy==0.1.6 && \
     uv pip install --system --no-cache -r requirements.txt
 
