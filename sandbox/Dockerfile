@@ -27,13 +27,15 @@ RUN add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
     apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22 LTS via NVM (22.22.1 fixes node-tar, minimatch, glob, brace-expansion, jsdiff CVEs)
+# Node.js 22 LTS via NVM
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_VERSION=22.22.1
 RUN mkdir -p ${NVM_DIR} && \
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && \
     . ${NVM_DIR}/nvm.sh && nvm install ${NODE_VERSION} && nvm alias default ${NODE_VERSION} && nvm use default && \
+    npm install -g npm@latest && \
     npm install -g pnpm@latest
+# npm@latest pulls tar>=7.5.11, minimatch>=10.2.3, glob>=11.1.0 (fixes 22 Trivy HIGH alerts)
 
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
@@ -63,8 +65,12 @@ COPY requirements.txt requirements.runtime.txt requirements.addons.txt ./
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 # Base Python venv template (used by sandbox API + per-workspace venv cloning)
 # Uses uv for ~10-20x faster installs vs pip
+# Step 1: Upgrade pip/setuptools/wheel FIRST to replace system-bundled vulnerable versions
+#   - setuptools>=78.1.0 vendors jaraco.context>=6.1.0 (fixes CVE-2026-23949)
+#   - wheel>=0.46.2 fixes permission traversal (CVE-2026-24049)
 RUN python3 -m venv /opt/base-python-venv && \
-    uv pip install --python /opt/base-python-venv/bin/python --no-cache "pip>=25.1" && \
+    uv pip install --python /opt/base-python-venv/bin/python --no-cache \
+        "pip>=25.1" "setuptools>=78.1.0" "wheel>=0.46.2" && \
     uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.runtime.txt && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
         uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \

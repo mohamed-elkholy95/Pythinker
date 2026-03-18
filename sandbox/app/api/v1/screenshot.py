@@ -803,4 +803,4 @@ async def test_screenshot_availability():
 
     except Exception as e:
         logger.error(f"Error testing screenshot availability: {e}", exc_info=True)
-        return {"available": False, "error": str(e)}
+        return {"available": False, "error": "Screenshot service check failed"}
