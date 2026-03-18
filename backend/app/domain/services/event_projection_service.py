@@ -147,6 +147,18 @@ class EventProjectionService:
                 status = "CANCELLED"
                 completed_at = event.timestamp
 
+            elif event.event_type == AgentEventType.SESSION_CREATED:
+                status = "INITIALIZING"
+                current_phase = "INITIALIZING"
+
+            elif event.event_type == AgentEventType.SESSION_COMPLETED:
+                status = "COMPLETED"
+                completed_at = event.timestamp
+
+            elif event.event_type == AgentEventType.SESSION_FAILED:
+                status = "FAILED"
+                completed_at = event.timestamp
+
         # Calculate duration
         duration_seconds = None
         if started_at and completed_at:
