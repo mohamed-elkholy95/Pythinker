@@ -13,7 +13,7 @@ from typing import Any
 
 from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
 from app.domain.repositories.memories_collection import MemoriesCollectionProtocol
-from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepository
 from app.domain.repositories.vector_memory_repository import VectorMemoryRepository
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class ReconciliationJob:
 
     def __init__(
         self,
-        outbox_repo: SyncOutboxRepositoryProtocol,
+        outbox_repo: SyncOutboxRepository,
         qdrant_repo: VectorMemoryRepository,
         memories_collection: MemoriesCollectionProtocol,
         retry_failed_after_hours: int = 1,  # Retry failed syncs after 1 hour

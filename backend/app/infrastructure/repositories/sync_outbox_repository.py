@@ -14,14 +14,14 @@ from app.domain.models.sync_outbox import (
     OutboxStatus,
     OutboxUpdate,
 )
-from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepository as SyncOutboxRepositoryBase
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.utils.bson_helpers import normalize_for_mongodb, to_object_id
 
 logger = logging.getLogger(__name__)
 
 
-class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
+class MongoSyncOutboxRepository(SyncOutboxRepositoryBase):
     """Repository for managing sync outbox entries."""
 
     def __init__(self):

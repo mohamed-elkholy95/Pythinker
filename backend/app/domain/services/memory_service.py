@@ -34,7 +34,7 @@ from app.domain.models.long_term_memory import (
 )
 from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
 from app.domain.repositories.memory_repository import MemoryRepository
-from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepository
 from app.domain.repositories.vector_memory_repository import get_vector_memory_repository
 
 if TYPE_CHECKING:
@@ -77,7 +77,7 @@ class MemoryService:
         repository: MemoryRepository,
         llm: LLM | None = None,
         embedding_model: str | None = None,
-        outbox_repo: SyncOutboxRepositoryProtocol | None = None,
+        outbox_repo: SyncOutboxRepository | None = None,
     ):
         """Initialize memory service.
 

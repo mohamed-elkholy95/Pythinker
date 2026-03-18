@@ -18,7 +18,7 @@ from app.domain.models.sync_outbox import (
 )
 
 
-class SyncOutboxRepositoryProtocol(ABC):
+class SyncOutboxRepository(ABC):
     """Abstract repository for sync outbox operations.
 
     Implementations should handle:
