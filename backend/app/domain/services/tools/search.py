@@ -498,18 +498,20 @@ class SearchTool(BaseTool):
         from app.core.config import get_settings
 
         settings = get_settings()
+        max_api_calls = getattr(settings, "max_search_api_calls_per_task", 30)
+        max_wide_research = getattr(settings, "max_wide_research_calls_per_task", 3)
+        max_wide_queries = getattr(settings, "max_wide_research_queries", 5)
+        max_wide_queries_complex = getattr(settings, "max_wide_research_queries_complex", max_wide_queries)
         self._budget = self._BudgetTracker(
-            max_api_calls=settings.max_search_api_calls_per_task,
-            max_wide_research=settings.max_wide_research_calls_per_task,
+            max_api_calls=max_api_calls,
+            max_wide_research=max_wide_research,
         )
-        self._max_wide_queries = settings.max_wide_research_queries
+        self._max_wide_queries = max_wide_queries
         self._complexity_score = complexity_score
         self._effective_max_wide_queries = (
-            settings.max_wide_research_queries_complex
-            if complexity_score is not None and complexity_score >= 0.8
-            else settings.max_wide_research_queries
+            max_wide_queries_complex if complexity_score is not None and complexity_score >= 0.8 else max_wide_queries
         )
-        self._dedup_skip = settings.search_dedup_skip_existing
+        self._dedup_skip = getattr(settings, "search_dedup_skip_existing", True)
 
         # Quota manager integration (feature-flagged, zero behavior change when disabled)
         self._quota_manager = None
@@ -538,10 +540,10 @@ class SearchTool(BaseTool):
         from app.core.config import get_settings
 
         settings = get_settings()
+        max_wide_queries = getattr(settings, "max_wide_research_queries", 5)
+        max_wide_queries_complex = getattr(settings, "max_wide_research_queries_complex", max_wide_queries)
         self._effective_max_wide_queries = (
-            settings.max_wide_research_queries_complex
-            if score is not None and score >= 0.8
-            else settings.max_wide_research_queries
+            max_wide_queries_complex if score is not None and score >= 0.8 else max_wide_queries
         )
 
     async def _schedule_background_preview(self, search_data: Any, count: int = 3) -> None:

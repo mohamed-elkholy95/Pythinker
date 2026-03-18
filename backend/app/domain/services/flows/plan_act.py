@@ -3328,7 +3328,7 @@ class PlanActFlow(BaseFlow):
                                 and step_executor.is_stuck_recovery_exhausted()
                                 and step.status not in (ExecutionStatus.FAILED, ExecutionStatus.TERMINATED)
                             ):
-                                logger.warning(f"Step {step.id} stuck recovery exhausted — force-failing and advancing")
+                                logger.warning(f"Step {step.id} stuck recovery exhausted — terminating and advancing")
                                 step.success = False
                                 step.error = step.error or "Stuck — exceeded retry limit. Moving to next step."
                                 step.status = ExecutionStatus.TERMINATED
