@@ -552,7 +552,6 @@ async def screencast_status():
         return {
             "available": False,
             "message": "Chrome CDP not available",
-            "error": str(e),
         }
 
     return {"available": False, "message": "Chrome CDP not available"}

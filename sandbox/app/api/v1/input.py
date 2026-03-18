@@ -246,5 +246,4 @@ async def input_status():
         return {
             "available": False,
             "message": "CDP input service unavailable",
-            "error": str(e),
         }
