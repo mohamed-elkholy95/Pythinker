@@ -15,7 +15,6 @@ from datetime import datetime
 from typing import ClassVar
 
 from beanie import Document
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import Field
 from pymongo import IndexModel
 from pymongo.errors import DuplicateKeyError
@@ -66,8 +65,8 @@ class EventStoreRepository:
     - Efficient querying by session/task/type
     """
 
-    def __init__(self, db_client: AsyncIOMotorClient):
-        self.db_client = db_client
+    def __init__(self) -> None:
+        pass
 
     async def append_event(self, event: AgentEvent) -> None:
         """
