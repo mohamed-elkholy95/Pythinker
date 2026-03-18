@@ -75,12 +75,26 @@ def _is_tool_marker_text(text: str) -> bool:
 
 # Module-level metrics instance (can be overridden for testing)
 _metrics: MetricsPort = get_null_metrics()
+_metrics_warning_emitted: bool = False
 
 
 def set_metrics(metrics: MetricsPort) -> None:
     """Set the metrics instance for this module."""
     global _metrics
     _metrics = metrics
+
+
+def _warn_if_null_metrics() -> None:
+    """Log a warning on first call if metrics are still NullMetrics."""
+    global _metrics_warning_emitted
+    if not _metrics_warning_emitted:
+        _metrics_warning_emitted = True
+        from app.domain.external.observability import NullMetrics
+        if isinstance(_metrics, NullMetrics):
+            logger.warning(
+                "Agent execution using NullMetrics — Prometheus counters will not record. "
+                "Call set_metrics() with a real MetricsPort to enable observability."
+            )
 
 
 if TYPE_CHECKING:
@@ -302,6 +316,7 @@ class ExecutionAgent(BaseAgent):
         conversation_context: str | None = None,
         profile_patch_text: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
+        _warn_if_null_metrics()
         # Store user request for critic context
         self._user_request = message.message
 
