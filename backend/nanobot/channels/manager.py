@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from loguru import logger
 
-from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
@@ -160,11 +160,34 @@ class ChannelManager:
                 )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
-        """Start a channel and log any exceptions."""
-        try:
-            await channel.start()
-        except Exception as e:
-            logger.error("Failed to start channel {}: {}", name, e)
+        """Start a channel with auto-restart on failure.
+
+        Retries with exponential backoff (5s → 10s → 20s → ... → 120s max).
+        Gives up after 10 consecutive failures to avoid infinite restart loops.
+        """
+        max_retries = 10
+        base_delay = 5.0
+        max_delay = 120.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                await channel.start()
+                return  # start() returned normally (e.g., shutdown requested)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if attempt >= max_retries:
+                    logger.error(
+                        "Channel {} failed after {} restart attempts, giving up: {}",
+                        name, max_retries, e,
+                    )
+                    return
+                delay = min(max_delay, base_delay * (2 ** attempt))
+                logger.warning(
+                    "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
+                    name, attempt + 1, max_retries, delay, e,
+                )
+                await asyncio.sleep(delay)
 
     async def start_all(self) -> None:
         """Start all channels and the outbound dispatcher."""
@@ -191,10 +214,8 @@ class ChannelManager:
         # Stop dispatcher
         if self._dispatch_task:
             self._dispatch_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._dispatch_task
-            except asyncio.CancelledError:
-                pass
 
         # Stop all channels
         for name, channel in self.channels.items():
@@ -230,7 +251,7 @@ class ChannelManager:
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
