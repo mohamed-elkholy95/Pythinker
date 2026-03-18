@@ -84,7 +84,7 @@ class AgentDomainService:
         self._task_output_relay = task_output_relay
 
         # Conversation context: real-time vectorization during active sessions
-        from app.domain.services.conversation_context_service import get_conversation_context_service
+        from app.application.providers.conversation_context import get_conversation_context_service
 
         self._conversation_context_service = get_conversation_context_service()
         self._turn_counters: dict[str, int] = {}  # per-session turn counters

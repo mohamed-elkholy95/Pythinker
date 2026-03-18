@@ -23,7 +23,6 @@ import logging
 import re
 import time
 import uuid
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from app.core.config import get_settings
@@ -41,13 +40,14 @@ from app.domain.models.conversation_context import (
 )
 
 if TYPE_CHECKING:
+    from app.domain.external.embedding import EmbeddingPort
     from app.domain.models.conversation_context import (
         ConversationContextResult,
     )
     from app.domain.models.event import (
         BaseEvent,
     )
-    from app.infrastructure.repositories.conversation_context_repository import (
+    from app.domain.repositories.conversation_context_repository import (
         ConversationContextRepository,
     )
 
@@ -225,8 +225,10 @@ class ConversationContextService:
     def __init__(
         self,
         repository: ConversationContextRepository,
+        embedding_client: EmbeddingPort | None = None,
     ) -> None:
         self._repository = repository
+        self._embedding_client = embedding_client
         self._settings = get_settings()
 
         # Buffer for accumulating turns before batch flush
@@ -333,16 +335,17 @@ class ConversationContextService:
 
         start_time = time.time()
         try:
-            # Lazy import to avoid circular deps and defer initialization
             from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
-            from app.infrastructure.external.embedding.client import get_embedding_client
 
-            embedding_client = get_embedding_client()
+            if self._embedding_client is None:
+                logger.debug("No embedding client injected; skipping flush")
+                return
+
             bm25_encoder = get_bm25_encoder()
 
             # Batch embed all turn contents
             contents = [t.content[:8000] for t in turns]  # Truncate for embedding
-            dense_vectors = await embedding_client.embed_batch(contents)
+            dense_vectors = await self._embedding_client.embed_batch(contents)
 
             # Generate sparse vectors
             sparse_vectors: list[dict[int, float]] = []
@@ -492,10 +495,12 @@ class ConversationContextService:
 
         # Generate embedding for semantic search (reused for both phases B and C)
         from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
-        from app.infrastructure.external.embedding.client import get_embedding_client
 
-        embedding_client = get_embedding_client()
-        dense_vector = await embedding_client.embed(query[:8000])
+        if self._embedding_client is None:
+            logger.debug("No embedding client injected; skipping semantic search")
+            return context
+
+        dense_vector = await self._embedding_client.embed(query[:8000])
 
         sparse_vector: dict[int, float] = {}
         try:
@@ -651,21 +656,3 @@ class ConversationContextService:
         self._seen_hashes.clear()
         self._turn_counter = 0
         # Don't clear buffer — flush_remaining should have been called
-
-
-@lru_cache
-def get_conversation_context_service() -> ConversationContextService | None:
-    """Get singleton ConversationContextService, or None if disabled.
-
-    Returns None if feature_conversation_context_enabled is False.
-    """
-    settings = get_settings()
-    if not settings.feature_conversation_context_enabled:
-        return None
-
-    from app.infrastructure.repositories.conversation_context_repository import (
-        ConversationContextRepository,
-    )
-
-    repository = ConversationContextRepository()
-    return ConversationContextService(repository=repository)

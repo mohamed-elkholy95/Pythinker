@@ -117,12 +117,23 @@ def mock_repository():
 
 
 @pytest.fixture
-def service(mock_repository):
+def mock_embedding_client():
+    client = AsyncMock()
+    client.embed = AsyncMock(return_value=[0.1] * 10)
+    client.embed_batch = AsyncMock(return_value=[[0.1] * 10] * 5)
+    return client
+
+
+@pytest.fixture
+def service(mock_repository, mock_embedding_client):
     with patch("app.domain.services.conversation_context_service.get_settings") as mock_get:
         mock_get.return_value = _mock_settings()
         from app.domain.services.conversation_context_service import ConversationContextService
 
-        return ConversationContextService(repository=mock_repository)
+        return ConversationContextService(
+            repository=mock_repository,
+            embedding_client=mock_embedding_client,
+        )
 
 
 # ------------------------------------------------------------------ #
@@ -173,19 +184,15 @@ class TestTurnRecording:
         assert len(service._buffer) == 2
 
     @pytest.mark.asyncio
-    async def test_flush_at_buffer_size(self, service, mock_repository):
+    async def test_flush_at_buffer_size(self, service, mock_repository, mock_embedding_client):
         """Buffer flushes when buffer_size threshold is reached."""
-        with (
-            patch("app.infrastructure.external.embedding.client.get_embedding_client") as mock_embed_fn,
-            patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn,
-        ):
-            mock_client = AsyncMock()
-            mock_client.embed_batch = AsyncMock(return_value=[[0.1] * 10] * 5)
-            mock_embed_fn.return_value = mock_client
-
+        with patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn:
             mock_bm25 = MagicMock()
             mock_bm25.encode = MagicMock(return_value={0: 0.5})
+            mock_bm25.update_corpus = MagicMock()
             mock_bm25_fn.return_value = mock_bm25
+
+            mock_embedding_client.embed_batch = AsyncMock(return_value=[[0.1] * 10] * 5)
 
             # Fill buffer to threshold (5 is default buffer_size)
             for i in range(5):
@@ -201,19 +208,15 @@ class TestTurnRecording:
             assert len(upserted) == 5
 
     @pytest.mark.asyncio
-    async def test_flush_remaining_on_session_end(self, service, mock_repository):
+    async def test_flush_remaining_on_session_end(self, service, mock_repository, mock_embedding_client):
         """flush_remaining force-flushes partial buffer."""
-        with (
-            patch("app.infrastructure.external.embedding.client.get_embedding_client") as mock_embed_fn,
-            patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn,
-        ):
-            mock_client = AsyncMock()
-            mock_client.embed_batch = AsyncMock(return_value=[[0.1] * 10] * 2)
-            mock_embed_fn.return_value = mock_client
-
+        with patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn:
             mock_bm25 = MagicMock()
             mock_bm25.encode = MagicMock(return_value={})
+            mock_bm25.update_corpus = MagicMock()
             mock_bm25_fn.return_value = mock_bm25
+
+            mock_embedding_client.embed_batch = AsyncMock(return_value=[[0.1] * 10] * 2)
 
             # Buffer 2 turns (below threshold)
             for i in range(2):
@@ -229,15 +232,10 @@ class TestTurnRecording:
             assert len(service._buffer) == 0
 
     @pytest.mark.asyncio
-    async def test_embed_failure_doesnt_propagate(self, service, mock_repository):
+    async def test_embed_failure_doesnt_propagate(self, service, mock_repository, mock_embedding_client):
         """Embedding failures are caught and logged, never raised."""
-        with (
-            patch("app.infrastructure.external.embedding.client.get_embedding_client") as mock_embed_fn,
-            patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn,
-        ):
-            mock_client = AsyncMock()
-            mock_client.embed_batch = AsyncMock(side_effect=RuntimeError("Embedding API down"))
-            mock_embed_fn.return_value = mock_client
+        with patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn:
+            mock_embedding_client.embed_batch = AsyncMock(side_effect=RuntimeError("Embedding API down"))
 
             mock_bm25 = MagicMock()
             mock_bm25_fn.return_value = mock_bm25
@@ -470,14 +468,7 @@ class TestRetrieveContext:
             ),
         ]
 
-        with (
-            patch("app.infrastructure.external.embedding.client.get_embedding_client") as mock_embed_fn,
-            patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn,
-        ):
-            mock_client = AsyncMock()
-            mock_client.embed = AsyncMock(return_value=[0.1] * 10)
-            mock_embed_fn.return_value = mock_client
-
+        with patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder") as mock_bm25_fn:
             mock_bm25 = MagicMock()
             mock_bm25.encode = MagicMock(return_value={0: 0.5})
             mock_bm25_fn.return_value = mock_bm25

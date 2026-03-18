@@ -542,7 +542,7 @@ class AgentTaskRunner(TaskRunner):
             # Inject conversation context and memory services for cross-session recall
             conversation_context_service = None
             try:
-                from app.domain.services.conversation_context_service import get_conversation_context_service
+                from app.application.providers.conversation_context import get_conversation_context_service
 
                 conversation_context_service = get_conversation_context_service()
             except Exception:
