@@ -1707,11 +1707,16 @@ const tryOpenPlanningPanel = (): void => {
   }
 };
 
-/** Build planning scaffold from progress events for live-view overlay. */
+/** Build planning scaffold from progress events for live-view overlay.
+ *  Idle wait beacons (execution_wait, tool_wait, etc.) are ignored so the
+ *  screencast stays visible instead of being covered by "# Planning...". */
 const updatePlanProgressPresentation = (progressData: ProgressEventData): void => {
   if (planPresentationSource.value === 'stream' || planPresentationSource.value === 'final') {
     return;
   }
+
+  // Skip idle wait beacons — these are heartbeats, not planning phases
+  if (progressData.wait_stage) return;
 
   const phase = normalizePlanningPhase(progressData.phase);
   if (phase === 'received') return;
