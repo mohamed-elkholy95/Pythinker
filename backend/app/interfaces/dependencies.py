@@ -185,7 +185,9 @@ def get_memory_service() -> MemoryService | None:
         # Inject outbox repository for reliable sync (Phase 2)
         outbox_repo = None
         try:
-            from app.infrastructure.repositories.sync_outbox_repository import MongoSyncOutboxRepository as SyncOutboxRepository
+            from app.infrastructure.repositories.sync_outbox_repository import (
+                MongoSyncOutboxRepository as SyncOutboxRepository,
+            )
 
             outbox_repo = SyncOutboxRepository()
         except Exception as outbox_err:
