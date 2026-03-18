@@ -219,6 +219,7 @@ class PlanActFlow(BaseFlow):
         checkpoint_manager=None,
         cron_service=None,
         skill_loader=None,
+        skill_package_repo=None,
     ):
         self._feature_flags = feature_flags
         self._deal_finder = deal_finder
@@ -257,6 +258,9 @@ class PlanActFlow(BaseFlow):
 
         # WP-6: CheckpointManager for cross-restart workflow persistence
         self._checkpoint_manager = checkpoint_manager
+
+        # DDD-005: SkillPackageRepository injected from infrastructure layer
+        self._skill_package_repo = skill_package_repo
 
         # Phase 4: Track selected prompt variant so record_outcome() can close the bandit loop
         self._selected_prompt_variant_id: str | None = None
@@ -378,17 +382,10 @@ class PlanActFlow(BaseFlow):
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
         # Pending events queue for skill delivery events from tools
         self._pending_events: list[BaseEvent] = []
-        _skill_package_repo = None
-        try:
-            from app.infrastructure.repositories.mongo_skill_package_repository import MongoSkillPackageRepository
-
-            _skill_package_repo = MongoSkillPackageRepository()
-        except Exception as _spr_exc:
-            logger.warning("SkillPackageRepository unavailable: %s", _spr_exc)
         skill_tools = get_skill_creator_tools(
             user_id=user_id,
             emit_event=lambda e: self._pending_events.append(e),
-            skill_package_repo=_skill_package_repo,
+            skill_package_repo=self._skill_package_repo,
         )
         tools.extend(skill_tools)
         logger.debug(f"Added {len(skill_tools)} skill creator tools for Agent {agent_id}")
