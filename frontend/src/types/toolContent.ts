@@ -20,8 +20,14 @@ export interface SearchToolContent extends ToolContentBase {
   intent_tier?: string | null;
 }
 
+export interface ConsoleRecord {
+  ps1: string;
+  command: string;
+  output: string;
+}
+
 export interface ShellToolContent extends ToolContentBase {
-  console: unknown;
+  console: ConsoleRecord[] | string;
   stdout?: string;
   stderr?: string;
   exit_code?: number;
