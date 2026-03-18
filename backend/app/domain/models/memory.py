@@ -19,7 +19,7 @@ class MemoryConfig:
     auto_compact_token_threshold: int = 60000
     # Use token-based compaction instead of message count
     use_token_threshold: bool = True
-    compactable_functions: list[str] = None
+    compactable_functions: list[str] | None = None
     preserve_recent: int = 8
 
     # ── Graduated Compaction (Component 2) ────────────────────────────
