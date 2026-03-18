@@ -71,16 +71,9 @@ async def test_periodic_event_archival_logs_exception_type_for_empty_message(
             self.calls.append(labels or {})
 
     class _FakeRepo:
-        def __init__(self, db_client) -> None:
-            del db_client
-
         async def archive_events_before(self, cutoff):
             del cutoff
             raise EmptyMessageError()
-
-    class _FakeMongo:
-        def __init__(self) -> None:
-            self.client = {"test_db": object()}
 
     sleep_calls = {"count": 0}
 
@@ -93,8 +86,6 @@ async def test_periodic_event_archival_logs_exception_type_for_empty_message(
     metrics = _DummyMetrics()
     monkeypatch.setattr("app.core.prometheus_metrics.event_store_archival_runs", metrics)
     monkeypatch.setattr("app.infrastructure.repositories.event_store_repository.EventStoreRepository", _FakeRepo)
-    monkeypatch.setattr(lifespan_module, "get_mongodb", lambda: _FakeMongo())
-    monkeypatch.setattr(lifespan_module.settings, "mongodb_database", "test_db")
     monkeypatch.setattr(lifespan_module.settings, "mongodb_event_retention_days", 90)
     monkeypatch.setattr(lifespan_module.asyncio, "sleep", _fake_sleep)
 
