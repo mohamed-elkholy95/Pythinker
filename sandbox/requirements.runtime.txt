@@ -1,6 +1,7 @@
 # Security: override vulnerable vendored/system packages
 starlette>=0.48.1          # fixes DoS via Range header merging (alert #246)
-setuptools>=78.1.0         # fixes vendored jaraco.context>=6.1.0 CVE-2026-23949 (alert #243)
+setuptools>=78.1.0         # upgrades vendored packages (alert #243)
+jaraco.context>=6.1.0      # fixes CVE-2026-23949 path traversal in tarball extraction
 pip>=25.1                  # fixes symlink extraction + path traversal (alerts #209, #210, #244, #245)
 wheel>=0.46.2              # fixes privilege escalation via malicious wheel CVE-2026-24049 (alert #247)
 

@@ -334,13 +334,18 @@ class FileService:
         matches = []
         line_numbers = []
 
-        # Compile regular expression
+        # Compile regular expression with length guard to prevent ReDoS
+        max_regex_len = 1000
+        if len(regex) > max_regex_len:
+            raise BadRequestException(
+                f"Regular expression too long ({len(regex)} chars, max {max_regex_len})"
+            )
         try:
             pattern = re.compile(regex)
         except Exception as e:
             raise BadRequestException(f"Invalid regular expression: {str(e)}")
 
-        # Find matches (use async processing for possibly large files)
+        # Find matches with timeout to prevent ReDoS hangs
         def process_lines():
             nonlocal matches, line_numbers
             for i, line in enumerate(lines):
@@ -348,7 +353,12 @@ class FileService:
                     matches.append(line)
                     line_numbers.append(i)
 
-        await asyncio.to_thread(process_lines)
+        try:
+            await asyncio.wait_for(asyncio.to_thread(process_lines), timeout=30.0)
+        except asyncio.TimeoutError:
+            raise BadRequestException(
+                "Regex search timed out — pattern may be too complex"
+            )
 
         return FileSearchResult(file=file, matches=matches, line_numbers=line_numbers)
 
