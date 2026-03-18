@@ -2,7 +2,7 @@ name: Test and Lint
 
 on:
   push:
-    branches: [main]
+    branches: [main, main-dev]
     paths-ignore:
       - 'docs/**'
       - 'scripts/**'
@@ -12,7 +12,7 @@ on:
       - '.github/disabled-workflows/**'
       - '.github/workflows/copilot-setup-steps.yml'
   pull_request:
-    branches: [main]
+    branches: [main, main-dev]
     paths-ignore:
       - 'docs/**'
       - 'scripts/**'
