@@ -20,7 +20,7 @@ import warnings
 from functools import lru_cache
 from typing import ClassVar
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.config_auth import (
@@ -267,6 +267,18 @@ class Settings(
     def _generate_password_salt(self) -> str:
         """Generate a secure password salt."""
         return secrets.token_urlsafe(16)
+
+    # --- Pydantic model validators ---
+
+    @model_validator(mode="after")
+    def validate_jwt_secret_for_auth(self) -> "Settings":
+        """Refuse to start if auth is enabled but JWT secret is missing."""
+        if self.auth_provider != "none" and not self.jwt_secret_key:
+            raise ValueError(
+                "jwt_secret_key is required when auth_provider is not 'none'. "
+                "Set JWT_SECRET_KEY environment variable."
+            )
+        return self
 
     # --- Validation ---
 
