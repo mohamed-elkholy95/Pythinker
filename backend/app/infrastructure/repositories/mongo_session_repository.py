@@ -207,30 +207,33 @@ class MongoSessionRepository(SessionRepository):
     async def add_file(self, session_id: str, file_info: FileInfo) -> None:
         """Add a file to a session, avoiding duplicates by file_id or file_path.
 
-        Uses projection to load only the files array (not events) for the
-        duplicate check, reducing document transfer by ~90%.
+        Uses atomic conditional $push to avoid TOCTOU race conditions.
         """
         collection = SessionDocument.get_pymongo_collection()
-        doc = await collection.find_one(
-            {"session_id": session_id},
-            projection={"files": 1},
-        )
-        if not doc:
-            raise SessionNotFoundException(session_id)
+        file_data = file_info.model_dump()
 
-        # Check for existing file by file_id or file_path
-        for existing_file in doc.get("files") or []:
-            if file_info.file_id and existing_file.get("file_id") == file_info.file_id:
-                return  # File already exists by file_id, skip
-            if file_info.file_path and existing_file.get("file_path") == file_info.file_path:
-                return  # File already exists by file_path, skip
+        # Build duplicate-exclusion filter: session must exist AND file must not already be present
+        match_filter: dict = {"session_id": session_id}
+        not_conditions = []
+        if file_info.file_id:
+            not_conditions.append({"files.file_id": {"$ne": file_info.file_id}})
+        if file_info.file_path:
+            not_conditions.append({"files.file_path": {"$ne": file_info.file_path}})
+        if not_conditions:
+            match_filter["$and"] = not_conditions
 
-        # Add file if not already present
-        result = await SessionDocument.find_one(SessionDocument.session_id == session_id).update(
-            {"$push": {"files": file_info.model_dump()}, "$set": {"updated_at": datetime.now(UTC)}}
+        # Atomic conditional push — only adds if no duplicate found
+        result = await collection.update_one(
+            match_filter,
+            {"$push": {"files": file_data}, "$set": {"updated_at": datetime.now(UTC)}},
         )
-        if not result:
-            raise SessionNotFoundException(session_id)
+
+        if result.matched_count == 0:
+            # Either session doesn't exist or file already present — check which
+            exists = await collection.count_documents({"session_id": session_id}, limit=1)
+            if not exists:
+                raise SessionNotFoundException(session_id)
+            # else: file already exists, silently skip (same behavior as before)
 
     async def remove_file(self, session_id: str, file_id: str) -> None:
         """Remove a file from a session"""
