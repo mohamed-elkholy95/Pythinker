@@ -7,6 +7,7 @@ from sandbox containers. Authenticated via X-Sandbox-Callback-Token header.
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -49,7 +50,7 @@ async def verify_sandbox_callback_token(
     """Validate the sandbox callback token."""
     settings = get_settings()
     expected = settings.sandbox_callback_token
-    if not expected or x_sandbox_callback_token != expected:
+    if not expected or not secrets.compare_digest(x_sandbox_callback_token, expected):
         raise HTTPException(status_code=401, detail="Invalid sandbox callback token")
     return x_sandbox_callback_token
 
