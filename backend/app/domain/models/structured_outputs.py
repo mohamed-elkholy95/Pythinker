@@ -213,50 +213,6 @@ class ToolCallOutput(BaseModel):
         return v
 
 
-class ReflectionOutput(BaseModel):
-    """Structured output for reflection/self-assessment.
-
-    Used by ReflectionAgent for type-safe decisions.
-    """
-
-    decision: str = Field(..., description="Decision: continue, adjust, replan, escalate, abort")
-    reasoning: str = Field(..., description="Reasoning for the decision")
-    adjustments: list[str] = Field(default_factory=list, description="Suggested adjustments")
-    confidence: float = Field(default=0.7, ge=0.0, le=1.0, description="Confidence in decision")
-
-    @field_validator("decision")
-    @classmethod
-    def validate_decision(cls, v):
-        """Validate decision is one of allowed values."""
-        allowed = {"continue", "adjust", "replan", "escalate", "abort"}
-        v = v.lower().strip()
-        if v not in allowed:
-            raise ValueError(f"Decision must be one of: {allowed}")
-        return v
-
-
-class VerificationOutput(BaseModel):
-    """Structured output for plan verification.
-
-    Used by VerifierAgent for type-safe verdicts.
-    """
-
-    verdict: str = Field(..., description="Verdict: pass, revise, fail")
-    feedback: str | None = Field(default=None, description="Feedback for improvement")
-    issues: list[str] = Field(default_factory=list, description="Specific issues found")
-    score: float = Field(default=0.5, ge=0.0, le=1.0, description="Quality score")
-
-    @field_validator("verdict")
-    @classmethod
-    def validate_verdict(cls, v):
-        """Validate verdict is one of allowed values."""
-        allowed = {"pass", "revise", "fail"}
-        v = v.lower().strip()
-        if v not in allowed:
-            raise ValueError(f"Verdict must be one of: {allowed}")
-        return v
-
-
 class ErrorAnalysisOutput(BaseModel):
     """Structured output for error analysis."""
 
@@ -384,13 +340,11 @@ __all__ = [
     "ErrorAnalysisOutput",
     "PlanOutput",
     "PlanUpdateOutput",
-    "ReflectionOutput",
     "SourceType",
     "StepDescription",
     "SummaryOutput",
     "ToolCallOutput",
     "ValidationResult",
-    "VerificationOutput",
     "build_validation_feedback",
     "validate_llm_output",
 ]

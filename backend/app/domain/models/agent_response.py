@@ -189,53 +189,6 @@ class SimpleVerificationResponse(BaseModel):
     summary: str = Field(description="Brief reason for the verdict")
 
 
-# ============================================================================
-# Reflection Schemas (Phase 2: Enhanced Self-Reflection)
-# ============================================================================
-
-
-class ReflectionDecision(str, Enum):
-    """Possible decisions from reflection."""
-
-    CONTINUE = "continue"  # Proceed as planned
-    ADJUST_STRATEGY = "adjust"  # Minor tactical change
-    REPLAN = "replan"  # Major replanning needed
-    ESCALATE = "escalate"  # Need user input
-    ABORT = "abort"  # Cannot complete
-
-
-class ProgressMetrics(BaseModel):
-    """Metrics about current execution progress."""
-
-    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
-
-    steps_completed: int = Field(description="Number of completed steps")
-    steps_remaining: int = Field(description="Number of remaining steps")
-    success_rate: float = Field(ge=0.0, le=1.0, description="Success rate of completed steps")
-    estimated_progress: float = Field(ge=0.0, le=1.0, description="Estimated overall progress (0.0-1.0)")
-    error_count: int = Field(default=0, description="Number of errors encountered")
-
-
-class ReflectionResponse(BaseModel):
-    """Response schema for reflection during execution.
-
-    Used by ReflectionAgent to assess progress and determine next actions.
-    """
-
-    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
-
-    decision: ReflectionDecision = Field(description="Reflection decision")
-    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the decision")
-    progress_assessment: str = Field(description="Assessment of current progress toward goal")
-    issues_identified: list[str] = Field(default_factory=list, description="Issues identified during reflection")
-    strategy_adjustment: str | None = Field(
-        default=None, description="Suggested strategy adjustment (if decision is 'adjust')"
-    )
-    replan_reason: str | None = Field(default=None, description="Reason for replanning (if decision is 'replan')")
-    user_question: str | None = Field(default=None, description="Question for user (if decision is 'escalate')")
-    summary: str = Field(description="Brief summary of reflection")
-
-
 # Schema registry for easy lookup
 RESPONSE_SCHEMAS = {
     "plan": PlanResponse,
@@ -245,7 +198,6 @@ RESPONSE_SCHEMAS = {
     "discuss": DiscussResponse,
     "verification": VerificationResponse,
     "simple_verification": SimpleVerificationResponse,
-    "reflection": ReflectionResponse,
 }
 
 

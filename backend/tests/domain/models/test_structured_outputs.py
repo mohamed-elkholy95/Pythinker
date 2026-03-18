@@ -14,13 +14,11 @@ from app.domain.models.structured_outputs import (
     ErrorAnalysisOutput,
     PlanOutput,
     PlanUpdateOutput,
-    ReflectionOutput,
     SourceType,
     StepDescription,
     SummaryOutput,
     ToolCallOutput,
     ValidationResult,
-    VerificationOutput,
     build_validation_feedback,
     validate_llm_output,
 )
@@ -281,73 +279,6 @@ class TestPlanOutput:
         assert len(parsed["steps"]) == 1
 
 
-class TestReflectionOutput:
-    """Tests for ReflectionOutput model."""
-
-    def test_continue_decision(self):
-        """Test continue decision."""
-        reflection = ReflectionOutput(
-            decision="continue",
-            reasoning="Making good progress",
-        )
-        assert reflection.decision == "continue"
-
-    def test_adjust_decision(self):
-        """Test adjust decision."""
-        reflection = ReflectionOutput(
-            decision="adjust",
-            reasoning="Need to change approach",
-            adjustments=["Use different tool", "Retry with new parameters"],
-        )
-        assert reflection.decision == "adjust"
-        assert len(reflection.adjustments) == 2
-
-    def test_invalid_decision(self):
-        """Test invalid decision validation."""
-        with pytest.raises(ValidationError):
-            ReflectionOutput(
-                decision="invalid_decision",
-                reasoning="Test",
-            )
-
-    def test_decision_case_insensitive(self):
-        """Test decision validation is case insensitive."""
-        reflection = ReflectionOutput(
-            decision="CONTINUE",
-            reasoning="Test",
-        )
-        assert reflection.decision == "continue"
-
-
-class TestVerificationOutput:
-    """Tests for VerificationOutput model."""
-
-    def test_pass_verdict(self):
-        """Test pass verdict."""
-        verification = VerificationOutput(
-            verdict="pass",
-            score=0.9,
-        )
-        assert verification.verdict == "pass"
-        assert verification.score == 0.9
-
-    def test_revise_verdict(self):
-        """Test revise verdict with feedback."""
-        verification = VerificationOutput(
-            verdict="revise",
-            feedback="Missing error handling",
-            issues=["No try/catch", "No validation"],
-            score=0.5,
-        )
-        assert verification.verdict == "revise"
-        assert len(verification.issues) == 2
-
-    def test_invalid_verdict(self):
-        """Test invalid verdict validation."""
-        with pytest.raises(ValidationError):
-            VerificationOutput(verdict="maybe")
-
-
 class TestToolCallOutput:
     """Tests for ToolCallOutput model."""
 
@@ -450,12 +381,12 @@ class TestValidateLlmOutput:
         """Test warning for low confidence score."""
         json_content = json.dumps(
             {
-                "decision": "continue",
-                "reasoning": "Test reasoning",
+                "error_type": "timeout",
+                "root_cause": "Slow API",
                 "confidence": 0.2,
             }
         )
-        _result, validation = validate_llm_output(json_content, ReflectionOutput)
+        _result, validation = validate_llm_output(json_content, ErrorAnalysisOutput)
         assert validation.is_valid is True
         assert any("confidence" in w.lower() for w in validation.warnings)
 
