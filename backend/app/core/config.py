@@ -275,8 +275,7 @@ class Settings(
         """Refuse to start if auth is enabled but JWT secret is missing."""
         if self.auth_provider != "none" and not self.jwt_secret_key:
             raise ValueError(
-                "jwt_secret_key is required when auth_provider is not 'none'. "
-                "Set JWT_SECRET_KEY environment variable."
+                "jwt_secret_key is required when auth_provider is not 'none'. Set JWT_SECRET_KEY environment variable."
             )
         return self
 

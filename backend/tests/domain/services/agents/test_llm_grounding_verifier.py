@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.application.providers.grounding_verifier import get_llm_grounding_verifier
 from app.domain.services.agents.llm_grounding_verifier import (
     FlaggedClaim,
     LLMGroundingVerifier,
     VerificationResult,
-    get_llm_grounding_verifier,
 )
 
 
@@ -195,7 +195,7 @@ class TestLLMGroundingVerifier:
 
 class TestSingleton:
     def test_get_llm_grounding_verifier_returns_instance(self):
-        import app.domain.services.agents.llm_grounding_verifier as mod
+        import app.application.providers.grounding_verifier as mod
 
         # Reset singleton
         mod._instance = None

@@ -464,7 +464,7 @@ class OutputVerifier:
         # Try LLM grounding verification (primary: claim-level fact checking)
         if self._hallucination_verification_enabled and flags.get("hallucination_verification", True):
             try:
-                from app.domain.services.agents.llm_grounding_verifier import get_llm_grounding_verifier
+                from app.application.providers.grounding_verifier import get_llm_grounding_verifier
 
                 verifier = get_llm_grounding_verifier()
 

@@ -1,7 +1,7 @@
 """Contract tests for liveness-based reconnect logic in AgentDomainService.chat().
 
 Verifies the three reconnect paths:
-1. get_liveness returns task_id → RedisStreamQueue polls task:output:<id>
+1. get_live_task_id returns task_id → relay polls task output
 2. No liveness + recent session (<180s) → ProgressEvent + 15s bounded poll
 3. No liveness + stale session (>=180s) → ErrorEvent + CANCELLED
 """
@@ -15,8 +15,6 @@ from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, Progre
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agent_domain_service import AgentDomainService
 
-_LIVENESS_PATCH = "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness"
-_QUEUE_PATCH = "app.domain.services.agent_domain_service.RedisStreamQueue"
 _LOOP_TIME_PATCH = "app.domain.services.agent_domain_service.asyncio.get_event_loop"
 _SLEEP_PATCH = "asyncio.sleep"
 
@@ -34,7 +32,7 @@ def _fast_loop_time():
     return _get_loop
 
 
-def _build_service(session: Session) -> tuple[AgentDomainService, AsyncMock]:
+def _build_service(session: Session, *, relay: AsyncMock | None = None) -> tuple[AgentDomainService, AsyncMock]:
     """Build an AgentDomainService with mocked dependencies and no active task."""
     session_repo = AsyncMock()
     session_repo.find_by_id_and_user_id = AsyncMock(return_value=session)
@@ -59,6 +57,7 @@ def _build_service(session: Session) -> tuple[AgentDomainService, AsyncMock]:
         file_storage=AsyncMock(),
         mcp_repository=AsyncMock(),
         search_engine=AsyncMock(),
+        task_output_relay=relay,
     )
     teardown = AsyncMock()
     service._teardown_session_runtime = teardown
@@ -80,59 +79,50 @@ def _running_session(*, updated_seconds_ago: float = 0) -> Session:
 
 
 # -------------------------------------------------------------------
-# Path 1: Liveness key exists → poll RedisStreamQueue(task:output:<id>)
+# Path 1: Liveness key exists → relay polls task output
 # -------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch(_QUEUE_PATCH)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock)
 async def test_liveness_found_constructs_correct_stream(
-    mock_liveness: AsyncMock,
     mock_loop: MagicMock,
-    mock_queue_cls: MagicMock,
 ) -> None:
-    """When get_liveness returns a task_id, RedisStreamQueue is constructed
-    with 'task:output:<task_id>' and polled for events."""
-    mock_liveness.return_value = "live-task-42"
+    """When get_live_task_id returns a task_id, the relay is called with the
+    correct task_id and polled for events."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value="live-task-42")
 
-    # Simulate stream returning a DoneEvent on first poll
     done_json = DoneEvent().model_dump_json()
-    mock_stream = AsyncMock()
-    mock_stream.get = AsyncMock(return_value=("1-0", done_json))
-    mock_queue_cls.return_value = mock_stream
+    relay.get_task_output = AsyncMock(return_value=("1-0", done_json))
 
     session = _running_session()
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
-    # Verify correct stream name
-    mock_queue_cls.assert_called_with("task:output:live-task-42")
+    # Verify relay was called with correct task_id
+    relay.get_task_output.assert_called()
+    call_kwargs = relay.get_task_output.call_args
+    assert call_kwargs.kwargs.get("task_id") == "live-task-42" or call_kwargs.args[0] == "live-task-42"
     # Verify DoneEvent was yielded
     assert any(isinstance(e, DoneEvent) for e in events)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
 @pytest.mark.asyncio
-@patch(_QUEUE_PATCH)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock)
 async def test_liveness_found_error_event_marks_failed(
-    mock_liveness: AsyncMock,
     mock_loop: MagicMock,
-    mock_queue_cls: MagicMock,
 ) -> None:
     """When the live stream yields an ErrorEvent, terminal_status is FAILED."""
-    mock_liveness.return_value = "live-task-err"
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value="live-task-err")
 
     error_json = ErrorEvent(error="something broke").model_dump_json()
-    mock_stream = AsyncMock()
-    mock_stream.get = AsyncMock(return_value=("1-0", error_json))
-    mock_queue_cls.return_value = mock_stream
+    relay.get_task_output = AsyncMock(return_value=("1-0", error_json))
 
     session = _running_session()
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert any(isinstance(e, ErrorEvent) for e in events)
@@ -140,26 +130,20 @@ async def test_liveness_found_error_event_marks_failed(
 
 
 @pytest.mark.asyncio
-@patch(_QUEUE_PATCH)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock)
 async def test_liveness_expires_mid_poll_emits_done(
-    mock_liveness: AsyncMock,
     mock_loop: MagicMock,
-    mock_queue_cls: MagicMock,
 ) -> None:
-    """When the liveness key expires during polling (no events, get_liveness returns None),
+    """When the liveness key expires during polling (no events, get_live_task_id returns None),
     a DoneEvent is emitted and terminal_status is COMPLETED."""
+    relay = AsyncMock()
     # First call: liveness exists; subsequent calls (re-check): gone
-    mock_liveness.side_effect = ["live-task-exp", None]
-
-    mock_stream = AsyncMock()
+    relay.get_live_task_id = AsyncMock(side_effect=["live-task-exp", None])
     # No event data (empty poll)
-    mock_stream.get = AsyncMock(return_value=(None, None))
-    mock_queue_cls.return_value = mock_stream
+    relay.get_task_output = AsyncMock(return_value=(None, None))
 
     session = _running_session()
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert any(isinstance(e, DoneEvent) for e in events)
@@ -174,16 +158,17 @@ async def test_liveness_expires_mid_poll_emits_done(
 @pytest.mark.asyncio
 @patch(_SLEEP_PATCH, new_callable=AsyncMock)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
 async def test_no_liveness_recent_session_emits_progress_then_done(
-    mock_liveness: AsyncMock,
     mock_loop: MagicMock,
     mock_sleep: AsyncMock,
 ) -> None:
     """When no liveness key and session <180s, first event should be ProgressEvent
     (EXECUTING_SETUP) and last event should be DoneEvent after bounded polling."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     session = _running_session(updated_seconds_ago=10)
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 2
@@ -194,34 +179,31 @@ async def test_no_liveness_recent_session_emits_progress_then_done(
 
 
 @pytest.mark.asyncio
-@patch(_QUEUE_PATCH)
 @patch(_SLEEP_PATCH, new_callable=AsyncMock)
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock)
 async def test_no_liveness_then_late_liveness_switches_to_stream(
-    mock_liveness: AsyncMock,
     mock_loop: MagicMock,
     mock_sleep: AsyncMock,
-    mock_queue_cls: MagicMock,
 ) -> None:
     """When no liveness initially but appears during bounded polling,
     the code switches to stream polling."""
-    # First call (initial check) returns None, second call (bounded poll) returns task_id
-    mock_liveness.side_effect = [None, "late-task-99", None]
+    relay = AsyncMock()
+    # First call (initial check) returns None, second call (bounded poll) returns task_id, third: gone
+    relay.get_live_task_id = AsyncMock(side_effect=[None, "late-task-99", None])
 
     done_json = DoneEvent().model_dump_json()
-    mock_stream = AsyncMock()
-    mock_stream.get = AsyncMock(return_value=("1-0", done_json))
-    mock_queue_cls.return_value = mock_stream
+    relay.get_task_output = AsyncMock(return_value=("1-0", done_json))
 
     session = _running_session(updated_seconds_ago=5)
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     # First event: ProgressEvent from bounded polling entry
     assert isinstance(events[0], ProgressEvent)
-    # Stream constructed with late task ID
-    mock_queue_cls.assert_called_with("task:output:late-task-99")
+    # Relay was called with late task ID
+    relay.get_task_output.assert_called()
+    call_kwargs = relay.get_task_output.call_args
+    assert call_kwargs.kwargs.get("task_id") == "late-task-99" or call_kwargs.args[0] == "late-task-99"
     # DoneEvent from stream
     assert any(isinstance(e, DoneEvent) for e in events)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
@@ -233,13 +215,13 @@ async def test_no_liveness_then_late_liveness_switches_to_stream(
 
 
 @pytest.mark.asyncio
-@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
-async def test_no_liveness_stale_session_emits_error_cancelled(
-    mock_liveness: AsyncMock,
-) -> None:
+async def test_no_liveness_stale_session_emits_error_cancelled() -> None:
     """Stale orphan (>180s, no liveness) should emit ErrorEvent and cancel."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+
     session = _running_session(updated_seconds_ago=300)
-    service, teardown = _build_service(session)
+    service, teardown = _build_service(session, relay=relay)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
     assert len(events) == 1

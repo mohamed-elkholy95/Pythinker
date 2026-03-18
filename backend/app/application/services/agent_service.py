@@ -83,6 +83,9 @@ class AgentService:
         self._agent_repository = agent_repository
         self._session_repository = session_repository
         self._file_storage = file_storage
+        # Lazy import to keep application layer as the bridge between domain and infra
+        from app.infrastructure.external.task.redis_task_output_relay import RedisTaskOutputRelay
+
         self._agent_domain_service = AgentDomainService(
             self._agent_repository,
             self._session_repository,
@@ -96,6 +99,7 @@ class AgentService:
             memory_service,
             mongodb_db,
             usage_recorder=self._record_usage,
+            task_output_relay=RedisTaskOutputRelay(),
         )
         self._session_lifecycle_service = SessionLifecycleService(
             self._session_repository,
