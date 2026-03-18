@@ -7,7 +7,7 @@ from app.application.errors.exceptions import BadRequestError, NotFoundError, Un
 from app.application.services.auth_service import AuthService
 from app.application.services.email_service import EmailService, VerificationResult
 from app.core.config import get_settings
-from app.domain.models.user import User
+from app.domain.models.user import User, UserRole
 from app.interfaces.dependencies import (
     get_auth_service,
     get_current_user,
@@ -229,7 +229,7 @@ async def get_user(
 ) -> APIResponse[UserResponse]:
     """Get user information by ID (admin only)"""
     # Check if current user is admin
-    if current_user.role != "admin":
+    if current_user.role != UserRole.ADMIN:
         raise UnauthorizedError("Admin access required")
 
     user = await auth_service.get_user_by_id(user_id)
@@ -246,7 +246,7 @@ async def deactivate_user(
 ) -> APIResponse[dict]:
     """Deactivate user account (admin only)"""
     # Check if current user is admin
-    if current_user.role != "admin":
+    if current_user.role != UserRole.ADMIN:
         raise UnauthorizedError("Admin access required")
 
     # Prevent self-deactivation
@@ -263,7 +263,7 @@ async def activate_user(
 ) -> APIResponse[dict]:
     """Activate user account (admin only)"""
     # Check if current user is admin
-    if current_user.role != "admin":
+    if current_user.role != UserRole.ADMIN:
         raise UnauthorizedError("Admin access required")
 
     await auth_service.activate_user(user_id)
