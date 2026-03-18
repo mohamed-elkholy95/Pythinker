@@ -141,6 +141,9 @@ class Settings(BaseSettings):
                 "SUPERVISOR_RPC_PASSWORD not set — generated random password. "
                 "Set SUPERVISOR_RPC_PASSWORD environment variable to use a fixed password."
             )
+        else:
+            # Password set via .env file but not in os.environ — sync it
+            os.environ["SUPERVISOR_RPC_PASSWORD"] = self.SUPERVISOR_RPC_PASSWORD
         return self
 
     class Config:
