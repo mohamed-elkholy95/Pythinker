@@ -457,6 +457,31 @@ sandbox_runtime_crashes_total = Counter(
     labels=[],
 )
 
+# Sandbox Lifecycle Metrics (OBS-001)
+sandbox_created_total = Counter(
+    name="pythinker_sandbox_created_total",
+    help_text="Sandbox containers created",
+    labels=["session_id"],
+)
+
+sandbox_destroyed_total = Counter(
+    name="pythinker_sandbox_destroyed_total",
+    help_text="Sandbox containers destroyed",
+    labels=[],
+)
+
+sandbox_recovery_attempts_total = Counter(
+    name="pythinker_sandbox_recovery_attempts_total",
+    help_text="Sandbox recovery attempts",
+    labels=["method"],
+)
+
+sandbox_health_failures_total = Counter(
+    name="pythinker_sandbox_health_failures_total",
+    help_text="Sandbox health check failures",
+    labels=[],
+)
+
 # Agent Robustness Metrics (2026-02-13 plan)
 entity_drift_detected_total = Counter(
     name="pythinker_entity_drift_detected_total",
@@ -1396,6 +1421,11 @@ _metrics_registry.extend(
         # Admin Authorization Security
         admin_unauthorized_access_total,
         metrics_auth_failure_total,
+        # Sandbox Lifecycle (OBS-001)
+        sandbox_created_total,
+        sandbox_destroyed_total,
+        sandbox_recovery_attempts_total,
+        sandbox_health_failures_total,
     ]
 )
 
