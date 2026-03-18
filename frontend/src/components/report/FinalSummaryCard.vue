@@ -1,13 +1,18 @@
 <template>
   <div class="final-summary-card" data-testid="final-summary-card">
-    <div class="final-summary-content markdown-content" v-html="htmlContent" />
+    <div class="final-summary-content markdown-content" v-html="safeHtml" />
   </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+import { sanitizeHtml } from '@/utils/sanitize'
+
+const props = defineProps<{
   htmlContent: string;
 }>();
+
+const safeHtml = computed(() => sanitizeHtml(props.htmlContent))
 </script>
 
 <style scoped>
