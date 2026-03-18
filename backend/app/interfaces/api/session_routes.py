@@ -353,7 +353,7 @@ def _build_safe_pdf_filename(title: str) -> str:
     return f"{normalized[:80]}.pdf"
 
 
-@router.put("", response_model=APIResponse[CreateSessionResponse])
+@router.put("", response_model=APIResponse[CreateSessionResponse], status_code=201)
 async def create_session(
     http_request: Request,
     request: CreateSessionRequest = CreateSessionRequest(),
