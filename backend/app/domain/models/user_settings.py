@@ -38,7 +38,7 @@ def _normalize_provider_chain_value(raw: Any) -> list[str]:
     for provider in parsed:
         if provider in ALLOWED_SEARCH_PROVIDERS and provider not in unique:
             unique.append(provider)
-    return unique if unique else list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+    return unique or list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
 class UserSettings(BaseModel):
