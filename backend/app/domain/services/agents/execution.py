@@ -102,6 +102,7 @@ def _warn_if_null_metrics() -> None:
 
 if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
+    from app.domain.services.agents.agent_context import AgentServiceContext
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 
@@ -173,6 +174,7 @@ class ExecutionAgent(BaseAgent):
         cancel_token: CancellationToken | None = None,
         tool_result_store=None,
         config: DomainConfig | None = None,
+        service_context: AgentServiceContext | None = None,
     ):
         self._config = config
         super().__init__(
@@ -185,6 +187,7 @@ class ExecutionAgent(BaseAgent):
             feature_flags=feature_flags,
             cancel_token=cancel_token,
             tool_result_store=tool_result_store,
+            service_context=service_context,
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()

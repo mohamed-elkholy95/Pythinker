@@ -3,7 +3,7 @@ import { getCurrentInstance, onUnmounted, watch, type Ref } from 'vue'
 import type { SSECallbacks, SSECloseInfo, SSEGapInfo } from '@/api/client'
 import type { AgentSSEEvent } from '@/types/event'
 
-import type { ResponsePhase } from './useResponsePhase'
+import type { ResponsePhase } from '@/stores/connectionStore'
 
 export type TransportScope = 'transport' | 'transport_retry'
 

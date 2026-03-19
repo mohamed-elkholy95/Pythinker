@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getStoredToken, getCachedAuthProvider } from '../api/auth'
 
 // Route-level lazy loading keeps the bootstrap bundle small.
 const LandingPage = () => import('../pages/LandingPage.vue')
@@ -109,4 +110,22 @@ export const router = createRouter({
       component: NotFoundPage,
     },
   ],
+})
+
+// ── Auth guard ────────────────────────────────────────────────────
+// Redirects unauthenticated users to /login for routes with
+// meta.requiresAuth. Skips the check when auth provider is 'none'
+// (open-access deployment).
+router.beforeEach(async (to) => {
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
+  if (!requiresAuth) return
+
+  // When the backend is configured with no auth, allow all routes
+  const authProvider = await getCachedAuthProvider()
+  if (authProvider === 'none') return
+
+  const token = getStoredToken()
+  if (!token) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
 })

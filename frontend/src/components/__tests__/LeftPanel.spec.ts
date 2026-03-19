@@ -47,7 +47,7 @@ vi.mock('vue-router', async () => {
   }
 })
 
-vi.mock('../composables/useLeftPanel', () => ({
+vi.mock('../../composables/useLeftPanel', () => ({
   useLeftPanel: () => ({
     isLeftPanelShow: { value: true },
     toggleLeftPanel: vi.fn(),

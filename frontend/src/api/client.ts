@@ -5,6 +5,7 @@ import { router } from '@/router';
 import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } from './auth';
 import { getSseDiagnosticsHeaderValue, logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { getSseCircuitBreaker } from '@/composables/useCircuitBreaker';
+import { tokenExpiresIn } from '@/utils/jwt';
 
 // API configuration
 export const API_CONFIG = {
@@ -45,22 +46,6 @@ export const apiClient = axios.create({
     Pragma: 'no-cache',
   },
 });
-
-/**
- * Parse JWT expiry. Returns seconds remaining, or 0 if expired/invalid.
- */
-function tokenExpiresIn(token: string): number {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return 0;
-    const payload = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(atob(payload)) as { exp?: number };
-    if (typeof decoded.exp !== 'number') return 0;
-    return Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
-  } catch {
-    return 0;
-  }
-}
 
 // Track if we're currently refreshing token to prevent multiple concurrent requests
 let isRefreshing = false;
@@ -596,7 +581,7 @@ const handleSSEAuthError = async <T = unknown>(
     if (newAccessToken) {
       // Emit event for token refresh success
       window.dispatchEvent(new CustomEvent('auth:token-refreshed'));
-      console.log('Token refreshed for SSE connection, will retry connection');
+      if (import.meta.env.DEV) console.log('Token refreshed for SSE connection, will retry connection');
       return true; // Indicate successful refresh
     }
     return false; // No new token obtained

@@ -147,6 +147,10 @@ function formatResource(argKey: string, args?: Record<string, unknown>): string 
     return formatUrl(value, 70);
   }
 
+  if (argKey === 'skill_name') {
+    return `"${truncate(value, 66)}"`;
+  }
+
   if (argKey === 'command' || argKey === 'code' || argKey === 'input') {
     return truncate(value, 70);
   }

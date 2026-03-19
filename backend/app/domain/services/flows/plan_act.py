@@ -460,6 +460,18 @@ class PlanActFlow(BaseFlow):
             tools.append(scratchpad_tool)
             logger.info("Scratchpad enabled for session %s", session_id)
 
+        # Create session-scoped service context with middleware pipeline
+        from app.domain.services.agents.agent_context_factory import AgentContextFactory
+
+        _context_factory = AgentContextFactory()
+        _service_context = _context_factory.create(
+            agent_id=self._agent_id,
+            session_id=session_id,
+            tools=tools,
+            research_mode=self._research_mode,
+            feature_flags=feature_flags,
+        )
+
         # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
@@ -474,6 +486,7 @@ class PlanActFlow(BaseFlow):
             cancel_token=self._cancel_token,
             search_engine=self._search_engine,
             tool_result_store=tool_result_store,
+            service_context=_service_context,
         )
         if scratchpad:
             self.planner._scratchpad = scratchpad
@@ -490,10 +503,14 @@ class PlanActFlow(BaseFlow):
             feature_flags=feature_flags,
             cancel_token=self._cancel_token,
             tool_result_store=tool_result_store,
+            service_context=_service_context,
         )
         if scratchpad:
             self.executor._scratchpad = scratchpad
-        # Relax efficiency monitor thresholds for research modes
+        # Relax efficiency monitor thresholds for research modes.
+        # NOTE: AgentContextFactory now also passes research_mode to EfficiencyMonitorMiddleware,
+        # but the executor still uses _efficiency_monitor directly in inline tool execution code.
+        # This block will be removed when Phase 4 completes the full middleware migration.
         if self._research_mode in ("deep_research", "wide_research"):
             from app.domain.services.agents.tool_efficiency_monitor import ToolEfficiencyMonitor
 

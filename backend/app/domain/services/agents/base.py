@@ -1645,475 +1645,496 @@ class BaseAgent:
         await self._pipeline.run_before_execution(_mw_ctx)
         wall_clock_exceeded = False
 
-        while iteration_spent < iteration_budget:
-            if not message.get("tool_calls"):
-                break
+        try:
+            while iteration_spent < iteration_budget:
+                if not message.get("tool_calls"):
+                    break
 
-            tool_calls = message["tool_calls"]
-            tool_responses = []
-            wall_clock_pressure_active: str | None = None
+                tool_calls = message["tool_calls"]
+                tool_responses = []
+                wall_clock_pressure_active: str | None = None
 
-            # ── Middleware before_step (hallucination guard + wall clock pressure) ──
-            _mw_ctx.elapsed_seconds = time.monotonic() - _mw_ctx.step_start_time
-            _mw_ctx.iteration_count = int(iteration_spent)
-            _mw_ctx.step_iteration_count = step_iteration_count
+                # ── Middleware before_step (hallucination guard + wall clock pressure) ──
+                _mw_ctx.elapsed_seconds = time.monotonic() - _mw_ctx.step_start_time
+                _mw_ctx.iteration_count = int(iteration_spent)
+                _mw_ctx.step_iteration_count = step_iteration_count
 
-            _step_mw = await self._pipeline.run_before_step(_mw_ctx)
-            if _step_mw.signal == _MwSig.FORCE:
-                logger.warning("Middleware before_step FORCE: %s", _step_mw.message)
-                self._stuck_recovery_exhausted = True
-                break
-            if _step_mw.signal == _MwSig.INJECT:
-                logger.info("Middleware before_step INJECT: %s", _step_mw.message)
-                message = await self.ask_with_messages([{"role": "user", "content": _step_mw.message}])
-                graceful_completion_requested = True
-                wall_clock_pressure_active = _step_mw.metadata.get("pressure_level")
-                continue
+                _step_mw = await self._pipeline.run_before_step(_mw_ctx)
+                if _step_mw.signal == _MwSig.FORCE:
+                    logger.warning("Middleware before_step FORCE: %s", _step_mw.message)
+                    self._stuck_recovery_exhausted = True
+                    break
+                if _step_mw.signal == _MwSig.INJECT:
+                    logger.info("Middleware before_step INJECT: %s", _step_mw.message)
+                    message = await self.ask_with_messages([{"role": "user", "content": _step_mw.message}])
+                    graceful_completion_requested = True
+                    wall_clock_pressure_active = _step_mw.metadata.get("pressure_level")
+                    continue
 
-            # Inject any advisory messages from middleware context
-            for _inj in _mw_ctx.injected_messages:
-                await self._add_to_memory([_inj])
-            _mw_ctx.injected_messages.clear()
+                # Inject any advisory messages from middleware context
+                for _inj in _mw_ctx.injected_messages:
+                    await self._add_to_memory([_inj])
+                _mw_ctx.injected_messages.clear()
 
-            # Calculate iteration cost for this cycle
-            iteration_cost = self._calculate_iteration_cost(tool_calls)
-            iteration_spent += iteration_cost
-            step_iteration_count += 1
+                # Calculate iteration cost for this cycle
+                iteration_cost = self._calculate_iteration_cost(tool_calls)
+                iteration_spent += iteration_cost
+                step_iteration_count += 1
 
-            # Check per-step iteration budget
-            if step_iteration_count >= self.max_step_iterations:
-                logger.warning(
-                    f"Step iteration budget exhausted ({step_iteration_count}/{self.max_step_iterations}). "
-                    "Setting stuck_recovery_exhausted flag."
-                )
-                self._stuck_recovery_exhausted = True
-                break
-
-            # Hard wall-clock limit check (distinct from graduated pressure)
-            if _mw_ctx.wall_clock_budget > 0 and _mw_ctx.elapsed_seconds > _mw_ctx.wall_clock_budget:
-                logger.warning(
-                    "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
-                    _mw_ctx.elapsed_seconds,
-                    _mw_ctx.wall_clock_budget,
-                )
-                wall_clock_exceeded = True
-                self._stuck_recovery_exhausted = True
-                break
-
-            # Check if we're approaching the limit
-            remaining_budget = iteration_budget - iteration_spent
-            budget_ratio = iteration_spent / iteration_budget
-
-            # Emit warning at threshold
-            if budget_ratio >= self.iteration_warning_threshold and not warning_emitted:
-                logger.warning(
-                    f"Approaching iteration limit: {iteration_spent:.1f}/{iteration_budget} "
-                    f"({budget_ratio * 100:.0f}% used)"
-                )
-                warning_emitted = True
-
-            # Request graceful completion when near limit
-            if remaining_budget < 10 and not graceful_completion_requested:
-                logger.warning(
-                    f"Low iteration budget ({remaining_budget:.1f} remaining), requesting completion on next cycle"
-                )
-                graceful_completion_requested = True
-
-            if wall_clock_pressure_active:
-                tool_calls = [
-                    tc
-                    for tc in tool_calls
-                    if not _should_block_tool_at_pressure(
-                        tc.get("function", {}).get("name", ""),
-                        wall_clock_pressure_active,
+                # Check per-step iteration budget
+                if step_iteration_count >= self.max_step_iterations:
+                    logger.warning(
+                        f"Step iteration budget exhausted ({step_iteration_count}/{self.max_step_iterations}). "
+                        "Setting stuck_recovery_exhausted flag."
                     )
-                ]
+                    self._stuck_recovery_exhausted = True
+                    break
 
-            # Check if we can execute tools in parallel
-            if self._can_parallelize_tools(tool_calls):
-                # Parse all arguments first
-                parsed_calls = []
-                for tool_call in tool_calls[:MAX_CONCURRENT_TOOLS]:  # Limit parallel calls
-                    if not tool_call.get("function"):
-                        continue
-                    function_name = tool_call["function"]["name"]
-                    tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                    raw_function_args = tool_call["function"].get("arguments", "{}")
-                    try:
-                        function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
-                    except ValueError as parse_error:
-                        self._recent_truncation_count += 1
-                        parse_result = self._invalid_tool_args_result(
-                            function_name=function_name,
-                            raw_arguments=raw_function_args,
-                            error=parse_error,
-                        )
-                        tool_name = function_name or "unknown_tool"
-                        with contextlib.suppress(Exception):
-                            tool_name = self.get_tool(function_name).name
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool_name,
-                            function_name=function_name,
-                            function_args={},
-                            status=ToolStatus.CALLED,
-                            function_result=parse_result,
-                        )
-                        tool_responses.append(
-                            {
-                                "role": "tool",
-                                "function_name": function_name,
-                                "tool_call_id": tool_call_id,
-                                "content": self._serialize_tool_result_for_memory(
-                                    parse_result, function_name=function_name
-                                ),
-                            }
-                        )
-                        continue
-
-                    tool = self.get_tool(function_name)
-                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
-                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
-
-                    if security_assessment.requires_confirmation:
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLING,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=confirmation_state,
-                        )
-                        yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
-                        return
-
-                    # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
-                    # Prevents tools from starting if SSE disconnect happened
-                    await self._cancel_token.check_cancelled()
-
-                    # Emit tool_stream preview so the frontend can show content
-                    # in the editor/terminal BEFORE the tool starts executing.
-                    raw_args = tool_call["function"].get("arguments", "{}")
-                    if is_streamable_function(function_name):
-                        partial = extract_partial_content(function_name, raw_args)
-                        if partial:
-                            yield ToolStreamEvent(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                partial_content=partial,
-                                content_type=content_type_for_function(function_name),
-                                is_final=True,
-                            )
-
-                    # Emit CALLING events for all parallel tools
-                    yield self._create_tool_event(
-                        tool_call_id=tool_call_id,
-                        tool_name=tool.name,
-                        function_name=function_name,
-                        function_args=function_args,
-                        status=ToolStatus.CALLING,
-                        security_risk=security_assessment.risk_level.value,
-                        security_reason=security_assessment.reason,
-                        security_suggestions=security_assessment.suggestions,
-                        confirmation_state=confirmation_state,
+                # Hard wall-clock limit check (distinct from graduated pressure)
+                if _mw_ctx.wall_clock_budget > 0 and _mw_ctx.elapsed_seconds > _mw_ctx.wall_clock_budget:
+                    logger.warning(
+                        "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
+                        _mw_ctx.elapsed_seconds,
+                        _mw_ctx.wall_clock_budget,
                     )
-                    parsed_calls.append(
-                        (
-                            tool_call,
-                            tool_call_id,
-                            function_args,
-                            tool,
-                            security_assessment,
-                        )
+                    wall_clock_exceeded = True
+                    self._stuck_recovery_exhausted = True
+                    break
+
+                # Check if we're approaching the limit
+                remaining_budget = iteration_budget - iteration_spent
+                budget_ratio = iteration_spent / iteration_budget
+
+                # Emit warning at threshold
+                if budget_ratio >= self.iteration_warning_threshold and not warning_emitted:
+                    logger.warning(
+                        f"Approaching iteration limit: {iteration_spent:.1f}/{iteration_budget} "
+                        f"({budget_ratio * 100:.0f}% used)"
                     )
+                    warning_emitted = True
 
-                # Execute all tools concurrently with semaphore
-                semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
-                tasks = []
-                for tool_call, tool_call_id, function_args, tool, _ in parsed_calls:
-                    function_name = tool_call["function"]["name"]
-                    tasks.append(
-                        self._execute_parallel_tool(semaphore, tool, function_name, function_args, tool_call_id)
+                # Request graceful completion when near limit
+                if remaining_budget < 10 and not graceful_completion_requested:
+                    logger.warning(
+                        f"Low iteration budget ({remaining_budget:.1f} remaining), requesting completion on next cycle"
                     )
+                    graceful_completion_requested = True
 
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Re-raise cancellation signals before processing results
-                for result in results:
-                    if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt)):
-                        raise result
-
-                # Process results and emit CALLED events
-                if len(parsed_calls) != len(results):
-                    logger.error(
-                        f"Parallel execution result count mismatch: {len(parsed_calls)} calls vs {len(results)} results"
-                    )
-                for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
-                    parsed_calls, results, strict=True
-                ):
-                    function_name = tool_call["function"]["name"]
-                    if isinstance(result, Exception):
-                        result = ToolResult(success=False, message=str(result))
-
-                    yield self._create_tool_event(
-                        tool_call_id=tool_call_id,
-                        tool_name=tool.name,
-                        function_name=function_name,
-                        function_args=function_args,
-                        status=ToolStatus.CALLED,
-                        function_result=result,
-                        security_risk=security_assessment.risk_level.value,
-                        security_reason=security_assessment.reason,
-                        security_suggestions=security_assessment.suggestions,
-                        confirmation_state=(
-                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
-                        ),
-                    )
-
-                    tool_responses.append(
-                        {
-                            "role": "tool",
-                            "function_name": function_name,
-                            "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
-                        }
-                    )
-            else:
-                # Sequential execution for non-parallelizable tools (original behavior)
-                for tool_call in tool_calls:
-                    if not tool_call.get("function"):
-                        continue
-
-                    function_name = tool_call["function"]["name"]
-                    tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                    raw_function_args = tool_call["function"].get("arguments", "{}")
-                    try:
-                        function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
-                    except ValueError as parse_error:
-                        self._recent_truncation_count += 1
-                        parse_result = self._invalid_tool_args_result(
-                            function_name=function_name,
-                            raw_arguments=raw_function_args,
-                            error=parse_error,
+                if wall_clock_pressure_active:
+                    tool_calls = [
+                        tc
+                        for tc in tool_calls
+                        if not _should_block_tool_at_pressure(
+                            tc.get("function", {}).get("name", ""),
+                            wall_clock_pressure_active,
                         )
-                        tool_name = function_name or "unknown_tool"
-                        with contextlib.suppress(Exception):
-                            tool_name = self.get_tool(function_name).name
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool_name,
-                            function_name=function_name,
-                            function_args={},
-                            status=ToolStatus.CALLED,
-                            function_result=parse_result,
-                        )
-                        tool_responses.append(
-                            {
-                                "role": "tool",
-                                "function_name": function_name,
-                                "tool_call_id": tool_call_id,
-                                "content": self._serialize_tool_result_for_memory(
-                                    parse_result, function_name=function_name
-                                ),
-                            }
-                        )
-                        continue
+                    ]
 
-                    tool = self.get_tool(function_name)
-
-                    # Generate event before tool call
-                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
-                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
-                    if security_assessment.requires_confirmation:
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLING,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=confirmation_state,
-                        )
-                        yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
-                        return
-                    # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
-                    # Prevents tools from starting if SSE disconnect happened
-                    await self._cancel_token.check_cancelled()
-
-                    # Emit tool_stream preview so the frontend can show content
-                    # in the editor/terminal BEFORE the tool starts executing.
-                    raw_args_seq = tool_call["function"].get("arguments", "{}")
-                    if is_streamable_function(function_name):
-                        partial = extract_partial_content(function_name, raw_args_seq)
-                        if partial:
-                            yield ToolStreamEvent(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                partial_content=partial,
-                                content_type=content_type_for_function(function_name),
-                                is_final=True,
-                            )
-
-                    yield self._create_tool_event(
-                        tool_call_id=tool_call_id,
-                        tool_name=tool.name,
-                        function_name=function_name,
-                        function_args=function_args,
-                        status=ToolStatus.CALLING,
-                        security_risk=security_assessment.risk_level.value,
-                        security_reason=security_assessment.reason,
-                        security_suggestions=security_assessment.suggestions,
-                        confirmation_state=confirmation_state,
-                    )
-
-                    # ORPHANED TASK FIX: Check cancellation BEFORE invoking tool
-                    # Prevents execution if cancelled between emit and invoke
-                    await self._cancel_token.check_cancelled()
-
-                    # Live shell streaming: poll sandbox for real-time output
-                    flags = self._resolve_feature_flags()
-                    if flags.get("live_shell_streaming") and function_name == "shell_exec" and hasattr(tool, "sandbox"):
-                        from app.domain.services.tools.shell_output_poller import (
-                            ShellOutputPoller,
-                        )
-
-                        session_id = function_args.get("id", "")
-                        poll_interval = flags.get("live_shell_poll_interval_ms", 500)
-                        max_polls = flags.get("live_shell_max_polls", 600)
-                        poller = ShellOutputPoller(
-                            sandbox=tool.sandbox,
-                            session_id=session_id,
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            poll_interval_ms=int(poll_interval) if poll_interval else 500,
-                            max_polls=int(max_polls) if max_polls else 600,
-                        )
-                        poll_task = asyncio.create_task(poller.start_polling())
-                        exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
+                # Check if we can execute tools in parallel
+                if self._can_parallelize_tools(tool_calls):
+                    # Parse all arguments first
+                    parsed_calls = []
+                    for tool_call in tool_calls[:MAX_CONCURRENT_TOOLS]:  # Limit parallel calls
+                        if not tool_call.get("function"):
+                            continue
+                        function_name = tool_call["function"]["name"]
+                        tool_call_id = tool_call.get("id") or str(uuid.uuid4())
+                        raw_function_args = tool_call["function"].get("arguments", "{}")
                         try:
-                            while not exec_task.done():
-                                await asyncio.sleep(0.3)
+                            function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
+                        except ValueError as parse_error:
+                            self._recent_truncation_count += 1
+                            parse_result = self._invalid_tool_args_result(
+                                function_name=function_name,
+                                raw_arguments=raw_function_args,
+                                error=parse_error,
+                            )
+                            tool_name = function_name or "unknown_tool"
+                            with contextlib.suppress(Exception):
+                                tool_name = self.get_tool(function_name).name
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool_name,
+                                function_name=function_name,
+                                function_args={},
+                                status=ToolStatus.CALLED,
+                                function_result=parse_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        parse_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
+
+                        tool = self.get_tool(function_name)
+                        security_assessment = self._security_assessor.assess_action(function_name, function_args)
+                        confirmation_state = (
+                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
+                        )
+
+                        if security_assessment.requires_confirmation:
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLING,
+                                security_risk=security_assessment.risk_level.value,
+                                security_reason=security_assessment.reason,
+                                security_suggestions=security_assessment.suggestions,
+                                confirmation_state=confirmation_state,
+                            )
+                            yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
+                            return
+
+                        # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
+                        # Prevents tools from starting if SSE disconnect happened
+                        await self._cancel_token.check_cancelled()
+
+                        # Emit tool_stream preview so the frontend can show content
+                        # in the editor/terminal BEFORE the tool starts executing.
+                        raw_args = tool_call["function"].get("arguments", "{}")
+                        if is_streamable_function(function_name):
+                            partial = extract_partial_content(function_name, raw_args)
+                            if partial:
+                                yield ToolStreamEvent(
+                                    tool_call_id=tool_call_id,
+                                    tool_name=tool.name,
+                                    function_name=function_name,
+                                    partial_content=partial,
+                                    content_type=content_type_for_function(function_name),
+                                    is_final=True,
+                                )
+
+                        # Emit CALLING events for all parallel tools
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            status=ToolStatus.CALLING,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=confirmation_state,
+                        )
+                        parsed_calls.append(
+                            (
+                                tool_call,
+                                tool_call_id,
+                                function_args,
+                                tool,
+                                security_assessment,
+                            )
+                        )
+
+                    # Execute all tools concurrently with semaphore
+                    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
+                    tasks = []
+                    for tool_call, tool_call_id, function_args, tool, _ in parsed_calls:
+                        function_name = tool_call["function"]["name"]
+                        tasks.append(
+                            self._execute_parallel_tool(semaphore, tool, function_name, function_args, tool_call_id)
+                        )
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Re-raise cancellation signals before processing results
+                    for result in results:
+                        if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt)):
+                            raise result
+
+                    # Process results and emit CALLED events
+                    if len(parsed_calls) != len(results):
+                        logger.error(
+                            f"Parallel execution result count mismatch: {len(parsed_calls)} calls vs {len(results)} results"
+                        )
+                    for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
+                        parsed_calls, results, strict=True
+                    ):
+                        function_name = tool_call["function"]["name"]
+                        if isinstance(result, Exception):
+                            result = ToolResult(success=False, message=str(result))
+
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            status=ToolStatus.CALLED,
+                            function_result=result,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=(
+                                "awaiting_confirmation" if security_assessment.requires_confirmation else None
+                            ),
+                        )
+
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "function_name": function_name,
+                                "tool_call_id": tool_call_id,
+                                "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
+                            }
+                        )
+                else:
+                    # Sequential execution for non-parallelizable tools (original behavior)
+                    for tool_call in tool_calls:
+                        if not tool_call.get("function"):
+                            continue
+
+                        function_name = tool_call["function"]["name"]
+                        tool_call_id = tool_call.get("id") or str(uuid.uuid4())
+                        raw_function_args = tool_call["function"].get("arguments", "{}")
+                        try:
+                            function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
+                        except ValueError as parse_error:
+                            self._recent_truncation_count += 1
+                            parse_result = self._invalid_tool_args_result(
+                                function_name=function_name,
+                                raw_arguments=raw_function_args,
+                                error=parse_error,
+                            )
+                            tool_name = function_name or "unknown_tool"
+                            with contextlib.suppress(Exception):
+                                tool_name = self.get_tool(function_name).name
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool_name,
+                                function_name=function_name,
+                                function_args={},
+                                status=ToolStatus.CALLED,
+                                function_result=parse_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        parse_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
+
+                        tool = self.get_tool(function_name)
+
+                        # Generate event before tool call
+                        security_assessment = self._security_assessor.assess_action(function_name, function_args)
+                        confirmation_state = (
+                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
+                        )
+                        if security_assessment.requires_confirmation:
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLING,
+                                security_risk=security_assessment.risk_level.value,
+                                security_reason=security_assessment.reason,
+                                security_suggestions=security_assessment.suggestions,
+                                confirmation_state=confirmation_state,
+                            )
+                            yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
+                            return
+                        # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
+                        # Prevents tools from starting if SSE disconnect happened
+                        await self._cancel_token.check_cancelled()
+
+                        # Emit tool_stream preview so the frontend can show content
+                        # in the editor/terminal BEFORE the tool starts executing.
+                        raw_args_seq = tool_call["function"].get("arguments", "{}")
+                        if is_streamable_function(function_name):
+                            partial = extract_partial_content(function_name, raw_args_seq)
+                            if partial:
+                                yield ToolStreamEvent(
+                                    tool_call_id=tool_call_id,
+                                    tool_name=tool.name,
+                                    function_name=function_name,
+                                    partial_content=partial,
+                                    content_type=content_type_for_function(function_name),
+                                    is_final=True,
+                                )
+
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            status=ToolStatus.CALLING,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=confirmation_state,
+                        )
+
+                        # ORPHANED TASK FIX: Check cancellation BEFORE invoking tool
+                        # Prevents execution if cancelled between emit and invoke
+                        await self._cancel_token.check_cancelled()
+
+                        # Live shell streaming: poll sandbox for real-time output
+                        flags = self._resolve_feature_flags()
+                        if (
+                            flags.get("live_shell_streaming")
+                            and function_name == "shell_exec"
+                            and hasattr(tool, "sandbox")
+                        ):
+                            from app.domain.services.tools.shell_output_poller import (
+                                ShellOutputPoller,
+                            )
+
+                            session_id = function_args.get("id", "")
+                            poll_interval = flags.get("live_shell_poll_interval_ms", 500)
+                            max_polls = flags.get("live_shell_max_polls", 600)
+                            poller = ShellOutputPoller(
+                                sandbox=tool.sandbox,
+                                session_id=session_id,
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                poll_interval_ms=int(poll_interval) if poll_interval else 500,
+                                max_polls=int(max_polls) if max_polls else 600,
+                            )
+                            poll_task = asyncio.create_task(poller.start_polling())
+                            exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
+                            try:
+                                while not exec_task.done():
+                                    await asyncio.sleep(0.3)
+                                    async for ev in poller.drain_events():
+                                        yield ev
+                                result = exec_task.result()
+                            finally:
+                                poller.stop()
+                                if not poll_task.done():
+                                    await poll_task
+                                # Drain any remaining events
                                 async for ev in poller.drain_events():
                                     yield ev
-                            result = exec_task.result()
-                        finally:
-                            poller.stop()
-                            if not poll_task.done():
-                                await poll_task
-                            # Drain any remaining events
-                            async for ev in poller.drain_events():
-                                yield ev
-                    elif getattr(tool, "supports_progress", False) and hasattr(tool, "drain_progress_events"):
-                        # Tools with built-in progress queue (e.g. DealScraperTool)
-                        tool._active_tool_call_id = tool_call_id
-                        tool._active_function_name = function_name
-                        exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
-                        try:
-                            while not exec_task.done():
-                                await asyncio.sleep(0.3)
+                        elif getattr(tool, "supports_progress", False) and hasattr(tool, "drain_progress_events"):
+                            # Tools with built-in progress queue (e.g. DealScraperTool)
+                            tool._active_tool_call_id = tool_call_id
+                            tool._active_function_name = function_name
+                            exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
+                            try:
+                                while not exec_task.done():
+                                    await asyncio.sleep(0.3)
+                                    async for ev in tool.drain_progress_events():
+                                        yield ev
+                                result = exec_task.result()
+                            finally:
+                                # Drain any remaining events after completion
                                 async for ev in tool.drain_progress_events():
                                     yield ev
-                            result = exec_task.result()
-                        finally:
-                            # Drain any remaining events after completion
-                            async for ev in tool.drain_progress_events():
-                                yield ev
-                    else:
-                        result = await self.invoke_tool(tool, function_name, function_args)
+                        else:
+                            result = await self.invoke_tool(tool, function_name, function_args)
 
-                    # Generate event after tool call (reuse pre-execution security_assessment)
-                    yield self._create_tool_event(
-                        tool_call_id=tool_call_id,
-                        tool_name=tool.name,
-                        function_name=function_name,
-                        function_args=function_args,
-                        status=ToolStatus.CALLED,
-                        function_result=result,
-                        security_risk=security_assessment.risk_level.value,
-                        security_reason=security_assessment.reason,
-                        security_suggestions=security_assessment.suggestions,
-                        confirmation_state=confirmation_state,
-                    )
+                        # Generate event after tool call (reuse pre-execution security_assessment)
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            status=ToolStatus.CALLED,
+                            function_result=result,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=confirmation_state,
+                        )
 
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "function_name": function_name,
+                                "tool_call_id": tool_call_id,
+                                "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
+                            }
+                        )
+
+                # Annotate tool results with step time after 50% mark (design 2A)
+                if _mw_ctx.metadata.get("wall_clock_advisory_sent") and self._step_start_time is not None:
+                    _now = time.monotonic()
+                    _el = _now - self._step_start_time
+                    _tag = f"\n[Step time: {_el:.0f}s/{_mw_ctx.wall_clock_budget:.0f}s]"
+                    for tr in tool_responses:
+                        if tr.get("role") == "tool" and isinstance(tr.get("content"), str):
+                            tr["content"] += _tag
+
+                # If graceful completion was requested, add a hint to wrap up
+                if graceful_completion_requested:
                     tool_responses.append(
                         {
-                            "role": "tool",
-                            "function_name": function_name,
-                            "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM: Approaching execution limit. Please complete the current task "
+                                "and provide a summary of your findings. If the task is not complete, "
+                                "summarize what was accomplished and what remains to be done.]"
+                            ),
                         }
                     )
+                    graceful_completion_requested = False  # Only inject once
 
-            # Annotate tool results with step time after 50% mark (design 2A)
-            if _mw_ctx.metadata.get("wall_clock_advisory_sent") and self._step_start_time is not None:
-                _now = time.monotonic()
-                _el = _now - self._step_start_time
-                _tag = f"\n[Step time: {_el:.0f}s/{_mw_ctx.wall_clock_budget:.0f}s]"
-                for tr in tool_responses:
-                    if tr.get("role") == "tool" and isinstance(tr.get("content"), str):
-                        tr["content"] += _tag
+                # Phase 4b: Skill enforcement nudge — remind agent to invoke skill
+                if (
+                    step_iteration_count >= getattr(self, "_skill_enforcement_nudge_after", 3)
+                    and getattr(self, "_force_skill_invoke_first_turn", False)
+                    and not getattr(self, "_skill_invoked_this_step", False)
+                    and not getattr(self, "_skill_enforcement_nudge_sent", False)
+                ):
+                    try:
+                        from app.core.config import get_settings as _get_skill_settings
 
-            # If graceful completion was requested, add a hint to wrap up
-            if graceful_completion_requested:
-                tool_responses.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "[SYSTEM: Approaching execution limit. Please complete the current task "
-                            "and provide a summary of your findings. If the task is not complete, "
-                            "summarize what was accomplished and what remains to be done.]"
-                        ),
-                    }
+                        _sk_cfg = _get_skill_settings()
+                        if getattr(_sk_cfg, "skill_enforcement_nudge_enabled", True):
+                            from app.domain.services.agents.execution import SKILL_ENFORCEMENT_NUDGE
+
+                            tool_responses.append({"role": "user", "content": SKILL_ENFORCEMENT_NUDGE})
+                            self._skill_enforcement_nudge_sent = True
+                            # Reset tool_choice to auto since the forced call didn't happen
+                            self.tool_choice = None
+                            self._force_skill_invoke_first_turn = False
+                            logger.debug("Skill enforcement: nudge injected after %d iterations", step_iteration_count)
+                    except Exception:
+                        logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
+
+                message = await self.ask_with_messages(tool_responses)
+            else:
+                # Budget exhausted - provide informative error with context
+                logger.error(
+                    f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} after processing tool calls"
                 )
-                graceful_completion_requested = False  # Only inject once
-
-            # Phase 4b: Skill enforcement nudge — remind agent to invoke skill
-            if (
-                step_iteration_count >= getattr(self, "_skill_enforcement_nudge_after", 3)
-                and getattr(self, "_force_skill_invoke_first_turn", False)
-                and not getattr(self, "_skill_invoked_this_step", False)
-                and not getattr(self, "_skill_enforcement_nudge_sent", False)
-            ):
-                try:
-                    from app.core.config import get_settings as _get_skill_settings
-
-                    _sk_cfg = _get_skill_settings()
-                    if getattr(_sk_cfg, "skill_enforcement_nudge_enabled", True):
-                        from app.domain.services.agents.execution import SKILL_ENFORCEMENT_NUDGE
-
-                        tool_responses.append({"role": "user", "content": SKILL_ENFORCEMENT_NUDGE})
-                        self._skill_enforcement_nudge_sent = True
-                        # Reset tool_choice to auto since the forced call didn't happen
-                        self.tool_choice = None
-                        self._force_skill_invoke_first_turn = False
-                        logger.debug("Skill enforcement: nudge injected after %d iterations", step_iteration_count)
-                except Exception:
-                    logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
-
-            message = await self.ask_with_messages(tool_responses)
-        else:
-            # Budget exhausted - provide informative error with context
-            logger.error(
-                f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} after processing tool calls"
-            )
-            yield ErrorEvent(
-                error=(
-                    f"Task execution limit reached ({int(iteration_spent)} iterations). "
-                    "The task was too complex to complete in a single run. "
-                    "Consider breaking it into smaller sub-tasks or increasing the iteration limit."
-                ),
-                error_type="iteration_limit",
-                recoverable=True,
-                retry_hint="Try breaking your request into smaller, focused tasks.",
-            )
+                yield ErrorEvent(
+                    error=(
+                        f"Task execution limit reached ({int(iteration_spent)} iterations). "
+                        "The task was too complex to complete in a single run. "
+                        "Consider breaking it into smaller sub-tasks or increasing the iteration limit."
+                    ),
+                    error_type="iteration_limit",
+                    recoverable=True,
+                    retry_hint="Try breaking your request into smaller, focused tasks.",
+                )
+        except Exception as _exc:
+            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
+                _err_result = await self._pipeline.run_on_error(self._mw_ctx, _exc)
+                if _err_result.signal == _MwSig.ABORT:
+                    raise
+            else:
+                raise
+            logger.exception("Agent execution error handled by middleware")
+        finally:
+            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
+                await self._pipeline.run_after_execution(self._mw_ctx)
+                self._mw_ctx = None  # Clear reference
 
         # Re-enforce JSON format after tool-calling loop completes.
         # The while-loop ran without format enforcement (initial_format=None) to

@@ -644,7 +644,6 @@ import {
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
-import { useResponsePhase } from '@/composables/useResponsePhase';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { isEventSourceResumeEnabled } from '@/utils/sseTransport';
@@ -687,7 +686,7 @@ useConnectorDialog()
 // Error boundary — catches unhandled errors from child components to prevent page crashes
 const { lastCapturedError: _lastCapturedError, clearError: _clearError } = useErrorBoundary()
 
-// Response phase state machine
+// Response phase state machine (from connectionStore — single source of truth)
 const {
   phase: responsePhase,
   isLoading,
@@ -696,9 +695,8 @@ const {
   isError: _isError,
   isTimedOut: _isTimedOut,
   isStopped: _isStopped,
-  transitionTo,
-  reset: _resetResponsePhase,
-} = useResponsePhase()
+} = storeToRefs(connectionStore)
+const { transitionTo, resetPhase: _resetResponsePhase } = connectionStore
 
 // SSE connection management with stale detection
 let staleReconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -3683,6 +3681,15 @@ const chat = async (
   uiStore.resetDismissed()
   toolStore.clearAll()
   const normalizedMessage = message.trim();
+
+  // Client-side max length guard (matches backend validation)
+  const MAX_MESSAGE_LENGTH = 100_000;
+  if (normalizedMessage.length > MAX_MESSAGE_LENGTH) {
+    showErrorToast(
+      `Message is too long (${normalizedMessage.length.toLocaleString()} characters). Maximum is ${MAX_MESSAGE_LENGTH.toLocaleString()}.`,
+    );
+    return;
+  }
 
   // Prevent duplicate message submission within 2 seconds
   const now = Date.now();
