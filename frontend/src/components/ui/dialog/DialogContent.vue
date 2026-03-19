@@ -15,6 +15,8 @@ import {
 import { cn } from "@/lib/utils"
 import DialogOverlay from "./DialogOverlay.vue"
 
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps<DialogContentProps & {
   class?: HTMLAttributes["class"];
   hideCloseButton?: boolean;
@@ -26,6 +28,14 @@ const emits = defineEmits<DialogContentEmits>()
 const delegatedProps = reactiveOmit(props, "class", "hideCloseButton", "title", "description")
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+
+/** Teleported UI (e.g. Skill Creator) is outside this dialog in the DOM; Reka may still fire pointer-down-outside. */
+function preventCloseForSkillCreatorOverlay(event: CustomEvent<{ originalEvent: PointerEvent }>) {
+  const target = event.detail?.originalEvent?.target
+  if (target instanceof Element && target.closest("[data-pythinker-skill-creator-overlay]")) {
+    event.preventDefault()
+  }
+}
 </script>
 
 <template>
@@ -33,7 +43,8 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
     <DialogOverlay />
     <DialogContent
       data-slot="dialog-content"
-      v-bind="forwarded"
+      v-bind="{ ...forwarded, ...$attrs }"
+      @pointer-down-outside="preventCloseForSkillCreatorOverlay"
       :class="
         cn(
           'data-[state=open]:animate-dialog-slide-in-from-bottom data-[state=closed]:animate-dialog-slide-out-to-bottom fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-h-[95%] max-w-[98%] overflow-auto rounded-[20px] border border-[var(--border-main)] bg-[var(--background-gray-main)] p-0 z-[1000]',
