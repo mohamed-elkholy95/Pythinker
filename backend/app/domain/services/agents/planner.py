@@ -41,6 +41,7 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.skill_loader import SkillLoader
 
 if TYPE_CHECKING:
+    from app.domain.external.config import DomainConfig
     from app.domain.external.search import SearchEngine
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
@@ -600,6 +601,7 @@ class PlannerAgent(BaseAgent):
         cancel_token: "CancellationToken | None" = None,
         search_engine: "SearchEngine | None" = None,
         tool_result_store=None,
+        config: "DomainConfig | None" = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -611,6 +613,7 @@ class PlannerAgent(BaseAgent):
             cancel_token=cancel_token,
             tool_result_store=tool_result_store,
         )
+        self._config = config
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
         self._user_id = user_id
@@ -625,9 +628,17 @@ class PlannerAgent(BaseAgent):
         self._thought_tree_explorer = thought_tree_explorer
 
         # Pre-planning search engine for real-time web context
-        self._search_engine = search_engine
+        self._search_engine: SearchEngine | None = search_engine
         self._last_search_context: str | None = None
         self._last_search_queries: list[str] = []
+
+    def _get_config(self) -> DomainConfig:
+        """Return the injected DomainConfig, falling back to get_settings lazily."""
+        if self._config is not None:
+            return self._config
+        from app.core.config import get_settings
+
+        return get_settings()
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -912,9 +923,7 @@ class PlannerAgent(BaseAgent):
         # Resolve fast model override for draft mode
         draft_model: str | None = None
         if draft:
-            from app.core.config import get_settings
-
-            _settings = get_settings()
+            _settings = self._get_config()
             if _settings.fast_model:
                 draft_model = _settings.fast_model
                 logger.debug(f"Draft plan mode: using fast model '{draft_model}'")

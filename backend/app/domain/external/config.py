@@ -107,6 +107,73 @@ class DomainConfig(Protocol):
     @property
     def api_key(self) -> str: ...
 
+    # ── Model selection ──────────────────────────────────────────────
+    @property
+    def fast_model(self) -> str: ...
+
+    @property
+    def powerful_model(self) -> str: ...
+
+    @property
+    def max_tokens(self) -> int: ...
+
+    @property
+    def temperature(self) -> float: ...
+
+    @property
+    def effective_balanced_model(self) -> str: ...
+
+    @property
+    def adaptive_model_selection_enabled(self) -> bool: ...
+
+    @property
+    def summarization_max_tokens(self) -> int: ...
+
+    # ── Feature toggles (extended) ────────────────────────────────────
+    @property
+    def scraping_tool_enabled(self) -> bool: ...
+
+    @property
+    def feature_workflow_checkpointing(self) -> bool: ...
+
+    @property
+    def security_critic_allow_medium_risk(self) -> bool: ...
+
+    @property
+    def enable_search_fidelity_guardrail(self) -> bool: ...
+
+    @property
+    def skill_ui_events_enabled(self) -> bool: ...
+
+    # ── Typo correction ───────────────────────────────────────────────
+    @property
+    def typo_correction_rapidfuzz_enabled(self) -> bool: ...
+
+    @property
+    def typo_correction_symspell_enabled(self) -> bool: ...
+
+    # ── Research / search ─────────────────────────────────────────────
+    @property
+    def deal_scraper_enabled(self) -> bool: ...
+
+    # ── Skills ─────────────────────────────────────────────────────────
+    @property
+    def skills_system_enabled(self) -> bool: ...
+
+    @property
+    def skills_workspace_dir(self) -> str: ...
+
+    @property
+    def max_enabled_skills(self) -> int: ...
+
+    # ── Charts ─────────────────────────────────────────────────────────
+    @property
+    def feature_plotly_charts_enabled(self) -> bool: ...
+
+    # ── Cron ───────────────────────────────────────────────────────────
+    @property
+    def cron_service_enabled(self) -> bool: ...
+
     # ── Misc ─────────────────────────────────────────────────────────
     @property
     def default_language(self) -> str: ...

@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import logging
 from importlib import import_module
+from typing import TYPE_CHECKING
 
-from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
+
+if TYPE_CHECKING:
+    from app.domain.external.config import DomainConfig
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
@@ -47,6 +52,7 @@ class ShellTool(BaseTool):
         sandbox: Sandbox,
         max_observe: int | None = None,
         security_critic: SecurityCritic | None = None,
+        config: DomainConfig | None = None,
     ):
         """Initialize Shell tool class
 
@@ -54,10 +60,20 @@ class ShellTool(BaseTool):
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 5000)
             security_critic: Optional security critic for command validation
+            config: Optional DomainConfig for dependency injection (falls back to get_settings)
         """
         super().__init__(max_observe=max_observe)
+        self._config = config
         self.sandbox = sandbox
         self.security_critic = security_critic or SecurityCritic()
+
+    def _get_config(self) -> DomainConfig:
+        """Return the injected DomainConfig, falling back to get_settings lazily."""
+        if self._config is not None:
+            return self._config
+        from app.core.config import get_settings
+
+        return get_settings()
 
     @staticmethod
     def _truncate_output(result: ToolResult) -> ToolResult:
@@ -156,7 +172,7 @@ class ShellTool(BaseTool):
 
         review = await self.security_critic.review_code(command, "bash")
         if not review.safe:
-            allow_medium = get_settings().security_critic_allow_medium_risk
+            allow_medium = self._get_config().security_critic_allow_medium_risk
             if review.risk_level == RiskLevel.MEDIUM and allow_medium:
                 _record_security_gate_override(override_reason="medium_risk_dev")
             else:

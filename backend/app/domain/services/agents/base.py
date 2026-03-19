@@ -816,8 +816,28 @@ class BaseAgent:
         - ToolExecutionProfiler for timing and reliability tracking
         - SecurityAssessor for risk evaluation
         - StuckDetector for action pattern detection
+        - SandboxCrashError pre-check (REL-009)
         """
         import time
+
+        # REL-009: Check sandbox health before tool execution.
+        # If the sandbox backing this tool has crashed, fail fast instead of
+        # sending requests to a dead container.
+        session_id = getattr(self, "_session_id", None)
+        if session_id and hasattr(tool, "sandbox"):
+            try:
+                from app.core.sandbox_manager import SandboxState, get_sandbox_manager
+
+                manager = get_sandbox_manager()
+                managed = manager._sandboxes.get(session_id)
+                if managed and managed.state == SandboxState.FAILED:
+                    from app.domain.exceptions.base import SandboxCrashError
+
+                    raise SandboxCrashError(
+                        f"Sandbox for session {session_id} is in FAILED state — cannot execute tool '{function_name}'"
+                    )
+            except ImportError:
+                pass  # Graceful degradation if sandbox_manager unavailable
 
         profiler = get_tool_profiler()
         tool_tracer = None

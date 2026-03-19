@@ -87,6 +87,9 @@ class EnhancedSandboxManager:
         # so there is no deadlock risk.
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._locks_mutex = asyncio.Lock()
+        # REL-009: Optional callback invoked when a sandbox transitions to FAILED.
+        # Signature: async (sandbox_id: str, session_id: str, reason: str) -> None
+        self._on_sandbox_failed: Any | None = None
 
     @error_handler(severity=ErrorSeverity.CRITICAL, category=ErrorCategory.SANDBOX, auto_recover=True)
     async def create_sandbox(self, session_id: str) -> Optional["ManagedSandbox"]:
@@ -219,6 +222,7 @@ class EnhancedSandboxManager:
         if sandbox.metrics.recovery_attempts >= self._max_recovery_attempts:
             logger.error(f"Max recovery attempts reached for sandbox {sandbox.session_id}")
             sandbox.state = SandboxState.FAILED
+            await self._notify_sandbox_failed(sandbox.session_id, "recovery_exhausted")
             return False
 
         sandbox.state = SandboxState.RECOVERING
@@ -243,12 +247,27 @@ class EnhancedSandboxManager:
                     logger.warning(f"Recovery strategy {strategy.__name__} failed: {e}")
 
             sandbox.state = SandboxState.FAILED
+            await self._notify_sandbox_failed(sandbox.session_id, "all_strategies_failed")
             return False
 
         except Exception as e:
             logger.error(f"Recovery failed for sandbox {sandbox.session_id}: {e}")
             sandbox.state = SandboxState.FAILED
+            await self._notify_sandbox_failed(sandbox.session_id, f"recovery_exception: {e}")
             return False
+
+    async def _notify_sandbox_failed(self, session_id: str, reason: str) -> None:
+        """Invoke the on_sandbox_failed callback if registered (REL-009)."""
+        if self._on_sandbox_failed is not None:
+            try:
+                await self._on_sandbox_failed(session_id, reason)
+            except Exception as e:
+                logger.warning(f"on_sandbox_failed callback error for session {session_id}: {e}")
+        logger.critical(
+            "Sandbox FAILED for session %s (reason: %s) — tool execution will be blocked",
+            session_id,
+            reason,
+        )
 
     async def shutdown(self) -> None:
         """Cancel and await all background health-monitor tasks (HIGH-3).

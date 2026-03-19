@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
 import uuid
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, TypeAdapter
 
-from app.core.config import get_settings as _get_settings
+from app.domain.exceptions.base import SandboxCrashError
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import (
@@ -99,6 +101,7 @@ def _warn_if_null_metrics() -> None:
 
 
 if TYPE_CHECKING:
+    from app.domain.external.config import DomainConfig
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 
@@ -131,14 +134,16 @@ class ExecutionAgent(BaseAgent):
         tools: list[BaseTool],
         json_parser: JsonParser,
         critic_config: CriticConfig | None = None,
-        memory_service: Optional["MemoryService"] = None,
+        memory_service: MemoryService | None = None,
         user_id: str | None = None,
         attention_injector: AttentionInjector | None = None,
         circuit_breaker=None,
         feature_flags: dict[str, bool] | None = None,
-        cancel_token: "CancellationToken | None" = None,
+        cancel_token: CancellationToken | None = None,
         tool_result_store=None,
+        config: DomainConfig | None = None,
     ):
+        self._config = config
         super().__init__(
             agent_id=agent_id,
             agent_repository=agent_repository,
@@ -257,6 +262,14 @@ class ExecutionAgent(BaseAgent):
         """Set request contract for search fidelity and entity context (Phase 4)."""
         self._request_contract = contract
 
+    def _get_config(self) -> DomainConfig:
+        """Return the injected DomainConfig, falling back to get_settings lazily."""
+        if self._config is not None:
+            return self._config
+        from app.core.config import get_settings
+
+        return get_settings()
+
     def set_delivery_channel(self, delivery_channel: str | None) -> None:
         """Set the active delivery channel for final delivery policy decisions."""
         self._delivery_channel = delivery_channel
@@ -294,10 +307,9 @@ class ExecutionAgent(BaseAgent):
         skip_security: bool = False,
     ):
         """Override to apply search fidelity check for search tools (Phase 4)."""
-        from app.core.config import get_settings
         from app.domain.services.agents.search_fidelity import check_search_fidelity
 
-        settings = get_settings()
+        settings = self._get_config()
         if settings.enable_search_fidelity_guardrail and self._request_contract and function_name in ToolName._SEARCH:
             query = arguments.get("query", "")
             if isinstance(query, str) and query.strip():
@@ -384,7 +396,7 @@ class ExecutionAgent(BaseAgent):
                 )
 
                 # Emit SkillEvent for user visibility (Agent UX v2)
-                _skill_settings = _get_settings()
+                _skill_settings = self._get_config()
                 if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
                     for sid in skill_context.skill_ids:
                         skill = await registry.get_skill(sid)
@@ -439,7 +451,7 @@ class ExecutionAgent(BaseAgent):
         selected_model = self._select_model_for_step(step.description)
         if selected_model:
             self._step_model_override = selected_model
-            _is_adaptive = _get_settings().adaptive_model_selection_enabled
+            _is_adaptive = self._get_config().adaptive_model_selection_enabled
             if _is_adaptive:
                 logger.info("Adaptive model routing selected '%s' for step", selected_model)
             else:
@@ -623,6 +635,20 @@ class ExecutionAgent(BaseAgent):
                     step.status = ExecutionStatus.COMPLETED
                     if not step.success:
                         step.success = True
+        except SandboxCrashError as e:
+            # REL-009: Sandbox crashed — fail step immediately with critical error event
+            logger.critical("Sandbox crash detected during step execution: %s", e)
+            step.status = ExecutionStatus.FAILED
+            step.error = str(e)
+            yield ErrorEvent(
+                error=str(e),
+                error_type="sandbox_crash",
+                recoverable=False,
+                error_category="upstream",
+                severity="critical",
+                error_code="SANDBOX_CRASH",
+            )
+            yield StepEvent(status=StepStatus.FAILED, step=step)
         finally:
             # Always restore tools, system prompt, and model override after step
             self.tools = original_tools
@@ -768,8 +794,8 @@ class ExecutionAgent(BaseAgent):
 
             # Use fast model for report streaming — long-form text generation doesn't need 80B.
             # Falls back to the default model when FAST_MODEL is not configured.
-            _summarize_model: str | None = _get_settings().fast_model or None
-            _summarize_max_tokens: int = _get_settings().summarization_max_tokens
+            _summarize_model: str | None = self._get_config().fast_model or None
+            _summarize_max_tokens: int = self._get_config().summarization_max_tokens
 
             if self._can_deliver_pretrim_report_directly(
                 response_policy=active_policy,
@@ -830,7 +856,7 @@ class ExecutionAgent(BaseAgent):
                         break
 
                     if stream_attempt > max_stream_continuations:
-                        _powerful_model: str | None = _get_settings().powerful_model or None
+                        _powerful_model: str | None = self._get_config().powerful_model or None
                         _can_escalate = _powerful_model and _summarize_model and _powerful_model != _summarize_model
                         if _can_escalate:
                             logger.info(
@@ -1170,7 +1196,7 @@ class ExecutionAgent(BaseAgent):
                             _cont_model = _summarize_model
                             # Escalate to powerful model from 2nd attempt onward
                             if _pattern_attempt > 1:
-                                _powerful = _get_settings().powerful_model or None
+                                _powerful = self._get_config().powerful_model or None
                                 if _powerful and _powerful != _summarize_model:
                                     _cont_model = _powerful
                                     logger.info(
