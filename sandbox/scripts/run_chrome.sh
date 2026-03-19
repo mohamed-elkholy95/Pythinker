@@ -105,6 +105,31 @@ CHROME_FLAGS=(
 # shellcheck disable=SC2206
 [[ -n "${CHROME_ARGS:-}" ]] && CHROME_FLAGS+=($CHROME_ARGS)
 
+# ── Force-maximize Chrome window after launch ────────────────────────
+# Openbox's <maximized>true</maximized> only works if Chrome connects to
+# X11 after Openbox is ready. On fast boot Chrome may start unmaximized.
+# This background loop waits for Chrome's window to appear on DISPLAY :99,
+# then forces it to fill the entire Xvfb display via xdotool.
+_maximize_chrome() {
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        sleep 1
+        attempts=$((attempts + 1))
+        # Find Chrome's main window (skip popup/utility windows)
+        local wid
+        wid=$(DISPLAY=:99 xdotool search --onlyvisible --class chromium 2>/dev/null | head -1)
+        if [ -n "$wid" ]; then
+            DISPLAY=:99 xdotool windowactivate "$wid" 2>/dev/null
+            DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
+            DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
+            echo "[chrome-wrapper] Maximized Chrome window $wid to 1280x1024"
+            return 0
+        fi
+    done
+    echo "[chrome-wrapper] Could not find Chrome window to maximize after 30s"
+}
+_maximize_chrome &
+
 # ── Run Chrome with filtered stderr ──────────────────────────────────
 # fd 3 = original stdout (preserved for Chrome)
 # Chrome's stderr → pipe → filter → stderr
