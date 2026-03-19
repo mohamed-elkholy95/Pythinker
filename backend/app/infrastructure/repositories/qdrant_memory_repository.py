@@ -13,6 +13,7 @@ from datetime import datetime
 from qdrant_client import models
 
 from app.core.config import get_settings
+from app.core.retry import db_retry
 from app.domain.models.long_term_memory import MemoryImportance, MemoryType
 from app.domain.repositories.vector_memory_repository import VectorMemoryRepository, VectorSearchResult
 from app.infrastructure.storage.qdrant import get_qdrant
@@ -54,6 +55,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             primary_collection = getattr(self._settings, "qdrant_collection", "agent_memories")
         self._collection = primary_collection
 
+    @db_retry
     async def upsert_memory(
         self,
         memory_id: str,
@@ -120,6 +122,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return
         logger.debug(f"Upserted memory {memory_id} to Qdrant with named vectors")
 
+    @db_retry
     async def upsert_memories_batch(
         self,
         memories: list[dict],
@@ -182,6 +185,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return
         logger.info(f"Batch upserted {len(memories)} memories to Qdrant")
 
+    @db_retry
     async def search_similar(
         self,
         user_id: str,
@@ -281,6 +285,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             for point in results.points
         ]
 
+    @db_retry
     async def search_hybrid(
         self,
         user_id: str,
@@ -406,6 +411,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             for point in results.points
         ]
 
+    @db_retry
     async def delete_memory(self, memory_id: str) -> None:
         """Delete a single memory from Qdrant.
 
@@ -422,6 +428,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return
         logger.debug(f"Deleted memory {memory_id} from Qdrant")
 
+    @db_retry
     async def delete_memories_batch(self, memory_ids: list[str]) -> None:
         """Delete multiple memories from Qdrant.
 
@@ -441,6 +448,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return
         logger.info(f"Batch deleted {len(memory_ids)} memories from Qdrant")
 
+    @db_retry
     async def delete_user_memories(self, user_id: str) -> None:
         """Delete all memories for a user.
 
@@ -461,6 +469,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return
         logger.info(f"Deleted all memories for user {user_id} from Qdrant")
 
+    @db_retry
     async def get_memory_count(self, user_id: str | None = None) -> int:
         """Get count of memories in Qdrant.
 
@@ -487,6 +496,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             return 0
         return result.count
 
+    @db_retry
     async def memory_exists(self, memory_id: str) -> bool:
         """Check if a memory exists in Qdrant.
 

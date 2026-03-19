@@ -87,22 +87,28 @@ from app.interfaces.schemas.session import (
 from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 
 logger = logging.getLogger(__name__)
-SESSION_POLL_INTERVAL = 10
-
 # Redis stream IDs have the format "<milliseconds>-<sequence>" (e.g. "1772445693104-0").
 # Only these IDs should be emitted as the SSE `id:` field so that browser Last-Event-ID
 # is always a valid Redis resume cursor.  UUID-format IDs from synthetic events (gap
 # warnings, beacons) must never become the browser's resume cursor.
 _REDIS_STREAM_ID_RE = re.compile(r"^\d+-\d+$")
-SANDBOX_WS_CONNECT_KWARGS: dict = {
-    # RFC 6455 §5.5.2: Ping every 20s to detect dead sandbox connections.
-    # Without this, the backend proxy hangs indefinitely when the sandbox
-    # container dies or the screencast stream silently stops.
-    "ping_interval": 20,
-    # If no pong received within 10s of a ping, consider connection dead.
-    "ping_timeout": 10,
-    "max_size": None,
-}
+
+
+def _sandbox_ws_connect_kwargs() -> dict:
+    """Build WebSocket connection kwargs for sandbox proxying.
+
+    Uses lazy settings access so values are read at call time, not import time.
+    """
+    settings = get_settings()
+    return {
+        # RFC 6455 §5.5.2: Ping to detect dead sandbox connections.
+        # Without this, the backend proxy hangs indefinitely when the sandbox
+        # container dies or the screencast stream silently stops.
+        "ping_interval": settings.sse_ws_ping_interval_seconds,
+        # If no pong received within timeout of a ping, consider connection dead.
+        "ping_timeout": settings.sse_ws_ping_timeout_seconds,
+        "max_size": None,
+    }
 
 
 def _sandbox_ws_extra_headers() -> list[tuple[str, str]]:
@@ -887,7 +893,7 @@ async def stream_sessions(
                 else:
                     # Keep-alive frame so proxies don't time out idle streams.
                     yield ServerSentEvent(comment="heartbeat")
-                await asyncio.sleep(SESSION_POLL_INTERVAL)
+                await asyncio.sleep(get_settings().sse_session_poll_interval_seconds)
         except asyncio.CancelledError:
             logger.debug("Session SSE stream cancelled")
             return
@@ -1960,7 +1966,7 @@ async def screencast_websocket(
         async with websockets.connect(
             sandbox_ws_url,
             additional_headers=_sandbox_ws_extra_headers(),
-            **SANDBOX_WS_CONNECT_KWARGS,
+            **_sandbox_ws_connect_kwargs(),
         ) as sandbox_ws:
             logger.debug("Connected to screencast at %s", redacted_sandbox_ws_url)
 
@@ -2117,7 +2123,7 @@ async def input_websocket(
         async with websockets.connect(
             sandbox_ws_url,
             additional_headers=_sandbox_ws_extra_headers(),
-            **SANDBOX_WS_CONNECT_KWARGS,
+            **_sandbox_ws_connect_kwargs(),
         ) as sandbox_ws:
 
             async def forward_to_sandbox():
@@ -2239,7 +2245,7 @@ async def vnc_websocket(
         async with websockets.connect(
             sandbox_vnc_url,
             subprotocols=["binary"],
-            **SANDBOX_WS_CONNECT_KWARGS,
+            **_sandbox_ws_connect_kwargs(),
         ) as sandbox_ws:
             logger.info("Connected to VNC websockify at %s", redacted_sandbox_vnc_url)
 

@@ -11,6 +11,7 @@ import time
 from qdrant_client import models
 
 from app.core.config import get_settings
+from app.core.retry import db_retry
 from app.domain.repositories.vector_repos import TaskArtifactRepository
 from app.infrastructure.storage.qdrant import get_qdrant
 
@@ -67,6 +68,7 @@ class QdrantTaskRepository(TaskArtifactRepository):
         self._use_named_vectors = not current
         return self._use_named_vectors
 
+    @db_retry
     async def store_task_artifact(
         self,
         artifact_id: str,
@@ -131,6 +133,7 @@ class QdrantTaskRepository(TaskArtifactRepository):
             except Exception as retry_e:
                 logger.warning("Qdrant store_task_artifact retry failed for %s: %s", artifact_id, retry_e)
 
+    @db_retry
     async def find_similar_tasks(
         self,
         user_id: str,
@@ -199,6 +202,7 @@ class QdrantTaskRepository(TaskArtifactRepository):
             for point in results.points
         ]
 
+    @db_retry
     async def delete_user_artifacts(self, user_id: str) -> None:
         """Delete all task artifacts for a user."""
         try:

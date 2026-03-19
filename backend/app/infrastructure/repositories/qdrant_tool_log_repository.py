@@ -11,6 +11,7 @@ import time
 from qdrant_client import models
 
 from app.core.config import get_settings
+from app.core.retry import db_retry
 from app.domain.repositories.vector_repos import ToolLogRepository
 from app.infrastructure.storage.qdrant import get_qdrant
 
@@ -67,6 +68,7 @@ class QdrantToolLogRepository(ToolLogRepository):
         self._use_named_vectors = not current
         return self._use_named_vectors
 
+    @db_retry
     async def log_tool_execution(
         self,
         log_id: str,
@@ -122,6 +124,7 @@ class QdrantToolLogRepository(ToolLogRepository):
                 ],
             )
 
+    @db_retry
     async def find_similar_tool_executions(
         self,
         user_id: str,
@@ -183,6 +186,7 @@ class QdrantToolLogRepository(ToolLogRepository):
             for point in results.points
         ]
 
+    @db_retry
     async def delete_user_logs(self, user_id: str) -> None:
         """Delete all tool logs for a user."""
         await get_qdrant().client.delete(
