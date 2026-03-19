@@ -121,3 +121,15 @@ class LLM(Protocol):
         - provider: provider identifier for diagnostics
         """
         ...
+
+    def start_health_probe(self, interval_seconds: float = 300.0) -> None:
+        """Start periodic API key health probing.
+
+        Implementations with key pools should start a background task
+        that periodically checks key health. No-op if not supported.
+        """
+        ...
+
+    def stop_health_probe(self) -> None:
+        """Stop API key health probing. No-op if not supported."""
+        ...

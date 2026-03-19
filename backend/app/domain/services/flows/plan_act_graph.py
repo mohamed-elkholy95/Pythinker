@@ -544,6 +544,18 @@ class PlanActGraphFlow(BaseFlow):
             feature_flags=feature_flags,
         )
 
+        # Build service_context so executor gets full middleware pipeline
+        # (ErrorHandler, WallClockPressure, etc.) instead of default fallback
+        from app.domain.services.agents.agent_context_factory import AgentContextFactory
+
+        _ctx_factory = AgentContextFactory()
+        _service_ctx = _ctx_factory.create(
+            agent_id=self._agent_id,
+            session_id=self._session_id,
+            tools=tools,
+            feature_flags=feature_flags,
+        )
+
         self.executor = ExecutionAgent(
             agent_id=self._agent_id,
             agent_repository=self._repository,
@@ -551,6 +563,7 @@ class PlanActGraphFlow(BaseFlow):
             tools=tools,
             json_parser=json_parser,
             feature_flags=feature_flags,
+            service_context=_service_ctx,
         )
 
         # Create verifier agent (Phase 1: Plan-Verify-Execute)

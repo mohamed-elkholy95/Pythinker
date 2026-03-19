@@ -133,12 +133,23 @@ class TreeOfThoughtsFlow(BaseFlow):
             json_parser=json_parser,
         )
 
+        # Build service_context so executor gets full middleware pipeline
+        from app.domain.services.agents.agent_context_factory import AgentContextFactory
+
+        _ctx_factory = AgentContextFactory()
+        _service_ctx = _ctx_factory.create(
+            agent_id=agent_id,
+            session_id=self._session_id,
+            tools=tools,
+        )
+
         self.executor = ExecutionAgent(
             agent_id=agent_id,
             agent_repository=agent_repository,
             llm=llm,
             tools=tools,
             json_parser=json_parser,
+            service_context=_service_ctx,
         )
 
         # Create ToT components
