@@ -4,9 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-ALLOWED_SEARCH_PROVIDERS = frozenset(
-    {"bing", "google", "duckduckgo", "brave", "tavily", "serper", "exa", "jina"}
-)
+ALLOWED_SEARCH_PROVIDERS = frozenset({"bing", "google", "duckduckgo", "brave", "tavily", "serper", "exa", "jina"})
 DEFAULT_SEARCH_PROVIDER_CHAIN: tuple[str, ...] = ("tavily", "brave", "exa", "serper")
 
 

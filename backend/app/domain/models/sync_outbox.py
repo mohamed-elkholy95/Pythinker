@@ -70,7 +70,7 @@ class OutboxEntry(BaseModel):
 
         Backoff schedule: 1s, 2s, 4s, 8s, 16s, 32s (max), with ±25% jitter.
         """
-        delay = min(1.0 * (2.0 ** self.retry_count), 32.0)
+        delay = min(1.0 * (2.0**self.retry_count), 32.0)
         jitter = delay * random.uniform(-0.25, 0.25)  # noqa: S311
         return datetime.now(UTC) + timedelta(seconds=delay + jitter)
 
