@@ -10,18 +10,22 @@ const canReadStorage = (): boolean =>
 const canWriteStorage = (): boolean =>
   typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function'
 
-// Read initial state from localStorage
+// Detect desktop viewport (matches MOBILE_BREAKPOINT used in useResponsiveLeftPanel)
+const isDesktopViewport = (): boolean =>
+  typeof window !== 'undefined' && window.innerWidth > 639
+
+// Read initial state from localStorage — defaults to open on desktop
 const getInitialLeftPanelState = (): boolean => {
   try {
     if (!canReadStorage()) {
-      return false
+      return isDesktopViewport()
     }
 
     const saved = localStorage.getItem(LEFT_PANEL_STATE_KEY)
-    return saved ? JSON.parse(saved) : false
+    return saved !== null ? JSON.parse(saved) : isDesktopViewport()
   } catch (error) {
     console.error('Failed to read left panel state from localStorage:', error)
-    return false
+    return isDesktopViewport()
   }
 }
 

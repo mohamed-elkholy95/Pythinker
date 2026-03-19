@@ -547,6 +547,7 @@
 import SimpleBar from '../components/SimpleBar.vue';
 import type { ReasoningStage } from '@/types/reasoning';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs, shallowRef, triggerRef } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDocumentVisibility } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
@@ -592,7 +593,6 @@ import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel'
 import { useSessionFileList } from '../composables/useSessionFileList'
 import { useFilePanel } from '../composables/useFilePanel'
-import { copyToClipboard } from '../utils/dom'
 import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
@@ -641,7 +641,6 @@ import {
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
 import { useResponsePhase } from '@/composables/useResponsePhase';
-import { useSSEConnection } from '@/composables/useSSEConnection';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { isEventSourceResumeEnabled } from '@/utils/sseTransport';
@@ -650,11 +649,23 @@ import { useConnectionStore } from '@/stores/connectionStore';
 import { useUIStore } from '@/stores/uiStore';
 import { createEventHandlerRegistry, dispatchEvent } from '@/composables/useEventHandlerRegistry';
 import { useMcpStatus } from '@/composables/useMcpStatus';
+import { useShareSession } from '@/composables/useShareSession';
+import { usePanelSplitter } from '@/composables/usePanelSplitter';
+import { useTakeoverCta } from '@/composables/useTakeoverCta';
 
-// ── Pinia stores (dual-write: stores mirror local state during migration) ──
+// ── Pinia stores (single source of truth) ──
 const toolStore = useToolStore()
 const connectionStore = useConnectionStore()
 const uiStore = useUIStore()
+
+// Writable refs from stores (avoids verbose store prefix everywhere)
+const { lastEventId } = storeToRefs(connectionStore)
+
+// Computed aliases from stores (read-only; mutations go through store actions)
+const isToolPanelOpen = computed(() => uiStore.isRightPanelOpen)
+const userDismissedPanel = computed(() => uiStore.userDismissedPanel)
+const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats)
+const isStale = computed(() => connectionStore.isStale)
 
 const router = useRouter()
 const { t } = useI18n()
@@ -686,7 +697,6 @@ const {
 
 // SSE connection management with stale detection
 let staleReconnectTimer: ReturnType<typeof setTimeout> | null = null
-let linkCopiedTimer: ReturnType<typeof setTimeout> | null = null
 let planningHandoffTimer: ReturnType<typeof setTimeout> | null = null
 const PLANNING_HANDOFF_MS = 650
 
@@ -709,31 +719,7 @@ const handleStaleConnection = () => {
   }
 }
 
-const {
-  connectionState: _connectionState,
-  lastEventTime: _lastEventTime,
-  lastEventId,
-  updateLastRealEventTime,
-  isConnectionStale: _isConnectionStale,
-  persistEventId: _persistEventId,
-  getPersistedEventId: _getPersistedEventId,
-  cleanupSessionStorage,
-  startStaleDetection,
-  stopStaleDetection,
-} = useSSEConnection({
-  staleThresholdMs: 120000, // 120s (4× heartbeat) — only stale when NO events at all
-  onStaleDetected: handleStaleConnection,
-  onDegradedDetected: () => {
-    if (
-      responsePhase.value === 'streaming'
-      || responsePhase.value === 'connecting'
-      || responsePhase.value === 'reconnecting'
-    ) {
-      transitionTo('degraded')
-    }
-  },
-})
-const isStreamDegraded = computed(() => _connectionState.value === 'degraded')
+const isStreamDegraded = computed(() => connectionStore.connectionState === 'degraded')
 const connectionBannerRetryAttempt = ref<number | undefined>(undefined)
 const connectionBannerMaxRetries = ref<number | undefined>(undefined)
 const connectionBannerRetryDelayMs = ref<number | undefined>(undefined)
@@ -768,9 +754,6 @@ const createInitialState = () => ({
   lastTool: undefined as ToolContent | undefined,
   cancelCurrentChat: null as (() => void) | null,
   attachments: [] as FileInfo[],
-  shareMode: 'private' as 'private' | 'public', // Default to private mode
-  linkCopied: false,
-  sharingLoading: false, // Loading state for share operations
   suggestions: [] as string[], // End-of-response suggestions
   receivedDoneEvent: false,
   lastHeartbeatAt: 0,
@@ -782,7 +765,6 @@ const createInitialState = () => ({
   isSummaryStreaming: false, // True when summary is streaming live
   finalReportText: '', // Persisted final report markdown for live-view completion state
   allowStandaloneSummaryOnNextAssistant: false, // One-shot flag: render only the final summary assistant block outside step timeline
-  isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
   filePreviewFile: null as FileInfo | null,
   toolTimeline: [] as ToolContent[],
@@ -790,8 +772,6 @@ const createInitialState = () => ({
   isInitializing: false, // True when starting up the sandbox environment
   planningProgress: null as { phase: 'received' | 'analyzing' | 'planning' | 'verifying' | 'executing_setup' | 'finalizing' | 'waiting'; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
-  showTakeoverCta: false, // Show one-click takeover CTA for captcha/login waits
-  takeoverCtaReason: undefined as string | undefined,
   followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
   pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
   assistantCompletionFooterIds: new Set<string>(), // Assistant message IDs that should show green completion footer
@@ -830,9 +810,6 @@ const {
   lastTool,
   cancelCurrentChat,
   attachments,
-  shareMode,
-  linkCopied,
-  sharingLoading,
   suggestions,
   receivedDoneEvent,
   lastHeartbeatAt,
@@ -844,7 +821,6 @@ const {
   isSummaryStreaming,
   finalReportText,
   allowStandaloneSummaryOnNextAssistant,
-  isStale,
   filePreviewOpen,
   filePreviewFile,
   toolTimeline,
@@ -852,8 +828,6 @@ const {
   isInitializing,
   planningProgress,
   isWaitingForReply,
-  showTakeoverCta,
-  takeoverCtaReason,
   followUpAnchorEventId,
   pendingFollowUpSuggestion,
   assistantCompletionFooterIds,
@@ -873,6 +847,26 @@ const {
   planPresentationSource,
   lastPlanningProgressSignature,
 } = toRefs(state);
+
+// ── Composables: share popover + takeover CTA ──
+const {
+  shareMode,
+  linkCopied,
+  sharingLoading,
+  handleShareModeChange,
+  handleInstantShare,
+  handleCopyLink,
+  initFromSession: initShareFromSession,
+} = useShareSession(sessionId);
+
+const {
+  showTakeoverCta,
+  takeoverStarting,
+  takeoverCtaMessage,
+  clearTakeoverCta,
+  setTakeoverCtaFromMetadata,
+  handleStartTakeoverFromCta,
+} = useTakeoverCta(sessionId);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
 const reasoningTreeRef = ref<InstanceType<typeof ReasoningTreeView> | null>(null);
@@ -914,69 +908,12 @@ const startPlanningHandoff = (
   }, PLANNING_HANDOFF_MS);
 };
 
-const takeoverStarting = ref(false);
-const TAKEOVER_WAIT_REASONS = new Set(['captcha', 'login', '2fa', 'payment', 'verification']);
-
-const clearTakeoverCta = () => {
-  showTakeoverCta.value = false;
-  takeoverCtaReason.value = undefined;
-};
-
-const setTakeoverCtaFromMetadata = (waitReason?: string, takeoverSuggestion?: string) => {
-  const normalizedReason = (waitReason || '').trim().toLowerCase();
-  const normalizedSuggestion = (takeoverSuggestion || '').trim().toLowerCase();
-  const shouldShow = normalizedSuggestion === 'browser' || TAKEOVER_WAIT_REASONS.has(normalizedReason);
-
-  showTakeoverCta.value = shouldShow;
-  takeoverCtaReason.value = shouldShow && normalizedReason ? normalizedReason : undefined;
-};
-
-const takeoverCtaMessage = computed(() => {
-  switch ((takeoverCtaReason.value || '').toLowerCase()) {
-    case 'captcha':
-      return 'Captcha detected. Take over the browser to continue.';
-    case 'login':
-      return 'Login required. Take over the browser to continue.';
-    case '2fa':
-      return '2FA verification required. Take over the browser to continue.';
-    case 'payment':
-      return 'Payment verification required. Take over the browser to continue.';
-    case 'verification':
-      return 'Manual verification required. Take over the browser to continue.';
-    default:
-      return 'The agent is waiting for your browser input. Take over to continue.';
-  }
-});
-
-const handleStartTakeoverFromCta = async () => {
-  if (!sessionId.value || takeoverStarting.value) return;
-  takeoverStarting.value = true;
-  try {
-    const reason = takeoverCtaReason.value || 'manual';
-    const status = await agentApi.startTakeover(sessionId.value, reason);
-    if (status.takeover_state !== 'takeover_active') {
-      showErrorToast('Unable to start browser takeover. Please try again.');
-      return;
-    }
-    clearTakeoverCta();
-    window.dispatchEvent(
-      new CustomEvent('takeover', {
-        detail: { sessionId: sessionId.value, active: true },
-      }),
-    );
-  } catch {
-    showErrorToast('Unable to start browser takeover. Please try again.');
-  } finally {
-    takeoverStarting.value = false;
-  }
-};
 
 const canOpenLiveViewPanel = computed(() => chatViewMode.value !== 'reasoning');
 
 const showToolPanelIfAllowed = (tool: ToolContent, isLive: boolean) => {
   if (!canOpenLiveViewPanel.value) return false;
   toolPanel.value?.showToolPanel(tool, isLive);
-  // Dual-write: mirror panel state to Pinia stores
   uiStore.setRightPanel(true)
   return true;
 };
@@ -1149,35 +1086,28 @@ const MOBILE_VIEWPORT_BREAKPOINT = 1024;
 const isTouchLikeViewport = () =>
   window.innerWidth < MOBILE_VIEWPORT_BREAKPOINT;
 const isMobileViewport = ref(isTouchLikeViewport());
-const isSplitDragging = ref(false);
-const isSplitHovering = ref(false);
-const isSplitFocused = ref(false);
-let splitPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
-let splitPointerUpHandler: ((event: PointerEvent) => void) | null = null;
 
-const SPLIT_MIN_PANEL_WIDTH_PX = 340;
-const SPLIT_MIN_CHAT_WIDTH_PX = 420;
-const SPLIT_WHEEL_STEP_PX = 24;
-const splitIsActive = computed(() => isSplitHovering.value || isSplitDragging.value || isSplitFocused.value);
-
-const splitterTrackStyle = computed<Record<string, string>>(() => ({
-  cursor: 'ew-resize',
-  borderRadius: '9999px',
-  backgroundColor: splitIsActive.value ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-  transition: 'background-color 0.12s ease',
-}));
-
-const splitterHandleStyle = computed<Record<string, string>>(() => ({
-  backgroundColor: splitIsActive.value
-    ? 'var(--status-running, #3b82f6)'
-    : 'var(--border-dark, rgba(17, 24, 39, 0.22))',
-  opacity: splitIsActive.value ? '1' : '0.9',
-  transform: splitIsActive.value ? 'scaleX(1.65)' : 'scaleX(1)',
-  boxShadow: splitIsActive.value
-    ? '0 0 0 1px rgba(59, 130, 246, 0.45), 0 0 10px rgba(59, 130, 246, 0.28)'
-    : 'none',
-  transition: 'background-color 0.12s ease, opacity 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease',
-}));
+// ── Composable: panel splitter ──
+const {
+  isSplitDragging,
+  isSplitHovering,
+  isSplitFocused,
+  SPLIT_MIN_PANEL_WIDTH_PX,
+  splitterTrackStyle,
+  splitterHandleStyle,
+  getPanelMaxWidth,
+  stopSplitterDrag,
+  resetToolPanelWidth,
+  reclampPanelWidth,
+  handleSplitterPointerDown,
+  handleSplitterWheel,
+  handleSplitterKeydown,
+} = usePanelSplitter({
+  chatSplitRef,
+  toolPanelSize,
+  isMobileViewport,
+  isToolPanelOpen,
+});
 
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
@@ -1309,115 +1239,6 @@ const updateChatBottomDockMetrics = () => {
   updateChatBottomDockStyle();
 };
 
-const getSplitContainerWidth = () => {
-  return chatSplitRef.value?.clientWidth || window.innerWidth;
-};
-
-const getPanelMaxWidth = () => {
-  const containerWidth = getSplitContainerWidth();
-  return Math.max(SPLIT_MIN_PANEL_WIDTH_PX, containerWidth - SPLIT_MIN_CHAT_WIDTH_PX);
-};
-
-const clampPanelWidth = (width: number) => {
-  const maxWidth = getPanelMaxWidth();
-  return Math.min(Math.max(width, SPLIT_MIN_PANEL_WIDTH_PX), maxWidth);
-};
-
-const getCurrentPanelWidth = () => {
-  const containerWidth = getSplitContainerWidth();
-  const defaultWidth = containerWidth / 2;
-  const requested = toolPanelSize.value > 0 ? toolPanelSize.value : defaultWidth;
-  return clampPanelWidth(requested);
-};
-
-const setPanelWidth = (width: number) => {
-  if (isMobileViewport.value) return;
-  toolPanelSize.value = Math.round(clampPanelWidth(width));
-};
-
-const adjustPanelWidth = (delta: number) => {
-  setPanelWidth(getCurrentPanelWidth() + delta);
-};
-
-const stopSplitterDrag = () => {
-  if (splitPointerMoveHandler) {
-    window.removeEventListener('pointermove', splitPointerMoveHandler);
-    splitPointerMoveHandler = null;
-  }
-  if (splitPointerUpHandler) {
-    window.removeEventListener('pointerup', splitPointerUpHandler);
-    window.removeEventListener('pointercancel', splitPointerUpHandler);
-    splitPointerUpHandler = null;
-  }
-  isSplitDragging.value = false;
-  isSplitHovering.value = false;
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-};
-
-const handleSplitterPointerDown = (event: PointerEvent) => {
-  if (isMobileViewport.value || !isToolPanelOpen.value) return;
-
-  const startX = event.clientX;
-  const startWidth = getCurrentPanelWidth();
-
-  isSplitDragging.value = true;
-  document.body.style.cursor = 'ew-resize';
-  document.body.style.userSelect = 'none';
-
-  splitPointerMoveHandler = (moveEvent: PointerEvent) => {
-    const deltaX = moveEvent.clientX - startX;
-    setPanelWidth(startWidth - deltaX);
-  };
-
-  splitPointerUpHandler = () => {
-    stopSplitterDrag();
-  };
-
-  window.addEventListener('pointermove', splitPointerMoveHandler);
-  window.addEventListener('pointerup', splitPointerUpHandler);
-  window.addEventListener('pointercancel', splitPointerUpHandler);
-};
-
-const handleSplitterWheel = (event: WheelEvent) => {
-  if (isMobileViewport.value || !isToolPanelOpen.value) return;
-  const direction = event.deltaY < 0 ? 1 : -1;
-  adjustPanelWidth(direction * SPLIT_WHEEL_STEP_PX);
-};
-
-const handleSplitterKeydown = (event: KeyboardEvent) => {
-  if (isMobileViewport.value || !isToolPanelOpen.value) return;
-
-  const KEYBOARD_STEP_PX = 40; // Larger step for keyboard (feels more responsive)
-
-  switch (event.key) {
-    case 'ArrowLeft':
-      event.preventDefault();
-      adjustPanelWidth(KEYBOARD_STEP_PX); // Expand panel (decrease chat width)
-      break;
-    case 'ArrowRight':
-      event.preventDefault();
-      adjustPanelWidth(-KEYBOARD_STEP_PX); // Shrink panel (increase chat width)
-      break;
-    case 'Home':
-      event.preventDefault();
-      setPanelWidth(getPanelMaxWidth());
-      break;
-    case 'End':
-      event.preventDefault();
-      setPanelWidth(SPLIT_MIN_PANEL_WIDTH_PX);
-      break;
-    case 'Enter':
-    case ' ':
-      event.preventDefault();
-      resetToolPanelWidth();
-      break;
-  }
-};
-
-const resetToolPanelWidth = () => {
-  toolPanelSize.value = 0;
-};
 
 const handleViewportResize = () => {
   isMobileViewport.value = isTouchLikeViewport();
@@ -1428,8 +1249,8 @@ const handleViewportResize = () => {
     return;
   }
 
-  if (isToolPanelOpen.value && toolPanelSize.value > 0) {
-    toolPanelSize.value = Math.round(clampPanelWidth(toolPanelSize.value));
+  if (isToolPanelOpen.value) {
+    reclampPanelWidth();
   }
 };
 
@@ -1655,7 +1476,7 @@ const handleStreamGapDetected = (scope: 'transport' | 'transport_retry', info: S
   if (info.checkpointEventId) {
     lastEventId.value = info.checkpointEventId
     if (sessionId.value) {
-      _persistEventId(sessionId.value)
+      connectionStore.persistEventId(sessionId.value)
     }
   }
 }
@@ -1804,8 +1625,8 @@ const streamController = useSessionStreamController({
   receivedDoneEvent,
   seenEventIds,
   transitionTo,
-  startStaleDetection,
-  stopStaleDetection,
+  startStaleDetection: () => connectionStore.startStaleDetection(),
+  stopStaleDetection: () => connectionStore.stopStaleDetection(),
   cleanupStreamingState,
   dismissRetryBanner: dismissConnectionBanner,
   setRetryBannerState: setConnectionBannerRetryState,
@@ -1863,19 +1684,13 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-// Stale detection consolidated in connectionStore (single source of truth).
-// Local refs kept as thin aliases for backward-compatible reads.
+// Stale detection fully managed by connectionStore (single source of truth).
 const updateEventTimeAndResetStale = () => {
-  updateLastRealEventTime()
-  isStale.value = false
   connectionStore.updateLastRealEventTime()
 }
 
-// Track if ToolPanel is open (needed for live preview thumbnail management)
-const isToolPanelOpen = ref(false);
-// Tracks whether user manually closed the panel during the current agent run.
-// Prevents auto-reopening until the next user message is sent.
-const userDismissedPanel = ref(false);
+// isToolPanelOpen is a computed alias from uiStore (defined above)
+// userDismissedPanel is a computed alias from uiStore (defined above)
 let planningToolOpened = false;
 let planningToolPendingOpen = false;
 
@@ -1890,13 +1705,13 @@ watch(isLoading, (loading) => {
     connectionStore.startStaleDetection()
   } else {
     connectionStore.stopStaleDetection()
-    isStale.value = false
   }
 });
 
-// Sync store stale state back to local ref (backward compat until full migration)
+// React to stale detection from connectionStore (triggers reconnection)
 watch(() => connectionStore.isStale, (stale) => {
-  isStale.value = stale
+  if (!stale) return
+  handleStaleConnection()
 });
 
 // Auto-retry after timeout: progressive backoff (5s, 15s, 45s, 60s), max 4 attempts
@@ -2213,13 +2028,10 @@ const showPlanningCard = computed(() =>
 
 // PhaseStrip computed state removed — PhaseStrip is no longer rendered
 
-// Handle tool panel state changes
+// Handle tool panel state changes (uiStore is the single source of truth)
 const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
-  isToolPanelOpen.value = isOpen;
-  // Dual-write: mirror panel state to Pinia stores
   uiStore.setRightPanel(isOpen)
   if (!isOpen && userAction) {
-    userDismissedPanel.value = true;
     uiStore.setUserDismissedPanel(true)
   }
 };
@@ -2772,7 +2584,6 @@ const handleToolEvent = (toolData: ToolEventData) => {
     if (sources.length > 0) {
       searchSourcesCache.value.set(toolContent.tool_call_id, sources);
       triggerRef(searchSourcesCache);
-      // Dual-write: mirror to Pinia store
       toolStore.cacheSearchSources(toolContent.tool_call_id, sources);
     }
   }
@@ -3578,7 +3389,7 @@ const finalizeSession = (
   if (sessionId.value) {
     emitStatusChange(sessionId.value, status);
     if (options.cleanupStorage ?? true) {
-      cleanupSessionStorage(sessionId.value);
+      connectionStore.cleanupSessionStorage(sessionId.value);
     }
   }
   sessionStatus.value = status;
@@ -3770,8 +3581,6 @@ const processEvent = (event: AgentSSEEvent) => {
 
   // Update last event time for stale connection detection
   updateEventTimeAndResetStale();
-  // Dual-write: mirror event time to Pinia connection store
-  connectionStore.updateLastRealEventTime()
 
   // Transition to streaming on first real event
   if (
@@ -3810,7 +3619,7 @@ const processEvent = (event: AgentSSEEvent) => {
   lastEventId.value = event.data.event_id;
   // Persist lastEventId to sessionStorage for proper event resumption on page refresh
   if (event.data.event_id && sessionId.value) {
-    _persistEventId(sessionId.value);
+    connectionStore.persistEventId(sessionId.value);
   }
 }
 
@@ -3862,7 +3671,6 @@ const chat = async (
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
   // Reset user dismissal so the panel auto-opens for the new agent run
-  userDismissedPanel.value = false;
   planningToolOpened = false;
   planningToolPendingOpen = false;
   uiStore.resetDismissed()
@@ -3939,7 +3747,7 @@ const chat = async (
     shortPathActivated.value = false;
     lastEventId.value = '';
     if (sessionId.value) {
-      cleanupSessionStorage(sessionId.value);
+      connectionStore.cleanupSessionStorage(sessionId.value);
       emitStatusChange(sessionId.value, SessionStatus.RUNNING);
     }
   }
@@ -4080,7 +3888,7 @@ const restoreSession = async (
 
   try {
     // Load lastEventId from sessionStorage for proper event resumption
-    const savedEventId = _getPersistedEventId(targetSessionId);
+    const savedEventId = connectionStore.getPersistedEventId(targetSessionId);
     if (shouldAbortRestore('after_get_persisted_event_id')) return;
     if (savedEventId) {
       lastEventId.value = savedEventId;
@@ -4100,7 +3908,7 @@ const restoreSession = async (
     console.log('[RESTORE] Session:', targetSessionId, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
 
     // Initialize share mode based on session state
-    shareMode.value = session.is_shared ? 'public' : 'private';
+    initShareFromSession(!!session.is_shared);
     realTime.value = false;
 
     // Drain any pending batched events before replaying persisted history.
@@ -4362,10 +4170,6 @@ onUnmounted(() => {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
   }
-  if (linkCopiedTimer) {
-    clearTimeout(linkCopiedTimer);
-    linkCopiedTimer = null;
-  }
   // Cancel any pending event batch processing
   streamController.clearPendingEvents();
 })
@@ -4542,7 +4346,7 @@ const handleStop = async () => {
   const activeSessionId = sessionId.value;
   if (activeSessionId) {
     // Clear lastEventId from sessionStorage since session is stopped (use centralized cleanup)
-    cleanupSessionStorage(activeSessionId);
+    connectionStore.cleanupSessionStorage(activeSessionId);
     // Mark this session as manually stopped to prevent auto-resume on page refresh
     // Set AFTER cleanup so the flag isn't immediately removed
     sessionStorage.setItem(`pythinker-stopped-${activeSessionId}`, JSON.stringify({ timestamp: Date.now() }));
@@ -4556,7 +4360,6 @@ const handleStop = async () => {
   }
 
   // Reset stale-state indicator immediately before finalization transition.
-  isStale.value = false;
   // NO ensureCompletionSuggestions() — user intentionally stopped.
   // Preserve stop marker in sessionStorage so refresh does not auto-resume.
   finalizeSession('stop', SessionStatus.COMPLETED, { cleanupStorage: false });
@@ -4648,72 +4451,6 @@ const handleFileListShow = () => {
   showSessionFileList()
 }
 
-// Share functionality handlers
-const handleShareModeChange = async (mode: 'private' | 'public') => {
-  if (!sessionId.value || sharingLoading.value) return;
-
-  // If mode is same as current, no need to call API
-  if (shareMode.value === mode) {
-    linkCopied.value = false;
-    return;
-  }
-
-  try {
-    sharingLoading.value = true;
-
-    if (mode === 'public') {
-      await agentApi.shareSession(sessionId.value);
-    } else {
-      await agentApi.unshareSession(sessionId.value);
-    }
-
-    shareMode.value = mode;
-    linkCopied.value = false;
-  } catch {
-    showErrorToast(t('Failed to change sharing settings'));
-  } finally {
-    sharingLoading.value = false;
-  }
-}
-
-const handleInstantShare = async () => {
-  if (!sessionId.value) return;
-
-  try {
-    sharingLoading.value = true;
-    await agentApi.shareSession(sessionId.value);
-    shareMode.value = 'public';
-    linkCopied.value = false;
-  } catch {
-    showErrorToast(t('Failed to share session'));
-  } finally {
-    sharingLoading.value = false;
-  }
-}
-
-const handleCopyLink = async () => {
-  if (!sessionId.value) return;
-
-  const shareUrl = `${window.location.origin}/share/${sessionId.value}`;
-
-  try {
-    const success = await copyToClipboard(shareUrl);
-
-    if (success) {
-      linkCopied.value = true;
-      if (linkCopiedTimer) clearTimeout(linkCopiedTimer);
-      linkCopiedTimer = setTimeout(() => {
-        linkCopiedTimer = null;
-        linkCopied.value = false;
-      }, 3000);
-      showSuccessToast(t('Link copied to clipboard'));
-    } else {
-      showErrorToast(t('Failed to copy link'));
-    }
-  } catch {
-    showErrorToast(t('Failed to copy link'));
-  }
-}
 </script>
 
 <style scoped>
