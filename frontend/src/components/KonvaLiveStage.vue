@@ -6,6 +6,7 @@
       'annotation-mode': annotationLayer.isActive.value,
       'panning': zoomCtrl.isPanning.value,
     }"
+    :style="streamCursorStyle"
     @wheel.prevent="handleWheel"
   >
     <v-stage
@@ -228,6 +229,7 @@ import { useAgentCursor } from '@/composables/useAgentCursor'
 import { useAnnotationLayer } from '@/composables/useAnnotationLayer'
 import type { ToolEventData } from '@/types/event'
 import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
+import { getApplePointerCursorCss } from '@/utils/appleCursorStyle'
 
 // ---------------------------------------------------------------------------
 // Props & Emits
@@ -288,6 +290,9 @@ const frameDimensions = screencast.frameDimensions
 // ---------------------------------------------------------------------------
 // Konva Stage Config
 // ---------------------------------------------------------------------------
+
+/** OS cursor over stream matches Apple pointer (agent overlay + hover). */
+const streamCursorStyle = { cursor: getApplePointerCursorCss() }
 
 const stageConfig = computed(() => ({
   width: containerWidth.value,
@@ -708,5 +713,10 @@ defineExpose({
   position: absolute !important;
   top: 0;
   left: 0;
+}
+
+/* Konva defaults to `default` on the hit canvas — inherit Apple pointer from parent */
+.konva-live-stage:not(.annotation-mode):not(.panning) :deep(canvas) {
+  cursor: inherit !important;
 }
 </style>

@@ -26,7 +26,11 @@
     </Transition>
 
     <!-- noVNC renders into this container -->
-    <div ref="vncContainerRef" class="vnc-canvas-container" />
+    <div
+      ref="vncContainerRef"
+      class="vnc-canvas-container"
+      :style="vncCursorStyle"
+    />
   </div>
 </template>
 
@@ -34,6 +38,7 @@
 import { ref, watch, onBeforeUnmount, nextTick } from 'vue'
 import { Loader2 } from 'lucide-vue-next'
 import { getVncUrl } from '@/api/agent'
+import { getApplePointerCursorCss } from '@/utils/appleCursorStyle'
 
 // noVNC RFB types — declared inline to avoid a top-level import that Vite
 // would try to resolve at HMR time (the package is CJS-only).
@@ -66,6 +71,8 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement | null>(null)
 const vncContainerRef = ref<HTMLElement | null>(null)
+
+const vncCursorStyle = { cursor: getApplePointerCursorCss() }
 const isConnecting = ref(false)
 const error = ref<string | null>(null)
 
@@ -208,6 +215,7 @@ defineExpose({ reconnect })
 /* noVNC injects a canvas and a div inside the container — make them fill */
 .vnc-canvas-container :deep(canvas) {
   display: block;
+  cursor: inherit !important;
 }
 
 .vnc-overlay {

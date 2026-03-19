@@ -23,7 +23,12 @@
     </div>
 
     <!-- CDP Screencast View (Konva-powered) -->
-    <div v-else-if="enabled" ref="viewerContentRef" class="sandbox-content-inner">
+    <div
+      v-else-if="enabled"
+      ref="viewerContentRef"
+      class="sandbox-content-inner"
+      :style="liveStreamCursorStyle"
+    >
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
         <LoadingState
@@ -97,6 +102,7 @@ import { useSkillEvents } from '@/composables/useSkillEvents'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
 import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
+import { getApplePointerCursorCss } from '@/utils/appleCursorStyle'
 import type { ToolEventData } from '@/types/event'
 import type { SkillEventData } from '@/composables/useSkillEvents'
 
@@ -148,6 +154,8 @@ const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
 const showAgentActions = ref(true)
 const showAgentCursor = ref(true)
+
+const liveStreamCursorStyle = { cursor: getApplePointerCursorCss() }
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
@@ -713,10 +721,6 @@ defineExpose({
   bottom: 0;
   background: var(--background-gray-main);
   overflow: hidden;
-}
-
-.sandbox-viewer-wrapper.interactive {
-  cursor: default;
 }
 
 .sandbox-content-inner {
