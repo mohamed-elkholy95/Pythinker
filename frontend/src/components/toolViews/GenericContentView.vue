@@ -68,13 +68,16 @@ import { useShiki } from '@/composables/useShiki';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import type { CanvasToolContent } from '@/types/toolContent';
 
+/** Structured tool result — string, JSON object, array, or null. */
+export type ToolResultValue = string | Record<string, unknown> | unknown[] | null;
+
 const props = defineProps<{
   toolName?: string;
   functionName?: string;
   args?: Record<string, unknown>;
   status?: 'calling' | 'running' | 'called' | 'interrupted';
-  result?: unknown;
-  content?: unknown;
+  result?: ToolResultValue;
+  content?: ToolResultValue | CanvasToolContent;
   error?: string;
   isExecuting?: boolean;
 }>();
