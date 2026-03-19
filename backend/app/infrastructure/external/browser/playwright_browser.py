@@ -938,10 +938,12 @@ class PlaywrightBrowser:
                             overflow: overlay !important;
                             scrollbar-gutter: auto !important;
                         }
-                        /* Hide native cursor from CDP screencast frames —
-                           agent actions are visualized via the Konva overlay cursor */
+                        /* Hide native cursor from CDP screencast —
+                           agent actions shown via Konva overlay cursor.
+                           Transparent 1x1 GIF as custom cursor prevents
+                           X11 fallback to crosshair. */
                         *, *::before, *::after {
-                            cursor: none !important;
+                            cursor: url('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7') 0 0, auto !important;
                         }
                     `;
 
