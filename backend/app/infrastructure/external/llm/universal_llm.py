@@ -36,6 +36,7 @@ Switching providers at runtime:
     # or just set LLM_PROVIDER=anthropic and call get_llm()
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -190,6 +191,8 @@ class UniversalLLM:
         # Build the underlying provider backend
         self._backend: LLM = self._create_backend(self._provider_name)
         self._last_stream_metadata: dict[str, Any] | None = None
+        self._primary_provider_name: str = self._provider_name
+        self._switch_lock = asyncio.Lock()
 
         logger.info(f"UniversalLLM ready — provider={self._provider_name}, model={self._backend.model_name}")
 
@@ -280,13 +283,17 @@ class UniversalLLM:
     def switch_provider(self, provider: str) -> None:
         """Hot-swap the underlying provider at runtime.
 
+        Thread-safe via _switch_lock (acquired by callers in async context).
         Useful for testing failover scenarios or dynamic provider selection.
 
         Args:
             provider: New provider name ("openai", "anthropic", "ollama")
         """
         old_provider = self._provider_name
-        self._provider_name = provider.lower()
+        new_provider = provider.lower()
+        if new_provider == old_provider:
+            return
+        self._provider_name = new_provider
         self._backend = self._create_backend(self._provider_name)
         logger.info(f"UniversalLLM: switched provider {old_provider} → {self._provider_name}")
 
@@ -411,23 +418,29 @@ class UniversalLLM:
                 fallback_chain,
             )
 
-        # ── Fallback chain ──
-        for fallback_provider in fallback_chain:
-            try:
-                self.switch_provider(fallback_provider)
-                t0 = time.monotonic()
-                result = await self._backend.ask(**kwargs)
-                self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, True)
-                logger.info("UniversalLLM: fallback succeeded with provider=%s", fallback_provider)
-                return result
-            except Exception as exc:
-                self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, False)
-                logger.warning(
-                    "UniversalLLM: fallback provider=%s also failed: %s",
-                    fallback_provider,
-                    type(exc).__name__,
-                )
-                last_exc = exc
+        # ── Fallback chain (lock prevents concurrent switches) ──
+        async with self._switch_lock:
+            for fallback_provider in fallback_chain:
+                try:
+                    self.switch_provider(fallback_provider)
+                    t0 = time.monotonic()
+                    result = await self._backend.ask(**kwargs)
+                    self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, True)
+                    logger.info("UniversalLLM: fallback succeeded with provider=%s", fallback_provider)
+                    # Restore primary provider so subsequent calls retry primary first
+                    self.switch_provider(self._primary_provider_name)
+                    return result
+                except Exception as exc:
+                    self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, False)
+                    logger.warning(
+                        "UniversalLLM: fallback provider=%s also failed: %s",
+                        fallback_provider,
+                        type(exc).__name__,
+                    )
+                    last_exc = exc
+
+            # All fallbacks failed — restore primary provider
+            self.switch_provider(self._primary_provider_name)
 
         if last_exc is None:
             raise RuntimeError("UniversalLLM fallback failed without a captured exception")

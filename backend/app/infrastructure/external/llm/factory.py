@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, ClassVar
 
 from app.core.config import get_settings
@@ -106,8 +107,8 @@ def _get_redis_client() -> RedisClient | None:
             return get_redis()
         except Exception as e:
             if attempt == 0:
-                import time
-
+                # Synchronous sleep is intentional: this function runs under
+                # threading.Lock (not on the async event loop).
                 time.sleep(0.5)
                 continue
             logger.warning("Failed to get Redis client for LLM after retry: %s", e)

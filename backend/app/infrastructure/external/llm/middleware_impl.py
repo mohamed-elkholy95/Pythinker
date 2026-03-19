@@ -89,20 +89,9 @@ class MetricsMiddleware(LLMMiddleware):
         response: LLMResponse | None,
     ) -> None:
         try:
-            from app.infrastructure.external.observability.prometheus import get_prometheus_metrics
+            from app.core.prometheus_metrics import llm_latency
 
-            metrics = get_prometheus_metrics()
-            # Record latency histogram if available
-            if hasattr(metrics, "record_llm_latency"):
-                metrics.record_llm_latency(provider=provider, latency_ms=elapsed_ms)
-            if error and hasattr(metrics, "increment_llm_error"):
-                metrics.increment_llm_error(provider=provider)
-            if response and response.usage and hasattr(metrics, "record_llm_tokens"):
-                metrics.record_llm_tokens(
-                    provider=provider,
-                    prompt_tokens=response.usage.get("prompt_tokens", 0),
-                    completion_tokens=response.usage.get("completion_tokens", 0),
-                )
+            llm_latency.observe({"model": provider}, elapsed_ms / 1000.0)
         except Exception as exc:
             # Metrics must never break LLM calls
             logger.debug("MetricsMiddleware: recording skipped: %s", exc)

@@ -525,6 +525,15 @@ class AnthropicLLM(LLM):
             # Track usage if context is set
             await self._record_usage(response)
 
+            # Record success on the key pool so adaptive TTL learning and
+            # circuit breaker health tracking work correctly.
+            try:
+                success_key = await self.get_api_key()
+                if success_key:
+                    self._key_pool.record_success(success_key)
+            except Exception:
+                logger.debug("record_success failed", exc_info=True)
+
             return self._convert_anthropic_response_to_openai(response)
 
         except anthropic.RateLimitError as e:
@@ -744,6 +753,15 @@ class AnthropicLLM(LLM):
             }
             if normalized_finish_reason == "length":
                 logger.warning("Anthropic streaming response truncated (stop_reason=max_tokens)")
+
+            # Record success on the key pool for adaptive TTL learning.
+            try:
+                success_key = await self.get_api_key()
+                if success_key:
+                    self._key_pool.record_success(success_key)
+            except Exception:
+                logger.debug("record_success failed", exc_info=True)
+
             return  # Success
 
         except anthropic.BadRequestError as e:
