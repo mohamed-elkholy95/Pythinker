@@ -1,5 +1,6 @@
 import logging
 
+from bson import ObjectId
 from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure
 
 from app.domain.exceptions.base import DuplicateResourceException, IntegrationException, UserNotFoundException
@@ -117,11 +118,21 @@ class MongoUserRepository(UserRepository):
         logger.info(f"User deleted successfully: {user_id}")
         return True
 
-    async def list_users(self, limit: int = 100, offset: int = 0) -> list[User]:
-        """List users with pagination"""
-        logger.debug(f"Listing users: limit={limit}, offset={offset}")
+    async def list_users(self, limit: int = 100, offset: int = 0, cursor: str | None = None) -> list[User]:
+        """List users with cursor-based or offset-based pagination.
+
+        When ``cursor`` is provided it takes precedence over ``offset``.
+        The cursor value is the string representation of a MongoDB ``_id``.
+        """
+        logger.debug(f"Listing users: limit={limit}, offset={offset}, cursor={cursor}")
         try:
-            user_docs = await UserDocument.find().skip(offset).limit(limit).to_list()
+            if cursor is not None:
+                query = UserDocument.find({"_id": {"$gt": ObjectId(cursor)}})
+                query = query.sort("+_id").limit(limit)
+            else:
+                query = UserDocument.find().sort("+_id").skip(offset).limit(limit)
+
+            user_docs = await query.to_list()
         except (ConnectionFailure, OperationFailure) as e:
             logger.error("MongoDB error listing users: %s", e)
             return []

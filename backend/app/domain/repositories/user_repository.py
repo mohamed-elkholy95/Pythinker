@@ -37,8 +37,14 @@ class UserRepository(ABC):
         pass
 
     @abstractmethod
-    async def list_users(self, limit: int = 100, offset: int = 0) -> list[User]:
-        """List users with pagination"""
+    async def list_users(self, limit: int = 100, offset: int = 0, cursor: str | None = None) -> list[User]:
+        """List users with pagination.
+
+        Args:
+            limit: Maximum number of users to return.
+            offset: Number of users to skip (used when cursor is not provided).
+            cursor: MongoDB _id string for cursor-based pagination (takes precedence over offset).
+        """
         pass
 
     @abstractmethod
