@@ -17,7 +17,7 @@
     >
       <div class="collapsed-sidebar-top">
         <button @click="toggleLeftPanel" class="collapsed-logo-btn" aria-label="Expand sidebar">
-          <img src="/icon.svg" alt="Pythinker" class="h-5 w-5" />
+          <img src="/pythinker_animated.svg" alt="Pythinker" class="h-5 w-5" />
           <span class="collapsed-brand">Pythinker</span>
         </button>
         <button @click="handleNewTaskClick" class="collapsed-icon-btn" aria-label="New task">
@@ -52,7 +52,7 @@
     >
       <div class="left-panel-header pl-2 pr-4 py-3 h-[56px]">
         <div class="flex items-center gap-2">
-          <img src="/icon.svg" alt="Pythinker" class="h-5 w-5" />
+          <img src="/pythinker_animated.svg" alt="Pythinker" class="h-5 w-5" />
           <PythinkerLogoTextIcon />
         </div>
         <button

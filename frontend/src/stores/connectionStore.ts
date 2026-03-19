@@ -195,15 +195,30 @@ export const useConnectionStore = defineStore('connection', () => {
 
   function getPersistedEventId(sessionId: string): string | undefined {
     try {
+      const eventId = sessionStorage.getItem(`pythinker-last-event-${sessionId}`)
+      if (!eventId) return undefined
+
+      // Defensive guard against corrupted oversized values
+      if (eventId.length > 2048) {
+        cleanupSessionStorage(sessionId)
+        return undefined
+      }
+
       const metaRaw = sessionStorage.getItem(`pythinker-last-event-meta-${sessionId}`)
       if (metaRaw) {
-        const meta = JSON.parse(metaRaw)
-        if (Date.now() - meta.saved_at > EVENT_CURSOR_MAX_AGE_MS) {
+        const meta = JSON.parse(metaRaw) as { saved_at?: number }
+        const savedAt = meta.saved_at
+        if (typeof savedAt !== 'number' || !Number.isFinite(savedAt)) {
+          cleanupSessionStorage(sessionId)
+          return undefined
+        }
+        if (Date.now() - savedAt > EVENT_CURSOR_MAX_AGE_MS) {
           cleanupSessionStorage(sessionId)
           return undefined
         }
       }
-      return sessionStorage.getItem(`pythinker-last-event-${sessionId}`) ?? undefined
+
+      return eventId
     } catch {
       return undefined
     }
@@ -213,6 +228,7 @@ export const useConnectionStore = defineStore('connection', () => {
     try {
       sessionStorage.removeItem(`pythinker-last-event-${sessionId}`)
       sessionStorage.removeItem(`pythinker-last-event-meta-${sessionId}`)
+      sessionStorage.removeItem(`pythinker-stopped-${sessionId}`)
     } catch {
       // Silently ignore
     }
