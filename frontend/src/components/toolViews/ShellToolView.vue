@@ -146,15 +146,27 @@ const loadShellContent = async () => {
   }
 };
 
+// Pause polling when tab is not visible
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    stopAutoRefresh();
+  } else if (props.live) {
+    loadShellContent();
+    startAutoRefresh();
+  }
+};
+
 // Start auto-refresh timer
 const startAutoRefresh = () => {
   if (refreshTimer.value) {
     clearInterval(refreshTimer.value);
   }
-  
-  if (props.live && shellSessionId.value) {
+
+  if (props.live && shellSessionId.value && !document.hidden) {
     refreshTimer.value = setInterval(() => {
-      loadShellContent();
+      if (!document.hidden) {
+        loadShellContent();
+      }
     }, 5000);
   }
 };
@@ -189,11 +201,13 @@ watch(() => props.live, (live: boolean) => {
 onMounted(() => {
   loadShellContent();
   startAutoRefresh();
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
-// Clear timer when component is unmounted
+// Clear timer and listeners when component is unmounted
 onUnmounted(() => {
   stopAutoRefresh();
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 </script>
 
