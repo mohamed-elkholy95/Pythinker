@@ -352,11 +352,10 @@ class Settings(
             )
 
         # API key validation
-        if self.llm_provider in ["openai", "anthropic"] and not self.api_key:
-            if self.llm_provider == "anthropic" and not self.api_key:
-                errors.append(f"API key is required for {self.llm_provider} provider")
-            elif self.llm_provider == "openai":
-                errors.append("API_KEY is required for OpenAI provider")
+        if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+            errors.append("ANTHROPIC_API_KEY is required for anthropic provider")
+        elif self.llm_provider == "openai" and not self.api_key:
+            errors.append("API_KEY is required for OpenAI provider")
 
         # Credential encryption key
         if self.allow_credential_access and not self.credential_encryption_key and self.is_production:
