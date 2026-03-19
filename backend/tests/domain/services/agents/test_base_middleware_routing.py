@@ -21,7 +21,7 @@ class TestBaseAgentHasPipeline:
         assert hasattr(agent, "_pipeline")
         assert isinstance(agent._pipeline, MiddlewarePipeline)
 
-    def test_default_pipeline_has_4_middleware(self):
+    def test_default_pipeline_has_5_middleware(self):
         from app.domain.services.agents.base import BaseAgent
 
         agent = BaseAgent(

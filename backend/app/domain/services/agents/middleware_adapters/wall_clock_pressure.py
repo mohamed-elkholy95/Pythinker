@@ -42,8 +42,8 @@ class WallClockPressureMiddleware(BaseMiddleware):
         sent_key = f"wall_clock_{level.lower()}_sent"
 
         if level == "CRITICAL":
-            if not ctx.metadata.get(sent_key):
-                ctx.metadata[sent_key] = True
+            # Always FORCE at critical level — no dedup guard needed since FORCE terminates the loop.
+            ctx.metadata[sent_key] = True
             return MiddlewareResult(
                 signal=MiddlewareSignal.FORCE,
                 message=(
