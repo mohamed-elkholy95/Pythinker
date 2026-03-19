@@ -1,10 +1,21 @@
+from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.domain.external.stealth_types import StealthMode
-from app.infrastructure.external.scraper.scrapling_adapter import ScraplingAdapter
+
+try:
+    from app.infrastructure.external.scraper.scrapling_adapter import ScraplingAdapter
+except ImportError:
+    ScraplingAdapter = None  # type: ignore[assignment, misc]
+
+pytestmark = pytest.mark.skipif(
+    ScraplingAdapter is None,
+    reason="scrapling/browserforge not installed",
+)
 
 
 class _DummyPage:
