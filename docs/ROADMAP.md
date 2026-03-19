@@ -1,7 +1,7 @@
 # Pythinker Enhancement Roadmap
 
 > **Generated:** 2026-03-18 | **Last Updated:** 2026-03-18
-> **Total Items:** 136 | **Completed:** 73 (54%) | **Phases:** 9
+> **Total Items:** 136 | **Completed:** 76 (56%) | **Phases:** 9
 
 ---
 
@@ -11,12 +11,12 @@
 |-------|-------|------|--------|
 | 1. Security & Critical | 17 | 17 | **COMPLETE** |
 | 2. Architecture & DDD | 18 | 8 | In Progress |
-| 3. Reliability | 15 | 8 | In Progress |
+| 3. Reliability | 15 | 10 | In Progress |
 | 4. Domain Model | 14 | 14 | **COMPLETE** |
 | 5. Frontend Quality | 18 | 0 | Not Started |
 | 6. Test Coverage & CI | 21 | 0 | Not Started |
 | 7. Performance | 13 | 8 | In Progress |
-| 8. API & DX | 17 | 6 | In Progress |
+| 8. API & DX | 17 | 7 | In Progress |
 | 9. Cleanup & Debt | 14 | 12 | In Progress |
 
 ---
@@ -97,10 +97,10 @@
 - [x] **REL-011** Fix destroy() error handling — separate stop/remove
 - [ ] **REL-012** Wrap PodmanSandbox sync calls in asyncio.to_thread()
 
-### 3.4 Resource Leaks (0/3)
+### 3.4 Resource Leaks (3/3 COMPLETE)
 
-- [ ] **REL-013** Add shutdown lifecycle for search engine clients
-- [ ] **REL-014** Add shutdown handler for WriteCoalescer
+- [x] **REL-013** Add shutdown lifecycle for search engine clients
+- [x] **REL-014** Add shutdown handler for WriteCoalescer
 - [x] **REL-015** _(Done via CLEAN-005)_ Remove unused EventStoreRepository.db_client
 
 ---
@@ -228,10 +228,10 @@
 
 ## Phase 8 — API & Developer Experience (P3)
 
-### 8.1 API Contracts (2/5 done)
+### 8.1 API Contracts (3/5 done)
 
 - [x] **API-001** Fix session creation status code (200 → 201)
-- [ ] **API-002** Fix usage route error response (200 → 403/404)
+- [x] **API-002** Fix usage route error response (200 → 403/404)
 - [ ] **API-003** Implement sandbox callback routes (currently stubs)
 - [ ] **API-004** Add OpenAPI annotations to all routes
 - [x] **API-005** Fix prompt optimization routes double-prefix

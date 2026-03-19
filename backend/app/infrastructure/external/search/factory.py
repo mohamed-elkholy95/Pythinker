@@ -266,7 +266,10 @@ class RerankingSearchEngine:
     async def close(self) -> None:
         """Close the wrapped search engine client."""
         if hasattr(self._base_engine, "close"):
-            await self._base_engine.close()
+            try:
+                await self._base_engine.close()
+            except Exception as e:
+                logger.debug("Error closing base search engine: %s", e)
 
 
 def _maybe_wrap_with_jina_rerank(engine: SearchEngine, redis_client=None) -> SearchEngine:
