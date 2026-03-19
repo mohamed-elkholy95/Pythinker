@@ -39,11 +39,11 @@ class WriteCoalescer:
         await asyncio.sleep(self._delay)
         await self._flush_pending()
 
-    async def _flush_pending(self) -> None:
-        """Flush all pending writes immediately."""
+    async def _flush_pending(self) -> int:
+        """Flush all pending writes immediately. Returns count flushed."""
         async with self._lock:
             if not self._pending:
-                return
+                return 0
 
             batch = self._pending.copy()
             self._pending.clear()
@@ -56,6 +56,7 @@ class WriteCoalescer:
                 )
             except (ConnectionFailure, OperationFailure) as e:
                 logger.warning("Coalesced write failed for %s: %s", key, e)
+        return len(batch)
 
     async def shutdown(self) -> None:
         """Flush pending writes and cancel the background task."""
@@ -63,8 +64,8 @@ class WriteCoalescer:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-        await self._flush_pending()
-        logger.info("WriteCoalescer shut down — %d pending writes flushed", 0)
+        flushed = await self._flush_pending()
+        logger.info("WriteCoalescer shut down — %d pending writes flushed", flushed)
 
 
 # Global write coalescer instance
