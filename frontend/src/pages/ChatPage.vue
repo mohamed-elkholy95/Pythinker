@@ -26,15 +26,22 @@
         >
           <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
         </button>
-        <!-- Desktop branding (visible when sidebar is collapsed) -->
-        <PythinkerLogoTextIcon
-          v-if="!isLeftPanelShow"
-          :width="120"
-          :height="28"
-          class="hidden sm:block flex-shrink-0 -ml-2"
-        />
         <!-- Left side spacer (desktop only) -->
-        <div class="hidden sm:flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
+        <div
+          class="chat-header-leading hidden sm:flex items-center justify-start flex-shrink-0"
+          :style="isLeftPanelShow ? 'width: calc((100% - min(768px, 100%)) / 2);' : 'width: 12px;'"
+        >
+          <button
+            v-if="activeHeaderModelName"
+            type="button"
+            class="chat-settings-model-pill"
+            data-testid="chat-settings-model-pill"
+            :title="activeHeaderModelName"
+            @click="openSettingsDialog('model')"
+          >
+            <span class="chat-settings-model-pill-label">{{ activeHeaderModelName }}</span>
+            <ChevronDown class="chat-settings-model-pill-icon" />
+          </button>
         </div>
         <!-- Center content - matches chat content width -->
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
@@ -58,7 +65,7 @@
             <ResearchModeBadge :mode="sessionResearchMode" :compact="isToolPanelOpen" />
           </div>
 	          <!-- Right: Buttons -->
-	          <div class="flex items-center gap-1 flex-shrink-0">
+	          <div class="flex items-center gap-2 flex-shrink-0">
               <div class="chat-view-toggle" role="tablist" aria-label="Chat display mode">
                 <button
                   type="button"
@@ -592,9 +599,9 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send, ChevronDown } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
-import PythinkerLogoTextIcon from '@/components/icons/PythinkerLogoTextIcon.vue';
+import { getServerConfig, getSettings } from '@/api/settings';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
 import type { FileInfo } from '../api/file';
@@ -619,6 +626,7 @@ import WaitingForReply from '@/components/WaitingForReply.vue';
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
 import ResearchModeBadge from '@/components/ResearchModeBadge.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { useSettingsDialog } from '@/composables/useSettingsDialog';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
 import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
@@ -636,6 +644,7 @@ import {
   shouldShowPlanningCard,
 } from '@/utils/planningCard';
 import { resolveChatDockLayout } from '@/utils/chatDockLayout';
+import { resolveInitialHeaderModelName, resolveNextHeaderModelName } from '@/utils/chatHeaderModel';
 import {
   getRestoreAbortReason,
   isTerminalSessionStatus,
@@ -678,6 +687,7 @@ const isStale = computed(() => connectionStore.isStale)
 const router = useRouter()
 const { t } = useI18n()
 const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
+const { openSettingsDialog } = useSettingsDialog()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
@@ -803,6 +813,7 @@ const createInitialState = () => ({
 
 // Create reactive state
 const state = reactive(createInitialState());
+const activeHeaderModelName = ref('')
 
 // Destructure refs from reactive state
 const {
@@ -3469,6 +3480,7 @@ const handleResearchModeEvent = (data: unknown) => {
 
 const handleFlowSelectionEvent = (data: unknown) => {
   const fsData = data as import('../types/event').FlowSelectionEventData
+  activeHeaderModelName.value = resolveNextHeaderModelName(activeHeaderModelName.value, fsData.model)
   logChatSseDiagnostics('event:flow_selection', {
     flow_mode: fsData.flow_mode,
     model: fsData.model ?? null,
@@ -4084,6 +4096,15 @@ onMounted(async () => {
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
   window.addEventListener('resize', handleViewportResize);
 
+  const [serverConfigResult, userSettingsResult] = await Promise.allSettled([
+    getServerConfig(),
+    getSettings(),
+  ])
+  activeHeaderModelName.value = resolveInitialHeaderModelName(
+    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
+    userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
+  )
+
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
     chatContainerResizeObserver = new ResizeObserver(() => {
       updateChatBottomDockMetrics();
@@ -4516,6 +4537,10 @@ const handleFileListShow = () => {
   background-color: var(--background-gray-main);
 }
 
+.chat-header-leading {
+  min-width: 0;
+}
+
 .chat-model-pill {
   display: inline-flex;
   align-items: center;
@@ -4529,6 +4554,49 @@ const handleFileListShow = () => {
 
 .chat-model-pill:hover {
   background: var(--fill-tsp-white-main);
+}
+
+.chat-settings-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-main) 85%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 92%, var(--background-white-main));
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-white) 8%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.chat-settings-model-pill:hover {
+  background: color-mix(in srgb, var(--background-secondary) 84%, var(--background-white-main));
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.chat-settings-model-pill:focus-visible {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.chat-settings-model-pill-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.chat-settings-model-pill-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--icon-secondary);
 }
 
 .chat-view-toggle {
