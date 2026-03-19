@@ -864,7 +864,65 @@ class AgentTaskRunner(TaskRunner):
             )
             existing = [*existing, report_info]
 
+        # --- Generate PDF version of the report ---
+        pdf_info = await self._generate_report_pdf(event, report_metadata)
+        if pdf_info:
+            existing = [*existing, pdf_info]
+
         event.attachments = existing
+
+    async def _generate_report_pdf(
+        self,
+        event: ReportEvent,
+        report_metadata: dict[str, object],
+    ) -> FileInfo | None:
+        """Generate a PDF version of the report and upload to storage.
+
+        Uses the existing ReportLab pipeline (``build_pdf_bytes``) to convert
+        the markdown content into a PDF, then uploads it to file storage so the
+        frontend receives a download URL alongside the markdown attachment.
+
+        Returns ``None`` on any failure — PDF generation is non-critical.
+        """
+        from io import BytesIO
+
+        from app.core.config import get_settings
+        from app.domain.utils.markdown_to_pdf import build_pdf_bytes
+
+        try:
+            settings = get_settings()
+            pdf_bytes = build_pdf_bytes(
+                title=event.title or "Report",
+                content=event.content,
+                sources=event.sources,
+                include_toc=settings.telegram_pdf_include_toc,
+                toc_min_sections=settings.telegram_pdf_toc_min_sections,
+                preferred_font=settings.telegram_pdf_unicode_font,
+            )
+        except Exception as e:
+            logger.warning("PDF generation failed for report %s: %s", event.id, e)
+            return None
+
+        pdf_filename = f"report-{event.id}.pdf"
+
+        try:
+            pdf_file_info = await self._file_storage.upload_file(
+                file_data=BytesIO(pdf_bytes),
+                filename=pdf_filename,
+                user_id=self._user_id,
+                content_type="application/pdf",
+                metadata={**report_metadata, "is_pdf_report": True},
+            )
+            logger.info(
+                "Auto-generated PDF report (%d bytes) for session=%s report_id=%s",
+                len(pdf_bytes),
+                self._session_id,
+                event.id,
+            )
+            return pdf_file_info
+        except Exception as e:
+            logger.warning("PDF upload failed for report %s: %s", event.id, e)
+            return None
 
     async def _ensure_comparison_chart_file(
         self,

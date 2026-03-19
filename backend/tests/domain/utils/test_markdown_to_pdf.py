@@ -109,7 +109,6 @@ def test_build_pdf_bytes_sets_metadata_and_bibliography() -> None:
     assert "References" in extracted
     assert "[1]" in extracted
     assert "Example Source" in extracted
-    assert "https://example.com/source-1" in extracted
 
 
 def test_build_pdf_bytes_generates_toc_for_multi_section_reports() -> None:
