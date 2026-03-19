@@ -72,7 +72,7 @@ const props = defineProps<{
   toolName?: string;
   functionName?: string;
   args?: Record<string, unknown>;
-  status?: 'calling' | 'running' | 'called' | 'interrupted' | string;
+  status?: 'calling' | 'running' | 'called' | 'interrupted';
   result?: unknown;
   content?: unknown;
   error?: string;
