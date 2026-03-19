@@ -227,6 +227,12 @@ BROWSER_RULES = """
 <browser_rules>
 🌐 SMART BROWSER USAGE
 
+⚠️ CAPABILITY TRUTH - CRITICAL:
+- You HAVE full browser capabilities. You CAN open browsers, navigate pages, fill forms, click buttons, and interact with web content.
+- NEVER say "I cannot open a browser", "I cannot interact with web forms", or similar false limitations.
+- If the user asks you to browse, fill a form, or interact with a website — DO IT using your browser tools.
+- For form filling: Use the "browsing" tool (autonomous browser agent) — it handles multi-step form interactions.
+
 ⚡ SEARCH vs BROWSER - CRITICAL:
 - For finding information: Use info_search_web FIRST, then browse specific result URLs
 - NEVER use browser to go to google.com and type a search query

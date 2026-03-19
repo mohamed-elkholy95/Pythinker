@@ -370,19 +370,11 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
         """
         logger.info(f"Searching URL: {url}" + (f" (focus: {focus})" if focus else ""))
 
-        # Record URL visit in task state to survive token trimming
-        try:
-            from app.domain.services.agents.task_state_manager import get_task_state_manager
-
-            tsm = get_task_state_manager()
-            tsm.record_url(url)
-        except Exception:
-            logger.debug("Failed to record URL visit in task state", exc_info=True)
-
-        # Track per-session visit count and warn/reject repeated visits
+        # Check per-session visit count and reject repeated visits.
+        # Counter is only incremented after successful fetch (below), so
+        # timed-out or failed fetches don't block retries.
         normalized_url = self._normalize_url_for_visit_tracking(url)
-        visit_count = self._url_visit_counts.get(normalized_url, 0) + 1
-        self._url_visit_counts[normalized_url] = visit_count
+        visit_count = self._url_visit_counts.get(normalized_url, 0)
 
         if visit_count >= 3:
             logger.warning(f"URL visited {visit_count} times, returning short rejection: {url[:80]}")
@@ -406,8 +398,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 message = f"Content fetched (cached): {len(cached_text)} chars."
                 if focus:
                     message = f"[FOCUSED: {focus}] {message}"
+                # Count cache hit as a visit
+                self._url_visit_counts[normalized_url] = visit_count + 1
                 # Append warning on 2nd visit
-                if visit_count == 2:
+                if visit_count >= 1:
                     message += (
                         "\n\nNOTE: You have already visited this URL. The content has not changed. "
                         "Consider visiting a different URL or extracting different information."
@@ -495,6 +489,16 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 message = f"Content fetched ({access_status}): {len(text)} chars. {access_message}"
                 if focus:
                     message = f"[FOCUSED: {focus}] {message}"
+
+                # Increment visit counter and record in task state after successful fetch
+                self._url_visit_counts[normalized_url] = visit_count + 1
+                try:
+                    from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+                    tsm = get_task_state_manager()
+                    tsm.record_url(url)
+                except Exception:
+                    logger.debug("Failed to record URL visit in task state", exc_info=True)
 
                 # Cache the fetched content
                 if len(self._url_cache) >= self._url_cache_max:
@@ -609,21 +613,13 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         Returns:
             Navigation result with interactive elements and page content
         """
-        # Record URL visit in task state to survive token trimming
-        try:
-            from app.domain.services.agents.task_state_manager import get_task_state_manager
-
-            tsm = get_task_state_manager()
-            tsm.record_url(url)
-        except Exception:
-            logger.debug("Failed to record URL visit in task state", exc_info=True)
-
-        # Track per-session visit count and warn/reject repeated visits
+        # Check per-session visit count and reject repeated visits.
+        # Only count visits that actually succeeded — timed-out or failed navigations
+        # must not block retries (the page was never loaded).
         nav_normalized_url = self._normalize_url_for_visit_tracking(url)
-        nav_visit_count = self._url_visit_counts.get(nav_normalized_url, 0) + 1
-        self._url_visit_counts[nav_normalized_url] = nav_visit_count
+        nav_visit_count = self._url_visit_counts.get(nav_normalized_url, 0)
 
-        if nav_visit_count >= 2:
+        if nav_visit_count >= 1:
             logger.warning(f"browser_navigate: URL visited {nav_visit_count} times, returning rejection: {url[:80]}")
             return ToolResult(
                 success=True,
@@ -637,6 +633,19 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
 
         # Navigate to URL
         result = await self.browser.navigate(url)
+
+        # Only record URL visit and increment counter AFTER successful navigation.
+        # Failed/timed-out navigations must not block future retries — neither
+        # in the in-memory counter nor in the task-state prompt context.
+        if result.success:
+            self._url_visit_counts[nav_normalized_url] = nav_visit_count + 1
+            try:
+                from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+                tsm = get_task_state_manager()
+                tsm.record_url(url)
+            except Exception:
+                logger.debug("Failed to record URL visit in task state", exc_info=True)
 
         if not result.success:
             return result
@@ -709,6 +718,9 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         Returns:
             Restart result
         """
+        # Reset URL visit counters — a restart means fresh browser state,
+        # so previous visit failures should not block navigation to the target URL.
+        self._url_visit_counts.clear()
         return await self.browser.restart(url)
 
     @tool(
