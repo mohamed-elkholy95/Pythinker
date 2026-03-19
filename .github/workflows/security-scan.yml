@@ -42,8 +42,9 @@ jobs:
         id: pip-audit
         continue-on-error: false
         run: |
-          pip-audit --format json --output pip-audit-report.json || true
-          pip-audit
+          # --ignore-vuln: CVE-2025-69872 (diskcache 5.6.3) — no fix available upstream
+          pip-audit --ignore-vuln CVE-2025-69872 --format json --output pip-audit-report.json || true
+          pip-audit --ignore-vuln CVE-2025-69872
 
       - name: Install Node dependencies
         working-directory: frontend
