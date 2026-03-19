@@ -127,15 +127,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV HOSTNAME=sandbox
 
 # All runtime apt packages in a single layer to minimize image size.
-# Combines: core tools, Playwright Chromium deps, fonts, display stack, and gh CLI.
-# Step 1: bootstrap curl + ca-certificates (needed to fetch GPG key before main install)
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg && \
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        > /etc/apt/sources.list.d/github-cli.list && \
-    apt-get update && apt-get install -y --no-install-recommends \
+# gh CLI installed separately below via .deb for version pinning (fixes CVE-2026-33186 in bundled grpc).
+RUN apt-get update && apt-get install -y --no-install-recommends \
     # Container init + core tools
     tini sudo bc curl wget gnupg ca-certificates socat supervisor \
     xterm perl xauth x11-xkb-utils xkb-data x11-utils x11-apps x11-xserver-utils xdotool dbus-x11 \
@@ -144,8 +137,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     # Native libs for rendering
     libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri libgl1-mesa-glx libgif7 \
     libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 libxinerama1 libxkbfile1 \
-    # CLI tools
-    ripgrep jq git zip unzip gh \
+    # CLI tools (gh installed separately below for version pinning)
+    ripgrep jq git zip unzip \
     # Display stack (Xvfb + VNC)
     xvfb openbox x11vnc python3-websockify \
     # PDF tools
@@ -166,6 +159,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     locale-gen en_US.UTF-8 && \
     fc-cache -f && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# gh CLI — pinned version via official .deb (apt repo lags behind, bundled grpc had CVE-2026-33186)
+ARG GH_VERSION=2.88.1
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" \
+        -o /tmp/gh.deb && \
+    dpkg -i /tmp/gh.deb && rm -f /tmp/gh.deb
 
 # Create ubuntu user — no NOPASSWD (removed for hardened non-root runtime)
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu
