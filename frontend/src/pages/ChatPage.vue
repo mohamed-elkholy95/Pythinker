@@ -4436,6 +4436,15 @@ const handleTimelineStepForward = () => {
   if (isReplayMode.value) {
     replay.stepForward();
     realTime.value = false;
+    // Sync tool panel to the screenshot's associated tool
+    const screenshot = replay.currentScreenshot.value;
+    if (screenshot?.tool_call_id && toolTimeline.value.length > 0) {
+      const tool = toolTimeline.value.find(t => t.tool_call_id === screenshot.tool_call_id);
+      if (tool && canOpenLiveViewPanel.value) {
+        panelToolId.value = tool.tool_call_id;
+        showToolPanelIfAllowed(tool, false);
+      }
+    }
     return;
   }
   if (!toolTimelineCanStepForward.value) return;
@@ -4446,6 +4455,15 @@ const handleTimelineStepBackward = () => {
   if (isReplayMode.value) {
     replay.stepBackward();
     realTime.value = false;
+    // Sync tool panel to the screenshot's associated tool
+    const screenshot = replay.currentScreenshot.value;
+    if (screenshot?.tool_call_id && toolTimeline.value.length > 0) {
+      const tool = toolTimeline.value.find(t => t.tool_call_id === screenshot.tool_call_id);
+      if (tool && canOpenLiveViewPanel.value) {
+        panelToolId.value = tool.tool_call_id;
+        showToolPanelIfAllowed(tool, false);
+      }
+    }
     return;
   }
   if (!toolTimelineCanStepBackward.value) return;
@@ -4456,6 +4474,16 @@ const handleTimelineSeek = (progress: number) => {
   if (isReplayMode.value) {
     replay.seekByProgress(progress);
     realTime.value = false;
+    // Also sync the tool panel to the nearest tool at this progress point
+    if (toolTimeline.value.length > 0) {
+      const maxIndex = toolTimeline.value.length - 1;
+      const targetIndex = Math.round((progress / 100) * maxIndex);
+      const tool = toolTimeline.value[Math.max(0, Math.min(targetIndex, maxIndex))];
+      if (tool && canOpenLiveViewPanel.value) {
+        panelToolId.value = tool.tool_call_id;
+        showToolPanelIfAllowed(tool, false);
+      }
+    }
     return;
   }
   if (toolTimeline.value.length === 0) return;
