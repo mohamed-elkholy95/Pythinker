@@ -38,6 +38,41 @@ function patchNoVncTLA(): Plugin {
   };
 }
 
+/**
+ * Apple cursor SVGs in `apple_cursor-main/svg` use chroma fills (#00FF00) and strokes (#0000FF)
+ * so `cbmp` can swap them when building X11 cursor themes (see sandbox/apple_cursor/render.json).
+ * The Konva agent-cursor overlay imports those SVGs as URLs — without this step they render as
+ * bright green/blue. Mirror the same replacements at build time.
+ */
+function recolorAppleCursorSvgForWeb(): Plugin {
+  const isAppleCursorSvg = (pathOnly: string) =>
+    /apple_cursor-main[/\\]svg[/\\].+\.svg$/i.test(pathOnly);
+
+  const applyChromaToFinalColors = (svg: string) =>
+    svg
+      .replace(/#00[Ff]{2}00\b/g, '#000000')
+      .replace(/#0000[Ff]{2}\b/g, '#FFFFFF');
+
+  return {
+    name: 'recolor-apple-cursor-svg-web',
+    enforce: 'pre',
+    load(id) {
+      const pathOnly = id.split('?')[0];
+      if (!pathOnly.endsWith('.svg') || !isAppleCursorSvg(pathOnly)) {
+        return null;
+      }
+      try {
+        const raw = readFileSync(pathOnly, 'utf-8');
+        const recolored = applyChromaToFinalColors(raw);
+        const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolored)}`;
+        return `export default ${JSON.stringify(dataUrl)}`;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 const usePolling =
   process.env.VITE_USE_POLLING === 'true' || process.env.CHOKIDAR_USEPOLLING === 'true';
@@ -55,6 +90,7 @@ const hmrClientPort = process.env.VITE_HMR_CLIENT_PORT
 export default defineConfig({
   plugins: [
     patchNoVncTLA(),
+    recolorAppleCursorSvgForWeb(),
     tailwindcss(),
     vue(),
     commonjs(),
