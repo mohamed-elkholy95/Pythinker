@@ -245,19 +245,16 @@
                 />
               </div>
 
-              <!-- Planning Overlay — shows plan markdown during planning phase.
-                   Uses the same EditorContentView as report streaming for visual consistency.
-                   Only visible when planPresentationText has content OR planEditorContent
-                   has content from PlanEvent steps (isPlanningTool with plan data). -->
+              <!-- Planning Overlay — styled step cards instead of raw markdown -->
               <div
                 v-else-if="planEditorContent.length > 0"
                 data-testid="plan-overlay"
                 class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
               >
-                <EditorContentView
-                  :content="planEditorContent"
-                  filename="Plan.md"
-                  :is-writing="isPlanningTool || !!props.isPlanStreaming"
+                <PlanPresentationView
+                  :plan="props.plan"
+                  :streaming-text="planEditorContent"
+                  :is-streaming="isPlanningTool || !!props.isPlanStreaming"
                 />
               </div>
 
@@ -558,6 +555,7 @@ const LoadingState = defineAsyncComponent(lazyRetry(() => import('@/components/t
 const TerminalContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/TerminalContentView.vue')));
 const TerminalLiveView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/TerminalLiveView.vue')));
 const EditorContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/EditorContentView.vue')));
+const PlanPresentationView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/PlanPresentationView.vue')));
 const SearchContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/SearchContentView.vue')));
 const DealContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/DealContentView.vue')));
 const ChartToolView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/ChartToolViewEnhanced.vue')));

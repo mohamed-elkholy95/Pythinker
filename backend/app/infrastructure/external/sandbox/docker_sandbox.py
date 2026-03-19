@@ -39,9 +39,6 @@ class DockerSandbox(Sandbox):
     def __init__(self, ip: str | None = None, container_name: str | None = None):
         """Initialize Docker sandbox and API interaction client"""
         settings = get_settings()
-        # Phase 1: Connection pooling - remove direct httpx client creation
-        # Client will be obtained from HTTPClientPool instead
-        self._client: httpx.AsyncClient | None = None  # Deprecated, use get_client()
         # Resolve hostname to IP if needed (Chrome CDP requires IP, not hostname)
         raw_address = ip or settings.sandbox_address or "localhost"
         self.ip = self._resolve_to_ip(raw_address)
@@ -91,35 +88,6 @@ class DockerSandbox(Sandbox):
                 headers=auth_headers,
             ),
         )
-
-    @property
-    def client(self) -> httpx.AsyncClient:
-        """DEPRECATED: Use await get_client() instead.
-
-        This property is maintained for backward compatibility but will log a warning.
-        Auto-healing httpx client fallback for synchronous access.
-        """
-        logger.warning(
-            f"DockerSandbox.client property is deprecated. Use 'await get_client()' for connection pooling. Sandbox: {self.id}"
-        )
-        if self._client is None or (hasattr(self._client, "is_closed") and self._client.is_closed):
-            old = self._client
-            self._client = httpx.AsyncClient(timeout=600)
-            # Prevent leak if old client was not fully closed
-            if old is not None and not old.is_closed:
-                try:
-                    loop = asyncio.get_running_loop()
-                    task = loop.create_task(old.aclose())
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
-                except RuntimeError:
-                    pass
-        return self._client
-
-    @client.setter
-    def client(self, value: httpx.AsyncClient | None) -> None:
-        """DEPRECATED: Setter for backward compatibility."""
-        self._client = value
 
     def set_browser_progress_callback(self, callback: Callable[[str], Awaitable[None]] | None) -> None:
         """Set callback for browser connection retry progress events.
@@ -774,8 +742,8 @@ class DockerSandbox(Sandbox):
         if settings.sandbox_api_secret:
             headers["x-sandbox-secret"] = settings.sandbox_api_secret
 
+        sse_client = await self.get_client()
         async with (
-            httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as sse_client,
             sse_client.stream("GET", url, headers=headers) as response,
         ):
             response.raise_for_status()
@@ -1292,11 +1260,6 @@ class DockerSandbox(Sandbox):
             except Exception as e:
                 logger.debug(f"HTTP pool client cleanup skipped: {e}")
 
-            # Fallback cleanup for deprecated direct client
-            if self._client and not self._client.is_closed:
-                await self._client.aclose()
-            self._client = None
-
             is_static_sandbox_id = bool(
                 uses_static_sandboxes and self._container_name and self._container_name.startswith("dev-sandbox-")
             )
@@ -1345,10 +1308,6 @@ class DockerSandbox(Sandbox):
             from app.infrastructure.external.http_pool import HTTPClientPool
 
             await HTTPClientPool.close_client(self._pool_client_name)
-        if self._client and not self._client.is_closed:
-            with contextlib.suppress(Exception):
-                await self._client.aclose()
-        self._client = None
 
         if hasattr(DockerSandbox.get, "cache_invalidate"):
             with contextlib.suppress(Exception):

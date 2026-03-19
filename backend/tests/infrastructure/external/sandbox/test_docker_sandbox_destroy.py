@@ -1,7 +1,6 @@
 """Tests for DockerSandbox destroy idempotency."""
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from docker.errors import NotFound as DockerNotFound
@@ -12,13 +11,6 @@ from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 @pytest.mark.asyncio
 async def test_destroy_returns_true_when_container_already_removed():
     sandbox = DockerSandbox(ip="127.0.0.1", container_name="missing-container")
-    mock_client = SimpleNamespace(is_closed=False)
-
-    async def _aclose() -> None:
-        return None
-
-    mock_client.aclose = _aclose
-    sandbox.client = mock_client
 
     class _Pool:
         async def force_release_all(self, _cdp_url: str) -> int:
@@ -35,6 +27,11 @@ async def test_destroy_returns_true_when_container_already_removed():
             return_value=pool,
         ),
         patch("app.infrastructure.external.sandbox.docker_sandbox.docker.from_env", return_value=docker_client),
+        patch(
+            "app.infrastructure.external.http_pool.HTTPClientPool.close_client",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
     ):
         result = await sandbox.destroy()
 
@@ -44,13 +41,6 @@ async def test_destroy_returns_true_when_container_already_removed():
 @pytest.mark.asyncio
 async def test_destroy_returns_false_on_unexpected_container_error():
     sandbox = DockerSandbox(ip="127.0.0.1", container_name="bad-container")
-    mock_client = SimpleNamespace(is_closed=False)
-
-    async def _aclose() -> None:
-        return None
-
-    mock_client.aclose = _aclose
-    sandbox.client = mock_client
 
     class _Pool:
         async def force_release_all(self, _cdp_url: str) -> int:
@@ -67,6 +57,11 @@ async def test_destroy_returns_false_on_unexpected_container_error():
             return_value=pool,
         ),
         patch("app.infrastructure.external.sandbox.docker_sandbox.docker.from_env", return_value=docker_client),
+        patch(
+            "app.infrastructure.external.http_pool.HTTPClientPool.close_client",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
     ):
         result = await sandbox.destroy()
 

@@ -193,6 +193,17 @@ class ManagedHTTPClient:
         """HTTP DELETE request."""
         return await self.request("DELETE", url, **kwargs)
 
+    def stream(self, method: str, url: str, **kwargs: Any) -> Any:
+        """Streaming HTTP request (delegates to underlying httpx client).
+
+        Returns an httpx stream context manager for SSE/chunked responses.
+        Usage:
+            async with client.stream("GET", "/events") as response:
+                async for line in response.aiter_lines():
+                    ...
+        """
+        return self.client.stream(method, url, **kwargs)
+
     async def close(self) -> None:
         """Close the client."""
         if not self._closed:
