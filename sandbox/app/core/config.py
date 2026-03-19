@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     SCREENCAST_MAX_HEIGHT: int = (
         1024  # 1024 = full window with Chrome UI, 900 = viewport only
     )
+    # Screencast mode: "cdp" (page viewport only) or "x11" (full display with browser chrome)
+    SCREENCAST_MODE: str = "x11"
 
     # Sandbox → Backend callback
     RUNTIME_API_HOST: Optional[str] = None

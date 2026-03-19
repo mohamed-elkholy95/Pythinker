@@ -31,6 +31,10 @@ from app.services.cdp_screencast import (
     ScreencastConfig,
     get_screencast_service,
 )
+from app.services.x11_screencast import (
+    is_x11_available,
+    stream_x11_frames,
+)
 
 # Active service for the running WebSocket stream (distinct from the singleton
 # used by /frame). Tracked so preemption can close its CDP socket immediately,
@@ -185,6 +189,125 @@ async def stream_frames_ws(
         _active_stop_event = stop_event
         _active_done_event = done_event
 
+    # ── X11 display capture mode ───────────────────────────────────
+    # When SCREENCAST_MODE=x11, capture the full Xvfb display (including
+    # Chrome's tab bar, address bar, and window decorations) using xwd.
+    # This matches the VNC takeover view appearance.
+    use_x11 = (
+        sandbox_settings.SCREENCAST_MODE == "x11" and is_x11_available()
+    )
+
+    if use_x11:
+        logger.info("[X11 Stream] Using X11 display capture mode")
+        frame_count = 0
+        paused = False
+        disconnected = asyncio.Event()
+        _PING_INTERVAL = 5.0
+
+        async def _x11_receive_control():
+            nonlocal paused
+            try:
+                while True:
+                    msg = await websocket.receive_text()
+                    if msg == "pause":
+                        paused = True
+                    elif msg == "resume":
+                        paused = False
+                    elif msg == "pong":
+                        pass
+            except WebSocketDisconnect:
+                disconnected.set()
+
+        async def _x11_send_pings():
+            try:
+                while not disconnected.is_set() and not stop_event.is_set():
+                    await asyncio.sleep(_PING_INTERVAL)
+                    if disconnected.is_set() or stop_event.is_set():
+                        break
+                    try:
+                        await websocket.send_text("ping")
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
+                        disconnected.set()
+                        break
+            except asyncio.CancelledError:
+                pass
+
+        recv_task = asyncio.create_task(_x11_receive_control())
+        ping_task = asyncio.create_task(_x11_send_pings())
+        x11_exited_cleanly = True  # Assume clean until proven otherwise
+
+        try:
+            stream_cancel = asyncio.Event()
+
+            async def _x11_stop_monitor():
+                try:
+                    await stop_event.wait()
+                    stream_cancel.set()
+                except asyncio.CancelledError:
+                    pass
+
+            stop_task = asyncio.create_task(_x11_stop_monitor())
+
+            try:
+                async for frame in stream_x11_frames(
+                    quality=quality,
+                    max_fps=max_fps,
+                    cancel_event=stream_cancel,
+                ):
+                    if disconnected.is_set() or stop_event.is_set():
+                        break
+                    if paused:
+                        await asyncio.sleep(0.1)
+                        continue
+                    try:
+                        await websocket.send_bytes(frame.data)
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
+                        disconnected.set()
+                        break
+                    frame_count += 1
+                    if frame_count % 100 == 0:
+                        logger.debug("[X11 Stream] Sent %d frames", frame_count)
+            finally:
+                stop_task.cancel()
+                try:
+                    await stop_task
+                except asyncio.CancelledError:
+                    pass
+        except WebSocketDisconnect:
+            x11_exited_cleanly = True
+        except Exception as e:
+            logger.error("[X11 Stream] Error: %s", e, exc_info=True)
+        else:
+            # X11 stream exited normally (consecutive failures or cancel).
+            # If the client is still connected and not preempted, fall
+            # through to the CDP path below as a runtime fallback.
+            x11_exited_cleanly = disconnected.is_set() or stop_event.is_set()
+        finally:
+            recv_task.cancel()
+            ping_task.cancel()
+            for t in (recv_task, ping_task):
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+        if x11_exited_cleanly:
+            done_event.set()
+            async with _slot_lock:
+                if _active_stop_event is stop_event:
+                    _active_stop_event = None
+                    _active_done_event = None
+                    _active_stream_service = None
+            logger.info("[X11 Stream] Session ended, sent %d frames", frame_count)
+            return
+
+        # X11 capture failed — fall through to CDP screencast below
+        logger.warning(
+            "[X11 Stream] Falling back to CDP screencast after %d frames",
+            frame_count,
+        )
+
+    # ── CDP screencast mode (original) ──────────────────────────────
     # Create a fresh service instance per stream so streams never share a CDP
     # WebSocket. The singleton (_service_instance) is reserved for the /frame
     # endpoint's short-lived captures; streaming gets its own independent session.
