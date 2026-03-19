@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
-from app.core.config import FlowMode, get_settings
+from app.core.config import FlowMode, get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
@@ -129,6 +129,20 @@ class AgentTaskRunner(TaskRunner):
         agent_factory: Optional["PythinkerAgentFactory"] = None,
         usage_recorder: Callable[..., Coroutine[Any, Any, object | None]] | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
+        # Optional feature services (injected from application layer)
+        text_matcher: Any | None = None,
+        spell_provider: Any | None = None,
+        typo_analytics: Any | None = None,
+        scraping_adapter: Any | None = None,
+        deal_finder_adapter: Any | None = None,
+        checkpoint_db: Any | None = None,
+        cron_bridge: Any | None = None,
+        skill_package_repo: Any | None = None,
+        circuit_breaker: Any | None = None,
+        screenshot_service: Optional["ScreenshotCaptureService"] = None,
+        knowledge_base_service: Any | None = None,
+        prompt_profile_repo: Any | None = None,
+        conversation_context_service: Any | None = None,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -172,20 +186,10 @@ class AgentTaskRunner(TaskRunner):
         self._mongodb_db = mongodb_db
 
         # Knowledge base service (RAG-Anything; None if feature disabled)
-        try:
-            from app.interfaces.dependencies import get_knowledge_base_service
-
-            self._knowledge_base_service = get_knowledge_base_service()
-        except Exception:
-            self._knowledge_base_service = None
+        self._knowledge_base_service = knowledge_base_service
 
         # Prompt profile repository for DSPy/GEPA optimization (None if feature disabled)
-        try:
-            from app.interfaces.dependencies import get_prompt_profile_repository
-
-            self._prompt_profile_repo = get_prompt_profile_repository()
-        except Exception:
-            self._prompt_profile_repo = None
+        self._prompt_profile_repo = prompt_profile_repo
 
         # Pythinker-style agent factory and components
         self._agent_factory: PythinkerAgentFactory | None = agent_factory
@@ -194,8 +198,20 @@ class AgentTaskRunner(TaskRunner):
         self._attention_injector: AttentionInjector | None = None
         self._initialized: bool = False
 
+        # Optional feature services (injected from application layer)
+        self._text_matcher = text_matcher
+        self._spell_provider = spell_provider
+        self._typo_analytics = typo_analytics
+        self._scraping_adapter = scraping_adapter
+        self._deal_finder_adapter = deal_finder_adapter
+        self._checkpoint_db = checkpoint_db
+        self._cron_bridge = cron_bridge
+        self._skill_package_repo = skill_package_repo
+        self._circuit_breaker = circuit_breaker
+        self._conversation_context_service = conversation_context_service
+
         # Screenshot capture service (created after sandbox init if enabled)
-        self._screenshot_service: ScreenshotCaptureService | None = None
+        self._screenshot_service: ScreenshotCaptureService | None = screenshot_service
         self._background_tasks: set[asyncio.Task[object]] = set()
 
         # Current task description for attention manipulation
@@ -316,103 +332,51 @@ class AgentTaskRunner(TaskRunner):
         """Initialize PlanActFlow for Agent mode"""
         if self._plan_act_flow is None:
             settings = get_settings()
-            from app.core.config import get_feature_flags
-
             feature_flags = get_feature_flags()
+
+            # Use injected text matcher if available and feature-enabled
             rapidfuzz_matcher = None
+            if settings.typo_correction_rapidfuzz_enabled and self._text_matcher:
+                rapidfuzz_matcher = self._text_matcher
+
+            # Use injected spell provider if available and feature-enabled
             symspell_provider = None
+            if settings.typo_correction_symspell_enabled and self._spell_provider:
+                symspell_provider = self._spell_provider
 
-            if settings.typo_correction_rapidfuzz_enabled:
-                try:
-                    from app.infrastructure.text.rapidfuzz_matcher import RapidFuzzMatcher
+            # Use injected scraping adapter
+            _scraper = self._scraping_adapter
 
-                    rapidfuzz_matcher = RapidFuzzMatcher()
-                except Exception as exc:
-                    logger.warning("RapidFuzz matcher unavailable; falling back to difflib: %s", exc)
-
-            if settings.typo_correction_symspell_enabled:
-                try:
-                    from app.infrastructure.text.symspell_provider import SymSpellProvider
-
-                    symspell_provider = SymSpellProvider(
-                        dictionary_path=settings.typo_correction_symspell_dictionary_path,
-                        bigram_path=settings.typo_correction_symspell_bigram_path,
-                        max_edit_distance=settings.typo_correction_symspell_max_edit_distance,
-                        prefix_length=settings.typo_correction_symspell_prefix_length,
-                    )
-                except Exception as exc:
-                    logger.warning("SymSpell provider unavailable; falling back to base validator: %s", exc)
-
-            from app.infrastructure.observability.typo_correction_analytics import (
-                get_typo_correction_analytics,
-            )
-
-            typo_analytics = get_typo_correction_analytics()
-
-            # Scraper adapter — injected into flows so domain layer stays infra-free
-            _scraper = None
-            try:
-                from app.infrastructure.external.scraper import get_scraping_adapter
-
-                _scraper = get_scraping_adapter()
-            except Exception as exc:
-                logger.debug("Scraping adapter unavailable: %s", exc)
-
-            # DealFinder adapter — injected so domain layer stays infra-free.
-            # Enabled only when deal_scraper_enabled=True in settings.
+            # DealFinder adapter — enabled only when deal_scraper_enabled=True in settings.
             # Runtime deal intent (detect_deal_intent on actual message) is handled
-            # per-message in run() at line ~1366 and switches research mode dynamically.
-            # Flow initialization happens before any message is available, so intent
-            # detection at this point would always see an empty string (no-op).
+            # per-message in run() and switches research mode dynamically.
             _deal_finder = None
-            if _scraper and self._search_engine and settings.deal_scraper_enabled:
-                try:
-                    from app.infrastructure.external.deal_finder import get_deal_finder_adapter
-
-                    _deal_finder = get_deal_finder_adapter(scraper=_scraper, search_engine=self._search_engine)
-                except Exception as exc:
-                    logger.warning("DealFinder adapter unavailable: %s", exc)
+            if _scraper and self._search_engine and settings.deal_scraper_enabled and self._deal_finder_adapter:
+                _deal_finder = self._deal_finder_adapter
 
             # WP-6: CheckpointManager for cross-restart workflow persistence.
-            # Inject a real MongoDB collection so checkpoints survive process restarts.
-            # Falls back gracefully to in-memory storage when MongoDB is unavailable.
+            # Uses injected checkpoint_db (MongoDB collection) so checkpoints survive
+            # process restarts. Falls back to in-memory when checkpoint_db is None.
             _checkpoint_manager = None
             if settings.feature_workflow_checkpointing:
                 try:
                     from app.domain.services.flows.checkpoint_manager import CheckpointManager
-                    from app.infrastructure.storage.mongodb import get_mongodb
-
-                    _mongo_checkpoint_collection = None
-                    try:
-                        _mongo_checkpoint_collection = get_mongodb().database["workflow_checkpoints"]
-                    except Exception as _mc_err:
-                        logger.debug(
-                            "MongoDB checkpoint collection unavailable, using in-memory fallback: %s",
-                            _mc_err,
-                        )
 
                     _checkpoint_manager = CheckpointManager(
-                        mongodb_collection=_mongo_checkpoint_collection,
+                        mongodb_collection=self._checkpoint_db,
                         ttl_hours=24,
                         auto_cleanup=True,
                     )
                     logger.debug(
                         "CheckpointManager initialized for session %s (persistent=%s)",
                         self._session_id,
-                        _mongo_checkpoint_collection is not None,
+                        self._checkpoint_db is not None,
                     )
                 except Exception as exc:
                     logger.warning("CheckpointManager unavailable: %s", exc)
 
             # ── Cron Tool ────────────────────────────────
-            _cron_service = None
-            if settings.cron_service_enabled:
-                try:
-                    from app.infrastructure.services.cron_bridge import CronBridge
-
-                    _cron_service = CronBridge()
-                except Exception as exc:
-                    logger.warning("CronBridge unavailable: %s", exc)
+            _cron_service = self._cron_bridge if settings.cron_service_enabled else None
 
             # ── Spawn Tool (deferred) ────────────────────
             # SpawnTool requires SubagentManager provider wiring which depends
@@ -430,15 +394,6 @@ class AgentTaskRunner(TaskRunner):
                     _skill_loader = SkillsLoader(workspace=Path(settings.skills_workspace_dir).expanduser())
                 except Exception as exc:
                     logger.warning("SkillsLoader unavailable: %s", exc)
-
-            # ── SkillPackageRepository ────────────────────
-            _skill_package_repo = None
-            try:
-                from app.infrastructure.repositories.mongo_skill_package_repository import MongoSkillPackageRepository
-
-                _skill_package_repo = MongoSkillPackageRepository()
-            except Exception as _spr_exc:
-                logger.warning("SkillPackageRepository unavailable: %s", _spr_exc)
 
             # ── LeadAgentRuntime (opt-in via feature flag) ─────────
             self._lead_agent_runtime = None
@@ -460,6 +415,13 @@ class AgentTaskRunner(TaskRunner):
                     )
                 except Exception as exc:
                     logger.warning("LeadAgentRuntime unavailable: %s", exc)
+
+            # Typo correction analytics — use injected service or create a no-op fallback
+            _correction_event_sink = None
+            _feedback_lookup = None
+            if self._typo_analytics:
+                _correction_event_sink = self._typo_analytics.record_event
+                _feedback_lookup = self._typo_analytics.get_feedback_override
 
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
@@ -483,8 +445,8 @@ class AgentTaskRunner(TaskRunner):
                 browser_agent_enabled=settings.browser_agent_enabled,
                 rapidfuzz_matcher=rapidfuzz_matcher,
                 symspell_provider=symspell_provider,
-                correction_event_sink=typo_analytics.record_event,
-                feedback_lookup=typo_analytics.get_feedback_override,
+                correction_event_sink=_correction_event_sink,
+                feedback_lookup=_feedback_lookup,
                 cancel_token=self._cancel_token,
                 research_mode=self._research_mode.value,
                 knowledge_base_service=self._knowledge_base_service,
@@ -494,15 +456,11 @@ class AgentTaskRunner(TaskRunner):
                 checkpoint_manager=_checkpoint_manager,
                 cron_service=_cron_service,
                 skill_loader=_skill_loader,
-                skill_package_repo=_skill_package_repo,
+                skill_package_repo=self._skill_package_repo,
             )
             # Inject circuit breaker for tool-level failure protection
-            try:
-                from app.infrastructure.adapters.circuit_breaker_adapter import ToolCircuitBreakerAdapter
-
-                self._plan_act_flow.set_circuit_breaker(ToolCircuitBreakerAdapter())
-            except Exception as e:
-                logger.debug(f"Circuit breaker adapter unavailable: {e}")
+            if self._circuit_breaker:
+                self._plan_act_flow.set_circuit_breaker(self._circuit_breaker)
 
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
@@ -539,15 +497,6 @@ class AgentTaskRunner(TaskRunner):
         if self._discuss_flow is None:
             settings = get_settings()
 
-            # Inject conversation context and memory services for cross-session recall
-            conversation_context_service = None
-            try:
-                from app.application.providers.conversation_context import get_conversation_context_service
-
-                conversation_context_service = get_conversation_context_service()
-            except Exception:
-                logger.debug("Conversation context service unavailable for DiscussFlow")
-
             self._discuss_flow = DiscussFlow(
                 self._agent_id,
                 self._repository,
@@ -558,7 +507,7 @@ class AgentTaskRunner(TaskRunner):
                 self._search_engine,
                 default_language=settings.default_language,
                 memory_service=self._memory_service,
-                conversation_context_service=conversation_context_service,
+                conversation_context_service=self._conversation_context_service,
                 user_id=self._user_id,
             )
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
@@ -1652,12 +1601,14 @@ class AgentTaskRunner(TaskRunner):
 
             # Initialize screenshot capture service after sandbox is ready
             settings = get_settings()
-            if settings.screenshot_capture_enabled and not isinstance(init_results[0], Exception):
+            if (
+                settings.screenshot_capture_enabled
+                and self._screenshot_service
+                and not isinstance(init_results[0], Exception)
+            ):
                 try:
-                    from app.application.services.screenshot_service import ScreenshotCaptureService
                     from app.domain.models.screenshot import ScreenshotTrigger
 
-                    self._screenshot_service = ScreenshotCaptureService(self._sandbox, self._session_id)
                     self._fire_and_forget(self._screenshot_service.capture(ScreenshotTrigger.SESSION_START))
                     await self._screenshot_service.start_periodic()
                 except Exception as e:

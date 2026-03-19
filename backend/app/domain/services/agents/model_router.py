@@ -17,12 +17,17 @@ Expected impact: 20-40% cost reduction + 60-70% latency reduction on simple task
 Context7 validated: Pydantic v2 BaseModel, @computed_field, Settings integration.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from enum import Enum
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from app.domain.external.config import DomainConfig
 
 logger = logging.getLogger(__name__)
 
@@ -138,21 +143,25 @@ class ModelRouter:
         self,
         force_tier: ModelTier | None = None,
         metrics=None,
+        config: DomainConfig | None = None,
     ):
         """Initialize the model router with Settings integration.
 
         Args:
             force_tier: If set, always use this tier (for testing)
             metrics: Optional metrics port for Prometheus integration
+            config: Optional DomainConfig for dependency injection (falls back to get_settings)
 
         Context7 validated: Settings integration pattern, dependency injection.
         """
-        from app.core.config import get_settings
         from app.domain.external.observability import get_null_metrics
 
-        self.settings = get_settings()
+        self.settings = config or self._lazy_get_settings()
         self.force_tier = force_tier
         self._metrics = metrics or get_null_metrics()
+
+        # Store config for _get_config fallback
+        self._config = config
 
         # Routing statistics
         self._stats = {
@@ -160,6 +169,13 @@ class ModelRouter:
             TaskComplexity.MEDIUM: 0,
             TaskComplexity.COMPLEX: 0,
         }
+
+    @staticmethod
+    def _lazy_get_settings() -> DomainConfig:
+        """Fallback: import get_settings lazily to avoid domain→infra coupling at import time."""
+        from app.core.config import get_settings
+
+        return get_settings()
 
     def analyze_complexity(self, task: str) -> TaskComplexity:
         """Analyze task complexity based on content.
@@ -320,11 +336,15 @@ class ModelRouter:
 _model_router: ModelRouter | None = None
 
 
-def get_model_router(metrics=None) -> ModelRouter:
+def get_model_router(
+    metrics=None,
+    config: DomainConfig | None = None,
+) -> ModelRouter:
     """Get or create the global model router with Settings integration.
 
     Args:
         metrics: Optional metrics port for Prometheus integration
+        config: Optional DomainConfig for dependency injection
 
     Returns:
         ModelRouter instance (configured via Settings)
@@ -333,5 +353,5 @@ def get_model_router(metrics=None) -> ModelRouter:
     """
     global _model_router
     if _model_router is None:
-        _model_router = ModelRouter(metrics=metrics)
+        _model_router = ModelRouter(metrics=metrics, config=config)
     return _model_router

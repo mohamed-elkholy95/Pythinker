@@ -27,6 +27,7 @@ Hierarchy:
     ├── ToolException
     │   ├── ToolNotFoundException
     │   └── ToolExecutionException
+    ├── SandboxCrashError
     ├── AuthenticationException
     ├── AuthorizationException
     └── IntegrationException
@@ -316,6 +317,13 @@ class ResearchFlowException(FlowException):
 
 
 # ── Security ──────────────────────────────────────────────────────────
+
+
+class SandboxCrashError(DomainException):
+    """Raised when a sandbox has crashed and cannot execute tools."""
+
+    def __init__(self, message: str = "Sandbox is in FAILED state - cannot execute tools") -> None:
+        super().__init__(message, error_code="SANDBOX_CRASH")
 
 
 class SecurityViolation(DomainException):

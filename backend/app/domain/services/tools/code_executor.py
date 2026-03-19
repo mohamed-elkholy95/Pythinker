@@ -6,6 +6,8 @@ Provides a high-level interface for executing code in multiple languages
 isolated execution directories, artifact collection, and resource limits.
 """
 
+from __future__ import annotations
+
 import ast
 import asyncio
 import logging
@@ -16,10 +18,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
+
+if TYPE_CHECKING:
+    from app.domain.external.config import DomainConfig
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
@@ -153,7 +157,7 @@ def _check_python_syntax(code: str) -> str | None:
         return "\n".join(parts)
 
 
-def _strip_outer_markdown_fence(code: str, language: "Language") -> str:
+def _strip_outer_markdown_fence(code: str, language: Language) -> str:
     """Strip one surrounding markdown fence when it matches the language.
 
     Agents sometimes send fenced snippets (```python ... ```) to tool calls.
@@ -304,6 +308,7 @@ class CodeExecutorTool(BaseTool):
         session_id: str | None = None,
         max_observe: int | None = None,
         security_critic: SecurityCritic | None = None,
+        config: DomainConfig | None = None,
     ):
         """
         Initialize Code Executor tool.
@@ -313,8 +318,10 @@ class CodeExecutorTool(BaseTool):
             session_id: Session identifier for workspace isolation
             max_observe: Optional custom observation limit
             security_critic: Optional security critic for code review before execution
+            config: Optional DomainConfig for dependency injection (falls back to get_settings)
         """
         super().__init__(max_observe=max_observe)
+        self._config = config
         self.sandbox = sandbox
         self.session_id = session_id or str(uuid.uuid4())
         self._workspace_base = "/workspace"
@@ -325,6 +332,14 @@ class CodeExecutorTool(BaseTool):
         self._python_syntax_error_streak = 0
         self._last_python_syntax_signature: str | None = None
         self._last_python_syntax_ts: float = 0.0
+
+    def _get_config(self) -> DomainConfig:
+        """Return the injected DomainConfig, falling back to get_settings lazily."""
+        if self._config is not None:
+            return self._config
+        from app.core.config import get_settings
+
+        return get_settings()
 
     def _record_python_syntax_error(self, signature: str) -> int:
         """Track repeated syntax failures to provide stronger stop guidance."""
@@ -537,7 +552,7 @@ class CodeExecutorTool(BaseTool):
         # Mandatory security gate before execution
         review = await self.security_critic.review_code(code, language)
         if not review.safe:
-            allow_medium = get_settings().security_critic_allow_medium_risk
+            allow_medium = self._get_config().security_critic_allow_medium_risk
             if review.risk_level == RiskLevel.MEDIUM and allow_medium:
                 _record_security_gate_override(override_reason="medium_risk_dev")
             else:
