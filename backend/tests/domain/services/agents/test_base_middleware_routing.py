@@ -36,7 +36,8 @@ class TestBaseAgentHasPipeline:
         assert "hallucination_guard" in names
         assert "efficiency_monitor" in names
         assert "stuck_detection" in names
-        assert len(names) == 4
+        assert "error_handler" in names
+        assert len(names) == 5
 
     def test_injected_service_context_overrides_default(self):
         from app.domain.external.observability import get_null_metrics

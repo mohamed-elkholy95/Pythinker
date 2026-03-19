@@ -341,6 +341,7 @@ class BaseAgent:
         Called when no service_context is provided.
         """
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
+        from app.domain.services.agents.middleware_adapters.error_handler import ErrorHandlerMiddleware
         from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
         from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
         from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
@@ -351,6 +352,7 @@ class BaseAgent:
         pipeline.use(HallucinationGuardMiddleware(detector=self._hallucination_detector))
         pipeline.use(EfficiencyMonitorMiddleware(monitor=self._efficiency_monitor))
         pipeline.use(StuckDetectionMiddleware(detector=self._stuck_detector))
+        pipeline.use(ErrorHandlerMiddleware(handler=self._error_handler))
         return pipeline
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
@@ -1773,6 +1775,40 @@ class BaseAgent:
                             continue
 
                         tool = self.get_tool(function_name)
+
+                        # ── Middleware before_tool_call (parallel path) ──
+                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
+
+                        _tc_info_p = _ToolCallInfo(
+                            call_id=tool_call_id, function_name=function_name, arguments=function_args
+                        )
+                        _tc_mw_p = await self._pipeline.run_before_tool_call(_mw_ctx, _tc_info_p)
+                        if _tc_mw_p.signal == _MwSig.SKIP_TOOL:
+                            logger.info("Middleware before_tool_call SKIP: %s — %s", function_name, _tc_mw_p.message)
+                            skip_result = ToolResult(
+                                success=False,
+                                message=_tc_mw_p.message or f"Tool {function_name} skipped by middleware",
+                            )
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLED,
+                                function_result=skip_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        skip_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
+
                         security_assessment = self._security_assessor.assess_action(function_name, function_args)
                         confirmation_state = (
                             "awaiting_confirmation" if security_assessment.requires_confirmation else None
@@ -1862,6 +1898,14 @@ class BaseAgent:
                         if isinstance(result, Exception):
                             result = ToolResult(success=False, message=str(result))
 
+                        # ── Middleware after_tool_call (parallel path) ──
+                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
+
+                        _tc_info_par = _ToolCallInfo(
+                            call_id=tool_call_id, function_name=function_name, arguments=function_args
+                        )
+                        await self._pipeline.run_after_tool_call(_mw_ctx, _tc_info_par, result)
+
                         yield self._create_tool_event(
                             tool_call_id=tool_call_id,
                             tool_name=tool.name,
@@ -1927,6 +1971,39 @@ class BaseAgent:
                             continue
 
                         tool = self.get_tool(function_name)
+
+                        # ── Middleware before_tool_call ──
+                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
+
+                        _tc_info = _ToolCallInfo(
+                            call_id=tool_call_id, function_name=function_name, arguments=function_args
+                        )
+                        _tc_mw = await self._pipeline.run_before_tool_call(_mw_ctx, _tc_info)
+                        if _tc_mw.signal == _MwSig.SKIP_TOOL:
+                            logger.info("Middleware before_tool_call SKIP: %s — %s", function_name, _tc_mw.message)
+                            skip_result = ToolResult(
+                                success=False,
+                                message=_tc_mw.message or f"Tool {function_name} skipped by middleware",
+                            )
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLED,
+                                function_result=skip_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        skip_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
 
                         # Generate event before tool call
                         security_assessment = self._security_assessor.assess_action(function_name, function_args)
@@ -2038,6 +2115,9 @@ class BaseAgent:
                         else:
                             result = await self.invoke_tool(tool, function_name, function_args)
 
+                        # ── Middleware after_tool_call ──
+                        await self._pipeline.run_after_tool_call(_mw_ctx, _tc_info, result)
+
                         # Generate event after tool call (reuse pre-execution security_assessment)
                         yield self._create_tool_event(
                             tool_call_id=tool_call_id,
@@ -2128,9 +2208,18 @@ class BaseAgent:
                 _err_result = await self._pipeline.run_on_error(self._mw_ctx, _exc)
                 if _err_result.signal == _MwSig.ABORT:
                     raise
+                # Only suppress if a middleware explicitly handled the error
+                # (indicated by a non-empty message). Default pipeline returns
+                # CONTINUE with no message — that must still re-raise.
+                if not _err_result.message:
+                    raise
+                logger.exception(
+                    "Agent execution error handled by middleware (%s): %s",
+                    _err_result.signal,
+                    _err_result.message,
+                )
             else:
                 raise
-            logger.exception("Agent execution error handled by middleware")
         finally:
             if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
                 await self._pipeline.run_after_execution(self._mw_ctx)
