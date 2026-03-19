@@ -33,7 +33,6 @@ from app.domain.models.source_citation import SourceCitation
 from app.domain.models.tool_name import ToolName
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
-from app.domain.services.agents.chain_of_verification import ChainOfVerification, CoVeResult
 from app.domain.services.agents.context_manager import ContextManager, InsightType
 from app.domain.services.agents.critic import CriticAgent, CriticConfig
 from app.domain.services.agents.output_coverage_validator import OutputCoverageValidator
@@ -108,6 +107,37 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
+
+SKILL_AWARENESS_PROMPT = """
+<skill_awareness>
+Before beginning execution, check if any available skills match the current task.
+If you have the skill_invoke tool and the task involves a domain covered by an available skill,
+invoke that skill first to get specialized instructions. Skill-guided execution produces
+higher-quality results.
+
+Available skill domains: {skill_names}
+</skill_awareness>
+"""
+
+SKILL_ENFORCEMENT_PROMPT = """
+<skill_enforcement>
+## MANDATORY Skill Protocol
+
+You MUST follow this protocol for EVERY task:
+
+1. **CHECK**: Does the task match any available skill domain? ({skill_names})
+2. **INVOKE**: If yes, call skill_invoke FIRST before any other tool
+3. **FOLLOW**: Execute according to the loaded skill instructions
+4. **REPORT**: Reference which skill guided your execution
+
+Skipping skill invocation when a matching skill exists is a protocol violation.
+Skills are not optional suggestions — they are mandatory workflow enhancers.
+</skill_enforcement>
+"""
+
+SKILL_ENFORCEMENT_NUDGE = (
+    "REMINDER: You have not invoked a skill yet. Call skill_invoke to load specialized instructions before continuing."
+)
 
 
 class _SuggestionPayload(BaseModel):
@@ -191,17 +221,7 @@ class ExecutionAgent(BaseAgent):
             user_id=user_id,
         )
 
-        # Chain-of-Verification for hallucination reduction (Phase 2 — deprecated)
-        self._cove = ChainOfVerification(
-            llm=llm,
-            json_parser=json_parser,
-            max_questions=5,
-            parallel_verification=True,
-            min_response_length=200,
-        )
-        self._cove_enabled = False  # Deprecated: use LLM grounding verification instead
-
-        # LLM-based grounding verification (replaces LettuceDetect)
+        # LLM-based grounding verification (replaces deprecated Chain-of-Verification)
         self._hallucination_verification_enabled = True  # Configured via feature flags
 
         # Source citation tracking — delegated to SourceTracker (Phase 3A extraction)
@@ -215,12 +235,10 @@ class ExecutionAgent(BaseAgent):
         self._output_verifier = OutputVerifier(
             llm=llm,
             critic=self._critic,
-            cove=self._cove,
             context_manager=self._context_manager,
             source_tracker=self._source_tracker,
             metrics=_metrics,
             resolve_feature_flags_fn=self._resolve_feature_flags,
-            cove_enabled=self._cove_enabled,
             hallucination_verification_enabled=self._hallucination_verification_enabled,
         )
 
@@ -306,7 +324,22 @@ class ExecutionAgent(BaseAgent):
         arguments: dict[str, Any],
         skip_security: bool = False,
     ):
-        """Override to apply search fidelity check for search tools (Phase 4)."""
+        """Override to apply skill enforcement tracking and search fidelity."""
+        # Phase 4a: Track skill_invoke calls and reset tool_choice after first turn
+        if function_name == "skill_invoke":
+            self._skill_invoked_this_step = True
+            # Determine enforcement outcome for metrics
+            was_forced = getattr(self, "_force_skill_invoke_first_turn", False)
+            _metrics.increment(
+                "pythinker_skill_invocation_enforcement_total",
+                labels={"outcome": "forced" if was_forced else "voluntary"},
+            )
+            # Phase 1: Reset tool_choice after forced first turn
+            if was_forced:
+                self.tool_choice = None
+                self._force_skill_invoke_first_turn = False
+                logger.debug("Skill enforcement: tool_choice reset to auto after skill_invoke")
+
         from app.domain.services.agents.search_fidelity import check_search_fidelity
 
         settings = self._get_config()
@@ -348,6 +381,36 @@ class ExecutionAgent(BaseAgent):
         # Save/restore tools and system_prompt to avoid permanent mutation across steps
         original_tools = list(self.tools)
         original_system_prompt = self.system_prompt
+
+        # Inject skill-awareness prompt when SkillInvokeTool is present in the agent's tool list.
+        # This is a general nudge (always injected, not just when message.skills is populated).
+        _skill_invoke_tool = next(
+            (t for t in self.tools if getattr(t, "name", "") == "skill_invoke"),
+            None,
+        )
+        if _skill_invoke_tool is not None:
+            _available_skills = getattr(_skill_invoke_tool, "_available_skills", [])
+            if _available_skills:
+                _skill_names = ", ".join(s.name for s in _available_skills)
+                _cfg = self._get_config()
+
+                # Phase 3: Use hardened enforcement prompt when enabled, otherwise soft awareness
+                if getattr(_cfg, "skill_enforcement_prompt_enabled", True):
+                    self.system_prompt += SKILL_ENFORCEMENT_PROMPT.format(skill_names=_skill_names)
+                    logger.debug(f"Injected skill-enforcement prompt for skills: {_skill_names}")
+                else:
+                    self.system_prompt += SKILL_AWARENESS_PROMPT.format(skill_names=_skill_names)
+                    logger.debug(f"Injected skill-awareness prompt for skills: {_skill_names}")
+
+                # Phase 1: Force skill_invoke on first turn when skills are available.
+                # This ensures the "Loading skill" chip always appears in chat for UX visibility.
+                if getattr(_cfg, "skill_force_first_invocation", True):
+                    self._force_skill_invoke_first_turn = True
+                    self._skill_invoked_this_step = False
+                    self._skill_enforcement_nudge_sent = False
+                    self._skill_enforcement_nudge_after = getattr(_cfg, "skill_enforcement_nudge_after_iterations", 3)
+                    logger.debug("Skill enforcement: will force skill_invoke on first turn")
+
         if message.skills:
             logger.info(f"Loading skill context for skills: {message.skills}")
             try:
@@ -395,7 +458,7 @@ class ExecutionAgent(BaseAgent):
                     f"prompt_chars={len(skill_context.prompt_addition) if skill_context.prompt_addition else 0}"
                 )
 
-                # Emit SkillEvent for user visibility (Agent UX v2)
+                # Emit SkillEvent for activity bar visibility (Agent UX v2)
                 _skill_settings = self._get_config()
                 if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
                     for sid in skill_context.skill_ids:
@@ -456,6 +519,12 @@ class ExecutionAgent(BaseAgent):
                 logger.info("Adaptive model routing selected '%s' for step", selected_model)
             else:
                 logger.debug("Model routing disabled, using default model '%s'", selected_model)
+
+        # Phase 1: Force skill_invoke on first LLM turn via tool_choice
+        _original_tool_choice = self.tool_choice
+        if getattr(self, "_force_skill_invoke_first_turn", False):
+            self.tool_choice = {"type": "function", "function": {"name": "skill_invoke"}}
+            logger.debug("Skill enforcement: tool_choice forced to skill_invoke for first turn")
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
@@ -650,10 +719,11 @@ class ExecutionAgent(BaseAgent):
             )
             yield StepEvent(status=StepStatus.FAILED, step=step)
         finally:
-            # Always restore tools, system prompt, and model override after step
+            # Always restore tools, system prompt, model override, and tool_choice after step
             self.tools = original_tools
             self.system_prompt = original_system_prompt
             self._step_model_override = None  # DeepCode Phase 1: Reset model override
+            self.tool_choice = _original_tool_choice  # Phase 1: Restore tool_choice
 
     async def summarize(
         self,
@@ -2055,14 +2125,6 @@ class ExecutionAgent(BaseAgent):
     def _needs_verification(self, content: str, query: str) -> bool:
         """Determine if content needs hallucination verification (delegated)."""
         return self._output_verifier.needs_verification(content, query)
-
-    async def _apply_cove_verification(self, content: str, query: str) -> tuple[str, CoVeResult | None]:
-        """Apply Chain-of-Verification (delegated to OutputVerifier)."""
-        return await self._output_verifier.apply_cove_verification(content, query)
-
-    def _needs_cove_verification(self, content: str, query: str) -> bool:
-        """Heuristic gate for verification need (delegated to OutputVerifier)."""
-        return self._output_verifier._needs_cove_verification(content, query)
 
     def _is_report_structure(self, content: str) -> bool:
         """Check if content has report-like structure (delegated to ResponseGenerator)."""

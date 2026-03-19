@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from app.domain.external.llm import LLM
     from app.domain.external.observability import MetricsPort
     from app.domain.models.file import FileInfo
-    from app.domain.services.agents.chain_of_verification import ChainOfVerification, CoVeResult
     from app.domain.services.agents.context_manager import ContextManager
     from app.domain.services.agents.critic import CriticAgent
     from app.domain.services.agents.source_tracker import SourceTracker
@@ -57,19 +56,16 @@ class OutputVerifier:
 
     Responsibilities:
     - Apply LLM-based grounding verification (claim-level fact checking)
-    - Apply CoVe (Chain-of-Verification) as deprecated fallback
     - Apply critic revision loop (dormant)
     - Heuristic gating for when verification is needed
     - Build grounding context from collected sources
 
     The verifier does NOT import any infrastructure; external deps
-    (LLM, critic, CoVe, source tracker) are injected via constructor.
+    (LLM, critic, source tracker) are injected via constructor.
     """
 
     __slots__ = (
         "_context_manager",
-        "_cove",
-        "_cove_enabled",
         "_critic",
         "_hallucination_verification_enabled",
         "_llm",
@@ -85,24 +81,20 @@ class OutputVerifier:
         *,
         llm: LLM,
         critic: CriticAgent,
-        cove: ChainOfVerification,
         context_manager: ContextManager,
         source_tracker: SourceTracker,
         metrics: MetricsPort | None = None,
         resolve_feature_flags_fn: Any = None,
-        cove_enabled: bool = False,
         hallucination_verification_enabled: bool = True,
     ) -> None:
         from app.domain.external.observability import get_null_metrics
 
         self._llm: LLM = llm
         self._critic: CriticAgent = critic
-        self._cove: ChainOfVerification = cove
         self._context_manager: ContextManager = context_manager
         self._source_tracker: SourceTracker = source_tracker
         self._metrics: MetricsPort = metrics or get_null_metrics()
         self._resolve_feature_flags_fn = resolve_feature_flags_fn
-        self._cove_enabled: bool = cove_enabled
         self._hallucination_verification_enabled: bool = hallucination_verification_enabled
         self._research_depth: str | None = None
 
@@ -600,92 +592,9 @@ class OutputVerifier:
                 return HallucinationVerificationResult(content=content)
 
             except Exception as e:
-                logger.warning("LLM grounding verification failed, falling back to CoVe: %s", e)
-
-        # Fallback: CoVe (deprecated, disabled by default)
-        if self._cove_enabled and flags.get("chain_of_verification", False):
-            verified, _ = await self.apply_cove_verification(content, query)
-            return HallucinationVerificationResult(content=verified)
+                logger.warning("LLM grounding verification failed: %s", e)
 
         return HallucinationVerificationResult(content=content)
-
-    # ── Chain-of-Verification (Deprecated Fallback) ────────────────────
-
-    async def apply_cove_verification(self, content: str, query: str) -> tuple[str, CoVeResult | None]:
-        """Apply Chain-of-Verification to reduce hallucinations in factual content.
-
-        CoVe works by:
-        1. Generating verification questions for key claims
-        2. Answering those questions independently (without seeing original)
-        3. Revising the response based on verification results
-
-        This is particularly effective for:
-        - Research tasks with specific metrics/benchmarks
-        - Comparative analyses (where data asymmetry often occurs)
-        - Factual summaries with dates, numbers, or statistics
-
-        Args:
-            content: The content to verify
-            query: Original user query for context
-
-        Returns:
-            Tuple of (verified_content, CoVeResult or None if skipped)
-        """
-        from app.domain.services.agents.context_manager import InsightType
-
-        if not self._cove_enabled:
-            return content, None
-
-        # Check feature flags
-        flags = self._resolve_feature_flags()
-        if not flags.get("chain_of_verification", True):
-            return content, None
-
-        # Detect if this is a factual/research task that needs verification
-        if not self._needs_cove_verification(content, query):
-            logger.debug("CoVe: Skipping - content doesn't require verification")
-            return content, None
-
-        try:
-            logger.info("CoVe: Starting verification pipeline...")
-            result = await self._cove.verify_and_refine(
-                query=query,
-                response=content,
-                skip_if_short=True,
-            )
-
-            if result.has_contradictions:
-                logger.warning(
-                    f"CoVe: Found {result.claims_contradicted} contradictions, "
-                    f"confidence: {result.confidence_score:.2f}"
-                )
-                # Record insight about hallucination detection
-                self._context_manager.add_insight(
-                    insight_type=InsightType.ERROR_LEARNING,
-                    content=f"CoVe detected {result.claims_contradicted} contradicted claims",
-                    confidence=0.9,
-                    tags=["hallucination", "cove", "verification"],
-                )
-                return result.verified_response, result
-            if result.claims_uncertain > 0:
-                logger.info(
-                    f"CoVe: {result.claims_verified} verified, "
-                    f"{result.claims_uncertain} uncertain, "
-                    f"confidence: {result.confidence_score:.2f}"
-                )
-                # If many uncertain claims, still use refined response
-                if result.claims_uncertain > result.claims_verified:
-                    return result.verified_response, result
-            else:
-                logger.info(
-                    f"CoVe: All {result.claims_verified} claims verified, confidence: {result.confidence_score:.2f}"
-                )
-
-            return content, result
-
-        except Exception as e:
-            logger.warning(f"CoVe verification failed (continuing with original): {e}")
-            return content, None
 
     # ── Critic Revision (Dormant — No Active Callers) ──────────────────
 
