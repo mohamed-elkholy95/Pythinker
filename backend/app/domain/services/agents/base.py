@@ -1628,6 +1628,7 @@ class BaseAgent:
             research_depth=getattr(self, "_research_depth", None),
         )
         _mw_ctx.step_start_time = time.monotonic()
+        self._mw_ctx = _mw_ctx  # Expose to ask_with_messages for after_step hook
 
         # Compute wall clock budget for middleware
         _mw_s = _get_mw_settings()
@@ -2505,6 +2506,22 @@ class BaseAgent:
             else:
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message
+
+            # ── Middleware after_step (stuck detection via pipeline) ──
+            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
+                from app.domain.services.agents.middleware import (
+                    MiddlewareSignal as _MwSig,
+                )
+
+                self._mw_ctx.metadata["last_response"] = filtered_message
+                _after_result = await self._pipeline.run_after_step(self._mw_ctx)
+
+                if _after_result.signal == _MwSig.FORCE:
+                    self._stuck_recovery_exhausted = True
+                    # Don't break — just set flag, let caller handle
+                elif _after_result.signal == _MwSig.INJECT:
+                    await self._add_to_memory([filtered_message, {"role": "user", "content": _after_result.message}])
+                    continue
 
             # Track response for stuck detection (response-level) (Phase 4 P1: with confidence)
             is_response_stuck, confidence = self._stuck_detector.track_response(filtered_message)
