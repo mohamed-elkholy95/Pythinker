@@ -9,6 +9,7 @@ This service handles:
 import logging
 from typing import Any
 
+from app.domain.external.llm import LLM
 from app.domain.models.skill import Skill, SkillCategory, UserSkillConfig
 from app.domain.repositories.skill_repository import SkillRepository
 
@@ -215,7 +216,7 @@ class SkillService:
         description: str,
         required_tools: list[str],
         optional_tools: list[str],
-        llm: Any,
+        llm: LLM,
     ) -> dict[str, Any]:
         """Generate a structured skill draft using the configured LLM.
 
@@ -249,14 +250,17 @@ class SkillService:
             "Generate the SKILL.md body markdown."
         )
 
-        response = await llm.ask(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-
-        instructions = (response.get("content") or "").strip()
+        try:
+            response = await llm.ask(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            instructions = (response.get("content") or "").strip()
+        except Exception:
+            logger.exception("LLM call failed during skill draft generation")
+            instructions = ""
 
         # Generate a trigger-oriented description suggestion
         desc_suggestion = description

@@ -1,4 +1,4 @@
-from app.domain.models.skill import InstructionTrustLevel, Skill, SkillSource
+from app.domain.models.skill import InstructionTrustLevel, Skill, SkillCategory, SkillSource
 
 
 def test_instruction_trust_level_enum_values():
@@ -11,7 +11,7 @@ def test_skill_defaults_to_user_authored():
         id="test",
         name="Test",
         description="Test skill",
-        category="custom",
+        category=SkillCategory.CUSTOM,
         source=SkillSource.CUSTOM,
     )
     assert skill.instruction_trust_level == InstructionTrustLevel.USER_AUTHORED
@@ -22,7 +22,7 @@ def test_official_seed_can_set_system_authored():
         id="research",
         name="Research",
         description="Research skill",
-        category="research",
+        category=SkillCategory.RESEARCH,
         source=SkillSource.OFFICIAL,
         instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     )
@@ -30,12 +30,16 @@ def test_official_seed_can_set_system_authored():
 
 
 def test_publishing_does_not_upgrade_trust():
+    """Trust level stays USER_AUTHORED even when a custom skill is published to community."""
     skill = Skill(
         id="my-skill",
         name="My Skill",
         description="User skill",
-        category="custom",
-        source=SkillSource.COMMUNITY,
+        category=SkillCategory.CUSTOM,
+        source=SkillSource.CUSTOM,
         instruction_trust_level=InstructionTrustLevel.USER_AUTHORED,
     )
+    # Simulate publishing: change source to COMMUNITY and mark public
+    skill.source = SkillSource.COMMUNITY
+    skill.is_public = True
     assert skill.instruction_trust_level == InstructionTrustLevel.USER_AUTHORED
