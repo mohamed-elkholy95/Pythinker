@@ -173,7 +173,7 @@ def markdown_to_flowables(
         text = _inline_markdown_to_xml(" ".join(line.strip() for line in paragraph_lines if line.strip()))
         if text:
             flowables.append(Paragraph(text, sheet["BodyText"]))
-            flowables.append(Spacer(1, 6))
+            flowables.append(Spacer(1, 8))
         paragraph_lines.clear()
 
     while idx < len(lines):
@@ -229,14 +229,14 @@ def markdown_to_flowables(
             level = min(len(heading_match.group(1)), 3)
             text = _inline_markdown_to_xml(heading_match.group(2).strip())
             flowables.append(Paragraph(text, sheet[f"Heading{level}"]))
-            flowables.append(Spacer(1, 6))
             idx += 1
             continue
 
         if stripped in {"---", "***", "___"}:
             flush_paragraph()
-            flowables.append(HRFlowable(color=colors.HexColor("#C8CED8"), thickness=1))
-            flowables.append(Spacer(1, 6))
+            flowables.append(Spacer(1, 4))
+            flowables.append(HRFlowable(color=colors.HexColor("#C8CED8"), thickness=0.75, width="100%"))
+            flowables.append(Spacer(1, 8))
             idx += 1
             continue
 
@@ -247,26 +247,34 @@ def markdown_to_flowables(
             table.setStyle(
                 TableStyle(
                     [
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#C8CED8")),
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF2F7")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D0D0D0")),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+                        ("FONTNAME", (0, 0), (-1, 0), sheet["BodyText"].fontName),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1A1A1A")),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("FONTNAME", (0, 0), (-1, -1), sheet["BodyText"].fontName),
-                        ("FONTSIZE", (0, 0), (-1, -1), 10),
+                        ("FONTNAME", (0, 1), (-1, -1), sheet["BodyText"].fontName),
+                        ("FONTSIZE", (0, 1), (-1, -1), 10),
+                        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2A2A2A")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                     ]
                 )
             )
             flowables.append(table)
-            flowables.append(Spacer(1, 6))
+            flowables.append(Spacer(1, 10))
             idx += consumed
             continue
 
-        bullet_match = _BULLET_RE.match(line)
-        ordered_match = _ORDERED_RE.match(line)
+        bullet_match = _NESTED_BULLET_RE.match(line)
+        ordered_match = _NESTED_ORDERED_RE.match(line)
         if bullet_match or ordered_match:
             flush_paragraph()
             list_flowable, consumed = _parse_list(lines[idx:], sheet)
             flowables.append(list_flowable)
-            flowables.append(Spacer(1, 6))
+            flowables.append(Spacer(1, 8))
             idx += consumed
             continue
 
@@ -311,18 +319,41 @@ def build_pdf_bytes(
 
     story: list[Flowable] = [
         Paragraph(_inline_markdown_to_xml(safe_title), styles["Title"]),
-        Spacer(1, 12),
+        Spacer(1, 6),
+        HRFlowable(color=colors.HexColor("#C8CED8"), thickness=0.75, width="100%"),
+        Spacer(1, 14),
     ]
 
     if should_include_toc:
         toc = TableOfContents()
         toc.levelStyles = [
-            ParagraphStyle(name="TOCLevel1", parent=styles["BodyText"], leftIndent=10, firstLineIndent=-6),
-            ParagraphStyle(name="TOCLevel2", parent=styles["BodyText"], leftIndent=22, firstLineIndent=-6),
-            ParagraphStyle(name="TOCLevel3", parent=styles["BodyText"], leftIndent=34, firstLineIndent=-6),
+            ParagraphStyle(
+                name="TOCLevel1",
+                parent=styles["BodyText"],
+                fontSize=11,
+                leading=18,
+                leftIndent=10,
+                firstLineIndent=-6,
+            ),
+            ParagraphStyle(
+                name="TOCLevel2",
+                parent=styles["BodyText"],
+                fontSize=10,
+                leading=16,
+                leftIndent=26,
+                firstLineIndent=-6,
+            ),
+            ParagraphStyle(
+                name="TOCLevel3",
+                parent=styles["BodyText"],
+                fontSize=10,
+                leading=16,
+                leftIndent=42,
+                firstLineIndent=-6,
+            ),
         ]
-        story.append(Paragraph("Table of Contents", styles["Heading2"]))
-        story.append(Spacer(1, 6))
+        story.append(Paragraph("Table of Contents", styles["Heading1"]))
+        story.append(Spacer(1, 8))
         story.append(toc)
         story.append(PageBreak())
 
@@ -378,38 +409,89 @@ def _sources_to_flowables(
     if not include_heading:
         return []
 
-    flowables: list[Flowable] = [PageBreak(), Paragraph("References", styles["Heading2"]), Spacer(1, 6)]
+    flowables: list[Flowable] = [
+        Spacer(1, 12),
+        HRFlowable(color=colors.HexColor("#C8CED8"), thickness=0.75, width="100%"),
+        Spacer(1, 8),
+        Paragraph("References", styles["Heading2"]),
+    ]
     for idx, source in enumerate(items, start=1):
-        line = f'[{idx}] <b>{_escape_xml(source.title)}</b> — <a href="{_escape_xml(source.url)}">{_escape_xml(source.url)}</a>'
+        line = f'[{idx}] <a href="{_escape_xml(source.url)}">{_escape_xml(source.title)}</a>'
         flowables.append(Paragraph(line, styles["BodyText"]))
-        if source.snippet:
-            flowables.append(Paragraph(_escape_xml(source.snippet), styles["BodyText"]))
-        flowables.append(Spacer(1, 4))
+        flowables.append(Spacer(1, 3))
     return flowables
 
 
 def _build_styles(*, font_name: str | None = None) -> StyleSheet1:
+    """Build a professional stylesheet matching the reference report design.
+
+    Design reference: clean sans-serif, justified body text, large bold
+    left-aligned headings, generous spacing between sections.
+    """
     resolved_font = font_name or register_unicode_font("DejaVuSans")
     styles = getSampleStyleSheet()
-    styles["Normal"].fontName = resolved_font
-    styles["BodyText"].fontName = resolved_font
-    styles["Title"].fontName = resolved_font
-    styles["Heading1"].fontName = resolved_font
-    styles["Heading2"].fontName = resolved_font
-    styles["Heading3"].fontName = resolved_font
-    styles["Heading1"].spaceAfter = 8
-    styles["Heading2"].spaceAfter = 6
-    styles["Heading3"].spaceAfter = 4
+
+    # ── Base font assignment ────────────────────────────────────────────
+    for style_name in ("Normal", "BodyText", "Title", "Heading1", "Heading2", "Heading3"):
+        styles[style_name].fontName = resolved_font
+
+    # ── Title: large bold, left-aligned ─────────────────────────────────
+    styles["Title"].fontSize = 26
+    styles["Title"].leading = 32
+    styles["Title"].alignment = 0  # TA_LEFT
+    styles["Title"].spaceAfter = 4
+    styles["Title"].textColor = colors.HexColor("#1A1A1A")
+
+    # ── Heading 1: section headers (e.g. "1. Introduction") ─────────────
+    styles["Heading1"].fontSize = 22
+    styles["Heading1"].leading = 28
+    styles["Heading1"].spaceBefore = 24
+    styles["Heading1"].spaceAfter = 10
+    styles["Heading1"].textColor = colors.HexColor("#1A1A1A")
+    styles["Heading1"].alignment = 0
+
+    # ── Heading 2: sub-sections (e.g. "2.1 Mathematical Foundations") ───
+    styles["Heading2"].fontSize = 16
+    styles["Heading2"].leading = 21
+    styles["Heading2"].spaceBefore = 18
+    styles["Heading2"].spaceAfter = 8
+    styles["Heading2"].textColor = colors.HexColor("#1A1A1A")
+    styles["Heading2"].alignment = 0
+
+    # ── Heading 3: sub-sub-sections (e.g. "2.1.1 Details") ─────────────
+    styles["Heading3"].fontSize = 13
+    styles["Heading3"].leading = 17
+    styles["Heading3"].spaceBefore = 14
+    styles["Heading3"].spaceAfter = 6
+    styles["Heading3"].textColor = colors.HexColor("#1A1A1A")
+    styles["Heading3"].alignment = 0
+
+    # ── Body text: justified, comfortable reading size ──────────────────
+    styles["BodyText"].fontSize = 11
+    styles["BodyText"].leading = 16
+    styles["BodyText"].alignment = 4  # TA_JUSTIFY
+    styles["BodyText"].spaceAfter = 4
+    styles["BodyText"].textColor = colors.HexColor("#2A2A2A")
+
+    # ── Normal: inherit body text sizing ────────────────────────────────
+    styles["Normal"].fontSize = 11
+    styles["Normal"].leading = 16
+    styles["Normal"].textColor = colors.HexColor("#2A2A2A")
+
+    # ── Code blocks ─────────────────────────────────────────────────────
     code_style = ParagraphStyle(
         name="Code",
         parent=styles["BodyText"],
         fontName="Courier",
         fontSize=9,
-        leading=11,
+        leading=12,
         backColor=colors.HexColor("#F5F7FA"),
-        leftIndent=6,
-        rightIndent=6,
-        borderPadding=4,
+        leftIndent=8,
+        rightIndent=8,
+        borderPadding=6,
+        spaceBefore=4,
+        spaceAfter=4,
+        alignment=0,  # TA_LEFT for code
     )
     if "Code" in styles.byName:
         styles.byName["Code"] = code_style
@@ -418,29 +500,103 @@ def _build_styles(*, font_name: str | None = None) -> StyleSheet1:
     return styles
 
 
+_NESTED_BULLET_RE = re.compile(r"^(\s*)[-*+]\s+(.+)$")
+_NESTED_ORDERED_RE = re.compile(r"^(\s*)(\d+)\.\s+(.+)$")
+
+
 def _parse_list(lines: list[str], styles: StyleSheet1) -> tuple[ListFlowable, int]:
+    """Parse a markdown list into ReportLab flowables with nesting support.
+
+    Top-level bullets use filled circles (\u2022), nested items use
+    hollow circles (\u25cb) — matching the reference PDF design.
+    """
     items: list[ListItem] = []
     consumed = 0
     ordered = False
+    # Collect sub-items for building nested lists
+    pending_sub: list[str] = []
+    base_indent: int | None = None
+
+    def _flush_sub(parent_items: list[ListItem]) -> None:
+        """Flush accumulated sub-items as a nested ListFlowable."""
+        if not pending_sub:
+            return
+        sub_items: list[ListItem] = []
+        for sub_line in pending_sub:
+            sub_bullet = _NESTED_BULLET_RE.match(sub_line)
+            sub_ordered = _NESTED_ORDERED_RE.match(sub_line)
+            if sub_bullet:
+                text = sub_bullet.group(2).strip()
+            elif sub_ordered:
+                text = sub_ordered.group(3).strip()
+            else:
+                text = sub_line.strip()
+            paragraph = Paragraph(_inline_markdown_to_xml(text), styles["BodyText"])
+            sub_items.append(ListItem(paragraph))
+        if sub_items:
+            sub_list = ListFlowable(
+                sub_items,
+                bulletType="bullet",
+                bulletChar="\u25cb",  # hollow circle for nested
+                leftIndent=18,
+                bulletFontName=styles["BodyText"].fontName,
+                bulletFontSize=9,
+            )
+            # Attach nested list after the last top-level item
+            if parent_items:
+                parent_items.append(ListItem(sub_list))
+            else:
+                parent_items.extend([ListItem(si) for si in sub_items])
+        pending_sub.clear()
 
     for line in lines:
-        bullet_match = _BULLET_RE.match(line)
-        ordered_match = _ORDERED_RE.match(line)
+        bullet_match = _NESTED_BULLET_RE.match(line)
+        ordered_match = _NESTED_ORDERED_RE.match(line)
         if not bullet_match and not ordered_match:
             break
-        consumed += 1
-        ordered = ordered or bool(ordered_match)
-        text = bullet_match.group(1) if bullet_match else ordered_match.group(2)
-        paragraph = Paragraph(_inline_markdown_to_xml(text.strip()), styles["BodyText"])
-        items.append(ListItem(paragraph))
 
-    list_flowable = ListFlowable(
-        items,
-        bulletType="1" if ordered else "bullet",
-        start="1",
-        leftIndent=14,
-        bulletFontName=styles["BodyText"].fontName,
-    )
+        indent_len = len((bullet_match or ordered_match).group(1))
+        if base_indent is None:
+            base_indent = indent_len
+
+        consumed += 1
+
+        if indent_len > base_indent:
+            # Nested item — accumulate
+            pending_sub.append(line)
+        else:
+            # Top-level item — flush any pending sub-items first
+            _flush_sub(items)
+            ordered = ordered or bool(ordered_match)
+            text = bullet_match.group(2).strip() if bullet_match else ordered_match.group(3).strip()
+            paragraph = Paragraph(_inline_markdown_to_xml(text), styles["BodyText"])
+            items.append(ListItem(paragraph))
+
+    # Flush remaining sub-items
+    _flush_sub(items)
+
+    if ordered:
+        list_flowable = ListFlowable(
+            items,
+            bulletType="1",
+            start="1",
+            leftIndent=18,
+            bulletFontName=styles["BodyText"].fontName,
+            bulletFontSize=11,
+            spaceBefore=2,
+            spaceAfter=2,
+        )
+    else:
+        list_flowable = ListFlowable(
+            items,
+            bulletType="bullet",
+            bulletChar="\u2022",  # filled circle for top-level
+            leftIndent=18,
+            bulletFontName=styles["BodyText"].fontName,
+            bulletFontSize=11,
+            spaceBefore=2,
+            spaceAfter=2,
+        )
     return list_flowable, consumed
 
 
