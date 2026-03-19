@@ -234,6 +234,7 @@ services:
           memory: 1G
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
+      - ENABLE_VNC=${ENABLE_VNC:-1}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
