@@ -273,6 +273,6 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         run: bun run type-check
 
-      - name: Run tests with coverage
+      - name: Run tests
         if: needs.changes.outputs.frontend == 'true'
-        run: bun run test:coverage
+        run: bun run test:run
