@@ -1345,17 +1345,9 @@ const resolvedBrowserUrl = computed(() => {
 });
 
 const showUrlStatusBar = computed(() => {
-  if (props.embedded) return false;
-  // Report presentation overlays the browser — don't show URL bar
-  if (showReportPresentation.value) return false;
-  // Only show URL bar when the actual displayed content is a browser view
-  const viewType = currentViewType.value;
-  const isBrowserContent = viewType === 'live_preview' || (!viewType && showPersistentBrowser.value);
-  // In replay mode, only show URL bar if the replay screenshot is actually displayed
-  // (not when another view like editor/terminal is on top)
-  const isBrowserReplay = props.isReplayMode && !viewType && !!resolvedBrowserUrl.value;
-  if (!isBrowserContent && !isBrowserReplay) return false;
-  return !!resolvedBrowserUrl.value;
+  // X11 screencast now captures Chrome's full browser chrome (tabs + address bar),
+  // so the frontend URL overlay is redundant and wastes vertical space.
+  return false;
 });
 
 
