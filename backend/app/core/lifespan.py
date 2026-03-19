@@ -538,6 +538,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Sandbox context pre-load failed (non-critical): {e}")
 
+        # Warn if sandbox auth is not configured in non-development environments
+        if not settings.sandbox_api_secret and settings.environment != "development":
+            logger.warning(
+                "SECURITY: sandbox_api_secret is not set in '%s' environment. "
+                "Sandbox API endpoints are unprotected. Set SANDBOX_API_SECRET in .env.",
+                settings.environment,
+            )
+
         # Mark as ready
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
@@ -549,6 +557,17 @@ async def lifespan(app: FastAPI):
             configure_agent_metrics()
         except Exception as e:
             logger.warning(f"Agent metrics adapter configuration failed (non-critical): {e}")
+
+        # Start APIKeyPool health probes for LLM key rotation (cleans stale in-memory state)
+        try:
+            from app.infrastructure.external.llm.factory import get_llm
+
+            llm_instance = get_llm()
+            if llm_instance is not None and hasattr(llm_instance, "_key_pool"):
+                llm_instance._key_pool.start_health_probe(interval_seconds=300.0)
+                logger.info("LLM APIKeyPool health probe started")
+        except Exception as e:
+            logger.warning(f"LLM APIKeyPool health probe startup failed (non-critical): {e}")
 
         # Phase 2: Start sync worker for MongoDB → Qdrant outbox processing
         if _health_state["qdrant"] and await _try_acquire_startup_singleton("sync_worker"):
@@ -773,6 +792,16 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Enhanced components shutdown error: {e}")
 
             # --- Application-level cleanup (requires DB connections) ---
+
+            # Stop LLM APIKeyPool health probe
+            try:
+                from app.infrastructure.external.llm.factory import get_llm
+
+                llm_instance = get_llm()
+                if llm_instance is not None and hasattr(llm_instance, "_key_pool"):
+                    llm_instance._key_pool.stop_health_probe()
+            except Exception as e:
+                logger.debug(f"LLM APIKeyPool health probe stop error: {e}")
 
             # Only shut down AgentService if it was actually created (lru_cache populated).
             # Without this guard, get_agent_service() creates a brand-new instance

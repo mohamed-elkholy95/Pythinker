@@ -1604,18 +1604,45 @@ class BaseAgent:
         step_iteration_count = 0  # Per-step iteration counter
         warning_emitted = False
         graceful_completion_requested = False
-        wall_clock_advisory_sent = False
-        wall_clock_urgent_sent = False
-        wall_clock_critical_sent = False
-        wall_clock_exceeded = False
 
         # Reset per-step stability counters
-        self._hallucination_count_this_step = 0
         self._compression_cycles_this_step = 0
         self._compression_guard_active = False
         self._step_start_time = time.monotonic()
         self._recent_truncation_count = 0  # Prevent stale count from prior step
         self._stuck_recovery_exhausted = False
+
+        # ── Middleware context for this execution ──
+        from app.core.config import get_settings as _get_mw_settings
+        from app.domain.services.agents.middleware import (
+            MiddlewareContext as _MwCtx,
+        )
+        from app.domain.services.agents.middleware import (
+            MiddlewareSignal as _MwSig,
+        )
+
+        _mw_ctx = _MwCtx(
+            agent_id=self._agent_id,
+            session_id=getattr(self, "_session_id", ""),
+            active_phase=self._active_phase,
+            research_depth=getattr(self, "_research_depth", None),
+        )
+        _mw_ctx.step_start_time = time.monotonic()
+
+        # Compute wall clock budget for middleware
+        _mw_s = _get_mw_settings()
+        _mw_depth = getattr(self, "_research_depth", None)
+        if _mw_depth == "QUICK":
+            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_quick_seconds", 300.0)
+        elif _mw_depth == "DEEP":
+            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_deep_seconds", 900.0)
+        elif _mw_depth == "STANDARD":
+            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_standard_seconds", 600.0)
+        else:
+            _mw_ctx.wall_clock_budget = getattr(_mw_s, "max_step_wall_clock_seconds", 600.0)
+
+        await self._pipeline.run_before_execution(_mw_ctx)
+        wall_clock_exceeded = False
 
         while iteration_spent < iteration_budget:
             if not message.get("tool_calls"):
@@ -1625,26 +1652,27 @@ class BaseAgent:
             tool_responses = []
             wall_clock_pressure_active: str | None = None
 
-            # Check for hallucination loop escalation
-            if self._hallucination_detector.should_inject_correction_prompt():
-                self._hallucination_count_this_step += 1
-                if self._hallucination_count_this_step >= self.max_hallucinations_per_step:
-                    logger.warning(
-                        "Hallucination cap reached (%d/%d injections this step), force-advancing",
-                        self._hallucination_count_this_step,
-                        self.max_hallucinations_per_step,
-                    )
-                    self._stuck_recovery_exhausted = True
-                    break
-                correction = self._hallucination_detector.get_correction_prompt()
-                logger.warning(
-                    f"Hallucination loop detected ({self._hallucination_detector.hallucination_count} consecutive), "
-                    f"injecting correction prompt ({self._hallucination_count_this_step}/{self.max_hallucinations_per_step})"
-                )
-                correction_messages = [{"role": "user", "content": correction}]
-                message = await self.ask_with_messages(correction_messages)
-                self._hallucination_detector.reset()
+            # ── Middleware before_step (hallucination guard + wall clock pressure) ──
+            _mw_ctx.elapsed_seconds = time.monotonic() - _mw_ctx.step_start_time
+            _mw_ctx.iteration_count = int(iteration_spent)
+            _mw_ctx.step_iteration_count = step_iteration_count
+
+            _step_mw = await self._pipeline.run_before_step(_mw_ctx)
+            if _step_mw.signal == _MwSig.FORCE:
+                logger.warning("Middleware before_step FORCE: %s", _step_mw.message)
+                self._stuck_recovery_exhausted = True
+                break
+            if _step_mw.signal == _MwSig.INJECT:
+                logger.info("Middleware before_step INJECT: %s", _step_mw.message)
+                message = await self.ask_with_messages([{"role": "user", "content": _step_mw.message}])
+                graceful_completion_requested = True
+                wall_clock_pressure_active = _step_mw.metadata.get("pressure_level")
                 continue
+
+            # Inject any advisory messages from middleware context
+            for _inj in _mw_ctx.injected_messages:
+                await self._add_to_memory([_inj])
+            _mw_ctx.injected_messages.clear()
 
             # Calculate iteration cost for this cycle
             iteration_cost = self._calculate_iteration_cost(tool_calls)
@@ -1660,98 +1688,16 @@ class BaseAgent:
                 self._stuck_recovery_exhausted = True
                 break
 
-            # Check per-step wall-clock limit
-            if self._step_start_time is not None:
-                from app.core.config import get_settings
-
-                _settings = get_settings()
-                # Per-depth budgets override the global limit when research depth is known
-                _depth = getattr(self, "_research_depth", None)
-                if _depth == "QUICK":
-                    wall_limit = getattr(_settings, "step_budget_quick_seconds", 300.0)
-                elif _depth == "DEEP":
-                    wall_limit = getattr(_settings, "step_budget_deep_seconds", 900.0)
-                elif _depth == "STANDARD":
-                    wall_limit = getattr(_settings, "step_budget_standard_seconds", 600.0)
-                else:
-                    wall_limit = getattr(_settings, "max_step_wall_clock_seconds", 600.0)
-                if wall_limit > 0:
-                    elapsed = time.monotonic() - self._step_start_time
-                    if elapsed > wall_limit:
-                        logger.warning(
-                            "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
-                            elapsed,
-                            wall_limit,
-                        )
-                        wall_clock_exceeded = True
-                        self._stuck_recovery_exhausted = True
-                        break
-                    # ── Graduated wall-clock pressure ──────────────────
-                    pressure = _get_wall_clock_pressure_level(elapsed, wall_limit)
-
-                    if pressure == "ADVISORY" and not wall_clock_advisory_sent:
-                        wall_clock_advisory_sent = True
-                        logger.info(
-                            "Step wall-clock at 50%% (%.0fs/%.0fs); advisory injected.",
-                            elapsed,
-                            wall_limit,
-                        )
-                        await self._add_to_memory(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"STEP TIME ADVISORY: You have used 50% of the step time budget "
-                                        f"({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                        f"Begin wrapping up research and focus on writing output."
-                                    ),
-                                }
-                            ]
-                        )
-
-                    elif pressure == "URGENT" and not wall_clock_urgent_sent:
-                        wall_clock_urgent_sent = True
-                        logger.warning(
-                            "Step wall-clock at 75%% (%.0fs/%.0fs); blocking read-only tools.",
-                            elapsed,
-                            wall_limit,
-                        )
-                        await self._add_to_memory(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"STEP TIME URGENT: 75% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                        f"Read-only tools are now BLOCKED. You MUST finalize your output immediately. "
-                                        f"Use file_write or file_str_replace to save findings NOW."
-                                    ),
-                                }
-                            ]
-                        )
-                        graceful_completion_requested = True
-                        wall_clock_pressure_active = "URGENT"
-
-                    elif pressure == "CRITICAL" and not wall_clock_critical_sent:
-                        wall_clock_critical_sent = True
-                        logger.warning(
-                            "Step wall-clock at 90%% (%.0fs/%.0fs); blocking ALL non-write tools.",
-                            elapsed,
-                            wall_limit,
-                        )
-                        await self._add_to_memory(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"STEP TIME CRITICAL: 90% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                        f"ALL tools except file_write and code_save_artifact are BLOCKED. "
-                                        f"Write your output NOW or it will be lost."
-                                    ),
-                                }
-                            ]
-                        )
-                        graceful_completion_requested = True
-                        wall_clock_pressure_active = "CRITICAL"
+            # Hard wall-clock limit check (distinct from graduated pressure)
+            if _mw_ctx.wall_clock_budget > 0 and _mw_ctx.elapsed_seconds > _mw_ctx.wall_clock_budget:
+                logger.warning(
+                    "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
+                    _mw_ctx.elapsed_seconds,
+                    _mw_ctx.wall_clock_budget,
+                )
+                wall_clock_exceeded = True
+                self._stuck_recovery_exhausted = True
+                break
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -2106,10 +2052,10 @@ class BaseAgent:
                     )
 
             # Annotate tool results with step time after 50% mark (design 2A)
-            if wall_clock_advisory_sent and self._step_start_time is not None:
+            if _mw_ctx.metadata.get("wall_clock_advisory_sent") and self._step_start_time is not None:
                 _now = time.monotonic()
                 _el = _now - self._step_start_time
-                _tag = f"\n[Step time: {_el:.0f}s/{wall_limit:.0f}s]"
+                _tag = f"\n[Step time: {_el:.0f}s/{_mw_ctx.wall_clock_budget:.0f}s]"
                 for tr in tool_responses:
                     if tr.get("role") == "tool" and isinstance(tr.get("content"), str):
                         tr["content"] += _tag

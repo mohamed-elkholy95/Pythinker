@@ -129,6 +129,10 @@ class SessionLifecycleService:
                 logger.debug("Could not record user_stop_before_done metric: %s", e)
 
         await self._agent_domain_service.stop_session(session_id)
+
+        # Clean up cancel event to prevent memory leak
+        self.unregister_cancel_event(session_id)
+
         logger.info(f"Session {session_id} stopped successfully")
 
     async def pause_session(self, session_id: str, user_id: str) -> bool:

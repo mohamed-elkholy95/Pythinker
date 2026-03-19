@@ -49,7 +49,7 @@ class ChatRequest(BaseModel):
     """
 
     timestamp: int | None = None
-    message: str | None = None
+    message: str | None = Field(default=None, min_length=1, max_length=100_000)
     attachments: list[dict] | None = None
     event_id: str | None = None
     skills: list[str] | None = None

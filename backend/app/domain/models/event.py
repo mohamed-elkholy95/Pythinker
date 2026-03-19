@@ -490,6 +490,7 @@ class StepEvent(BaseEvent):
     status: StepStatus
     phase_id: str | None = None  # Parent phase ID
     step_type: str | None = None  # StepType value
+    duration_ms: float | None = None  # Step execution duration for performance analysis
 
 
 class MessageEvent(BaseEvent):

@@ -143,6 +143,13 @@ class AgentSafetySettingsMixin:
     # Default 1 hour; set to 0 to disable.
     max_session_wall_clock_seconds: int = 3600
 
+    # Agent execution tuning (consumed by BaseAgent, PlannerAgent, PlanActFlow)
+    agent_max_retries: int = 3  # LLM call retries per step
+    agent_max_step_iterations: int = 50  # Max iterations within a single step
+    agent_checkpoint_interval: int = 5  # Write checkpoint every N completed steps
+    planner_max_steps: int = 4  # Default max plan steps (overridden by complexity)
+    planner_research_step_cap: int = 10  # Max steps for research-heavy tasks
+
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
     reflection_interval: int = 5  # Iterations between self-reflection cycles
@@ -249,7 +256,6 @@ class FeatureFlagsSettingsMixin:
     feature_url_verification: bool = True  # Verify cited URLs exist and were visited
     feature_claim_provenance: bool = True  # Track claim-to-source linkage
     feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
-    feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated)
     feature_hallucination_verification: bool = (
         True  # LLM-as-Judge grounding verification (enabled by default for factual verification gate)
     )
@@ -427,8 +433,8 @@ class FeatureFlagsSettingsMixin:
     # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
     # middlewares instead of inline retry/error code in each provider.
-    # NOT YET WIRED: build_default_pipeline() exists but is not called by any LLM provider.
-    feature_llm_middleware_pipeline: bool = False
+    # Wired into LLM providers: enables 7-layer retry/circuit-breaker chain.
+    feature_llm_middleware_pipeline: bool = True
 
     # Phase 2: Retry budget — cap total retries across all middleware layers
     # per task to prevent cascading quota exhaustion.
@@ -567,6 +573,18 @@ class PromptOptimizationSettingsMixin:
     skill_auto_detection_threshold: float = 0.6
     # skill_first_planning_enabled removed — was declared but never read by any code path
     skill_ui_events_enabled: bool = True
+
+    # Proactive skill task analysis (multi-signal semantic matching beyond regex)
+    skill_task_analysis_enabled: bool = True
+    skill_task_analysis_threshold: float = 0.5
+    skill_task_analysis_max_results: int = 2
+
+    # Enterprise-grade skill enforcement (Phase 2: Hardened Skill System)
+    skill_force_first_invocation: bool = True  # Force skill_invoke on first turn when skills detected
+    skill_enforcement_prompt_enabled: bool = True  # Hardened system prompt with mandatory protocol
+    skill_enforcement_nudge_enabled: bool = True  # Nudge after N iterations without skill invocation
+    skill_enforcement_nudge_after_iterations: int = 3  # Iterations before nudge fires
+    skill_strict_schema_enabled: bool = True  # Enum constraints on skill_name in tool schema
 
 
 class TypoCorrectionSettingsMixin:

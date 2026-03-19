@@ -40,6 +40,7 @@ VALID_TRANSITIONS: dict[AgentStatus, list[AgentStatus]] = {
     AgentStatus.EXECUTING: [
         AgentStatus.UPDATING,
         AgentStatus.SUMMARIZING,
+        AgentStatus.REFLECTING,
         AgentStatus.ERROR,
     ],
     AgentStatus.UPDATING: [
@@ -55,6 +56,7 @@ VALID_TRANSITIONS: dict[AgentStatus, list[AgentStatus]] = {
     ],
     AgentStatus.REFLECTING: [
         AgentStatus.EXECUTING,
+        AgentStatus.SUMMARIZING,
         AgentStatus.PLANNING,
         AgentStatus.ERROR,
     ],
@@ -144,35 +146,3 @@ def get_recovery_paths(from_error: bool = True) -> list[AgentStatus]:
     if from_error:
         return VALID_TRANSITIONS.get(AgentStatus.ERROR, [])
     return []
-
-
-class StatusTransitionGuard:
-    """Context manager for guarded state transitions.
-
-    Usage:
-        with StatusTransitionGuard(flow, AgentStatus.PLANNING) as guard:
-            # Do planning work
-            # Auto-validates transition and handles errors
-    """
-
-    def __init__(self, flow, target_status: AgentStatus, validate: bool = True):
-        self.flow = flow
-        self.target_status = target_status
-        self.validate = validate
-        self.original_status: AgentStatus | None = None
-
-    def __enter__(self):
-        self.original_status = self.flow.status
-        if self.validate and not validate_transition(self.original_status, self.target_status):
-            raise StateTransitionError(self.original_status, self.target_status)
-        self.flow.status = self.target_status
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            # On exception, transition to ERROR state if valid
-            if validate_transition(self.target_status, AgentStatus.ERROR):
-                self.flow.status = AgentStatus.ERROR
-            # Don't suppress the exception
-            return False
-        return False

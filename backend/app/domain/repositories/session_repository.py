@@ -107,8 +107,8 @@ class SessionRepository(Protocol):
         ...
 
     # Timeline query methods
-    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[BaseEvent]:
-        """Get paginated events for a session."""
+    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+        """Get paginated events for a session (returns raw event dicts)."""
         ...
 
     async def get_events_in_range(self, session_id: str, start_time: datetime, end_time: datetime) -> list[BaseEvent]:

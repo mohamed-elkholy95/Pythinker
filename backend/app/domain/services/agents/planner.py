@@ -73,6 +73,23 @@ COMPLEXITY_STEP_LIMITS = {
     "complex": (3, 8),
 }
 RESEARCH_STEP_CAP = 10
+
+
+# Apply settings overrides at module load
+def _apply_planner_settings() -> None:
+    """Override module-level planner constants from application settings."""
+    global DEFAULT_MAX_PLAN_STEPS, RESEARCH_STEP_CAP
+    try:
+        from app.core.config import get_settings as _get_planner_settings
+
+        _cfg = _get_planner_settings()
+        DEFAULT_MAX_PLAN_STEPS = _cfg.planner_max_steps
+        RESEARCH_STEP_CAP = _cfg.planner_research_step_cap
+    except Exception:
+        logger.debug("Planner settings unavailable at import time, using defaults")
+
+
+_apply_planner_settings()
 RESEARCH_COMPLEXITY_HINTS = [
     "research",
     "investigate",

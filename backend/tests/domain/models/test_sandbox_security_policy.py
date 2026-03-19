@@ -12,15 +12,11 @@ class TestSandboxSecurityPolicy:
     def test_sys_chroot_rejected_by_validator(self):
         """Attempting to add SYS_CHROOT must be rejected."""
         with pytest.raises(ValueError, match="not in allowlist"):
-            SandboxSecurityPolicy(
-                cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"]
-            )
+            SandboxSecurityPolicy(cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"])
 
     def test_valid_caps_accepted(self):
         """All valid capabilities without SYS_CHROOT must pass."""
-        policy = SandboxSecurityPolicy(
-            cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"]
-        )
+        policy = SandboxSecurityPolicy(cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"])
         assert len(policy.cap_add_allowlist) == 4
 
     def test_cap_drop_must_include_all(self):

@@ -31,7 +31,6 @@ def verifier() -> OutputVerifier:
     return OutputVerifier(
         llm=MagicMock(),
         critic=MagicMock(),
-        cove=MagicMock(),
         context_manager=MagicMock(),
         source_tracker=mock_source_tracker,
         resolve_feature_flags_fn=None,

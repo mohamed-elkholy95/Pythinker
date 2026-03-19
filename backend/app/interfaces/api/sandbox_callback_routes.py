@@ -2,12 +2,16 @@
 
 These endpoints receive events, progress updates, and resource requests
 from sandbox containers. Authenticated via X-Sandbox-Callback-Token header.
+
+Rate-limited per session to prevent a compromised sandbox from flooding
+the backend with callback events.
 """
 
 from __future__ import annotations
 
 import logging
 import secrets
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -72,6 +76,48 @@ async def verify_sandbox_callback_token(
     return x_sandbox_callback_token
 
 
+# ---------------------------------------------------------------------------
+# Per-session callback rate limiter (in-memory, lightweight)
+# ---------------------------------------------------------------------------
+
+# Max callback events per session per window (covers event + progress + request)
+_CALLBACK_MAX_PER_WINDOW = 300  # generous but bounded
+_CALLBACK_WINDOW_SECONDS = 60
+
+_callback_counters: dict[str, tuple[int, float]] = {}
+
+
+def _check_callback_rate_limit(identifier: str) -> None:
+    """Raise 429 if this identifier exceeds the callback rate limit."""
+    now = time.monotonic()
+    entry = _callback_counters.get(identifier)
+    if entry is not None:
+        count, window_start = entry
+        if now - window_start < _CALLBACK_WINDOW_SECONDS:
+            if count >= _CALLBACK_MAX_PER_WINDOW:
+                logger.warning(
+                    "Sandbox callback rate limit exceeded for %s (%d/%d in %ds)",
+                    identifier,
+                    count,
+                    _CALLBACK_MAX_PER_WINDOW,
+                    _CALLBACK_WINDOW_SECONDS,
+                )
+                raise HTTPException(
+                    status_code=429,
+                    detail="Callback rate limit exceeded",
+                )
+            _callback_counters[identifier] = (count + 1, window_start)
+            return
+    # New window
+    _callback_counters[identifier] = (1, now)
+
+    # Periodic cleanup: remove expired entries every ~100 new windows
+    if len(_callback_counters) > 200:
+        expired = [k for k, (_, ws) in _callback_counters.items() if now - ws > _CALLBACK_WINDOW_SECONDS]
+        for k in expired:
+            del _callback_counters[k]
+
+
 def _get_session_repository() -> SessionRepository:
     """Provide a session repository for sandbox callback routes."""
     from app.interfaces.dependencies import get_session_repository
@@ -123,6 +169,8 @@ async def receive_event(
     Converts the raw callback into a domain event and persists it in the
     session timeline so it is visible via SSE to the frontend.
     """
+    _check_callback_rate_limit(body.session_id or "global")
+
     logger.info(
         "Sandbox callback event: type=%s session=%s details=%s",
         body.type,
@@ -155,6 +203,8 @@ async def receive_progress(
     Creates a ``ProgressEvent`` and stores it in the session timeline so
     the frontend can display real-time sandbox progress.
     """
+    _check_callback_rate_limit(body.session_id)
+
     logger.info(
         "Sandbox callback progress: session=%s step=%s percent=%d",
         body.session_id,
@@ -189,6 +239,8 @@ async def receive_resource_request(
     Resource requests (upload URLs, secrets) require human review.
     The request is logged and returned with a ``pending`` status.
     """
+    _check_callback_rate_limit("resource-request")
+
     logger.info(
         "Sandbox callback resource request: type=%s params=%s",
         body.type,

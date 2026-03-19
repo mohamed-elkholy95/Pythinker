@@ -36,12 +36,49 @@ class WallClockPressureMiddleware(BaseMiddleware):
 
     async def before_step(self, ctx: MiddlewareContext) -> MiddlewareResult:
         level = self._get_pressure_level(ctx)
+        if not level:
+            return MiddlewareResult.ok()
+
+        sent_key = f"wall_clock_{level.lower()}_sent"
+
         if level == "CRITICAL":
+            if not ctx.metadata.get(sent_key):
+                ctx.metadata[sent_key] = True
             return MiddlewareResult(
                 signal=MiddlewareSignal.FORCE,
-                message="Wall-clock CRITICAL (90%+). Conclude now.",
+                message=(
+                    f"STEP TIME CRITICAL: 90% of budget used ({ctx.elapsed_seconds:.0f}s of "
+                    f"{ctx.wall_clock_budget:.0f}s). ALL tools except file_write and "
+                    f"code_save_artifact are BLOCKED. Write your output NOW."
+                ),
                 metadata={"pressure_level": level},
             )
+
+        if level == "URGENT" and not ctx.metadata.get(sent_key):
+            ctx.metadata[sent_key] = True
+            return MiddlewareResult(
+                signal=MiddlewareSignal.INJECT,
+                message=(
+                    f"STEP TIME URGENT: 75% of budget used ({ctx.elapsed_seconds:.0f}s of "
+                    f"{ctx.wall_clock_budget:.0f}s). Read-only tools are now BLOCKED. "
+                    f"You MUST finalize your output immediately."
+                ),
+                metadata={"pressure_level": level},
+            )
+
+        if level == "ADVISORY" and not ctx.metadata.get(sent_key):
+            ctx.metadata[sent_key] = True
+            ctx.injected_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"STEP TIME ADVISORY: You have used 50% of the step time budget "
+                        f"({ctx.elapsed_seconds:.0f}s of {ctx.wall_clock_budget:.0f}s). "
+                        f"Begin wrapping up research and focus on writing output."
+                    ),
+                }
+            )
+
         return MiddlewareResult.ok()
 
     async def before_tool_call(self, ctx: MiddlewareContext, tool_call: ToolCallInfo) -> MiddlewareResult:
