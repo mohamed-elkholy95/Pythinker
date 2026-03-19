@@ -6,13 +6,12 @@ The outbox pattern ensures reliable MongoDB → Qdrant synchronization by:
 3. Moving failed entries to dead-letter queue after max retries
 """
 
+import random
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from app.core.retry import RetryConfig, calculate_delay
 
 
 class OutboxOperation(str, Enum):
@@ -67,19 +66,13 @@ class OutboxEntry(BaseModel):
         return not (self.next_retry_at and self.next_retry_at > datetime.now(UTC))
 
     def calculate_next_retry(self) -> datetime:
-        """Calculate next retry time with exponential backoff using centralized retry logic.
+        """Calculate next retry time with exponential backoff.
 
-        Backoff schedule: 1s, 2s, 4s, 8s, 16s, 32s (max)
+        Backoff schedule: 1s, 2s, 4s, 8s, 16s, 32s (max), with ±25% jitter.
         """
-        # Use centralized exponential backoff (base=1.0, max=32s)
-        retry_config = RetryConfig(
-            base_delay=1.0,
-            exponential_base=2.0,
-            max_delay=32.0,
-            jitter=True,
-        )
-        delay_seconds = calculate_delay(self.retry_count + 1, retry_config)
-        return datetime.now(UTC) + timedelta(seconds=delay_seconds)
+        delay = min(1.0 * (2.0 ** self.retry_count), 32.0)
+        jitter = delay * random.uniform(-0.25, 0.25)  # noqa: S311
+        return datetime.now(UTC) + timedelta(seconds=delay + jitter)
 
     def mark_processing(self) -> None:
         """Mark entry as currently being processed."""

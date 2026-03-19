@@ -1,12 +1,46 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.search_provider_policy import (
-    DEFAULT_SEARCH_PROVIDER_CHAIN,
-    normalize_search_provider_chain,
+ALLOWED_SEARCH_PROVIDERS = frozenset(
+    {"bing", "google", "duckduckgo", "brave", "tavily", "serper", "exa", "jina"}
 )
+DEFAULT_SEARCH_PROVIDER_CHAIN: tuple[str, ...] = ("tavily", "brave", "exa", "serper")
+
+
+def _normalize_provider_chain_value(raw: Any) -> list[str]:
+    """Parse, lowercase, dedupe, and allowlist-filter provider chain values.
+
+    Accepts list[str], JSON string, or comma-separated string.
+    Falls back to DEFAULT_SEARCH_PROVIDER_CHAIN if input is empty/invalid.
+    """
+    parsed: list[str] = []
+
+    if isinstance(raw, list):
+        parsed = [str(item).strip().lower() for item in raw if str(item).strip()]
+    elif isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+
+        try:
+            decoded = json.loads(stripped)
+            if isinstance(decoded, list):
+                parsed = [str(item).strip().lower() for item in decoded if str(item).strip()]
+            else:
+                return list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+        except json.JSONDecodeError:
+            if stripped[:1] in {"[", "{", '"'}:
+                return list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+            parsed = [part.strip().lower() for part in stripped.split(",") if part.strip()]
+
+    unique: list[str] = []
+    for provider in parsed:
+        if provider in ALLOWED_SEARCH_PROVIDERS and provider not in unique:
+            unique.append(provider)
+    return unique if unique else list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
 class UserSettings(BaseModel):
@@ -55,12 +89,7 @@ class UserSettings(BaseModel):
     @field_validator("search_provider_chain", mode="before")
     @classmethod
     def _normalize_provider_chain(cls, value: Any) -> list[str]:
-        return normalize_search_provider_chain(value)
-
-    @field_validator("search_provider_chain", mode="before")
-    @classmethod
-    def _normalize_provider_chain(cls, value: Any) -> list[str]:
-        return normalize_search_provider_chain(value)
+        return _normalize_provider_chain_value(value)
 
     def update(self, **kwargs) -> None:
         """Update settings with provided values"""
