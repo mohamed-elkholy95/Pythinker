@@ -12,12 +12,12 @@
     <div
       v-if="!isLeftPanelShow"
       class="collapsed-sidebar"
-      @mouseenter="onCollapsedMouseEnter"
-      @mouseleave="onPanelMouseLeave"
+      @click="showLeftPanel"
     >
       <div class="collapsed-sidebar-top">
-        <button @click="toggleLeftPanel" class="collapsed-logo-btn" aria-label="Expand sidebar">
-          <img src="/pythinker_animated.svg" alt="Pythinker" class="h-5 w-5" />
+        <button @click="toggleLeftPanel" class="collapsed-logo-btn sidebar-brand-toggle" aria-label="Expand sidebar">
+          <img src="/pythinker_animated.svg" alt="Pythinker" class="brand-label h-5 w-5" />
+          <PanelLeft class="brand-icon text-[var(--icon-secondary)]" />
         </button>
         <button @click="handleNewTaskClick" class="collapsed-icon-btn" aria-label="New task">
           <SquarePen class="h-5 w-5" />
@@ -43,11 +43,8 @@
       class="left-panel-content flex flex-col overflow-hidden bg-[var(--background-nav)]"
       :class="{
         'h-full opacity-100 translate-x-0 border-r border-[var(--border-main)]': isLeftPanelShow,
-        'peek-floating': hoverPeek && !isLeftPanelShow,
-        'hidden': !isLeftPanelShow && !hoverPeek
+        'hidden': !isLeftPanelShow
       }"
-      @mouseenter="onPanelMouseEnter"
-      @mouseleave="onPanelMouseLeave"
     >
       <div class="left-panel-header pl-2 pr-4 py-3 h-[56px]">
         <div class="flex items-center gap-2">
@@ -56,8 +53,8 @@
         </div>
         <button
           class="collapse-btn"
-          @click="hoverPeek ? onPeekPin() : toggleLeftPanel()"
-          :aria-label="hoverPeek ? 'Pin sidebar open' : 'Collapse sidebar'"
+          @click="toggleLeftPanel()"
+          aria-label="Collapse sidebar"
         >
           <PanelLeft class="h-5 w-5 text-[var(--icon-secondary)]" />
         </button>
@@ -215,38 +212,6 @@ import { useSessionListFeed } from '@/composables/useSessionListFeed';
 const { t } = useI18n()
 const { isLeftPanelShow, toggleLeftPanel, hideLeftPanel, showLeftPanel } = useLeftPanel()
 
-// ── Hover-to-peek ──────────────────────────────────
-const hoverPeek = ref(false)
-let hoverEnterTimer: ReturnType<typeof setTimeout> | null = null
-let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null
-
-function onCollapsedMouseEnter() {
-  if (isLeftPanelShow.value) return
-  if (hoverLeaveTimer) { clearTimeout(hoverLeaveTimer); hoverLeaveTimer = null }
-  hoverEnterTimer = setTimeout(() => { hoverPeek.value = true }, 280)
-}
-
-function onPanelMouseEnter() {
-  if (hoverLeaveTimer) { clearTimeout(hoverLeaveTimer); hoverLeaveTimer = null }
-}
-
-function onPanelMouseLeave() {
-  if (hoverEnterTimer) { clearTimeout(hoverEnterTimer); hoverEnterTimer = null }
-  if (!hoverPeek.value) return
-  hoverLeaveTimer = setTimeout(() => { hoverPeek.value = false }, 220)
-}
-
-function onPeekPin() {
-  hoverPeek.value = false
-  showLeftPanel()
-}
-
-// Clean up when sidebar is toggled via click
-watch(isLeftPanelShow, () => {
-  hoverPeek.value = false
-  if (hoverEnterTimer) { clearTimeout(hoverEnterTimer); hoverEnterTimer = null }
-  if (hoverLeaveTimer) { clearTimeout(hoverLeaveTimer); hoverLeaveTimer = null }
-})
 const { openSettingsDialog } = useSettingsDialog()
 const { currentUser } = useAuth()
 const { onStatusChange } = useSessionStatus()
