@@ -159,7 +159,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
         apt-get install -y --no-install-recommends \
             graphviz mysql-client lsof psmisc make patch \
-            vim nano xclip xdg-utils tree ffmpeg imagemagick xdotool x11-apps; \
+            vim nano xclip xdg-utils tree ffmpeg imagemagick; \
     fi && \
     locale-gen en_US.UTF-8 && \
     fc-cache -f && \
