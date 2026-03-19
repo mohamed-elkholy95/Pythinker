@@ -5,9 +5,9 @@ expires them automatically.  Durable entries (DISTILLED_OUTCOME) bypass
 TTL and survive until the session is explicitly cleared.
 """
 
-import time
 from collections import defaultdict
 from collections.abc import Set
+from datetime import UTC, datetime, timedelta
 
 from app.domain.models.research_trace import TraceEntry, TraceTier, TraceType
 
@@ -53,7 +53,7 @@ class ResearchTraceStore:
         Durable entries are always included.
         ``trace_types``, when provided, further restricts which types are returned.
         """
-        cutoff = time.time() - self._ttl
+        cutoff = datetime.now(UTC) - timedelta(seconds=self._ttl)
         results: list[TraceEntry] = []
         for entry in self._traces.get(session_id, []):
             if entry.tier is TraceTier.TRANSIENT and entry.created_at < cutoff:
@@ -77,7 +77,7 @@ class ResearchTraceStore:
         Returns the total number of entries removed.
         Empty session buckets are cleaned up after pruning.
         """
-        cutoff = time.time() - self._ttl
+        cutoff = datetime.now(UTC) - timedelta(seconds=self._ttl)
         removed = 0
         empty_sessions: list[str] = []
 

@@ -274,14 +274,18 @@ async def activate_user(
 async def refresh_token(
     request: RefreshTokenRequest, auth_service: AuthService = Depends(get_auth_service)
 ) -> APIResponse[RefreshTokenResponse]:
-    """Refresh access token endpoint"""
-    # Refresh access token
+    """Refresh access token endpoint.
+
+    Implements refresh token rotation: returns a new access token AND a new
+    refresh token. The old refresh token is blacklisted to prevent replay attacks.
+    """
     token_result = await auth_service.refresh_access_token(request.refresh_token)
 
     settings = get_settings()
     return APIResponse.success(
         RefreshTokenResponse(
             access_token=token_result.access_token,
+            refresh_token=token_result.refresh_token,
             token_type=token_result.token_type,
             expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
