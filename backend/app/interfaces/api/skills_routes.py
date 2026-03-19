@@ -1234,7 +1234,10 @@ class SkillDraftResponse(BaseModel):
 
 
 @router.post("/authoring/draft", response_model=APIResponse[SkillDraftResponse])
-async def generate_skill_draft(request: SkillDraftRequest):
+async def generate_skill_draft(
+    request: SkillDraftRequest,
+    current_user: User = Depends(get_current_user),
+):
     """Generate an AI-assisted skill draft from name, description, and tools."""
     from app.core.config import get_settings
     from app.infrastructure.external.llm.openai_llm import OpenAILLM
@@ -1255,11 +1258,7 @@ async def generate_skill_draft(request: SkillDraftRequest):
         llm=llm,
     )
 
-    return APIResponse(
-        code=0,
-        msg="success",
-        data=SkillDraftResponse(**result),
-    )
+    return APIResponse.success(data=SkillDraftResponse(**result))
 
 
 # =============================================================================
