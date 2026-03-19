@@ -200,12 +200,10 @@ class TestExecutionAgentSuggestionGeneration:
 
         mock_llm.ask_stream = mock_stream
         mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
-        executor._apply_cove_verification = AsyncMock(return_value=("unused", None))
 
         events = [event async for event in executor.summarize()]
 
-        # Ensure CoVe path was never invoked for this prompt.
-        executor._apply_cove_verification.assert_not_awaited()
+        # Verify no CoVe-related events were emitted (CoVe has been removed).
         assert not any(
             isinstance(event, StepEvent) and event.step and event.step.id == "cove_verification" for event in events
         )
