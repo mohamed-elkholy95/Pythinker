@@ -9,7 +9,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.infrastructure.external.scraper.research_spider import ResearchSpider
+try:
+    from app.infrastructure.external.scraper.research_spider import ResearchSpider
+except ImportError:
+    ResearchSpider = None  # type: ignore[assignment, misc]
+
+pytestmark = pytest.mark.skipif(
+    ResearchSpider is None,
+    reason="scrapling/browserforge not installed",
+)
 
 
 class TestResearchSpiderInit:

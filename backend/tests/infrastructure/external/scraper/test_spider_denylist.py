@@ -4,9 +4,22 @@ Domains like reddit.com that block anonymous scraping should be
 skipped by the spider. Search snippets are preserved instead.
 """
 
-from app.infrastructure.external.scraper.research_spider import (
-    SPIDER_DENYLIST_DOMAINS,
-    should_skip_spider,
+from __future__ import annotations
+
+import pytest
+
+try:
+    from app.infrastructure.external.scraper.research_spider import (
+        SPIDER_DENYLIST_DOMAINS,
+        should_skip_spider,
+    )
+except ImportError:
+    SPIDER_DENYLIST_DOMAINS = None  # type: ignore[assignment]
+    should_skip_spider = None  # type: ignore[assignment]
+
+pytestmark = pytest.mark.skipif(
+    should_skip_spider is None,
+    reason="scrapling/browserforge not installed",
 )
 
 
