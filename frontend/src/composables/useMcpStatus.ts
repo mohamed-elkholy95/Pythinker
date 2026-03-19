@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import type { McpHealthEventData, McpServerStatus, McpToolInfo } from '@/api/mcp'
 import { getMcpServers, getMcpServerTools, getMcpStatus } from '@/api/mcp'
 
@@ -94,6 +94,11 @@ function handleHealthEvent(data: McpHealthEventData): void {
 }
 
 export function useMcpStatus() {
+  // Auto-cleanup polling when the calling scope is disposed
+  onScopeDispose(() => {
+    stopPolling()
+  })
+
   return {
     // State
     servers,

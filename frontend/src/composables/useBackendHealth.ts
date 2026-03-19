@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from 'vue';
+import { ref, onScopeDispose } from 'vue';
 import { apiClient } from '@/api/client';
 
 interface HealthStatus {
@@ -114,8 +114,8 @@ export function useBackendHealth() {
     return false;
   };
 
-  // Cleanup on unmount
-  onUnmounted(() => {
+  // Cleanup when composable scope is disposed (works in stores, standalone, and components)
+  onScopeDispose(() => {
     stopMonitoring();
   });
 
