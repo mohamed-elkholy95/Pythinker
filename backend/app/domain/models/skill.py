@@ -63,6 +63,18 @@ class SkillInvocationType(str, Enum):
     BOTH = "both"  # Either user or AI can invoke (default)
 
 
+class InstructionTrustLevel(str, Enum):
+    """Provenance-based trust level for skill instructions.
+
+    Determines how skill instructions are injected into agent prompts.
+    Trust is based on authoring origin, NOT distribution state (source).
+    Publishing a skill does not upgrade trust.
+    """
+
+    SYSTEM_AUTHORED = "system_authored"  # Pythinker-managed, trusted
+    USER_AUTHORED = "user_authored"  # User-created, always untrusted
+
+
 class SkillResource(BaseModel):
     """A bundled resource within a skill.
 
@@ -133,6 +145,12 @@ class Skill(BaseModel):
     category: SkillCategory
     source: SkillSource = SkillSource.CUSTOM  # Default to CUSTOM for safety
     icon: str = Field(default="sparkles", description="Lucide icon name")
+
+    # Trust level
+    instruction_trust_level: InstructionTrustLevel = Field(
+        default=InstructionTrustLevel.USER_AUTHORED,
+        description="Provenance-based trust level. Does not change on publish/fork.",
+    )
 
     # Tool integration
     required_tools: list[str] = Field(
