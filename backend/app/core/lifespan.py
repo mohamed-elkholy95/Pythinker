@@ -563,8 +563,8 @@ async def lifespan(app: FastAPI):
             from app.infrastructure.external.llm.factory import get_llm
 
             llm_instance = get_llm()
-            if llm_instance is not None and hasattr(llm_instance, "_key_pool"):
-                llm_instance._key_pool.start_health_probe(interval_seconds=300.0)
+            if llm_instance is not None and hasattr(llm_instance, "start_health_probe"):
+                llm_instance.start_health_probe(interval_seconds=300.0)
                 logger.info("LLM APIKeyPool health probe started")
         except Exception as e:
             logger.warning(f"LLM APIKeyPool health probe startup failed (non-critical): {e}")
@@ -798,8 +798,8 @@ async def lifespan(app: FastAPI):
                 from app.infrastructure.external.llm.factory import get_llm
 
                 llm_instance = get_llm()
-                if llm_instance is not None and hasattr(llm_instance, "_key_pool"):
-                    llm_instance._key_pool.stop_health_probe()
+                if llm_instance is not None and hasattr(llm_instance, "stop_health_probe"):
+                    llm_instance.stop_health_probe()
             except Exception as e:
                 logger.debug(f"LLM APIKeyPool health probe stop error: {e}")
 
