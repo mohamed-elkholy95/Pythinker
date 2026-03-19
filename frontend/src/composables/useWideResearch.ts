@@ -158,7 +158,8 @@ export function useWideResearch() {
 
     _lastUpdateTime.value = Date.now()
 
-    // Auto-clear after delay
+    // Auto-clear after delay (clear any existing timeout first)
+    if (autoClearTimeout) clearTimeout(autoClearTimeout)
     autoClearTimeout = setTimeout(() => {
       clearResearch()
     }, 5000)
@@ -176,7 +177,8 @@ export function useWideResearch() {
     _state.value.errors = [error]
     _lastUpdateTime.value = Date.now()
 
-    // Auto-clear after delay
+    // Auto-clear after delay (clear any existing timeout first)
+    if (autoClearTimeout) clearTimeout(autoClearTimeout)
     autoClearTimeout = setTimeout(() => {
       clearResearch()
     }, 5000)
