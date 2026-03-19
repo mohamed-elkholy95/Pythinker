@@ -1,6 +1,7 @@
 """Tests for ResearchTraceStore — RESEARCH_TRACE memory tier."""
 
 import asyncio
+from datetime import datetime
 
 import pytest
 
@@ -17,7 +18,7 @@ def _make_entry(
     trace_type: TraceType = TraceType.SEARCH_QUERY,
     content: str = "python async patterns",
     tier: TraceTier = TraceTier.TRANSIENT,
-    created_at: float | None = None,
+    created_at: datetime | None = None,
 ) -> TraceEntry:
     kwargs: dict = {
         "session_id": session_id,

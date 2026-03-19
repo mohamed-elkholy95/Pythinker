@@ -467,7 +467,11 @@ class AuthService:
         return AuthToken(access_token=access_token, refresh_token=refresh_token, token_type="bearer", user=user)
 
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
-        """Refresh access token using refresh token"""
+        """Refresh access token using refresh token.
+
+        Implements refresh token rotation: each refresh issues a new refresh
+        token and blacklists the old one to prevent replay attacks.
+        """
         payload = await self.token_service.verify_token_async(refresh_token, expected_type="refresh")
 
         if not payload:
@@ -478,6 +482,16 @@ class AuthService:
         if not user_id:
             logger.warning("Refresh token missing 'sub' claim")
             raise UnauthorizedError("Invalid refresh token")
+
+        # Blacklist the old refresh token to prevent reuse (replay attack prevention).
+        # This is best-effort — if Redis is down, we still issue new tokens but log a warning.
+        blacklisted = await self.token_service.blacklist_refresh_token(refresh_token)
+        if not blacklisted:
+            logger.warning(
+                "Failed to blacklist old refresh token for user_id=%s — "
+                "rotation continues but replay window exists until token expires",
+                user_id,
+            )
 
         # Local/none auth: reconstruct user from JWT claims (no DB record exists).
         # Refresh tokens only carry {sub, fullname, iat, exp, type} — no email/role/is_active.
@@ -493,7 +507,8 @@ class AuthService:
                 is_active=payload.get("is_active", True),
             )
             new_access_token = self.token_service.create_access_token(user)
-            return AuthToken(access_token=new_access_token, token_type="bearer")
+            new_refresh_token = self.token_service.create_refresh_token(user)
+            return AuthToken(access_token=new_access_token, refresh_token=new_refresh_token, token_type="bearer")
 
         user = await self.user_repository.get_user_by_id(user_id)
 
@@ -504,10 +519,11 @@ class AuthService:
             logger.warning("Refresh failed: user_id=%s is inactive", user_id)
             raise UnauthorizedError("User not found or inactive")
 
-        # Generate new access token
+        # Generate new access token and rotated refresh token
         new_access_token = self.token_service.create_access_token(user)
+        new_refresh_token = self.token_service.create_refresh_token(user)
 
-        return AuthToken(access_token=new_access_token, token_type="bearer")
+        return AuthToken(access_token=new_access_token, refresh_token=new_refresh_token, token_type="bearer")
 
     async def verify_token(self, token: str) -> User | None:
         """Verify JWT token and return user"""

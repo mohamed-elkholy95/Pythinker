@@ -176,12 +176,18 @@ class TokenService:
         """Hash token for storage (don't store raw tokens)"""
         return hashlib.sha256(token.encode()).hexdigest()[:32]
 
-    def _get_token_ttl(self, token: str) -> int:
-        """Get remaining TTL for token in seconds"""
+    def _get_token_ttl(self, token: str, *, secret: str | None = None) -> int:
+        """Get remaining TTL for token in seconds.
+
+        Args:
+            token: The JWT token string.
+            secret: Signing secret to use for decoding. Defaults to jwt_secret_key.
+                    Pass _refresh_secret for refresh tokens.
+        """
         try:
             payload = jwt.decode(
                 token,
-                self.settings.jwt_secret_key,
+                secret or self.settings.jwt_secret_key,
                 algorithms=[self.settings.jwt_algorithm],
                 options={"verify_exp": False},  # Don't verify expiry for TTL calculation
             )
@@ -289,6 +295,35 @@ class TokenService:
 
         except Exception as e:
             logger.error(f"Failed to revoke token: {e}")
+            return False
+
+    async def blacklist_refresh_token(self, token: str) -> bool:
+        """Blacklist a used refresh token to prevent replay attacks.
+
+        The blacklist entry expires when the token would have expired,
+        so storage is bounded and self-cleaning.
+        """
+        if not self.settings.jwt_token_blacklist_enabled:
+            logger.debug("Token blacklist disabled - skipping refresh token blacklist")
+            return True
+
+        try:
+            redis = get_redis()
+            token_hash = self._hash_token(token)
+            key = f"{self.BLACKLIST_PREFIX}{token_hash}"
+
+            # Use refresh secret for TTL calculation since this is a refresh token
+            ttl = self._get_token_ttl(token, secret=self._refresh_secret)
+            if ttl <= 0:
+                logger.debug("Refresh token already expired - no need to blacklist")
+                return True
+
+            await redis.call("setex", key, ttl, "rotated")
+            logger.debug("Used refresh token blacklisted (TTL: %ds)", ttl)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to blacklist refresh token: %s", e)
             return False
 
     async def revoke_all_user_tokens(self, user_id: str) -> bool:
