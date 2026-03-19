@@ -119,9 +119,10 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
   })
 
   /**
-   * Get comprehensive stream health metrics
+   * Get comprehensive stream health metrics.
+   * Returns a fresh snapshot each call (Date.now() is not reactive).
    */
-  const healthMetrics = computed((): StreamHealthMetrics => {
+  function getHealthMetrics(): StreamHealthMetrics {
     const now = Date.now()
     return {
       totalEvents: totalEvents.value,
@@ -132,7 +133,7 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
       isHeartbeatOnly: isReceivingOnlyHeartbeats(),
       connectionDuration: connectionStartTime.value !== null ? now - connectionStartTime.value : 0,
     }
-  })
+  }
 
   function checkStaleConnection() {
     // Only check if connected and we've received at least one event
@@ -315,7 +316,7 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
     totalHeartbeats,
     connectionStartTime,
     eventRate,
-    healthMetrics,
+    getHealthMetrics,
     updateLastEventTime,
     updateLastRealEventTime,
     updateLastHeartbeatTime,

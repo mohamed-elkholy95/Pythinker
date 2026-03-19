@@ -1194,7 +1194,7 @@ const isChatMode = computed(() => {
   // Auto-detect: if first user message is a simple greeting, treat as chat mode
   const firstUserMsg = messages.value.find(m => m.type === 'user');
   if (!firstUserMsg) return false;
-  const text = ((firstUserMsg as any).message || '').trim().toLowerCase();
+  const text = ((firstUserMsg.content as import('@/types/message').MessageContent).content || '').trim().toLowerCase();
   const greetings = ['hello', 'hi', 'hey', 'howdy', 'hola', 'greetings', 'yo', 'sup', 'good morning', 'good afternoon', 'good evening'];
   return greetings.includes(text);
 });
