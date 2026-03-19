@@ -1,7 +1,14 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="dialog-overlay" @click.self="handleClose">
-      <div class="dialog-container">
+    <div v-if="isOpen" class="dialog-overlay" @click.self="handleClose" @keydown.escape="handleClose">
+      <div
+        ref="dialogContainerRef"
+        class="dialog-container"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skill-dialog-title"
+        aria-describedby="skill-dialog-subtitle"
+      >
         <!-- Header -->
         <div class="dialog-header">
           <div class="header-content">
@@ -9,13 +16,13 @@
               <Wand2 class="w-5 h-5" />
             </div>
             <div>
-              <h2 class="dialog-title">{{ isEditing ? 'Edit Skill' : 'Create Custom Skill' }}</h2>
-              <p class="dialog-subtitle">
+              <h2 id="skill-dialog-title" class="dialog-title">{{ isEditing ? 'Edit Skill' : 'Create Custom Skill' }}</h2>
+              <p id="skill-dialog-subtitle" class="dialog-subtitle">
                 {{ isEditing ? 'Modify your custom skill' : 'Define a new skill with custom tools and prompts' }}
               </p>
             </div>
           </div>
-          <button @click="handleClose" class="close-btn">
+          <button @click="handleClose" class="close-btn" aria-label="Close dialog">
             <X class="w-5 h-5" />
           </button>
         </div>
@@ -24,10 +31,11 @@
         <form ref="dialogBodyRef" @submit.prevent="handleSubmit" class="dialog-body">
           <!-- Name -->
           <div class="form-group">
-            <label class="form-label">
+            <label for="skill-name" class="form-label">
               Name <span class="required">*</span>
             </label>
             <input
+              id="skill-name"
               v-model="form.name"
               type="text"
               class="form-input"
@@ -35,16 +43,18 @@
               minlength="2"
               maxlength="100"
               required
+              aria-describedby="skill-name-hint"
             />
-            <p class="form-hint">A short, descriptive name (2-100 characters)</p>
+            <p id="skill-name-hint" class="form-hint">A short, descriptive name (2-100 characters)</p>
           </div>
 
           <!-- Description -->
           <div class="form-group">
-            <label class="form-label">
+            <label for="skill-description" class="form-label">
               Description <span class="required">*</span>
             </label>
             <textarea
+              id="skill-description"
               v-model="form.description"
               class="form-textarea"
               placeholder="e.g., Reviews code for bugs, security issues, and best practices"
@@ -52,8 +62,9 @@
               maxlength="500"
               rows="2"
               required
+              aria-describedby="skill-description-hint"
             ></textarea>
-            <p class="form-hint">Brief explanation of what this skill does (10-500 characters)</p>
+            <p id="skill-description-hint" class="form-hint">Brief explanation of what this skill does (10-500 characters)</p>
           </div>
 
           <!-- Icon -->
@@ -66,6 +77,8 @@
                 type="button"
                 class="icon-option"
                 :class="{ 'icon-selected': form.icon === iconName }"
+                :aria-label="`Select ${iconName} icon`"
+                :aria-pressed="form.icon === iconName"
                 @click="form.icon = iconName"
               >
                 <component :is="getIconComponent(iconName)" class="w-4 h-4" />
@@ -74,8 +87,8 @@
           </div>
 
           <!-- Required Tools -->
-          <div class="form-group">
-            <label class="form-label">
+          <div class="form-group" role="group" aria-labelledby="skill-tools-label">
+            <label id="skill-tools-label" class="form-label">
               Required Tools <span class="required">*</span>
             </label>
             <div class="tools-grid">
@@ -100,12 +113,14 @@
 
           <!-- System Prompt Addition -->
           <div class="form-group">
-            <label class="form-label">
+            <label for="skill-prompt" class="form-label">
               System Prompt Instructions <span class="required">*</span>
             </label>
             <textarea
+              id="skill-prompt"
               v-model="form.system_prompt_addition"
               class="form-textarea code-textarea"
+              aria-describedby="skill-prompt-hint"
               placeholder="<skill_instructions>
 When [trigger condition]:
 1. First, [action 1]
@@ -122,7 +137,7 @@ Guidelines:
             <div class="prompt-counter">
               {{ form.system_prompt_addition.length }} / 4000 characters
             </div>
-            <p class="form-hint">
+            <p id="skill-prompt-hint" class="form-hint">
               Instructions that guide the agent when this skill is enabled. Use XML-style tags for organization.
             </p>
           </div>
@@ -155,7 +170,7 @@ Guidelines:
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue';
 import {
   X,
   Wand2,
@@ -178,8 +193,9 @@ import {
 } from 'lucide-vue-next';
 import type { Skill, CreateCustomSkillRequest } from '@/api/skills';
 
-// Dialog body ref for scrolling
+// Dialog refs
 const dialogBodyRef = ref<HTMLElement | null>(null);
+const dialogContainerRef = ref<HTMLElement | null>(null);
 
 const props = defineProps<{
   isOpen: boolean;
@@ -310,6 +326,47 @@ function handleClose() {
   resetForm();
   emit('close');
 }
+
+// Focus trap: keep Tab/Shift+Tab within the dialog
+function handleFocusTrap(e: KeyboardEvent) {
+  if (e.key !== 'Tab' || !dialogContainerRef.value) return;
+
+  const focusable = dialogContainerRef.value.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable.length === 0) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+// Focus the first input when dialog opens
+watch(
+  () => props.isOpen,
+  (open) => {
+    if (open) {
+      nextTick(() => {
+        const nameInput = document.getElementById('skill-name');
+        nameInput?.focus();
+        document.addEventListener('keydown', handleFocusTrap);
+      });
+    } else {
+      document.removeEventListener('keydown', handleFocusTrap);
+    }
+  }
+);
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleFocusTrap);
+});
 
 // Handle submit
 async function handleSubmit() {
