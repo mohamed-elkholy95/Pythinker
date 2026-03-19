@@ -19,8 +19,6 @@ from typing import ClassVar
 
 from rank_bm25 import BM25Okapi
 
-from app.core.config import get_settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -50,13 +48,7 @@ class BM25SparseEncoder:
         self.vocab: dict[str, int] = {}  # word -> index mapping
         self.reverse_vocab: dict[int, str] = {}  # index -> word mapping
         self.top_k = top_k
-        settings = get_settings()
-        configured_max = (
-            max_corpus_documents
-            if max_corpus_documents is not None
-            else int(getattr(settings, "bm25_corpus_max_documents", 200) or 0)
-        )
-        self.max_corpus_documents = max(0, configured_max)
+        self.max_corpus_documents = max(0, max_corpus_documents if max_corpus_documents is not None else 200)
         self.corpus_size = 0
         self._corpus_texts: list[str] = []  # Retained for incremental updates
 
@@ -278,8 +270,15 @@ def get_bm25_encoder() -> BM25SparseEncoder:
     """
     global _encoder
     if _encoder is None:
-        _encoder = BM25SparseEncoder(top_k=100)
-        logger.info("BM25 encoder singleton created")
+        # Import settings at factory level (not in domain class) to maintain DDD boundary
+        try:
+            from app.core.config import get_settings
+
+            max_docs = get_settings().bm25_corpus_max_documents
+        except Exception:
+            max_docs = 200
+        _encoder = BM25SparseEncoder(top_k=100, max_corpus_documents=max_docs)
+        logger.info("BM25 encoder singleton created (max_corpus=%d)", max_docs)
     return _encoder
 
 
