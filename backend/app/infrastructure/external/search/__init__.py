@@ -53,6 +53,18 @@ def get_search_engine() -> SearchEngine | None:
         return get_search_engine_from_factory()
 
 
+async def shutdown_search_engine() -> None:
+    """Close the cached search engine and clear the cache."""
+    engine = get_search_engine()
+    if engine is not None and hasattr(engine, "close"):
+        try:
+            await engine.close()
+            logger.info("Search engine client closed")
+        except Exception as e:
+            logger.debug("Error closing search engine: %s", e)
+    get_search_engine.cache_clear()
+
+
 __all__ = [
     "SearchEngineBase",
     "SearchEngineType",

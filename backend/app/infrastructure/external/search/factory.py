@@ -173,6 +173,15 @@ class FallbackSearchEngine:
             )
         )
 
+    async def close(self) -> None:
+        """Close all wrapped search engine clients."""
+        for name, engine in self._providers:
+            try:
+                if hasattr(engine, "close"):
+                    await engine.close()
+            except Exception as e:
+                logger.debug("Error closing search engine %s: %s", name, e)
+
     async def get_health_summary(self) -> dict[str, Any]:
         """Return health status of all providers in the chain."""
         summary: dict[str, Any] = {"providers": [], "healthy_count": 0, "total_count": 0}
@@ -253,6 +262,11 @@ class RerankingSearchEngine:
             logger.warning("Jina rerank wrapper failed; preserving original ordering: %s", e)
 
         return result
+
+    async def close(self) -> None:
+        """Close the wrapped search engine client."""
+        if hasattr(self._base_engine, "close"):
+            await self._base_engine.close()
 
 
 def _maybe_wrap_with_jina_rerank(engine: SearchEngine, redis_client=None) -> SearchEngine:

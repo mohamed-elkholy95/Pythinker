@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -36,7 +37,10 @@ class WriteCoalescer:
     async def _flush_after_delay(self) -> None:
         """Wait for delay then flush all pending writes"""
         await asyncio.sleep(self._delay)
+        await self._flush_pending()
 
+    async def _flush_pending(self) -> None:
+        """Flush all pending writes immediately."""
         async with self._lock:
             if not self._pending:
                 return
@@ -53,6 +57,15 @@ class WriteCoalescer:
             except (ConnectionFailure, OperationFailure) as e:
                 logger.warning("Coalesced write failed for %s: %s", key, e)
 
+    async def shutdown(self) -> None:
+        """Flush pending writes and cancel the background task."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+        await self._flush_pending()
+        logger.info("WriteCoalescer shut down — %d pending writes flushed", 0)
+
 
 # Global write coalescer instance
 _write_coalescer: WriteCoalescer | None = None
@@ -66,6 +79,14 @@ def get_write_coalescer() -> WriteCoalescer:
 
         _write_coalescer = WriteCoalescer(delay_ms=get_settings().write_coalescer_delay_ms)
     return _write_coalescer
+
+
+async def shutdown_write_coalescer() -> None:
+    """Shutdown the global write coalescer, flushing pending writes."""
+    global _write_coalescer
+    if _write_coalescer is not None:
+        await _write_coalescer.shutdown()
+        _write_coalescer = None
 
 
 class MongoAgentRepository(AgentRepository):
