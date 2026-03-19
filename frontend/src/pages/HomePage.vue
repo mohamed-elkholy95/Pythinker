@@ -28,6 +28,16 @@
               class="hidden sm:block flex-shrink-0 -ml-2"
             />
           </div>
+          <button
+            v-if="activeModelName"
+            type="button"
+            class="home-model-pill"
+            :title="activeModelName"
+            @click="openSettingsDialog('model')"
+          >
+            <span class="home-model-pill-label">{{ activeModelName }}</span>
+            <ChevronDown class="home-model-pill-icon" />
+          </button>
           <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center"
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
@@ -103,16 +113,19 @@ import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import SearchIcon from '../components/icons/SearchIcon.vue';
-import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import PaletteIcon from '../components/icons/PaletteIcon.vue';
 import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
 import { Tag } from 'lucide-vue-next';
+import { ChevronDown } from 'lucide-vue-next';
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
+import { useSettingsDialog } from '../composables/useSettingsDialog';
 import UserMenu from '../components/UserMenu.vue';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
+import { getServerConfig, getSettings } from '../api/settings';
+import { resolveInitialHeaderModelName } from '@/utils/chatHeaderModel';
 import type { Component } from 'vue';
 
 // Feature type definition
@@ -132,6 +145,8 @@ const pendingSkillId = ref<string | null>(null);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel();
+const { openSettingsDialog } = useSettingsDialog();
+const activeModelName = ref('');
 
 // Visible feature buttons
 const visibleFeatures: Feature[] = [
@@ -240,11 +255,21 @@ const handleInsertMessage = (event: Event) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   hideFilePanel();
   scheduleChatRoutePreload();
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
+
+  // Fetch model name for header pill
+  const [serverConfigResult, userSettingsResult] = await Promise.allSettled([
+    getServerConfig(),
+    getSettings(),
+  ]);
+  activeModelName.value = resolveInitialHeaderModelName(
+    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
+    userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
+  );
 });
 
 watch(message, (value) => {
@@ -647,5 +672,50 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 .feature-btn:focus-visible {
   outline: 2px solid var(--border-btn-primary);
   outline-offset: 2px;
+}
+
+/* ── Model pill ── */
+.home-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-main) 85%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 92%, var(--background-white-main));
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-white) 8%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  cursor: pointer;
+}
+
+.home-model-pill:hover {
+  background: color-mix(in srgb, var(--background-secondary) 84%, var(--background-white-main));
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.home-model-pill:focus-visible {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.home-model-pill-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.home-model-pill-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--icon-secondary);
 }
 </style>
