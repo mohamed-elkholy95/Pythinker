@@ -3,6 +3,7 @@
 Enhanced with marketplace features for skill discovery and sharing.
 """
 
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -11,6 +12,8 @@ from app.domain.exceptions.base import SecurityViolation
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.repositories.skill_repository import SkillRepository
 from app.infrastructure.models.documents import SkillDocument
+
+logger = logging.getLogger(__name__)
 
 # Allowlist of fields that may be used for sorting in marketplace queries.
 # Prevents NoSQL injection via arbitrary field names passed to MongoDB .sort().
