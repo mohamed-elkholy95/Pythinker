@@ -1,6 +1,5 @@
 """Tests for AgentDomainService browser timeout recovery."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -47,7 +46,7 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
     session_repo = AsyncMock()
     session_repo.save = AsyncMock()
 
-    settings = SimpleNamespace(
+    settings = MagicMock(
         workspace_auto_init=False,
         workspace_lazy_init=True,
         workspace_default_project_name="default",
@@ -140,7 +139,7 @@ async def test_create_task_recycles_sandbox_on_browser_readiness_failure():
     session_repo = AsyncMock()
     session_repo.save = AsyncMock()
 
-    settings = SimpleNamespace(
+    settings = MagicMock(
         workspace_auto_init=False,
         workspace_lazy_init=True,
         workspace_default_project_name="default",
@@ -220,7 +219,7 @@ async def test_create_task_bypasses_sandbox_pool_when_static_addresses_configure
     session_repo = AsyncMock()
     session_repo.save = AsyncMock()
 
-    settings = SimpleNamespace(
+    settings = MagicMock(
         workspace_auto_init=False,
         workspace_lazy_init=True,
         workspace_default_project_name="default",

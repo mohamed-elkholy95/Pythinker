@@ -66,6 +66,12 @@ const mountToolPanelContent = (overrides: Record<string, unknown> = {}) => (
           StreamingReportView: true,
           WideResearchOverlay: true,
           ScreenshotReplayViewer: true,
+          PlanPresentationView: true,
+          TerminalLiveView: true,
+          DealContentView: true,
+          ChartToolView: true,
+          CanvasLiveView: true,
+          UnifiedStreamingView: true,
         },
       },
     });
@@ -140,7 +146,7 @@ describe('ToolPanelContent', () => {
     expect(wrapper.text()).toContain('Report');
   });
 
-  it('shows URL status bar in live preview for browser tools', () => {
+  it('hides URL status bar in live preview (X11 screencast captures native Chrome address bar)', () => {
     const wrapper = mountToolPanelContent({
       toolContent: {
         ...baseToolContent,
@@ -150,7 +156,7 @@ describe('ToolPanelContent', () => {
       },
     });
 
-    expect(wrapper.find('.url-status-bar').exists()).toBe(true);
+    expect(wrapper.find('.url-status-bar').exists()).toBe(false);
   });
 
   it('hides browser chrome for non-browser tool views', () => {
@@ -166,7 +172,7 @@ describe('ToolPanelContent', () => {
     expect(wrapper.find('browser-chrome-stub').exists()).toBe(false);
   });
 
-  it('updates URL status bar when browser tool URL changes', async () => {
+  it('URL status bar stays hidden even when browser tool URL changes', async () => {
     const wrapper = mountToolPanelContent({
       toolContent: {
         ...baseToolContent,
@@ -176,8 +182,7 @@ describe('ToolPanelContent', () => {
       },
     });
 
-    expect(wrapper.find('.url-status-bar').exists()).toBe(true);
-    expect(wrapper.find('.url-status-text').text()).toContain('example.com');
+    expect(wrapper.find('.url-status-bar').exists()).toBe(false);
 
     await wrapper.setProps({
       toolContent: {
@@ -188,7 +193,7 @@ describe('ToolPanelContent', () => {
       },
     });
 
-    expect(wrapper.find('.url-status-text').text()).toContain('other-site.com');
+    expect(wrapper.find('.url-status-bar').exists()).toBe(false);
   });
 
   it('forwards browser tool events to persistent LiveViewer for overlay rendering', async () => {
@@ -237,6 +242,12 @@ describe('ToolPanelContent', () => {
           StreamingReportView: true,
           WideResearchOverlay: true,
           ScreenshotReplayViewer: true,
+          PlanPresentationView: true,
+          TerminalLiveView: true,
+          DealContentView: true,
+          ChartToolView: true,
+          CanvasLiveView: true,
+          UnifiedStreamingView: true,
         },
       },
     });
@@ -302,6 +313,12 @@ describe('ToolPanelContent', () => {
           StreamingReportView: true,
           WideResearchOverlay: true,
           ScreenshotReplayViewer: true,
+          PlanPresentationView: true,
+          TerminalLiveView: true,
+          DealContentView: true,
+          ChartToolView: true,
+          CanvasLiveView: true,
+          UnifiedStreamingView: true,
         },
       },
     });
@@ -377,6 +394,11 @@ describe('ToolPanelContent', () => {
           StreamingReportView: true,
           WideResearchOverlay: true,
           ScreenshotReplayViewer: true,
+          PlanPresentationView: true,
+          TerminalLiveView: true,
+          DealContentView: true,
+          ChartToolView: true,
+          UnifiedStreamingView: true,
           CanvasLiveView: CanvasLiveViewStub,
         },
       },
@@ -397,7 +419,7 @@ describe('ToolPanelContent', () => {
     });
 
     expect(wrapper.find('[data-testid="plan-overlay"]').exists()).toBe(true);
-    expect(wrapper.find('editor-content-view-stub').exists()).toBe(true);
+    expect(wrapper.find('plan-presentation-view-stub').exists()).toBe(true);
   });
 
   it('report overlay still has higher priority than planning overlay', () => {
@@ -517,6 +539,11 @@ describe('ToolPanelContent', () => {
           StreamingReportView: true,
           WideResearchOverlay: true,
           ScreenshotReplayViewer: true,
+          PlanPresentationView: true,
+          TerminalLiveView: true,
+          DealContentView: true,
+          ChartToolView: true,
+          UnifiedStreamingView: true,
           CanvasLiveView: CanvasLiveViewStub,
         },
       },
