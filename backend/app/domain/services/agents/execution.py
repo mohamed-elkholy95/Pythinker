@@ -545,8 +545,8 @@ class ExecutionAgent(BaseAgent):
         _original_tool_choice = self.tool_choice
 
         step.status = ExecutionStatus.RUNNING
-        _step_start_time = time.monotonic()
         yield StepEvent(status=StepStatus.STARTED, step=step)
+        _step_start_time = time.monotonic()
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):

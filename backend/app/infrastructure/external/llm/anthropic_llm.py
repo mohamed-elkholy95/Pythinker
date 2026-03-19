@@ -128,6 +128,8 @@ class AnthropicLLM(LLM):
         if not key:
             raise APIKeysExhaustedError("Anthropic", len(self._key_pool.keys))
 
+        # Track the key used for this request (for record_success accuracy)
+        self._last_used_key = key
         # Create new client with active key
         return anthropic.AsyncAnthropic(api_key=key)
 
@@ -525,12 +527,11 @@ class AnthropicLLM(LLM):
             # Track usage if context is set
             await self._record_usage(response)
 
-            # Record success on the key pool so adaptive TTL learning and
-            # circuit breaker health tracking work correctly.
+            # Record success using the key that was actually used for this request.
             try:
-                success_key = await self.get_api_key()
-                if success_key:
-                    self._key_pool.record_success(success_key)
+                _used_key = getattr(self, "_last_used_key", None)
+                if _used_key:
+                    self._key_pool.record_success(_used_key)
             except Exception:
                 logger.debug("record_success failed", exc_info=True)
 

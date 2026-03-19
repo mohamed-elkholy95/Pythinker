@@ -2073,12 +2073,12 @@ To extract data from a webpage:
                 if result.get("tool_calls") and request_tools and getattr(_profile, "tool_arg_truncation_prone", False):
                     result = self._apply_tool_arg_validation(result, request_tools)
 
-                # Record success on the key pool so adaptive TTL learning and
-                # circuit breaker health tracking work correctly.
+                # Record success using the key that was actually used for this request
+                # (not get_api_key() which may have rotated since the request started).
                 try:
-                    success_key = await self.get_api_key()
-                    if success_key:
-                        self._key_pool.record_success(success_key)
+                    _used_key = getattr(self, "_cached_client_key", None)
+                    if _used_key:
+                        self._key_pool.record_success(_used_key)
                 except Exception:
                     logger.debug("record_success failed", exc_info=True)
 
@@ -2917,11 +2917,11 @@ To extract data from a webpage:
                     if normalized_finish_reason == "length":
                         logger.warning("OpenAI streaming response truncated (finish_reason=length)")
 
-                    # Record success on the key pool for adaptive TTL learning.
+                    # Record success using the key that was actually used for this request.
                     try:
-                        success_key = await self.get_api_key()
-                        if success_key:
-                            self._key_pool.record_success(success_key)
+                        _used_key = getattr(self, "_cached_client_key", None)
+                        if _used_key:
+                            self._key_pool.record_success(_used_key)
                     except Exception:
                         logger.debug("record_success failed", exc_info=True)
 

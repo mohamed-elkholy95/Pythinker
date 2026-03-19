@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.base_middleware import BaseMiddleware
@@ -12,6 +12,9 @@ from app.domain.services.agents.middleware import (
     MiddlewareSignal,
     ToolCallInfo,
 )
+
+if TYPE_CHECKING:
+    from app.domain.services.agents.url_failure_guard import UrlFailureGuard
 
 
 def _extract_url_from_args(arguments: dict[str, Any]) -> str | None:
@@ -26,8 +29,8 @@ def _extract_url_from_args(arguments: dict[str, Any]) -> str | None:
 class UrlFailureGuardMiddleware(BaseMiddleware):
     """Skips tool calls targeting known-failed URLs."""
 
-    def __init__(self, guard: Any = None) -> None:
-        self._guard = guard  # UrlFailureGuard or None
+    def __init__(self, guard: UrlFailureGuard | None = None) -> None:
+        self._guard = guard
 
     @property
     def name(self) -> str:
