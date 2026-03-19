@@ -5,7 +5,7 @@
  * SVG assets under `assets/cursors/apple_cursor-main`. Source files use chroma
  * colors (#00FF00 / #0000FF); Vite recolors them to black/white when bundling
  * (see `recolorAppleCursorSvgForWeb` in vite.config.ts), matching
- * `sandbox/apple_cursor/render.json`.
+ * `apple_cursor-main/chroma-render.json`.
  *
  * Motion behavior:
  * - Adaptive smoothing (far jumps move faster, short hops stay precise)
