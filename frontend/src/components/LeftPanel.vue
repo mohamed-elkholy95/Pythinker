@@ -524,8 +524,9 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 .sidebar-brand-link:focus-visible {
-  outline: none;
-  opacity: 0.74;
+  outline: 2px solid var(--border-btn-primary);
+  outline-offset: 2px;
+  opacity: 1;
 }
 
 .sidebar-brand-mark {

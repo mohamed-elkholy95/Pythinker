@@ -164,8 +164,10 @@ describe('LeftPanel channel source filtering', () => {
     const wrapper = mountLeftPanel()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="workspace-sidebar-brand-link"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="workspace-model-pill"]').exists()).toBe(false)
+    const homeLink = wrapper.find('[data-testid="workspace-sidebar-brand-link"]')
+    expect(homeLink.exists()).toBe(true)
+    await homeLink.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/')
     expect(wrapper.find('[data-testid="session-source-filters"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Telegram report')
     expect(wrapper.text()).toContain('Web task')

@@ -28,15 +28,17 @@
               class="hidden sm:block flex-shrink-0 -ml-2"
             />
           </div>
+          <!-- Center: Model name as header title (Manus-style) -->
           <button
             v-if="activeModelName"
             type="button"
-            class="home-model-pill"
+            class="header-model-title"
+            data-testid="home-header-model-title"
             :title="activeModelName"
             @click="openSettingsDialog('model')"
           >
-            <span class="home-model-pill-label">{{ activeModelName }}</span>
-            <ChevronDown class="home-model-pill-icon" />
+            <span class="header-model-title-label">{{ activeModelName }}</span>
+            <ChevronDown class="header-model-title-icon" />
           </button>
           <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center"
@@ -454,6 +456,46 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
   .home-header {
     padding: 16px 20px 14px;
   }
+}
+
+/* Manus-style centered model title */
+.header-model-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: none;
+}
+
+.header-model-title:hover {
+  opacity: 0.7;
+}
+
+.header-model-title-label {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+@media (max-width: 639px) {
+  .header-model-title-label {
+    font-size: 14px;
+  }
+}
+
+.header-model-title-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
 }
 
 /* ===== AVATAR ===== */
