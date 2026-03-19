@@ -24,15 +24,6 @@
 
     <!-- CDP Screencast View (Konva-powered) -->
     <div v-else-if="enabled" ref="viewerContentRef" class="sandbox-content-inner">
-      <!-- Agent Activity Bar -->
-      <AgentActivityBar
-        :phase="currentPhase"
-        :active-skills="activeSkillList"
-        :current-tool="currentToolName"
-        :current-tool-detail="currentToolDetail"
-        :step-progress="stepProgress"
-      />
-
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
         <LoadingState
@@ -100,7 +91,6 @@ import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import KonvaLiveStage from '@/components/KonvaLiveStage.vue'
 import BrowserInteractionOverlay from './BrowserInteractionOverlay.vue'
-import AgentActivityBar from './AgentActivityBar.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { useSkillEvents } from '@/composables/useSkillEvents'
@@ -168,7 +158,7 @@ const { overlayState: wideResearchState, isActive: wideResearchActive } = useWid
 const showWideResearchOverlay = computed(() => wideResearchActive.value && wideResearchState.value !== null)
 
 // Agent UX v2 state
-const { activeSkillList, handleSkillEvent, reset: resetSkills } = useSkillEvents()
+const { activeSkillList: _activeSkillList, handleSkillEvent, reset: resetSkills } = useSkillEvents()
 const currentPhase = ref('idle')
 const currentToolName = ref<string | undefined>()
 const currentToolDetail = ref<string | undefined>()
