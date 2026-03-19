@@ -14,7 +14,7 @@ class SandboxSecurityPolicy(BaseModel):
     """
 
     cap_drop: list[str] = ["ALL"]
-    cap_add_allowlist: list[str] = ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"]
+    cap_add_allowlist: list[str] = ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"]
     require_no_new_privileges: bool = True
     require_custom_seccomp: bool = True
     seccomp_profile_path: str = "sandbox/seccomp-sandbox.json"
@@ -44,7 +44,7 @@ class SandboxSecurityPolicy(BaseModel):
     @classmethod
     def cap_add_must_be_allowlisted(cls, v: list[str]) -> list[str]:
         """Capabilities must be from the known allowlist."""
-        allowed = {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"}
+        allowed = {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"}
         for cap in v:
             if cap.upper() not in allowed:
                 raise ValueError(f"cap_add '{cap}' not in allowlist: {sorted(allowed)}")
