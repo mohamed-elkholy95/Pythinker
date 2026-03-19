@@ -2,7 +2,10 @@
 
 import pytest
 
+from app.domain.models.tool_result import ToolResult
+from app.domain.services.agents.base_middleware import BaseMiddleware
 from app.domain.services.agents.middleware import (
+    AgentMiddleware,
     MiddlewareContext,
     MiddlewareResult,
     MiddlewareSignal,
@@ -67,3 +70,30 @@ class TestMiddlewareResult:
             metadata={"reason": "security"},
         )
         assert result.metadata["reason"] == "security"
+
+
+class TestBaseMiddleware:
+    @pytest.mark.asyncio
+    async def test_all_hooks_return_continue(self):
+        mw = BaseMiddleware()
+        ctx = MiddlewareContext(agent_id="a1", session_id="s1")
+        tool = ToolCallInfo(call_id="c1", function_name="file_read", arguments={})
+        result_obj = ToolResult(success=True, message="ok")
+
+        assert (await mw.before_execution(ctx)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.before_step(ctx)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.before_model(ctx)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.after_model(ctx, {})).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.after_tool_call(ctx, tool, result_obj)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.after_step(ctx)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.after_execution(ctx)).signal == MiddlewareSignal.CONTINUE
+        assert (await mw.on_error(ctx, RuntimeError("test"))).signal == MiddlewareSignal.CONTINUE
+
+    def test_name_defaults_to_class_name(self):
+        mw = BaseMiddleware()
+        assert mw.name == "BaseMiddleware"
+
+    def test_satisfies_protocol(self):
+        mw = BaseMiddleware()
+        assert isinstance(mw, AgentMiddleware)
