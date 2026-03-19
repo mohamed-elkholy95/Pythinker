@@ -44,7 +44,7 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]
-            policy.cap_add_allowlist = ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"]
+            policy.cap_add_allowlist = ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"]
             policy.require_no_new_privileges = True
             policy.require_custom_seccomp = True
             policy.seccomp_profile_path = "sandbox/seccomp-sandbox.json"
@@ -73,5 +73,5 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
             call_kwargs = client.containers.run.call_args.kwargs
             assert "no-new-privileges:true" in call_kwargs["security_opt"]
             assert call_kwargs["cap_drop"] == ["ALL"]
-            assert set(call_kwargs["cap_add"]) == {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"}
+            assert set(call_kwargs["cap_add"]) == {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"}
             assert "seccomp" in str(call_kwargs["security_opt"]).lower()

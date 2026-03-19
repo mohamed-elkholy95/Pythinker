@@ -76,7 +76,7 @@ class PodmanSandbox:
                 pids_limit=pids_limit,
                 security_opt=["no-new-privileges:true"],
                 cap_drop=["ALL"],
-                cap_add=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
+                cap_add=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"],
                 network=self.network,
             )
 

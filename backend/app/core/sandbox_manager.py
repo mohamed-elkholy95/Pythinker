@@ -364,6 +364,13 @@ class ManagedSandbox:
         """Get Docker container configuration"""
         settings = self.manager.settings
 
+        from app.domain.services.sandbox_security_policy_service import get_sandbox_security_policy
+
+        policy = get_sandbox_security_policy()
+        security_opt = ["no-new-privileges:true"]
+        if policy.require_custom_seccomp and policy.seccomp_profile_path:
+            security_opt.append(f"seccomp={policy.seccomp_profile_path}")
+
         return {
             "image": settings.sandbox_image,
             "name": self.container_name,
@@ -373,9 +380,9 @@ class ManagedSandbox:
                 "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
                 "CHROME_ARGS": settings.sandbox_chrome_args or "",
             },
-            "security_opt": ["no-new-privileges:true"],
-            "cap_drop": ["ALL"],
-            "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"],
+            "security_opt": security_opt,
+            "cap_drop": policy.cap_drop,
+            "cap_add": policy.cap_add_allowlist,
             "tmpfs": {
                 "/run": "size=50M,nosuid,nodev",
                 "/tmp": "size=300M,nosuid,nodev",

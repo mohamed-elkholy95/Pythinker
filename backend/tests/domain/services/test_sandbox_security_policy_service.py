@@ -17,7 +17,7 @@ class TestSandboxSecurityPolicyDefaults:
 
     def test_cap_add_allowlist_matches_production(self) -> None:
         policy = SandboxSecurityPolicy()
-        expected = {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"}
+        expected = {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"}
         assert set(policy.cap_add_allowlist) == expected
 
     def test_require_no_new_privileges_default_true(self) -> None:

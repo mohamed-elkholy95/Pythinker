@@ -26,7 +26,7 @@ def get_sandbox_security_policy() -> SandboxSecurityPolicy:
             seccomp_path = "sandbox/seccomp-sandbox.compat.json"
         return SandboxSecurityPolicy(
             cap_drop=["ALL"],
-            cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
+            cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"],
             require_no_new_privileges=True,
             require_custom_seccomp=bool(seccomp_path),
             seccomp_profile_path=seccomp_path,
