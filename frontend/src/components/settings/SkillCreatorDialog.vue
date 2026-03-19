@@ -1,183 +1,174 @@
 <template>
-  <div v-if="isOpen" class="dialog-overlay" @click.self.stop="handleClose" @keydown.escape.stop="handleClose" @mousedown.stop @pointerdown.stop>
-      <div
-        ref="dialogContainerRef"
-        class="dialog-container"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="skill-dialog-title"
-        aria-describedby="skill-dialog-subtitle"
-      >
-        <!-- Header -->
-        <div class="dialog-header">
-          <div class="header-content">
-            <div class="header-icon">
-              <Wand2 class="w-5 h-5" />
+  <Teleport to="body">
+    <Transition name="skill-dialog">
+      <div v-if="isOpen" class="skill-creator-overlay" @mousedown.self.stop="handleClose">
+        <div
+          ref="dialogContainerRef"
+          class="skill-creator-container"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skill-dialog-title"
+          aria-describedby="skill-dialog-subtitle"
+          @keydown.escape.stop="handleClose"
+        >
+          <!-- Header -->
+          <div class="sc-header">
+            <div class="sc-header-left">
+              <div class="sc-header-icon">
+                <Wand2 :size="18" />
+              </div>
+              <div>
+                <h2 id="skill-dialog-title" class="sc-title">{{ isEditing ? 'Edit Skill' : 'Create Custom Skill' }}</h2>
+                <p id="skill-dialog-subtitle" class="sc-subtitle">
+                  {{ isEditing ? 'Modify your custom skill' : 'Define a new skill with custom tools and prompts' }}
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 id="skill-dialog-title" class="dialog-title">{{ isEditing ? 'Edit Skill' : 'Create Custom Skill' }}</h2>
-              <p id="skill-dialog-subtitle" class="dialog-subtitle">
-                {{ isEditing ? 'Modify your custom skill' : 'Define a new skill with custom tools and prompts' }}
-              </p>
-            </div>
-          </div>
-          <button @click="handleClose" class="close-btn" aria-label="Close dialog">
-            <X class="w-5 h-5" />
-          </button>
-        </div>
-
-        <!-- Form -->
-        <form ref="dialogBodyRef" @submit.prevent="handleSubmit" class="dialog-body">
-          <!-- Name -->
-          <div class="form-group">
-            <label for="skill-name" class="form-label">
-              Name <span class="required">*</span>
-            </label>
-            <input
-              id="skill-name"
-              v-model="form.name"
-              type="text"
-              class="form-input"
-              placeholder="e.g., Code Reviewer"
-              minlength="2"
-              maxlength="100"
-              required
-              aria-describedby="skill-name-hint"
-            />
-            <p id="skill-name-hint" class="form-hint">A short, descriptive name (2-100 characters)</p>
+            <button @click="handleClose" class="sc-close" aria-label="Close dialog">
+              <X :size="18" />
+            </button>
           </div>
 
-          <!-- Description -->
-          <div class="form-group">
-            <label for="skill-description" class="form-label">
-              Description <span class="required">*</span>
-            </label>
-            <textarea
-              id="skill-description"
-              v-model="form.description"
-              class="form-textarea"
-              placeholder="e.g., Reviews code for bugs, security issues, and best practices"
-              minlength="10"
-              maxlength="500"
-              rows="2"
-              required
-              aria-describedby="skill-description-hint"
-            ></textarea>
-            <p id="skill-description-hint" class="form-hint">Brief explanation of what this skill does (10-500 characters)</p>
-          </div>
-
-          <!-- Icon -->
-          <div class="form-group">
-            <label class="form-label">Icon</label>
-            <div class="icon-selector">
-              <button
-                v-for="iconName in availableIcons"
-                :key="iconName"
-                type="button"
-                class="icon-option"
-                :class="{ 'icon-selected': form.icon === iconName }"
-                :aria-label="`Select ${iconName} icon`"
-                :aria-pressed="form.icon === iconName"
-                @click="form.icon = iconName"
-              >
-                <component :is="getIconComponent(iconName)" class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Required Tools -->
-          <div class="form-group" role="group" aria-labelledby="skill-tools-label">
-            <label id="skill-tools-label" class="form-label">
-              Required Tools <span class="required">*</span>
-            </label>
-            <div class="tools-grid">
-              <label
-                v-for="tool in AVAILABLE_TOOLS"
-                :key="tool.name"
-                class="tool-checkbox"
-                :class="{ 'tool-selected': form.required_tools.includes(tool.name) }"
-              >
-                <input
-                  type="checkbox"
-                  :value="tool.name"
-                  v-model="form.required_tools"
-                  class="sr-only"
-                />
-                <span class="tool-name">{{ tool.label }}</span>
-                <span class="tool-desc">{{ tool.description }}</span>
+          <!-- Scrollable Form Body -->
+          <form ref="dialogBodyRef" @submit.prevent="handleSubmit" class="sc-body">
+            <!-- Name -->
+            <div class="sc-field">
+              <label for="skill-name" class="sc-label">
+                Name <span class="sc-required">*</span>
               </label>
+              <input
+                id="skill-name"
+                v-model="form.name"
+                type="text"
+                class="sc-input"
+                placeholder="e.g., Code Reviewer"
+                minlength="2"
+                maxlength="100"
+                required
+              />
+              <p class="sc-hint">A short, descriptive name (2-100 characters)</p>
             </div>
-            <p class="form-hint">Select tools this skill needs to function. Scroll down for more options.</p>
-          </div>
 
-          <!-- System Prompt Addition -->
-          <div class="form-group">
-            <div class="flex items-center justify-between mb-1">
-              <label for="skill-prompt" class="form-label" style="margin-bottom: 0">
-                System Prompt Instructions <span class="required">*</span>
+            <!-- Description -->
+            <div class="sc-field">
+              <label for="skill-description" class="sc-label">
+                Description <span class="sc-required">*</span>
               </label>
-              <button
-                type="button"
-                :disabled="!form.name || !form.description || isGenerating"
-                class="generate-draft-btn"
-                @click="handleGenerateDraft"
-              >
-                <Loader2 v-if="isGenerating" :size="12" class="animate-spin" />
-                <Sparkles v-else :size="12" />
-                {{ isGenerating ? 'Generating...' : 'Generate draft' }}
-              </button>
+              <textarea
+                id="skill-description"
+                v-model="form.description"
+                class="sc-textarea"
+                placeholder="e.g., Reviews code for bugs, security issues, and best practices"
+                minlength="10"
+                maxlength="500"
+                rows="2"
+                required
+              ></textarea>
+              <p class="sc-hint">Brief explanation of what this skill does (10-500 characters)</p>
             </div>
-            <p v-if="generateError" class="generate-error">{{ generateError }}</p>
-            <textarea
-              id="skill-prompt"
-              v-model="form.system_prompt_addition"
-              class="form-textarea code-textarea"
-              aria-describedby="skill-prompt-hint"
-              placeholder="<skill_instructions>
-When [trigger condition]:
-1. First, [action 1]
-2. Then, [action 2]
 
-Guidelines:
-- [Specific guideline]
-</skill_instructions>"
-              minlength="10"
-              maxlength="4000"
-              rows="10"
-              required
-            ></textarea>
-            <div class="prompt-counter">
-              {{ form.system_prompt_addition.length }} / 4000 characters
+            <!-- Icon -->
+            <div class="sc-field">
+              <label class="sc-label">Icon</label>
+              <div class="sc-icons">
+                <button
+                  v-for="iconName in availableIcons"
+                  :key="iconName"
+                  type="button"
+                  class="sc-icon-btn"
+                  :class="{ 'sc-icon-active': form.icon === iconName }"
+                  :aria-label="`Select ${iconName} icon`"
+                  :aria-pressed="form.icon === iconName"
+                  @click="form.icon = iconName"
+                >
+                  <component :is="getIconComponent(iconName)" :size="15" />
+                </button>
+              </div>
             </div>
-            <p id="skill-prompt-hint" class="form-hint">
-              Instructions that guide the agent when this skill is enabled. Use XML-style tags for organization.
-            </p>
-          </div>
 
-          <!-- Error message -->
-          <div v-if="formError" class="form-error">
-            <AlertCircle class="w-4 h-4" />
-            {{ formError }}
-          </div>
-        </form>
+            <!-- Required Tools -->
+            <div class="sc-field" role="group" aria-labelledby="skill-tools-label">
+              <label id="skill-tools-label" class="sc-label">
+                Required Tools <span class="sc-required">*</span>
+              </label>
+              <div class="sc-tools">
+                <label
+                  v-for="tool in AVAILABLE_TOOLS"
+                  :key="tool.name"
+                  class="sc-tool"
+                  :class="{ 'sc-tool-active': form.required_tools.includes(tool.name) }"
+                >
+                  <input
+                    type="checkbox"
+                    :value="tool.name"
+                    v-model="form.required_tools"
+                    class="sr-only"
+                  />
+                  <span class="sc-tool-name">{{ tool.label }}</span>
+                  <span class="sc-tool-desc">{{ tool.description }}</span>
+                </label>
+              </div>
+            </div>
 
-        <!-- Footer -->
-        <div class="dialog-footer">
-          <button type="button" @click="handleClose" class="btn-secondary">
-            Cancel
-          </button>
-          <button
-            type="submit"
-            @click="handleSubmit"
-            class="btn-primary"
-            :disabled="isSubmitting || !isFormValid"
-          >
-            <Loader2 v-if="isSubmitting" class="w-4 h-4 animate-spin" />
-            {{ isEditing ? 'Save Changes' : 'Create Skill' }}
-          </button>
+            <!-- System Prompt Instructions -->
+            <div class="sc-field">
+              <div class="sc-label-row">
+                <label for="skill-prompt" class="sc-label" style="margin-bottom: 0">
+                  Instructions <span class="sc-required">*</span>
+                </label>
+                <button
+                  type="button"
+                  :disabled="!form.name || !form.description || isGenerating"
+                  class="sc-generate-btn"
+                  @click="handleGenerateDraft"
+                >
+                  <Loader2 v-if="isGenerating" :size="12" class="animate-spin" />
+                  <Sparkles v-else :size="12" />
+                  {{ isGenerating ? 'Generating...' : 'Generate draft' }}
+                </button>
+              </div>
+              <p v-if="generateError" class="sc-error-inline">{{ generateError }}</p>
+              <textarea
+                id="skill-prompt"
+                v-model="form.system_prompt_addition"
+                class="sc-textarea sc-code"
+                placeholder="# My Skill&#10;&#10;## Workflow&#10;1. First step&#10;2. Second step&#10;&#10;## Guidelines&#10;- Be specific&#10;- Follow best practices"
+                minlength="10"
+                maxlength="4000"
+                rows="8"
+                required
+              ></textarea>
+              <div class="sc-counter">
+                {{ form.system_prompt_addition.length }} / 4000
+              </div>
+            </div>
+
+            <!-- Error message -->
+            <div v-if="formError" class="sc-form-error">
+              <AlertCircle :size="14" />
+              {{ formError }}
+            </div>
+          </form>
+
+          <!-- Footer -->
+          <div class="sc-footer">
+            <button type="button" @click="handleClose" class="sc-btn-cancel">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              @click="handleSubmit"
+              class="sc-btn-submit"
+              :disabled="isSubmitting || !isFormValid"
+            >
+              <Loader2 v-if="isSubmitting" :size="14" class="animate-spin" />
+              {{ isEditing ? 'Save Changes' : 'Create Skill' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -339,7 +330,6 @@ watch(
         optional_tools: [...(skill.optional_tools || [])],
         system_prompt_addition: skill.system_prompt_addition || '',
       };
-      // Scroll to top when opening for edit
       nextTick(() => {
         if (dialogBodyRef.value) {
           dialogBodyRef.value.scrollTop = 0;
@@ -364,6 +354,7 @@ function resetForm() {
     system_prompt_addition: '',
   };
   formError.value = null;
+  generateError.value = '';
 }
 
 // Handle close
@@ -372,7 +363,7 @@ function handleClose() {
   emit('close');
 }
 
-// Focus trap: keep Tab/Shift+Tab within the dialog
+// Focus trap
 function handleFocusTrap(e: KeyboardEvent) {
   if (e.key !== 'Tab' || !dialogContainerRef.value) return;
 
@@ -393,17 +384,32 @@ function handleFocusTrap(e: KeyboardEvent) {
   }
 }
 
-// Focus the first input when dialog opens
+// Manage focus and Radix dialog suppression
 watch(
   () => props.isOpen,
   (open) => {
     if (open) {
+      // Suppress the Radix dialog behind us so its focus trap doesn't interfere
+      nextTick(() => {
+        document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+          (el as HTMLElement).style.display = 'none';
+        });
+        const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
+        if (radixContent) radixContent.setAttribute('inert', '');
+      });
+
       setTimeout(() => {
-        const nameInput = document.getElementById('skill-name');
-        nameInput?.focus();
-      }, 50);
+        document.getElementById('skill-name')?.focus();
+      }, 80);
       document.addEventListener('keydown', handleFocusTrap);
     } else {
+      // Restore Radix dialog
+      document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+        (el as HTMLElement).style.display = '';
+      });
+      const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
+      if (radixContent) radixContent.removeAttribute('inert');
+
       document.removeEventListener('keydown', handleFocusTrap);
     }
   }
@@ -411,6 +417,12 @@ watch(
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleFocusTrap);
+  // Restore Radix guards if unmounted while open
+  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+    (el as HTMLElement).style.display = '';
+  });
+  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
+  if (radixContent) radixContent.removeAttribute('inert');
 });
 
 // Handle submit
@@ -446,281 +458,312 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.dialog-overlay {
+/* ── Overlay ────────────────────────────────── */
+.skill-creator-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
-  padding: 20px;
-  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  padding: 24px;
 }
 
-.dialog-container {
-  background: var(--background-white-main);
-  border-radius: 16px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+/* ── Container ──────────────────────────────── */
+.skill-creator-container {
+  background: var(--background-white-main, #fff);
+  border-radius: 14px;
+  box-shadow:
+    0 24px 48px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
   width: 100%;
-  max-width: 640px;
-  max-height: min(90vh, 700px);
+  max-width: 580px;
+  height: min(88vh, 720px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Ensure the container itself has a definite height for flex children to scroll */
-  height: min(90vh, 700px);
 }
 
-.dialog-header {
+/* ── Header ─────────────────────────────────── */
+.sc-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-light);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light, #e5e5e5);
+  flex-shrink: 0;
 }
 
-.header-content {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-}
-
-.header-icon {
+.sc-header-left {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(135deg, #1a1a1a 0%, #262626 100%);
-  border-radius: 12px;
-  color: white;
+  gap: 12px;
 }
 
-.dialog-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
-.dialog-subtitle {
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.close-btn {
-  padding: 8px;
-  color: var(--text-tertiary);
-  border-radius: 8px;
-  transition: all 0.2s ease;
-}
-
-.close-btn:hover {
-  background: var(--fill-tsp-gray-light);
-  color: var(--text-primary);
-}
-
-.dialog-body {
-  flex: 1 1 0;
-  min-height: 0; /* Critical: allows flex child to shrink below content size for scroll */
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.required {
-  color: var(--function-error);
-}
-
-.form-input,
-.form-textarea {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 14px;
-  color: var(--text-primary);
-  background: var(--background-white-main);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  transition: all 0.2s ease;
-}
-
-.form-input:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--text-brand);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-.code-textarea {
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.prompt-counter {
-  font-size: 11px;
-  color: var(--text-quaternary);
-  text-align: right;
-}
-
-.flex {
-  display: flex;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.justify-between {
-  justify-content: space-between;
-}
-
-.mb-1 {
-  margin-bottom: 4px;
-}
-
-.generate-draft-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 9999px;
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--text-brand);
-  transition: all 0.2s ease;
-}
-
-.generate-draft-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.2);
-}
-
-.generate-draft-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.generate-error {
-  font-size: 12px;
-  color: var(--function-error);
-  margin-top: 4px;
-}
-
-.form-hint {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.4;
-}
-
-.form-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 10px;
-  color: var(--function-error);
-  font-size: 13px;
-}
-
-/* Icon Selector */
-.icon-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.icon-option {
+.sc-header-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
+  background: #1a1a1a;
   border-radius: 10px;
-  background: var(--fill-tsp-gray-light);
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
-}
-
-.icon-option:hover {
-  background: var(--fill-tsp-gray-dark);
-  color: var(--text-primary);
-}
-
-.icon-selected {
-  background: var(--text-brand);
   color: white;
 }
 
-.icon-selected:hover {
-  background: var(--text-brand);
-  color: white;
+.sc-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #111);
+  line-height: 1.2;
 }
 
-/* Tools Grid */
-.tools-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
+.sc-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary, #888);
+  margin-top: 2px;
 }
 
-.tool-checkbox {
+.sc-close {
+  padding: 6px;
+  color: var(--text-tertiary, #888);
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.sc-close:hover {
+  background: var(--fill-tsp-gray-light, #f0f0f0);
+  color: var(--text-primary, #111);
+}
+
+/* ── Body (scrollable) ──────────────────────── */
+.sc-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  background: var(--fill-tsp-gray-light);
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Fields ──────────────────────────────────── */
+.sc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sc-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #111);
+  margin-bottom: 2px;
+}
+
+.sc-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.sc-required {
+  color: #ef4444;
+}
+
+.sc-input,
+.sc-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--text-primary, #111);
+  background: var(--background-white-main, #fff);
+  border: 1px solid var(--border-light, #ddd);
+  border-radius: 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sc-input:focus,
+.sc-textarea:focus {
+  outline: none;
+  border-color: var(--text-brand, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+
+.sc-textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+
+.sc-code {
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.sc-counter {
+  font-size: 11px;
+  color: var(--text-quaternary, #aaa);
+  text-align: right;
+}
+
+.sc-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #888);
+  line-height: 1.3;
+}
+
+/* ── Generate Button ─────────────────────────── */
+.sc-generate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-brand, #3b82f6);
+  transition: all 0.15s;
+}
+.sc-generate-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.16);
+}
+.sc-generate-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sc-error-inline {
+  font-size: 12px;
+  color: #ef4444;
+}
+
+/* ── Icons ───────────────────────────────────── */
+.sc-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sc-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--fill-tsp-gray-light, #f5f5f5);
+  color: var(--text-secondary, #555);
+  transition: all 0.15s;
+}
+.sc-icon-btn:hover {
+  background: var(--fill-tsp-gray-dark, #e5e5e5);
+  color: var(--text-primary, #111);
+}
+.sc-icon-active {
+  background: #1a1a1a !important;
+  color: white !important;
+}
+
+/* ── Tools Grid ──────────────────────────────── */
+.sc-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sc-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  background: var(--fill-tsp-gray-light, #f5f5f5);
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s;
+}
+.sc-tool:hover {
+  background: var(--fill-tsp-gray-dark, #e8e8e8);
+}
+.sc-tool-active {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
 }
 
-.tool-checkbox:hover {
-  background: var(--fill-tsp-gray-dark);
+.sc-tool-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary, #111);
+}
+.sc-tool-desc {
+  font-size: 11px;
+  color: var(--text-tertiary, #888);
 }
 
-.tool-selected {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+/* ── Error ───────────────────────────────────── */
+.sc-form-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 13px;
 }
 
-.tool-name {
+/* ── Footer ──────────────────────────────────── */
+.sc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-light, #e5e5e5);
+  flex-shrink: 0;
+}
+
+.sc-btn-cancel {
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-secondary, #555);
+  background: var(--fill-tsp-gray-light, #f5f5f5);
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.sc-btn-cancel:hover {
+  background: var(--fill-tsp-gray-dark, #e5e5e5);
+  color: var(--text-primary, #111);
 }
 
-.tool-desc {
-  font-size: 11px;
-  color: var(--text-tertiary);
+.sc-btn-submit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  background: #1a1a1a;
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.sc-btn-submit:hover:not(:disabled) {
+  background: #333;
+}
+.sc-btn-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
+/* ── Utility ─────────────────────────────────── */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -733,60 +776,40 @@ async function handleSubmit() {
   border-width: 0;
 }
 
-/* Footer */
-.dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-light);
-  background: var(--fill-tsp-white-main);
-}
-
-.btn-secondary {
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--fill-tsp-gray-light);
-  border-radius: 10px;
-  transition: all 0.2s ease;
-}
-
-.btn-secondary:hover {
-  background: var(--fill-tsp-gray-dark);
-  color: var(--text-primary);
-}
-
-.btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 500;
-  color: white;
-  background: var(--text-brand);
-  border-radius: 10px;
-  transition: all 0.2s ease;
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .animate-spin {
-  animation: spin 1s linear infinite;
+  animation: sc-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes sc-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ── Transition ──────────────────────────────── */
+.skill-dialog-enter-active {
+  transition: opacity 0.15s ease;
+}
+.skill-dialog-enter-active .skill-creator-container {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
+}
+.skill-dialog-leave-active {
+  transition: opacity 0.1s ease;
+}
+.skill-dialog-leave-active .skill-creator-container {
+  transition: transform 0.1s ease, opacity 0.1s ease;
+}
+.skill-dialog-enter-from {
+  opacity: 0;
+}
+.skill-dialog-enter-from .skill-creator-container {
+  opacity: 0;
+  transform: scale(0.97) translateY(8px);
+}
+.skill-dialog-leave-to {
+  opacity: 0;
+}
+.skill-dialog-leave-to .skill-creator-container {
+  opacity: 0;
+  transform: scale(0.97) translateY(4px);
 }
 </style>
