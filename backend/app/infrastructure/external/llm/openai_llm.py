@@ -1300,6 +1300,16 @@ To extract data from a webpage:
     def last_stream_metadata(self) -> dict[str, Any] | None:
         return self._last_stream_metadata
 
+    def start_health_probe(self, interval_seconds: float = 300.0) -> None:
+        """Start periodic API key health probing via the key pool."""
+        if hasattr(self, "_key_pool"):
+            self._key_pool.start_health_probe(interval_seconds=interval_seconds)
+
+    def stop_health_probe(self) -> None:
+        """Stop API key health probing."""
+        if hasattr(self, "_key_pool"):
+            self._key_pool.stop_health_probe()
+
     def _strip_reasoning_content(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Strip reasoning_content from assistant messages to avoid thinking API errors.
 
