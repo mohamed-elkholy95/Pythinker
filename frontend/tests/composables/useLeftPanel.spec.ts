@@ -1,9 +1,10 @@
 /**
  * Tests for useLeftPanel composable
- * Tests panel visibility state management and localStorage persistence
+ * Tests panel visibility state management via the UI store facade
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { setActivePinia, createPinia } from 'pinia'
 import { createMockLocalStorage } from '../mocks/api'
 
 // Mock localStorage before importing the composable
@@ -13,7 +14,6 @@ Object.defineProperty(window, 'localStorage', {
   writable: true
 })
 
-// Import after mocking localStorage
 const LEFT_PANEL_STATE_KEY = 'pythinker-left-panel-state'
 
 describe('useLeftPanel', () => {
@@ -24,6 +24,8 @@ describe('useLeftPanel', () => {
     mockLocalStorage.clear()
     // Force mobile viewport so the default (no localStorage) is false
     Object.defineProperty(window, 'innerWidth', { value: 320, writable: true, configurable: true })
+    // Create a fresh Pinia instance for each test
+    setActivePinia(createPinia())
     // Reset the module to get fresh state
     vi.resetModules()
   })
@@ -34,6 +36,8 @@ describe('useLeftPanel', () => {
   })
 
   it('should return initial state as false when localStorage is empty', async () => {
+    // Re-create Pinia after resetModules
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow } = useLeftPanel()
     expect(isLeftPanelShow.value).toBe(false)
@@ -41,12 +45,14 @@ describe('useLeftPanel', () => {
 
   it('should return saved state from localStorage', async () => {
     mockLocalStorage.setItem(LEFT_PANEL_STATE_KEY, JSON.stringify(true))
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow } = useLeftPanel()
     expect(isLeftPanelShow.value).toBe(true)
   })
 
   it('should toggle panel visibility', async () => {
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel()
 
@@ -60,6 +66,7 @@ describe('useLeftPanel', () => {
   })
 
   it('should set panel visibility directly', async () => {
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow, setLeftPanel } = useLeftPanel()
 
@@ -71,6 +78,7 @@ describe('useLeftPanel', () => {
   })
 
   it('should show panel', async () => {
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow, showLeftPanel } = useLeftPanel()
 
@@ -79,6 +87,7 @@ describe('useLeftPanel', () => {
   })
 
   it('should hide panel', async () => {
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const { isLeftPanelShow, showLeftPanel, hideLeftPanel } = useLeftPanel()
 
@@ -90,6 +99,7 @@ describe('useLeftPanel', () => {
   })
 
   it('should share state across multiple composable instances', async () => {
+    setActivePinia(createPinia())
     const { useLeftPanel } = await import('@/composables/useLeftPanel')
     const instance1 = useLeftPanel()
     const instance2 = useLeftPanel()
@@ -103,6 +113,7 @@ describe('useLeftPanel', () => {
 
   it('should handle invalid localStorage data gracefully', async () => {
     mockLocalStorage.setItem(LEFT_PANEL_STATE_KEY, 'invalid-json')
+    setActivePinia(createPinia())
 
     // Should not throw and return default value
     const { useLeftPanel } = await import('@/composables/useLeftPanel')

@@ -5,7 +5,7 @@ import type { SSECloseInfo } from '@/api/client'
 import type { AgentSSEEvent } from '@/types/event'
 
 import { useSessionStreamController } from '../useSessionStreamController'
-import type { ResponsePhase } from '../useResponsePhase'
+import type { ResponsePhase } from '@/stores/connectionStore'
 
 const baseCloseInfo = (): SSECloseInfo => ({
   willRetry: false,

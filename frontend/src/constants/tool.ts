@@ -135,7 +135,7 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "agent_start_task": "Starting",
 
   // === SKILL ===
-  "skill_invoke": "Loading",
+  "skill_invoke": "Loading skill",
   "skill_create": "Creating",
   "skill_list_user": "Listing",
   "skill_list": "Listing",

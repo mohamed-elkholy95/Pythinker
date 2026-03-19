@@ -45,6 +45,7 @@ from app.domain.services.skill_loader import SkillLoader
 if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
     from app.domain.external.search import SearchEngine
+    from app.domain.services.agents.agent_context import AgentServiceContext
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
@@ -621,6 +622,7 @@ class PlannerAgent(BaseAgent):
         search_engine: SearchEngine | None = None,
         tool_result_store=None,
         config: DomainConfig | None = None,
+        service_context: AgentServiceContext | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -631,6 +633,7 @@ class PlannerAgent(BaseAgent):
             feature_flags=feature_flags,
             cancel_token=cancel_token,
             tool_result_store=tool_result_store,
+            service_context=service_context,
         )
         self._config = config
         # Memory service for long-term context (Phase 6: Qdrant integration)

@@ -26,6 +26,7 @@ import {
   type RegisterRequest,
   type VerifyEmailRequest,
 } from '../api/auth'
+import { tokenExpiresIn } from '../utils/jwt'
 
 /** Default token lifetime in seconds (20 minutes) used when server doesn't provide expires_in */
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 1200
@@ -37,26 +38,6 @@ const MIN_REFRESH_INTERVAL_SECONDS = 10
 const REFRESH_LEEWAY_SECONDS = 60
 
 let _refreshTimer: ReturnType<typeof setTimeout> | null = null
-
-/**
- * Parse JWT payload to extract expiration time.
- * JWTs are base64url-encoded — we only read the payload (2nd segment).
- * Returns seconds until expiry, or 0 if expired/invalid.
- */
-function getTokenExpiresIn(token: string): number {
-  try {
-    const parts = token.split('.')
-    if (parts.length !== 3) return 0
-    // base64url → base64 → decode
-    const payload = parts[1]!.replace(/-/g, '+').replace(/_/g, '/')
-    const decoded = JSON.parse(atob(payload)) as { exp?: number }
-    if (typeof decoded.exp !== 'number') return 0
-    const remaining = decoded.exp - Math.floor(Date.now() / 1000)
-    return Math.max(0, remaining)
-  } catch {
-    return 0
-  }
-}
 
 export const useAuthStore = defineStore('auth', () => {
   // ── State ────────────────────────────────────────────────────────
@@ -102,7 +83,7 @@ export const useAuthStore = defineStore('auth', () => {
       const token = getStoredToken()
       if (token) {
         setAuthToken(token)
-        const expiresIn = getTokenExpiresIn(token)
+        const expiresIn = tokenExpiresIn(token)
         if (expiresIn <= 0) {
           // Token already expired — attempt immediate refresh
           await refreshAuthToken()
