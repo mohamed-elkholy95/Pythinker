@@ -23,12 +23,12 @@
             <!-- Desktop branding (visible when sidebar is collapsed) -->
             <button
               v-if="!isLeftPanelShow"
-              class="hidden sm:inline-flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 cursor-pointer"
+              class="sidebar-brand-toggle hidden sm:inline-flex items-center justify-center rounded-lg px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 cursor-pointer"
               @click="toggleLeftPanel"
               aria-label="Open sidebar"
             >
-              <img src="/pythinker_animated.svg" alt="" width="20" height="20" class="w-5 h-5" />
-              <span class="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Pythinker</span>
+              <span class="brand-label text-base font-semibold text-[var(--text-primary)] tracking-tight">Pythinker</span>
+              <PanelLeft class="brand-icon text-[var(--icon-secondary)]" />
             </button>
           </div>
           <div class="flex items-center gap-2 ml-auto">
@@ -108,7 +108,7 @@ import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import PaletteIcon from '../components/icons/PaletteIcon.vue';
 import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
-import { Tag } from 'lucide-vue-next';
+import { Tag, PanelLeft } from 'lucide-vue-next';
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';

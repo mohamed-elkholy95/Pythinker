@@ -84,6 +84,20 @@ html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: rgba(128, 128, 128, 0.55);
 }
 
+/* ===== SIDEBAR BRAND TOGGLE (text → icon on hover) ===== */
+.sidebar-brand-toggle .brand-icon {
+  display: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0;
+}
+.sidebar-brand-toggle:hover .brand-label {
+  display: none !important;
+}
+.sidebar-brand-toggle:hover .brand-icon {
+  display: block !important;
+}
+
 /* ===== MINIMAL SCROLLBAR (for sidebars) ===== */
 .minimal-scrollbar {
   overflow: auto;
