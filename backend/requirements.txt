@@ -40,6 +40,9 @@ symspellpy==6.9.0
 # Browser automation
 playwright>=1.48.0
 browser-use>=0.11.0
+# Security overrides for browser-use transitive deps
+authlib>=1.6.9     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
+pypdf>=6.9.1       # CVE-2026-27026 through CVE-2026-33123 (9 CVEs)
 
 # Web scraping with TLS fingerprinting and stealth capabilities
 # [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)
@@ -62,7 +65,7 @@ qdrant-client>=1.12.0
 minio>=7.2.0
 
 # Image processing (screenshot deduplication & WebP thumbnails)
-Pillow>=11.1.0
+Pillow>=12.1.1
 imagehash>=4.3.1
 
 # Caching
