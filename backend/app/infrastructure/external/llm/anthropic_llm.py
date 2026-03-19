@@ -767,9 +767,9 @@ class AnthropicLLM(LLM):
 
             # Record success on the key pool for adaptive TTL learning.
             try:
-                success_key = await self.get_api_key()
-                if success_key:
-                    self._key_pool.record_success(success_key)
+                _used_key = getattr(self, "_last_used_key", None)
+                if _used_key:
+                    self._key_pool.record_success(_used_key)
             except Exception:
                 logger.debug("record_success failed", exc_info=True)
 
