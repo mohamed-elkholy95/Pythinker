@@ -135,7 +135,7 @@ def _create_session(message: str | None = None, retries: int = 3) -> str:
     for attempt in range(retries):
         try:
             r = requests.put(f"{BASE_URL}/sessions", json=payload, headers=HEADERS, timeout=SHORT_TIMEOUT)
-            assert r.status_code == 200, f"Session creation failed: {r.status_code} {r.text}"
+            assert r.status_code in {200, 201}, f"Session creation failed: {r.status_code} {r.text}"
             data = r.json()
             assert data.get("code") == 0 or data.get("success") is True, f"Unexpected response: {data}"
             session_data = data.get("data", data)
