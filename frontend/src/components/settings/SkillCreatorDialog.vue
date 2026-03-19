@@ -1,6 +1,5 @@
 <template>
-  <Teleport to="body">
-    <div v-if="isOpen" class="dialog-overlay" @click.self.stop="handleClose" @keydown.escape.stop="handleClose" @mousedown.stop @pointerdown.stop>
+  <div v-if="isOpen" class="dialog-overlay" @click.self.stop="handleClose" @keydown.escape.stop="handleClose" @mousedown.stop @pointerdown.stop>
       <div
         ref="dialogContainerRef"
         class="dialog-container"
@@ -179,7 +178,6 @@ Guidelines:
         </div>
       </div>
     </div>
-  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -400,11 +398,11 @@ watch(
   () => props.isOpen,
   (open) => {
     if (open) {
-      nextTick(() => {
+      setTimeout(() => {
         const nameInput = document.getElementById('skill-name');
         nameInput?.focus();
-        document.addEventListener('keydown', handleFocusTrap);
-      });
+      }, 50);
+      document.addEventListener('keydown', handleFocusTrap);
     } else {
       document.removeEventListener('keydown', handleFocusTrap);
     }
@@ -466,10 +464,12 @@ async function handleSubmit() {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
   width: 100%;
   max-width: 640px;
-  max-height: 90vh;
+  max-height: min(90vh, 700px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Ensure the container itself has a definite height for flex children to scroll */
+  height: min(90vh, 700px);
 }
 
 .dialog-header {
@@ -522,17 +522,15 @@ async function handleSubmit() {
 }
 
 .dialog-body {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0; /* Critical: allows flex child to shrink below content size for scroll */
   overflow-y: auto;
   overflow-x: hidden;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  /* Performance optimizations */
-  will-change: scroll-position;
   -webkit-overflow-scrolling: touch;
-  /* Visual scroll indicator */
   scroll-behavior: smooth;
 }
 
