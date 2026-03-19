@@ -1,7 +1,7 @@
 # Pythinker Enhancement Roadmap
 
 > **Generated:** 2026-03-18 | **Last Updated:** 2026-03-18
-> **Total Items:** 136 | **Completed:** 84 (62%) | **Phases:** 9
+> **Total Items:** 136 | **Completed:** 88 (65%) | **Phases:** 9
 
 ---
 
@@ -13,11 +13,11 @@
 | 2. Architecture & DDD | 18 | 12 | In Progress |
 | 3. Reliability | 15 | 11 | In Progress |
 | 4. Domain Model | 14 | 14 | **COMPLETE** |
-| 5. Frontend Quality | 18 | 3 | In Progress |
+| 5. Frontend Quality | 18 | 5 | In Progress |
 | 6. Test Coverage & CI | 21 | 0 | Not Started |
-| 7. Performance | 13 | 8 | In Progress |
+| 7. Performance | 13 | 9 | In Progress |
 | 8. API & DX | 17 | 7 | In Progress |
-| 9. Cleanup & Debt | 14 | 12 | In Progress |
+| 9. Cleanup & Debt | 14 | 13 | In Progress |
 
 ---
 
@@ -152,9 +152,9 @@
 
 ### 5.3 Type Safety
 
-- [ ] **FE-011** Fix as any bypass in ChatPage isChatMode
+- [x] **FE-011** Fix as any bypass in ChatPage isChatMode
 - [ ] **FE-012** Type the mitt event bus
-- [ ] **FE-013** Fix GenericContentView status prop union
+- [x] **FE-013** Fix GenericContentView status prop union
 - [ ] **FE-014** Type result and content props
 
 ### 5.4 Accessibility
@@ -215,7 +215,7 @@
 
 - [ ] **PERF-007** Use shallowRef for messages array in ChatPage
 - [ ] **PERF-008** Remove duplicate stale detection loop (via FE-005)
-- [ ] **PERF-009** Fix healthMetrics computed stale Date.now()
+- [x] **PERF-009** Fix healthMetrics computed stale Date.now()
 
 ### 7.3 Agent Execution (4/4 COMPLETE)
 
@@ -268,9 +268,9 @@
 - [x] **CLEAN-006** Remove 3 deprecated useToolStore methods
 - [x] **CLEAN-007** Create frontend structured logger utility
 
-### 9.2 Naming & Consistency (1/3 done)
+### 9.2 Naming & Consistency (2/3 done)
 
-- [ ] **CLEAN-008** Rename Memory → ConversationMemory
+- [x] **CLEAN-008** Rename Memory → ConversationMemory
 - [ ] **CLEAN-009** _(Deferred)_ Align timestamp types (float vs datetime) — different models, different contexts
 - [x] **CLEAN-010** Rename SyncOutboxRepositoryProtocol → SyncOutboxRepository + MongoSyncOutboxRepository
 
