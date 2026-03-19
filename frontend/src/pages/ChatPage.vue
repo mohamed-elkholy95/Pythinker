@@ -26,6 +26,16 @@
         >
           <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
         </button>
+        <!-- Desktop branding (visible when sidebar is collapsed) -->
+        <button
+          v-if="!isLeftPanelShow"
+          class="hidden sm:inline-flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 cursor-pointer"
+          @click="toggleLeftPanel"
+          aria-label="Open sidebar"
+        >
+          <img src="/pythinker_animated.svg" alt="" width="20" height="20" class="w-5 h-5" />
+          <span class="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Pythinker</span>
+        </button>
         <!-- Left side spacer (desktop only) -->
         <div class="hidden sm:flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
         </div>
@@ -669,7 +679,7 @@ const isStale = computed(() => connectionStore.isStale)
 
 const router = useRouter()
 const { t } = useI18n()
-const { toggleLeftPanel } = useLeftPanel()
+const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()

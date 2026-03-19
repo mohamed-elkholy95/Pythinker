@@ -18,7 +18,6 @@
       <div class="collapsed-sidebar-top">
         <button @click="toggleLeftPanel" class="collapsed-logo-btn" aria-label="Expand sidebar">
           <img src="/pythinker_animated.svg" alt="Pythinker" class="h-5 w-5" />
-          <span class="collapsed-brand">Pythinker</span>
         </button>
         <button @click="handleNewTaskClick" class="collapsed-icon-btn" aria-label="New task">
           <SquarePen class="h-5 w-5" />
