@@ -128,7 +128,7 @@ describe('useSSEConnection', () => {
       connection.updateLastRealEventTime()
       connection.updateLastHeartbeatTime()
       
-      const metrics = connection.healthMetrics.value
+      const metrics = connection.getHealthMetrics()
       
       expect(metrics.totalEvents).toBe(1)
       expect(metrics.totalHeartbeats).toBe(1)

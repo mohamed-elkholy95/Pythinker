@@ -421,6 +421,7 @@ def _make_execution_agent_for_summarize():
     from app.domain.services.agents.execution import ExecutionAgent
 
     agent = ExecutionAgent.__new__(ExecutionAgent)
+    agent._config = None  # Set by __init__; __new__ bypasses it
     agent._user_request = "What are the top AI trends?"
     agent._research_depth = "STANDARD"
     agent._pre_trim_report_cache = None

@@ -21,9 +21,6 @@ from app.domain.models.event import (
     ProgressEvent,
 )
 from app.domain.repositories.session_repository import SessionRepository
-from app.infrastructure.repositories.mongo_session_repository import (
-    MongoSessionRepository,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +74,9 @@ async def verify_sandbox_callback_token(
 
 def _get_session_repository() -> SessionRepository:
     """Provide a session repository for sandbox callback routes."""
-    return MongoSessionRepository()
+    from app.interfaces.dependencies import get_session_repository
+
+    return get_session_repository()
 
 
 # ---------------------------------------------------------------------------

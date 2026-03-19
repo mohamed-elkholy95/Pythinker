@@ -17,14 +17,19 @@ Object.defineProperty(window, 'localStorage', {
 const LEFT_PANEL_STATE_KEY = 'pythinker-left-panel-state'
 
 describe('useLeftPanel', () => {
+  const originalInnerWidth = window.innerWidth
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockLocalStorage.clear()
+    // Force mobile viewport so the default (no localStorage) is false
+    Object.defineProperty(window, 'innerWidth', { value: 320, writable: true, configurable: true })
     // Reset the module to get fresh state
     vi.resetModules()
   })
 
   afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: originalInnerWidth, writable: true, configurable: true })
     vi.resetModules()
   })
 
