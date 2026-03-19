@@ -75,7 +75,9 @@ def runner(mock_sandbox) -> AgentTaskRunner:
             agent_repository=AsyncMock(),
             session_repository=AsyncMock(),
             json_parser=MagicMock(),
-            file_storage=AsyncMock(),
+            file_storage=AsyncMock(
+                upload_file=AsyncMock(return_value=MagicMock(filename="report.pdf", file_url="http://test/report.pdf")),
+            ),
             mcp_repository=AsyncMock(get_mcp_config=AsyncMock(return_value={})),
             search_engine=AsyncMock(),
             mode=AgentMode.AGENT,
