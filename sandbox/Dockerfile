@@ -138,7 +138,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     apt-get update && apt-get install -y --no-install-recommends \
     # Container init + core tools
     tini sudo bc curl wget gnupg ca-certificates socat supervisor \
-    xterm perl xauth x11-xkb-utils xkb-data x11-utils x11-apps xdotool dbus-x11 \
+    xterm perl xauth x11-xkb-utils xkb-data x11-utils x11-apps x11-xserver-utils xdotool dbus-x11 \
+    # Cursor theme (replaces ugly default X11 cursor in screencast)
+    dmz-cursor-theme \
     # Native libs for rendering
     libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri libgl1-mesa-glx libgif7 \
     libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 libxinerama1 libxkbfile1 \
