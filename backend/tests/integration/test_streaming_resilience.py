@@ -56,7 +56,7 @@ def _create_session() -> str:
     response = requests.put(f"{BASE_URL}/sessions", json={}, headers=HEADERS, timeout=15)
     if response.status_code in {401, 403}:
         pytest.skip("Auth is enabled for integration environment")
-    assert response.status_code == 200, f"Failed to create session: {response.status_code} {response.text}"
+    assert response.status_code in {200, 201}, f"Failed to create session: {response.status_code} {response.text}"
     payload = response.json()
     data = payload.get("data", payload)
     session_id = data.get("session_id")

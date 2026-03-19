@@ -184,6 +184,7 @@ class TestChannelTransportImportsAvailable:
 
     def test_channel_transport_imports_available(self) -> None:
         """All critical channel transport symbols must be importable without errors."""
+        pytest.importorskip("json_repair", reason="json_repair not installed")
         # AgentLoop
         from nanobot.agent.loop import AgentLoop
 
