@@ -105,30 +105,36 @@ CHROME_FLAGS=(
 # shellcheck disable=SC2206
 [[ -n "${CHROME_ARGS:-}" ]] && CHROME_FLAGS+=($CHROME_ARGS)
 
-# ── Force-maximize Chrome window after launch ────────────────────────
-# Openbox's <maximized>true</maximized> only works if Chrome connects to
-# X11 after Openbox is ready. On fast boot Chrome may start unmaximized.
-# This background loop waits for Chrome's window to appear on DISPLAY :99,
-# then forces it to fill the entire Xvfb display via xdotool.
-_maximize_chrome() {
-    local attempts=0
-    while [ $attempts -lt 30 ]; do
+# ── Continuously pin Chrome window to fill the Xvfb display ──────────
+# Playwright tab operations (open, close, switch) can reposition or resize
+# the Chrome window. This loop runs every 2s and forces all Chromium
+# windows back to 0,0 at 1280x1024 so the X11 screencast always captures
+# the full browser chrome without dark gaps.
+_pin_chrome_window() {
+    # Wait for Chrome to appear
+    local found=0
+    for _ in $(seq 1 30); do
         sleep 1
-        attempts=$((attempts + 1))
-        # Find Chrome's main window (skip popup/utility windows)
-        local wid
-        wid=$(DISPLAY=:99 xdotool search --onlyvisible --class chromium 2>/dev/null | head -1)
-        if [ -n "$wid" ]; then
-            DISPLAY=:99 xdotool windowactivate "$wid" 2>/dev/null
-            DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
-            DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
-            echo "[chrome-wrapper] Maximized Chrome window $wid to 1280x1024"
-            return 0
+        if DISPLAY=:99 xdotool search --class chromium 2>/dev/null | head -1 | grep -q .; then
+            found=1
+            break
         fi
     done
-    echo "[chrome-wrapper] Could not find Chrome window to maximize after 30s"
+    if [ "$found" -eq 0 ]; then
+        echo "[chrome-wrapper] Could not find Chrome window after 30s"
+        return 1
+    fi
+
+    # Continuous pin loop
+    while true; do
+        for wid in $(DISPLAY=:99 xdotool search --class chromium 2>/dev/null); do
+            DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
+            DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
+        done
+        sleep 2
+    done
 }
-_maximize_chrome &
+_pin_chrome_window &
 
 # ── Run Chrome with filtered stderr ──────────────────────────────────
 # fd 3 = original stdout (preserved for Chrome)
