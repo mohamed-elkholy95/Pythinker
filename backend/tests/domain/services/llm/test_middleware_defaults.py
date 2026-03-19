@@ -11,13 +11,13 @@ from app.core.retry import PROVIDER_RETRY_CONFIGS
 class TestMiddlewareFeatureFlagDefaults:
     """Verify middleware feature flag defaults.
 
-    All middleware flags default to False because the pipeline is not yet
-    wired into any LLM provider (build_default_pipeline is never called).
+    The middleware pipeline is enabled by default for production reliability.
+    Other middleware flags default to False until fully validated.
     """
 
-    def test_middleware_pipeline_disabled_by_default(self) -> None:
+    def test_middleware_pipeline_enabled_by_default(self) -> None:
         mixin = FeatureFlagsSettingsMixin()
-        assert mixin.feature_llm_middleware_pipeline is False
+        assert mixin.feature_llm_middleware_pipeline is True
 
     def test_retry_budget_disabled_by_default(self) -> None:
         mixin = FeatureFlagsSettingsMixin()

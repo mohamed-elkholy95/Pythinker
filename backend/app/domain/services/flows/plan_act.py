@@ -47,7 +47,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Step
+from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step
 from app.domain.models.request_contract import RequestContract
 from app.domain.models.session import SessionStatus
 from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition
@@ -133,6 +133,7 @@ from app.domain.services.orchestration.agent_types import (
 from app.domain.services.prediction.failure_predictor import FailurePredictor
 from app.domain.services.skill_matcher import SkillMatcher
 from app.domain.services.skill_registry import get_skill_registry
+from app.domain.services.skill_task_analyzer import get_skill_task_analyzer
 from app.domain.services.tools.canvas import CanvasTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.message import MessageTool
@@ -272,7 +273,8 @@ class PlanActFlow(BaseFlow):
         self._conversation_context_service = get_conversation_context_service()
 
         # Phase 5: Checkpoint tracking for incremental progress saves
-        self._checkpoint_interval = 5  # Write checkpoint every 5 steps
+        settings = get_settings()
+        self._checkpoint_interval = settings.agent_checkpoint_interval
         self._steps_completed_count = 0
 
         # Fix 6: Track uploaded report attachments for manifest injection at summarization time.
@@ -1898,6 +1900,34 @@ class PlanActFlow(BaseFlow):
 
         return base + reason + retry_hint
 
+    def _collect_failure_feedback(self) -> str | None:
+        """Collect failed step information for injection into replan context.
+
+        Returns a markdown-formatted summary of failed steps, or None if no failures.
+        """
+        if not self.plan or not self.plan.steps:
+            return None
+
+        failed_steps = [
+            s
+            for s in self.plan.steps
+            if s.status in (ExecutionStatus.FAILED, ExecutionStatus.BLOCKED, ExecutionStatus.TERMINATED)
+        ]
+        if not failed_steps:
+            return None
+
+        lines = ["## Previous Execution Failures"]
+        for s in failed_steps:
+            desc = s.description[:120]
+            error = s.error[:200] if s.error else (s.notes[:200] if s.notes else "unknown error")
+            lines.append(f'- Step "{desc}" ({s.status.value}): {error}')
+
+        lines.append(
+            "\nAvoid repeating the same approach that caused these failures. "
+            "Consider alternative tools, strategies, or search queries."
+        )
+        return "\n".join(lines)
+
     def _consume_zero_progress_replan_attempt(self) -> bool:
         """Consume one dead-end replan attempt if available."""
         if self._zero_progress_dead_end_replans >= self._max_zero_progress_dead_end_replans:
@@ -2162,37 +2192,74 @@ class PlanActFlow(BaseFlow):
 
         # Auto-detect skills from user message (Agent UX v2)
         settings = get_settings()
-        if settings.skill_auto_detection_enabled and message.message:
+        if message.message and (settings.skill_task_analysis_enabled or settings.skill_auto_detection_enabled):
             try:
-                registry = await get_skill_registry()
-                all_skills = await registry.get_available_skills()
-                matcher = SkillMatcher()
-                auto_matches = matcher.match(
-                    message.message,
-                    all_skills,
-                    threshold=settings.skill_auto_detection_threshold,
-                )
-                if auto_matches:
-                    auto_skill_ids = [m.skill.id for m in auto_matches]
-                    existing = set(message.skills or [])
-                    new_ids = [sid for sid in auto_skill_ids if sid not in existing]
-                    if new_ids:
-                        message = message.model_copy(deep=True)
-                        message.skills = list(existing | set(new_ids))
-                        logger.info(
-                            "Auto-detected skills: %s",
-                            [m.skill.name for m in auto_matches if m.skill.id in new_ids],
-                        )
-                        # Emit SkillEvents for auto-detected skills
-                        if settings.skill_ui_events_enabled:
-                            for m in auto_matches:
-                                if m.skill.id in new_ids:
-                                    yield SkillEvent(
-                                        skill_id=m.skill.id,
-                                        skill_name=m.skill.name,
-                                        action="activated",
-                                        reason=m.reason,
-                                    )
+                existing = set(message.skills or [])
+                new_ids: list[str] = []
+                used_analyzer = False
+
+                # Primary path: SkillTaskAnalyzer (LLM-based, higher precision)
+                if settings.skill_task_analysis_enabled:
+                    analyzer = await get_skill_task_analyzer()
+                    analysis_results = await analyzer.analyze(
+                        message.message,
+                        threshold=settings.skill_task_analysis_threshold,
+                        max_results=settings.skill_task_analysis_max_results,
+                    )
+                    recommended = [r for r in analysis_results if r.activation_recommended]
+                    if recommended:
+                        used_analyzer = True
+                        candidate_ids = [r.skill_id for r in recommended if r.skill_id not in existing]
+                        # Cap at max_results
+                        new_ids = candidate_ids[: settings.skill_task_analysis_max_results]
+                        if new_ids:
+                            logger.info(
+                                "SkillTaskAnalyzer auto-activated skills: %s",
+                                [r.skill_name for r in recommended if r.skill_id in new_ids],
+                            )
+                            if settings.skill_ui_events_enabled:
+                                for r in recommended:
+                                    if r.skill_id in new_ids:
+                                        yield SkillEvent(
+                                            skill_id=r.skill_id,
+                                            skill_name=r.skill_name,
+                                            action="activated",
+                                            reason=", ".join(r.signals) if r.signals else "task analysis",
+                                        )
+
+                # Fallback path: SkillMatcher (keyword-based) — only when analyzer found nothing
+                if not used_analyzer and settings.skill_auto_detection_enabled:
+                    registry = await get_skill_registry()
+                    all_skills = await registry.get_available_skills()
+                    matcher = SkillMatcher()
+                    auto_matches = matcher.match(
+                        message.message,
+                        all_skills,
+                        threshold=settings.skill_auto_detection_threshold,
+                    )
+                    if auto_matches:
+                        auto_skill_ids = [m.skill.id for m in auto_matches]
+                        new_ids = [sid for sid in auto_skill_ids if sid not in existing]
+                        if new_ids:
+                            logger.info(
+                                "SkillMatcher auto-detected skills (fallback): %s",
+                                [m.skill.name for m in auto_matches if m.skill.id in new_ids],
+                            )
+                            if settings.skill_ui_events_enabled:
+                                for m in auto_matches:
+                                    if m.skill.id in new_ids:
+                                        yield SkillEvent(
+                                            skill_id=m.skill.id,
+                                            skill_name=m.skill.name,
+                                            action="activated",
+                                            reason=m.reason,
+                                        )
+
+                # Merge auto-detected skills; user-selected skills always take priority
+                if new_ids:
+                    message = message.model_copy(deep=True)
+                    message.skills = list(existing | set(new_ids))
+
             except Exception:
                 logger.warning("Skill auto-detection failed, continuing without", exc_info=True)
 
@@ -2620,6 +2687,18 @@ class PlanActFlow(BaseFlow):
                         # Pass replan context if we're replanning after verification
                         replan_context = self._verification_feedback if self._verification_verdict == "revise" else None
 
+                        # Inject execution failure feedback so the planner avoids repeating failed approaches
+                        _failure_feedback = self._collect_failure_feedback()
+                        if _failure_feedback:
+                            if replan_context:
+                                replan_context = f"{replan_context}\n\n{_failure_feedback}"
+                            else:
+                                replan_context = _failure_feedback
+                            logger.info(
+                                "Injected failure feedback into replan context (%d chars)",
+                                len(_failure_feedback),
+                            )
+
                         # Inject cross-session memory context (Phase 4: Role-Scoped Memory)
                         # Phase 3: Enhanced with similar task context
                         if "planner" in self._scoped_memory:
@@ -2814,6 +2893,33 @@ class PlanActFlow(BaseFlow):
                                     logger.info(
                                         f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps"
                                     )
+
+                                    # Observability: analyze plan quality (non-blocking)
+                                    try:
+                                        _tool_names = [
+                                            t.get("function", {}).get("name", "")
+                                            for t in (self.executor.get_available_tools() or [])
+                                        ]
+                                        _quality = PlanQualityAnalyzer(
+                                            available_tools=_tool_names,
+                                        ).analyze(self.plan, user_request=message.message)
+                                        plan_span.set_attribute("plan.quality_score", round(_quality.overall_score, 3))
+                                        plan_span.set_attribute("plan.quality_grade", _quality.overall_grade)
+                                        logger.info(
+                                            "Plan quality: score=%.2f grade=%s (%d steps)",
+                                            _quality.overall_score,
+                                            _quality.overall_grade,
+                                            len(event.plan.steps),
+                                        )
+                                        if _quality.overall_score < 0.4:
+                                            logger.warning(
+                                                "Low plan quality score %.2f for agent %s — suggestions: %s",
+                                                _quality.overall_score,
+                                                self._agent_id,
+                                                "; ".join(_quality.improvement_suggestions[:3]),
+                                            )
+                                    except Exception as _pqa_err:
+                                        logger.debug("Plan quality analysis skipped: %s", _pqa_err)
 
                                     # Initialize task state for recitation
                                     self._task_state_manager.initialize_from_plan(
@@ -3137,6 +3243,7 @@ class PlanActFlow(BaseFlow):
                                 )
                                 _trigger = self._reflection_agent.should_reflect(_progress)
                                 if _trigger is not None:
+                                    self._transition_to(AgentStatus.REFLECTING)
                                     async for _refl_event in self._reflection_agent.reflect(
                                         goal=message.message if hasattr(message, "message") else "",
                                         plan=self.plan,

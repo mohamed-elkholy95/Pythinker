@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import logging
 import threading
@@ -87,23 +88,50 @@ class QdrantStorage:
         if self._client is not None:
             return
 
-        try:
-            self._client = AsyncQdrantClient(
-                url=self._settings.qdrant_url,
-                port=self._settings.qdrant_grpc_port if self._settings.qdrant_prefer_grpc else None,
-                prefer_grpc=self._settings.qdrant_prefer_grpc,
-                api_key=self._settings.qdrant_api_key,
-            )
-            await self._client.get_collections()
-            self._using_local_fallback = False
-            logger.info("Successfully connected to Qdrant")
-        except Exception as remote_error:
-            can_fallback = getattr(self._settings, "environment", "development") != "production"
-            if not can_fallback:
+        max_attempts = 3
+        base_delay = 2.0
+        remote_error: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._client = AsyncQdrantClient(
+                    url=self._settings.qdrant_url,
+                    port=self._settings.qdrant_grpc_port if self._settings.qdrant_prefer_grpc else None,
+                    prefer_grpc=self._settings.qdrant_prefer_grpc,
+                    api_key=self._settings.qdrant_api_key,
+                )
+                await self._client.get_collections()
+                self._using_local_fallback = False
+                logger.info("Successfully connected to Qdrant")
+                break
+            except Exception as exc:
+                remote_error = exc
                 await self._safe_close_client()
                 self._client = None
+                if attempt < max_attempts:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Qdrant connection attempt %d/%d failed: %s. Retrying in %.1fs...",
+                        attempt,
+                        max_attempts,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                # Final attempt failed — fall through to fallback logic
+                logger.warning(
+                    "Qdrant connection attempt %d/%d failed: %s. No more retries.",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+
+        if remote_error is not None and self._client is None:
+            can_fallback = getattr(self._settings, "environment", "development") != "production"
+            if not can_fallback:
                 logger.error(f"Failed to connect to Qdrant: {remote_error}")
-                raise
+                raise remote_error
 
             logger.warning(
                 "Failed to connect to remote Qdrant (%s). Falling back to in-memory Qdrant for development.",

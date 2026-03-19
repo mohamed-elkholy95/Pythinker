@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
@@ -458,8 +459,10 @@ class ExecutionAgent(BaseAgent):
                     f"prompt_chars={len(skill_context.prompt_addition) if skill_context.prompt_addition else 0}"
                 )
 
-                # Emit SkillEvent for activity bar visibility (Agent UX v2)
+                # Emit SkillEvent for activity bar + synthetic ToolEvent for chat chip.
+                # Only emit the "Loading skill" chip ONCE per session (first step).
                 _skill_settings = self._get_config()
+                _already_emitted = getattr(self, "_skill_chips_emitted", set())
                 if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
                     for sid in skill_context.skill_ids:
                         skill = await registry.get_skill(sid)
@@ -473,6 +476,18 @@ class ExecutionAgent(BaseAgent):
                                 if skill_context.allowed_tools
                                 else None,
                             )
+                            # Emit synthetic ToolEvent only on first load per skill
+                            if sid not in _already_emitted:
+                                _synth_id = f"skill_synth_{sid}_{uuid.uuid4().hex[:8]}"
+                                yield ToolEvent(
+                                    tool_call_id=_synth_id,
+                                    tool_name="skill_invoke",
+                                    function_name="skill_invoke",
+                                    function_args={"skill_name": sid},
+                                    status=ToolStatus.CALLED,
+                                )
+                                _already_emitted.add(sid)
+                                self._skill_chips_emitted = _already_emitted
             except Exception as e:
                 logger.warning(f"Failed to build skill context: {e}")
 
@@ -521,12 +536,13 @@ class ExecutionAgent(BaseAgent):
                 logger.debug("Model routing disabled, using default model '%s'", selected_model)
 
         # Phase 1: Force skill_invoke on first LLM turn via tool_choice
+        # Phase 1: Save original tool_choice for restoration after step.
+        # Skill visibility is handled by synthetic ToolEvent emission above;
+        # tool_choice forcing is kept as a soft nudge via the enforcement prompt.
         _original_tool_choice = self.tool_choice
-        if getattr(self, "_force_skill_invoke_first_turn", False):
-            self.tool_choice = {"type": "function", "function": {"name": "skill_invoke"}}
-            logger.debug("Skill enforcement: tool_choice forced to skill_invoke for first turn")
 
         step.status = ExecutionStatus.RUNNING
+        _step_start_time = time.monotonic()
         yield StepEvent(status=StepStatus.STARTED, step=step)
         try:
             async for event in self.execute(execution_message):
@@ -542,7 +558,8 @@ class ExecutionAgent(BaseAgent):
                         confidence=0.95,
                         tags=["error", "step_failure"],
                     )
-                    yield StepEvent(status=StepStatus.FAILED, step=step)
+                    _step_duration_ms = (time.monotonic() - _step_start_time) * 1000
+                    yield StepEvent(status=StepStatus.FAILED, step=step, duration_ms=_step_duration_ms)
                 elif isinstance(event, MessageEvent):
                     # Skip tool-marker artifacts from message_normalizer
                     if _is_tool_marker_text(event.message):
@@ -591,7 +608,8 @@ class ExecutionAgent(BaseAgent):
                                 _display_result = verified_result
                                 logger.info("Hallucination verification refined step result")
 
-                    yield StepEvent(status=StepStatus.COMPLETED, step=step)
+                    _step_duration_ms = (time.monotonic() - _step_start_time) * 1000
+                    yield StepEvent(status=StepStatus.COMPLETED, step=step, duration_ms=_step_duration_ms)
                     if _display_result:
                         yield MessageEvent(message=_display_result)
                     continue

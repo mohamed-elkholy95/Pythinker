@@ -9,11 +9,17 @@ This is the core of Claude's skills architecture:
 - Agent calls this tool with skill name to load skill instructions
 - Skill content is expanded and returned to guide subsequent actions
 
+Enterprise-grade enforcement (Phase 2):
+- Priority-driven tool description instructs LLM to invoke BEFORE other tools
+- Strict schema with enum constraints prevents hallucinated skill names
+- Enforcement metadata returned with workflow steps for tracking
+
 SECURITY: Dynamic context execution is delegated to skill_context module
 which enforces command allowlisting and OFFICIAL-only restrictions.
 """
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models.skill import SkillInvocationType
@@ -32,31 +38,25 @@ class SkillInvokeTool(BaseTool):
     1. Validates the skill exists and can be AI-invoked
     2. Expands any dynamic context (!command syntax)
     3. Returns the skill's system_prompt_addition as instructions
+    4. Returns enforcement metadata with workflow steps (Phase 5)
     """
 
     name = "skill_invoke"
 
-    # Template for description - preserved as class constant for re-rendering
-    _DESCRIPTION_TEMPLATE = """Invoke a skill to get specialized instructions for a task.
+    # Priority-driven description template (Phase 2b)
+    _DESCRIPTION_TEMPLATE = """PRIORITY: Invoke a skill BEFORE using other tools when the task matches a skill domain.
 
-<skill_invocation_guide>
-Use this tool when you recognize that a specific skill would help complete the task better.
-Skills provide specialized prompts and guidelines for particular domains.
+<skill_invocation_protocol>
+## When to invoke (MANDATORY):
+- Task involves research, data analysis, coding, or any listed skill domain
+- You haven't loaded skill instructions for the current step yet
+- Task complexity benefits from specialized workflow guidance
 
-How to use:
-- Call with the skill_name parameter
-- The skill's instructions will be returned
-- Follow those instructions for subsequent actions
+## Invocation is the FIRST action you should take for any matching task.
 
-When to use:
-- User explicitly requests a skill with /skill-name
-- Task matches a skill's domain (research, coding, data analysis, etc.)
-- You need specialized guidelines for a complex task
-</skill_invocation_guide>
-
-<available_skills>
+Available skill domains:
 {available_skills}
-</available_skills>
+</skill_invocation_protocol>
 """
 
     # Initial description - will be updated by _update_description()
@@ -110,22 +110,48 @@ When to use:
         self._skill_cache.clear()
         self._update_description()
 
+    def _get_ai_invokable_skill_ids(self) -> list[str]:
+        """Return list of skill IDs that can be AI-invoked."""
+        return [
+            s.id
+            for s in self._available_skills
+            if s.invocation_type in (SkillInvocationType.AI, SkillInvocationType.BOTH)
+        ]
+
     def get_input_schema(self) -> dict[str, Any]:
-        """Return the input schema for this tool."""
+        """Return the input schema for this tool.
+
+        When strict schema is enabled, includes enum constraints to prevent
+        hallucinated skill names and additionalProperties: false for strict
+        mode compliance (Phase 2a).
+        """
+        skill_ids = self._get_ai_invokable_skill_ids()
+
+        # Build skill_name property with optional enum constraint
+        skill_name_prop: dict[str, Any] = {
+            "type": "string",
+            "description": "The name/ID of the skill to invoke",
+        }
+
+        # Add enum constraint when strict schema is enabled and skills are available
+        if skill_ids:
+            try:
+                from app.core.config import get_settings
+
+                settings = get_settings()
+                if getattr(settings, "skill_strict_schema_enabled", True):
+                    skill_name_prop["enum"] = skill_ids
+            except Exception:
+                # Fallback: add enum anyway for safety
+                skill_name_prop["enum"] = skill_ids
+
         return {
             "type": "object",
             "properties": {
-                "skill_name": {
-                    "type": "string",
-                    "description": "The name/ID of the skill to invoke (e.g., 'research', 'coding', 'data-analysis')",
-                },
-                "arguments": {
-                    "type": "string",
-                    "description": "Optional arguments to pass to the skill (like /skill-name args)",
-                    "default": "",
-                },
+                "skill_name": skill_name_prop,
             },
             "required": ["skill_name"],
+            "additionalProperties": False,
         }
 
     async def execute(self, skill_name: str, arguments: str = "", **kwargs: Any) -> dict[str, Any]:
@@ -136,7 +162,7 @@ When to use:
             arguments: Optional arguments for the skill
 
         Returns:
-            Dict with skill instructions or error message
+            Dict with skill instructions, enforcement metadata, or error message
         """
         # Normalize skill name (handle /skill-name format)
         skill_name = skill_name.lstrip("/").lower().strip()
@@ -186,7 +212,26 @@ When to use:
             "required_tools": skill.required_tools,
             "allowed_tools": skill.allowed_tools,
             "message": f"The '{skill.name}' skill is now active. Follow the instructions below.",
+            "enforcement": {
+                "must_use_tools": skill.required_tools,
+                "workflow_steps": self._extract_workflow_steps(content),
+                "completion_criteria": "Follow ALL steps in the skill instructions",
+            },
         }
+
+    @staticmethod
+    def _extract_workflow_steps(content: str) -> list[str]:
+        """Extract workflow steps from skill instructions for tracking.
+
+        Parses numbered steps, bulleted steps with **Step** markers, and
+        heading-level steps from the skill's system_prompt_addition.
+        """
+        steps: list[str] = []
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if re.match(r"^(#{1,3}\s+Step\s+\d|[\d]+\.\s|[-*]\s+\*\*Step)", stripped):
+                steps.append(stripped)
+        return steps[:10]  # Cap at 10 steps
 
     async def _build_skill_content(self, skill: "Skill", arguments: str = "") -> str:
         """Build the skill content with dynamic context expansion.

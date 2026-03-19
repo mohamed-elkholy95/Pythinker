@@ -71,7 +71,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "style-src 'self' 'unsafe-inline'",  # Allow inline styles for UI frameworks
                 "img-src 'self' data: https:",
                 "font-src 'self' data:",
-                "connect-src 'self'",
+                "connect-src 'self' wss:",
                 "frame-ancestors 'none'",  # Prevent embedding
                 "base-uri 'self'",
                 "form-action 'self'",

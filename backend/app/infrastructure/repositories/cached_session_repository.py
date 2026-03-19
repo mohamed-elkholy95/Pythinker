@@ -167,7 +167,7 @@ class CachedSessionRepository(SessionRepository):
 
     # --- Timeline query methods (delegated, no caching) ---
 
-    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[BaseEvent]:
+    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         return await self._inner.get_events_paginated(session_id, offset=offset, limit=limit)
 
     async def get_events_in_range(self, session_id: str, start_time: datetime, end_time: datetime) -> list[BaseEvent]:

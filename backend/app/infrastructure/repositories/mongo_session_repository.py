@@ -383,8 +383,11 @@ class MongoSessionRepository(SessionRepository):
 
     # Timeline query methods
     # Uses MongoDB $slice projection to avoid loading entire events array into Python.
-    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[BaseEvent]:
-        """Get paginated events for a session using MongoDB $slice projection."""
+    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+        """Get paginated events for a session using MongoDB $slice projection.
+
+        Note: Returns raw MongoDB dicts, not deserialized BaseEvent instances.
+        """
         collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},

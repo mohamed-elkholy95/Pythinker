@@ -10,6 +10,7 @@ import httpx
 from scrapling.parser import Adaptor
 
 from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.http_pool import ManagedHTTPClient
 from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 from app.infrastructure.external.search.utils import clean_redirect_url, extract_text_from_tag
@@ -52,7 +53,7 @@ class DuckDuckGoSearchEngine(SearchEngineBase):
 
         return params
 
-    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+    async def _execute_request(self, client: ManagedHTTPClient, params: dict[str, Any]) -> httpx.Response:
         """Execute POST request to DuckDuckGo HTML API."""
         return await client.post(self.base_url, data=params)
 

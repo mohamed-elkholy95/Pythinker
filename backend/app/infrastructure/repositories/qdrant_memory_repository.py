@@ -8,6 +8,7 @@ Phase 1: Named-vector schema with hybrid dense+sparse retrieval support.
 """
 
 import logging
+import time
 from datetime import datetime
 
 from qdrant_client import models
@@ -244,8 +245,6 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             )
 
         # Phase 1: Use named 'dense' vector with query-time hnsw_ef
-        import time
-
         from app.core.prometheus_metrics import (
             qdrant_query_duration_seconds,
         )
@@ -353,8 +352,6 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         )
 
         # Hybrid query with RRF fusion
-        import time
-
         from app.core.prometheus_metrics import (
             qdrant_query_duration_seconds,
         )

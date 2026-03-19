@@ -109,6 +109,12 @@ class RateLimitMiddleware:
         "/api/v1/auth/reset-password",
     }
 
+    # Expensive endpoints: session creation spawns Docker containers
+    # Uses auth-level rate limits (e.g. 30 rpm instead of 300 rpm)
+    EXPENSIVE_PATHS: ClassVar[set[str]] = {
+        "/api/v1/sessions",  # PUT creates a new session + sandbox container
+    }
+
     # Exempt paths: SSE long-poll, health checks, lightweight status polls
     EXEMPT_PATHS: ClassVar[set[str]] = {"/api/v1/auth/status", "/health"}
 
@@ -235,7 +241,9 @@ class RateLimitMiddleware:
             return
 
         # Determine rate limit based on path
-        if path in self.AUTH_PATHS:
+        # Auth and expensive endpoints (session creation) use stricter limits
+        is_expensive = method == "PUT" and path in self.EXPENSIVE_PATHS
+        if path in self.AUTH_PATHS or is_expensive:
             max_requests = settings.rate_limit_auth_requests_per_minute
         else:
             max_requests = settings.rate_limit_requests_per_minute
