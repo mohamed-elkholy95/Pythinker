@@ -7,6 +7,7 @@ This service handles:
 """
 
 import logging
+from typing import Any
 
 from app.domain.models.skill import Skill, SkillCategory, UserSkillConfig
 from app.domain.repositories.skill_repository import SkillRepository
@@ -207,6 +208,73 @@ class SkillService:
             )
 
         return configs
+
+    async def generate_skill_draft(
+        self,
+        name: str,
+        description: str,
+        required_tools: list[str],
+        optional_tools: list[str],
+        llm: Any,
+    ) -> dict[str, Any]:
+        """Generate a structured skill draft using the configured LLM.
+
+        Returns a dict with:
+            - instructions: SKILL.md body markdown
+            - description_suggestion: improved trigger-oriented description
+            - resource_plan: suggested bundled resources for future phases
+        """
+        tools_section = ""
+        if required_tools or optional_tools:
+            all_tools = [*required_tools, *optional_tools]
+            tools_section = f"\nAvailable tools: {', '.join(all_tools)}"
+
+        system_prompt = (
+            "You are a skill instruction writer for Pythinker, an AI agent platform.\n"
+            "Given a skill name, description, and available tools, generate:\n\n"
+            "1. A SKILL.md body in markdown with:\n"
+            "   - Purpose (1-2 sentences)\n"
+            "   - Step-by-step workflow (numbered)\n"
+            "   - Guidelines and constraints (bulleted)\n"
+            "   - Example outputs (1-2 examples)\n\n"
+            "2. Keep under 3000 characters. Use imperative form. Be specific.\n"
+            "3. Reference the available tools naturally in the workflow steps.\n"
+            "4. Write instructions the agent can follow directly."
+        )
+
+        user_prompt = (
+            f"Skill name: {name}\n"
+            f"Skill description: {description}"
+            f"{tools_section}\n\n"
+            "Generate the SKILL.md body markdown."
+        )
+
+        response = await llm.ask(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        instructions = (response.get("content") or "").strip()
+
+        # Generate a trigger-oriented description suggestion
+        desc_suggestion = description
+        if len(description) < 80:
+            desc_suggestion = (
+                f"{description} Use this skill whenever the task involves "
+                f"{name.replace('-', ' ')} workflows or related operations."
+            )
+
+        return {
+            "instructions": instructions,
+            "description_suggestion": desc_suggestion,
+            "resource_plan": {
+                "references": [],
+                "scripts": [],
+                "templates": [],
+            },
+        }
 
     async def seed_official_skills(self, skills: list[Skill]) -> int:
         """Seed official skills into the database.

@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from app.application.services.skill_service import get_skill_service
 from app.core.config import get_settings as get_app_settings
@@ -1208,6 +1209,57 @@ async def get_command_map(
     command_map = registry.get_command_map()
 
     return APIResponse.success(CommandMapResponse(command_map=command_map))
+
+
+# =============================================================================
+# AUTHORING ENDPOINTS (AI-assisted skill creation)
+# =============================================================================
+
+
+class SkillDraftRequest(BaseModel):
+    """Request schema for generating an AI-assisted skill draft."""
+
+    name: str = Field(..., min_length=2, max_length=100)
+    description: str = Field(..., min_length=10, max_length=500)
+    required_tools: list[str] = Field(default_factory=list)
+    optional_tools: list[str] = Field(default_factory=list)
+
+
+class SkillDraftResponse(BaseModel):
+    """Response schema for a generated skill draft."""
+
+    instructions: str
+    description_suggestion: str
+    resource_plan: dict
+
+
+@router.post("/authoring/draft", response_model=APIResponse[SkillDraftResponse])
+async def generate_skill_draft(request: SkillDraftRequest):
+    """Generate an AI-assisted skill draft from name, description, and tools."""
+    from app.core.config import get_settings
+    from app.infrastructure.external.llm.openai_llm import OpenAILLM
+
+    settings = get_settings()
+    llm = OpenAILLM(
+        api_key=settings.api_key,
+        model=settings.model_name,
+        api_base=settings.api_base,
+    )
+
+    skill_service = get_skill_service()
+    result = await skill_service.generate_skill_draft(
+        name=request.name,
+        description=request.description,
+        required_tools=request.required_tools,
+        optional_tools=request.optional_tools,
+        llm=llm,
+    )
+
+    return APIResponse(
+        code=0,
+        msg="success",
+        data=SkillDraftResponse(**result),
+    )
 
 
 # =============================================================================
