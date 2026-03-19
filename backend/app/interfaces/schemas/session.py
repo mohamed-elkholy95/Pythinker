@@ -22,7 +22,9 @@ class CreateSessionRequest(BaseModel):
 
     mode: AgentMode | None = AgentMode.AGENT
     research_mode: ResearchMode | None = ResearchMode.DEEP_RESEARCH
-    message: str | None = Field(default=None, max_length=100_000)  # Phase 4 P0: Initial message for intent classification
+    message: str | None = Field(
+        default=None, max_length=100_000
+    )  # Phase 4 P0: Initial message for intent classification
     require_fresh_sandbox: bool = True
     sandbox_wait_seconds: float = 3.0
 

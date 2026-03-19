@@ -173,6 +173,16 @@ class AnthropicLLM(LLM):
     def last_stream_metadata(self) -> dict[str, Any] | None:
         return self._last_stream_metadata
 
+    def start_health_probe(self, interval_seconds: float = 300.0) -> None:
+        """Start periodic API key health probing via the key pool."""
+        if hasattr(self, "_key_pool"):
+            self._key_pool.start_health_probe(interval_seconds=interval_seconds)
+
+    def stop_health_probe(self) -> None:
+        """Stop API key health probing."""
+        if hasattr(self, "_key_pool"):
+            self._key_pool.stop_health_probe()
+
     async def _record_usage(self, response: Any) -> None:
         """Record usage from Anthropic response if usage context is set.
 
