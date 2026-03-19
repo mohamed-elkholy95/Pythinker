@@ -51,7 +51,7 @@ jobs:
 
       - name: Run npm audit
         id: npm-audit
-        continue-on-error: true
+        continue-on-error: false
         working-directory: frontend
         run: |
           bun pm trust || true
@@ -105,7 +105,7 @@ jobs:
         with:
           image-ref: "${{ matrix.image.name }}:scan"
           format: "table"
-          exit-code: "0"
+          exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
 
