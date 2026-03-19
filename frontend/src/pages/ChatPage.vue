@@ -27,15 +27,12 @@
           <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
         </button>
         <!-- Desktop branding (visible when sidebar is collapsed) -->
-        <button
+        <PythinkerLogoTextIcon
           v-if="!isLeftPanelShow"
-          class="sidebar-brand-toggle hidden sm:inline-flex items-center justify-center rounded-lg px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 cursor-pointer"
-          @click="toggleLeftPanel"
-          aria-label="Open sidebar"
-        >
-          <span class="brand-label text-base font-semibold text-[var(--text-primary)] tracking-tight">Pythinker</span>
-          <PanelLeft class="brand-icon text-[var(--icon-secondary)]" />
-        </button>
+          :width="120"
+          :height="28"
+          class="hidden sm:block flex-shrink-0 -ml-2"
+        />
         <!-- Left side spacer (desktop only) -->
         <div class="hidden sm:flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
         </div>
@@ -595,8 +592,9 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send, PanelLeft } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
+import PythinkerLogoTextIcon from '@/components/icons/PythinkerLogoTextIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
 import type { FileInfo } from '../api/file';
