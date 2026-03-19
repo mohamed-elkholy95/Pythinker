@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.application.services.usage_service import get_usage_service
 from app.domain.models.user import User
@@ -148,10 +148,7 @@ async def get_session_usage(
 
     # Verify the session belongs to this user
     if session_usage.user_id and session_usage.user_id != current_user.id:
-        return APIResponse(
-            success=False,
-            error="Session not found or access denied",
-        )
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     return APIResponse(
         success=True,
