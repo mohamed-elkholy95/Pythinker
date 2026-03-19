@@ -2,50 +2,40 @@
 
 Phase 3: Client-side MMR implementation for diversifying search results
 by balancing relevance to query with diversity from already-selected items.
+
+Uses numpy vectorized operations for efficient cosine similarity computation.
 """
 
 import logging
 from collections.abc import Callable
 from typing import TypeVar
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
-def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-    """Compute cosine similarity between two vectors.
+def cosine_similarity_matrix(query: np.ndarray, candidates: np.ndarray) -> np.ndarray:
+    """Compute cosine similarity between a query and all candidates vectorized.
 
     Args:
-        vec1: First vector
-        vec2: Second vector
+        query: Query vector (1D array of shape [d])
+        candidates: Candidate matrix (2D array of shape [n, d])
 
     Returns:
-        Cosine similarity score (-1 to 1)
+        Similarity scores array of shape [n]
     """
-    try:
-        import numpy as np
+    query_norm = np.linalg.norm(query)
+    if query_norm == 0:
+        return np.zeros(len(candidates))
 
-        v1 = np.array(vec1)
-        v2 = np.array(vec2)
-
-        dot_product = np.dot(v1, v2)
-        norm_v1 = np.linalg.norm(v1)
-        norm_v2 = np.linalg.norm(v2)
-
-        if norm_v1 == 0 or norm_v2 == 0:
-            return 0.0
-
-        return float(dot_product / (norm_v1 * norm_v2))
-    except ImportError:
-        # Fallback without numpy
-        logger.warning("numpy not available, using fallback cosine similarity")
-        dot = sum(a * b for a, b in zip(vec1, vec2, strict=False))
-        norm1 = sum(a * a for a in vec1) ** 0.5
-        norm2 = sum(b * b for b in vec2) ** 0.5
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        return dot / (norm1 * norm2)
+    cand_norms = np.linalg.norm(candidates, axis=1)
+    # Avoid division by zero
+    safe_norms = np.where(cand_norms == 0, 1.0, cand_norms)
+    dots = candidates @ query
+    return dots / (safe_norms * query_norm)
 
 
 def mmr_rerank(
@@ -86,51 +76,71 @@ def mmr_rerank(
     if len(candidates) <= top_k:
         return candidates
 
-    selected: list[T] = []
-    remaining = candidates.copy()
+    # Pre-extract all embeddings and build numpy matrix
+    query_vec = np.array(query_embedding, dtype=np.float32)
+    embeddings: list[np.ndarray] = []
+    valid_mask: list[bool] = []
 
-    while len(selected) < top_k and remaining:
-        mmr_scores = []
+    for c in candidates:
+        try:
+            emb = embedding_fn(c)
+            if emb:
+                embeddings.append(np.array(emb, dtype=np.float32))
+                valid_mask.append(True)
+            else:
+                embeddings.append(np.zeros_like(query_vec))
+                valid_mask.append(False)
+        except Exception as e:
+            logger.debug(f"Failed to extract embedding: {e}")
+            embeddings.append(np.zeros_like(query_vec))
+            valid_mask.append(False)
 
-        for candidate in remaining:
-            try:
-                cand_emb = embedding_fn(candidate)
+    cand_matrix = np.vstack(embeddings)  # shape [n, d]
 
-                if not cand_emb:
-                    # No embedding available, use low score
-                    mmr_scores.append((0.0, candidate))
-                    continue
+    # Pre-compute relevance scores (query vs all candidates)
+    relevance_scores = cosine_similarity_matrix(query_vec, cand_matrix)
 
-                # Relevance to query
-                relevance = cosine_similarity(query_embedding, cand_emb)
+    # Greedy MMR selection
+    n = len(candidates)
+    selected_indices: list[int] = []
+    remaining = set(range(n))
 
-                # Max similarity to already-selected items
-                if selected:
-                    similarities = []
-                    for s in selected:
-                        s_emb = embedding_fn(s)
-                        if s_emb:
-                            sim = cosine_similarity(cand_emb, s_emb)
-                            similarities.append(sim)
-
-                    max_similarity = max(similarities) if similarities else 0.0
-                else:
-                    max_similarity = 0.0
-
-                # MMR score: balance relevance and diversity
-                mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
-                mmr_scores.append((mmr_score, candidate))
-
-            except Exception as e:
-                logger.debug(f"MMR scoring failed for candidate: {e}")
-                mmr_scores.append((0.0, candidate))
-
-        if not mmr_scores:
+    for _ in range(min(top_k, n)):
+        if not remaining:
             break
 
-        # Select candidate with highest MMR score
-        best = max(mmr_scores, key=lambda x: x[0])
-        selected.append(best[1])
-        remaining.remove(best[1])
+        best_idx = -1
+        best_score = float("-inf")
 
-    return selected
+        remaining_list = sorted(remaining)
+
+        if not selected_indices:
+            # First iteration: pick highest relevance
+            for idx in remaining_list:
+                score = lambda_param * relevance_scores[idx] if valid_mask[idx] else 0.0
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+        else:
+            # Compute max similarity to selected set (vectorized)
+            selected_matrix = cand_matrix[selected_indices]  # shape [k, d]
+            for idx in remaining_list:
+                if not valid_mask[idx]:
+                    score = 0.0
+                else:
+                    # Vectorized similarity of this candidate vs all selected
+                    sims = cosine_similarity_matrix(cand_matrix[idx], selected_matrix)
+                    max_sim = float(np.max(sims)) if len(sims) > 0 else 0.0
+                    score = lambda_param * relevance_scores[idx] - (1 - lambda_param) * max_sim
+
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+
+        if best_idx < 0:
+            break
+
+        selected_indices.append(best_idx)
+        remaining.discard(best_idx)
+
+    return [candidates[i] for i in selected_indices]
