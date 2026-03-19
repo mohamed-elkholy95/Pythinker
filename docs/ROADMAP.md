@@ -1,7 +1,7 @@
 # Pythinker Enhancement Roadmap
 
 > **Generated:** 2026-03-18 | **Last Updated:** 2026-03-18
-> **Total Items:** 136 | **Completed:** 76 (56%) | **Phases:** 9
+> **Total Items:** 136 | **Completed:** 80 (59%) | **Phases:** 9
 
 ---
 
@@ -10,8 +10,8 @@
 | Phase | Total | Done | Status |
 |-------|-------|------|--------|
 | 1. Security & Critical | 17 | 17 | **COMPLETE** |
-| 2. Architecture & DDD | 18 | 8 | In Progress |
-| 3. Reliability | 15 | 10 | In Progress |
+| 2. Architecture & DDD | 18 | 11 | In Progress |
+| 3. Reliability | 15 | 11 | In Progress |
 | 4. Domain Model | 14 | 14 | **COMPLETE** |
 | 5. Frontend Quality | 18 | 0 | Not Started |
 | 6. Test Coverage & CI | 21 | 0 | Not Started |
@@ -45,7 +45,7 @@
 
 ## Phase 2 — Architecture & DDD Compliance (P1)
 
-### 2.1 Domain Layer Purification (5/9 done)
+### 2.1 Domain Layer Purification (7/9 done)
 
 - [x] **DDD-001** Replace Redis imports in agent_domain_service.py → TaskOutputRelay Protocol
 - [x] **DDD-002** Replace DockerSandbox import in plan_act.py → injected sandbox
@@ -54,8 +54,8 @@
 - [x] **DDD-005** Replace MongoDB import in skill_creator.py → SkillPackageRepository Protocol
 - [ ] **DDD-006** `get_settings` from app.core across 30+ domain files _(incremental)_
 - [x] **DDD-007** Fix conversation_context_service.py → EmbeddingPort + ConversationContextRepository Protocols
-- [ ] **DDD-008** Domain model importing from app.core (sync_outbox, user_settings)
-- [ ] **DDD-009** BM25 encoder importing app.core.config
+- [x] **DDD-008** Domain model importing from app.core (sync_outbox, user_settings)
+- [x] **DDD-009** BM25 encoder importing app.core.config
 
 ### 2.2 Repository Standardization (1/5 done)
 
@@ -65,10 +65,10 @@
 - [ ] **DDD-013** Analytics data structures use @dataclass not BaseModel
 - [ ] **DDD-014** Unify memory repository contracts
 
-### 2.3 HTTPClientPool Compliance (2/4 done)
+### 2.3 HTTPClientPool Compliance (3/4 done)
 
 - [x] **HTTP-001** Migrate SearchEngineBase + 5 subclasses to HTTPClientPool
-- [ ] **HTTP-002** _(Done via HTTP-001)_
+- [x] **HTTP-002** _(Done via HTTP-001)_
 - [ ] **HTTP-003** Migrate DockerSandbox direct httpx usage
 - [x] **HTTP-004** Migrate route handler httpx (session_routes, channel_link_routes)
 
@@ -90,12 +90,12 @@
 - [ ] **REL-007** Add retry to MinIO operations
 - [ ] **REL-008** Add retry to MongoDB memory create
 
-### 3.3 Sandbox Recovery (2/4 done)
+### 3.3 Sandbox Recovery (3/4 done)
 
 - [ ] **REL-009** Propagate sandbox crash to agent orchestrator _(design task)_
 - [x] **REL-010** _(Already handled)_ HTTP pool invalidation on container recreation
 - [x] **REL-011** Fix destroy() error handling — separate stop/remove
-- [ ] **REL-012** Wrap PodmanSandbox sync calls in asyncio.to_thread()
+- [x] **REL-012** Wrap PodmanSandbox sync calls in asyncio.to_thread()
 
 ### 3.4 Resource Leaks (3/3 COMPLETE)
 
