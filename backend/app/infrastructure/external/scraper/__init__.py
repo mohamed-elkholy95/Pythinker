@@ -27,5 +27,7 @@ def __getattr__(name: str) -> object:
             "ScraplingAdapter": _ScraplingAdapter,
             "get_scraping_adapter": _get_scraping_adapter,
         }
+        # Cache in module globals so subsequent accesses skip __getattr__
+        globals().update(_exports)
         return _exports[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
