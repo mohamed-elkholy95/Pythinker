@@ -98,6 +98,8 @@ backend/results/*
 # ─── Sandbox Artifacts ───────────────────────────────────────────────────────
 sandbox/*.md
 !sandbox/README.md
+# Duplicate apple_cursor checkout (canonical SVGs: frontend/src/assets/cursors/apple_cursor-main)
+sandbox/apple_cursor/
 
 # ─── Git Worktrees ───────────────────────────────────────────────────────────
 .worktrees/

@@ -43,6 +43,7 @@
         <!-- Live preview -->
         <LiveViewer
           v-else-if="showLivePreview"
+          ref="livePreviewRef"
           :session-id="props.sessionId"
           :enabled="props.live"
           :view-only="true"
@@ -122,6 +123,7 @@ import LiveViewer from '@/components/LiveViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { startTakeover } from '@/api/agent';
+import type { ToolEventData } from '@/types/event';
 
 const props = defineProps<{
   sessionId: string;
@@ -321,6 +323,69 @@ watch(
 // Live preview handlers
 const onLivePreviewConnected = () => { /* live preview connected */ };
 const onLivePreviewDisconnected = () => { /* live preview disconnected */ };
+
+const livePreviewRef = ref<InstanceType<typeof LiveViewer> | null>(null);
+let _lastForwardedToolEventKey = '';
+
+function forwardBrowserToolToLiveViewer(): void {
+  if (!props.sessionId || !livePreviewRef.value?.processToolEvent) return;
+  const tool = props.toolContent;
+  if (!tool?.tool_call_id || !tool.function || !tool.status) return;
+  const args = { ...(tool.args || {}) } as Record<string, unknown>;
+  const eventKey = JSON.stringify([
+    tool.tool_call_id,
+    tool.status,
+    tool.function,
+    args.coordinate_x,
+    args.coordinate_y,
+    args.x,
+    args.y,
+    args.url,
+  ]);
+  if (eventKey === _lastForwardedToolEventKey) return;
+  _lastForwardedToolEventKey = eventKey;
+  const payload: ToolEventData = {
+    event_id: String(tool.event_id ?? tool.tool_call_id),
+    timestamp: typeof tool.timestamp === 'number' ? tool.timestamp : Math.floor(Date.now() / 1000),
+    tool_call_id: tool.tool_call_id,
+    name: String(tool.name ?? tool.function ?? 'browser'),
+    status: tool.status === 'interrupted' ? 'called' : tool.status,
+    function: tool.function,
+    args,
+  };
+  livePreviewRef.value.processToolEvent(payload);
+}
+
+watch(
+  () => [
+    props.sessionId,
+    props.toolContent?.tool_call_id,
+    props.toolContent?.status,
+    props.toolContent?.function,
+    props.toolContent?.args?.coordinate_x,
+    props.toolContent?.args?.coordinate_y,
+    props.toolContent?.args?.x,
+    props.toolContent?.args?.y,
+    props.toolContent?.args?.url,
+  ],
+  () => {
+    forwardBrowserToolToLiveViewer();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.sessionId,
+  () => {
+    _lastForwardedToolEventKey = '';
+    forwardBrowserToolToLiveViewer();
+  },
+);
+
+watch(livePreviewRef, () => {
+  _lastForwardedToolEventKey = '';
+  forwardBrowserToolToLiveViewer();
+});
 
 // Screenshot handling
 watch(() => props.toolContent?.content?.screenshot, (screenshot) => {
