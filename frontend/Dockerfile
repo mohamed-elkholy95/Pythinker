@@ -33,8 +33,8 @@ ENV GIT_VERSION=${GIT_VERSION}
 ENV GIT_SHA=${GIT_SHA}
 ENV BUILD_DATE=${BUILD_DATE}
 
-# Patch Alpine base packages (libexpat, zlib) to fix Trivy-flagged CVEs
-RUN apk upgrade --no-cache
+# Patch specific CVE-affected packages flagged by Trivy
+RUN apk add --no-cache --upgrade libexpat zlib
 
 # Copy build output from builder stage
 COPY --from=build-stage /app/dist /usr/share/nginx/html
