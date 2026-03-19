@@ -1,6 +1,8 @@
 <template>
   <Dialog v-model:open="isSettingsDialogOpen">
-    <DialogContent class="w-[380px] md:w-[95vw] md:max-w-[920px]">
+    <DialogContent
+      class="w-[380px] md:w-[95vw] md:max-w-[920px]"
+      data-pythinker-settings-dialog>
       <DialogTitle class="sr-only">Pythinker Settings</DialogTitle>
       <DialogDescription class="sr-only">Configure your Pythinker experience</DialogDescription>
 

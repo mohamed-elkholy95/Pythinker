@@ -1,7 +1,14 @@
 <template>
   <Teleport to="body">
     <Transition name="skill-dialog">
-      <div v-if="isOpen" class="skill-creator-overlay" @mousedown.self.stop="handleClose" @wheel.stop @scroll.stop>
+      <!-- data-dismissable-layer: helps Reka layer stacking; data-pythinker-skill-creator-overlay: DialogContent always prevents dismiss (DOM order independent). -->
+      <div
+        v-if="isOpen"
+        class="skill-creator-overlay"
+        data-dismissable-layer=""
+        data-pythinker-skill-creator-overlay
+        @mousedown.self.stop="handleClose"
+      >
         <div
           ref="dialogContainerRef"
           class="skill-creator-container"
@@ -384,36 +391,35 @@ function handleFocusTrap(e: KeyboardEvent) {
   }
 }
 
-// Fully suppress the Radix Settings dialog when Creator is open.
-// This prevents scroll, pointer, and focus from leaking to the background.
-function suppressRadixDialog() {
-  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+// Suppress the Settings dialog layer while Creator is open (Reka UI, not Radix data attrs).
+// Avoid overflow:hidden on the shell — it breaks flex/scroll layout inside Settings (misaligned panes).
+const SETTINGS_DIALOG_SELECTOR = '[data-pythinker-settings-dialog]';
+
+function suppressSettingsDialogLayer() {
+  document.querySelectorAll('[data-reka-focus-guard]').forEach((el) => {
     (el as HTMLElement).style.display = 'none';
   });
-  // Suppress the Radix overlay (click-to-dismiss layer)
-  document.querySelectorAll('[data-radix-dialog-overlay]').forEach((el) => {
+  document.querySelectorAll('[data-slot="dialog-overlay"]').forEach((el) => {
     (el as HTMLElement).style.pointerEvents = 'none';
   });
-  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
-  if (radixContent) {
-    radixContent.setAttribute('inert', '');
-    radixContent.style.pointerEvents = 'none';
-    radixContent.style.overflow = 'hidden';
+  const settingsShell = document.querySelector(SETTINGS_DIALOG_SELECTOR) as HTMLElement | null;
+  if (settingsShell) {
+    settingsShell.setAttribute('inert', '');
+    settingsShell.style.pointerEvents = 'none';
   }
 }
 
-function restoreRadixDialog() {
-  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+function restoreSettingsDialogLayer() {
+  document.querySelectorAll('[data-reka-focus-guard]').forEach((el) => {
     (el as HTMLElement).style.display = '';
   });
-  document.querySelectorAll('[data-radix-dialog-overlay]').forEach((el) => {
+  document.querySelectorAll('[data-slot="dialog-overlay"]').forEach((el) => {
     (el as HTMLElement).style.pointerEvents = '';
   });
-  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
-  if (radixContent) {
-    radixContent.removeAttribute('inert');
-    radixContent.style.pointerEvents = '';
-    radixContent.style.overflow = '';
+  const settingsShell = document.querySelector(SETTINGS_DIALOG_SELECTOR) as HTMLElement | null;
+  if (settingsShell) {
+    settingsShell.removeAttribute('inert');
+    settingsShell.style.pointerEvents = '';
   }
 }
 
@@ -421,13 +427,13 @@ watch(
   () => props.isOpen,
   (open) => {
     if (open) {
-      nextTick(suppressRadixDialog);
+      nextTick(suppressSettingsDialogLayer);
       setTimeout(() => {
         document.getElementById('skill-name')?.focus();
       }, 80);
       document.addEventListener('keydown', handleFocusTrap);
     } else {
-      restoreRadixDialog();
+      restoreSettingsDialogLayer();
       document.removeEventListener('keydown', handleFocusTrap);
     }
   }
@@ -435,13 +441,7 @@ watch(
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleFocusTrap);
-  restoreRadixDialog();
-  // Restore Radix guards if unmounted while open
-  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
-    (el as HTMLElement).style.display = '';
-  });
-  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
-  if (radixContent) radixContent.removeAttribute('inert');
+  restoreSettingsDialogLayer();
 });
 
 // Handle submit
@@ -488,6 +488,8 @@ async function handleSubmit() {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   padding: 24px;
+  pointer-events: auto;
+  overscroll-behavior: contain;
 }
 
 /* ── Container ──────────────────────────────── */
@@ -567,6 +569,8 @@ async function handleSubmit() {
   flex-direction: column;
   gap: 16px;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 /* ── Fields ──────────────────────────────────── */
