@@ -1,0 +1,15 @@
+{
+  "_docs": "Chroma colors in SVG sources; cbmp uses this when building X11 themes. Vite plugin recolorAppleCursorSvgForWeb applies macOS.colors the same way for the Konva overlay.",
+  "macOS": {
+    "colors": [
+      { "match": "#00FF00", "replace": "#000000" },
+      { "match": "#0000FF", "replace": "#FFFFFF" }
+    ]
+  },
+  "macOS-White": {
+    "colors": [
+      { "match": "#00FF00", "replace": "#FFFFFF" },
+      { "match": "#0000FF", "replace": "#000000" }
+    ]
+  }
+}
