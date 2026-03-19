@@ -46,9 +46,9 @@ class MemoryConfig:
             ]
 
 
-class Memory(BaseModel):
+class ConversationMemory(BaseModel):
     """
-    Memory class, defining the basic behavior of memory
+    ConversationMemory class, defining the basic behavior of memory
     """
 
     messages: list[dict[str, Any]] = Field(default_factory=list)
@@ -256,7 +256,7 @@ class Memory(BaseModel):
     @staticmethod
     def _build_summary_tier(function_name: str, content: str) -> str:
         """Build a Tier 2 summary: first 200 chars + success indicator."""
-        success = Memory._detect_success(content)
+        success = ConversationMemory._detect_success(content)
         status = "OK" if success else "FAILED"
         # Extract first 200 chars, truncate at last complete line
         preview = content[:200]
@@ -273,7 +273,7 @@ class Memory(BaseModel):
     @staticmethod
     def _build_oneliner_tier(function_name: str, content: str) -> str:
         """Build a Tier 3 one-liner: minimal stub."""
-        success = Memory._detect_success(content)
+        success = ConversationMemory._detect_success(content)
         status = "OK" if success else "FAILED"
         return f"[{function_name}] ({status}, graduated-compacted, {len(content)} chars)"
 
@@ -337,7 +337,7 @@ class Memory(BaseModel):
         """Check if memory is empty"""
         return len(self.messages) == 0
 
-    def fork(self, preserve_messages: int | None = None) -> "Memory":
+    def fork(self, preserve_messages: int | None = None) -> "ConversationMemory":
         """Create a fork of this memory for isolated exploration.
 
         This supports Tree-of-Thoughts pattern where multiple paths
@@ -357,7 +357,7 @@ class Memory(BaseModel):
             forked_messages = [msg.copy() for msg in self.messages[-preserve_messages:]]
 
         # Create new memory with copied config
-        forked_memory = Memory(messages=forked_messages)
+        forked_memory = ConversationMemory(messages=forked_messages)
         forked_memory.config = MemoryConfig(
             max_messages=self.config.max_messages,
             auto_compact_threshold=self.config.auto_compact_threshold,
@@ -371,7 +371,7 @@ class Memory(BaseModel):
 
         return forked_memory
 
-    def merge_from(self, other: "Memory", deduplicate: bool = True) -> int:
+    def merge_from(self, other: "ConversationMemory", deduplicate: bool = True) -> int:
         """Merge messages from another memory into this one.
 
         This supports aggregating results from forked paths.
@@ -400,3 +400,7 @@ class Memory(BaseModel):
                 added += 1
 
         return added
+
+
+# Backward-compatible alias — prefer ConversationMemory for new code
+Memory = ConversationMemory
