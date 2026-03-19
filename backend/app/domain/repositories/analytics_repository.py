@@ -5,12 +5,12 @@ for analysis purposes without coupling to infrastructure storage.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 
+from pydantic import BaseModel
 
-@dataclass
-class SessionAnalytics:
+
+class SessionAnalytics(BaseModel):
     """Session data for analytics."""
 
     session_id: str
@@ -19,8 +19,7 @@ class SessionAnalytics:
     updated_at: datetime | None = None
 
 
-@dataclass
-class ToolExecutionAnalytics:
+class ToolExecutionAnalytics(BaseModel):
     """Tool execution data for analytics."""
 
     session_id: str
@@ -33,8 +32,7 @@ class ToolExecutionAnalytics:
     container_memory_mb: float | None = None
 
 
-@dataclass
-class AgentDecisionAnalytics:
+class AgentDecisionAnalytics(BaseModel):
     """Agent decision data for analytics."""
 
     session_id: str
@@ -44,8 +42,7 @@ class AgentDecisionAnalytics:
     timestamp: datetime | None = None
 
 
-@dataclass
-class WorkflowStateAnalytics:
+class WorkflowStateAnalytics(BaseModel):
     """Workflow state data for analytics."""
 
     session_id: str
