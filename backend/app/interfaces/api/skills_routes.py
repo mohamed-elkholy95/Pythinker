@@ -1242,7 +1242,7 @@ async def generate_skill_draft(request: SkillDraftRequest):
     settings = get_settings()
     llm = OpenAILLM(
         api_key=settings.api_key,
-        model=settings.model_name,
+        model_name=settings.model_name,
         api_base=settings.api_base,
     )
 
