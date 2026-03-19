@@ -82,8 +82,7 @@ class PodmanSandbox:
 
         container = await asyncio.to_thread(_create)
         logger.info(
-            f"Created rootless Podman container {container.id[:12]} "
-            f"(memory={memory_limit}, cpus={cpu_limit / 1e9:.1f})"
+            f"Created rootless Podman container {container.id[:12]} (memory={memory_limit}, cpus={cpu_limit / 1e9:.1f})"
         )
         return container.id
 
