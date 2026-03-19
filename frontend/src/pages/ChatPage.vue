@@ -17,7 +17,7 @@
         @dismiss="dismissConnectionBanner"
       />
       <div ref="_observerRef"
-        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
+        class="chat-header flex flex-row items-center pt-3 pb-1 gap-2 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Mobile sidebar toggle -->
         <button
           class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 -ml-0.5"
@@ -26,44 +26,34 @@
         >
           <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
         </button>
-        <!-- Left side spacer (desktop only) -->
-        <div
-          class="chat-header-leading hidden sm:flex items-center justify-start flex-shrink-0"
-          :style="isLeftPanelShow ? 'width: calc((100% - min(768px, 100%)) / 2);' : 'width: 12px;'"
+        <!-- Center: Model name as header title (Manus-style) -->
+        <button
+          v-if="activeHeaderModelName"
+          type="button"
+          class="header-model-title"
+          data-testid="chat-header-model-title"
+          :title="activeHeaderModelName"
+          @click="openSettingsDialog('model')"
         >
-          <button
-            v-if="activeHeaderModelName"
-            type="button"
-            class="chat-settings-model-pill"
-            data-testid="chat-settings-model-pill"
-            :title="activeHeaderModelName"
-            @click="openSettingsDialog('model')"
+          <span class="header-model-title-label">{{ activeHeaderModelName }}</span>
+          <ChevronDown class="header-model-title-icon" />
+        </button>
+        <!-- Research badge + source -->
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span
+            v-if="sessionSource === 'telegram'"
+            class="chat-source-badge"
+            data-testid="chat-source-telegram"
+            title="Telegram session"
+            aria-label="Telegram session"
           >
-            <span class="chat-settings-model-pill-label">{{ activeHeaderModelName }}</span>
-            <ChevronDown class="chat-settings-model-pill-icon" />
-          </button>
+            <Send :size="10" />
+            <span>Telegram</span>
+          </span>
+          <ResearchModeBadge :mode="sessionResearchMode" :compact="isToolPanelOpen" />
         </div>
-        <!-- Center content - matches chat content width -->
-        <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
-          <!-- Left: Title -->
-          <div class="flex items-center gap-2 flex-1 min-w-0 pr-2">
-            <button class="chat-model-pill min-w-0 shrink flex items-center gap-1" type="button" aria-label="Current chat title">
-              <span class="chat-title-text truncate">
-                {{ title }}
-              </span>
-            </button>
-            <span
-              v-if="sessionSource === 'telegram'"
-              class="chat-source-badge"
-              data-testid="chat-source-telegram"
-              title="Telegram session"
-              aria-label="Telegram session"
-            >
-              <Send :size="10" />
-              <span>Telegram</span>
-            </span>
-            <ResearchModeBadge :mode="sessionResearchMode" :compact="isToolPanelOpen" />
-          </div>
+        <!-- Spacer pushes action buttons to the right -->
+        <div class="flex-1 min-w-0"></div>
 	          <!-- Right: Buttons -->
 	          <div class="flex items-center gap-2 flex-shrink-0">
               <div class="chat-view-toggle" role="tablist" aria-label="Chat display mode">
@@ -178,9 +168,6 @@
               <!-- Context panel button removed — ContextPanel component not yet implemented -->
 
           </div>
-        </div>
-        <!-- Right side - spacer -->
-        <div class="flex-1"></div>
       </div>
 	      <div
           v-if="chatViewMode === 'chat'"
@@ -686,7 +673,7 @@ const isStale = computed(() => connectionStore.isStale)
 
 const router = useRouter()
 const { t } = useI18n()
-const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
+const { toggleLeftPanel } = useLeftPanel()
 const { openSettingsDialog } = useSettingsDialog()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
@@ -4537,6 +4524,46 @@ const handleFileListShow = () => {
   background-color: var(--background-gray-main);
 }
 
+/* Manus-style centered model title */
+.header-model-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: none;
+}
+
+.header-model-title:hover {
+  opacity: 0.7;
+}
+
+.header-model-title-label {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+@media (max-width: 639px) {
+  .header-model-title-label {
+    font-size: 14px;
+  }
+}
+
+.header-model-title-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
 .chat-header-leading {
   min-width: 0;
 }
@@ -4592,6 +4619,19 @@ const handleFileListShow = () => {
   letter-spacing: -0.02em;
 }
 
+.chat-settings-model-pill--mobile {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  gap: 0;
+  max-width: 140px;
+  font-size: 13px;
+}
+
+.chat-settings-model-pill--mobile .chat-settings-model-pill-label {
+  font-size: 13px;
+}
+
 .chat-settings-model-pill-icon {
   width: 15px;
   height: 15px;
@@ -4636,13 +4676,20 @@ const handleFileListShow = () => {
 
 .chat-title-text {
   color: var(--text-primary);
-  font-size: 16px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 18px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
+}
+
+@media (min-width: 640px) {
+  .chat-title-text {
+    font-size: 16px;
+    line-height: 20px;
+  }
 }
 
 .chat-title-chevron {
