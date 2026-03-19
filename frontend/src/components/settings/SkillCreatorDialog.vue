@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="dialog-overlay" @click.self="handleClose" @keydown.escape="handleClose">
+    <div v-if="isOpen" class="dialog-overlay" @click.self.stop="handleClose" @keydown.escape.stop="handleClose" @mousedown.stop @pointerdown.stop>
       <div
         ref="dialogContainerRef"
         class="dialog-container"
@@ -455,8 +455,9 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999;
   padding: 20px;
+  pointer-events: auto;
 }
 
 .dialog-container {
