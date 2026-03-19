@@ -2073,6 +2073,15 @@ To extract data from a webpage:
                 if result.get("tool_calls") and request_tools and getattr(_profile, "tool_arg_truncation_prone", False):
                     result = self._apply_tool_arg_validation(result, request_tools)
 
+                # Record success on the key pool so adaptive TTL learning and
+                # circuit breaker health tracking work correctly.
+                try:
+                    success_key = await self.get_api_key()
+                    if success_key:
+                        self._key_pool.record_success(success_key)
+                except Exception:
+                    logger.debug("record_success failed", exc_info=True)
+
                 return result
 
             except TimeoutError as e:
@@ -2907,6 +2916,15 @@ To extract data from a webpage:
                     }
                     if normalized_finish_reason == "length":
                         logger.warning("OpenAI streaming response truncated (finish_reason=length)")
+
+                    # Record success on the key pool for adaptive TTL learning.
+                    try:
+                        success_key = await self.get_api_key()
+                        if success_key:
+                            self._key_pool.record_success(success_key)
+                    except Exception:
+                        logger.debug("record_success failed", exc_info=True)
+
                     return
 
                 except httpx.ReadTimeout:
