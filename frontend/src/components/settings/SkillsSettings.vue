@@ -57,6 +57,13 @@
           <ChevronDown class="w-4 h-4 add-chevron" :class="{ 'is-open': showAddDropdown }" />
         </button>
         <div v-if="showAddDropdown" class="add-dropdown-menu">
+          <button class="add-dropdown-item" @click="openCreatorDialog(); showAddDropdown = false">
+            <PlusCircle class="w-5 h-5" />
+            <div class="item-text">
+              <span class="item-title">Create new skill</span>
+              <span class="item-desc">Define a skill manually with full control</span>
+            </div>
+          </button>
           <button class="add-dropdown-item" @click="buildWithPythinker">
             <MessageCircle class="w-5 h-5" />
             <div class="item-text">
@@ -69,13 +76,6 @@
             <div class="item-text">
               <span class="item-title">Upload a skill <span class="coming-soon">(coming soon)</span></span>
               <span class="item-desc">Upload .zip, .skill, or folder</span>
-            </div>
-          </button>
-          <button class="add-dropdown-item add-dropdown-item-disabled" disabled>
-            <ShieldCheck class="w-5 h-5" />
-            <div class="item-text">
-              <span class="item-title">Add from official <span class="coming-soon">(coming soon)</span></span>
-              <span class="item-desc">Pre-built skills maintained by Pythinker</span>
             </div>
           </button>
           <button class="add-dropdown-item add-dropdown-item-disabled" disabled>
@@ -296,8 +296,8 @@ import {
   ChevronDown,
   Settings,
   MessageCircle,
-  ShieldCheck,
   Github,
+  PlusCircle,
 } from 'lucide-vue-next';
 import { useSkills } from '@/composables/useSkills';
 import type { Skill } from '@/api/skills';
@@ -356,6 +356,12 @@ onUnmounted(() => {
 const toggleSkill = async (skillId: string) => {
   await toggleSkillEnabled(skillId);
 };
+
+// Open creator dialog for a new skill
+function openCreatorDialog() {
+  editingSkill.value = null;
+  showCreatorDialog.value = true;
+}
 
 // Build with Pythinker - emit event to open chat with skill-creator skill
 function buildWithPythinker() {
