@@ -37,7 +37,7 @@ class TestAgentServiceContext:
 
 
 class TestAgentContextFactory:
-    def test_creates_context_with_empty_pipeline(self):
+    def test_creates_context_with_pipeline(self):
         factory = AgentContextFactory()
         ctx = factory.create(
             agent_id="test",
@@ -46,4 +46,25 @@ class TestAgentContextFactory:
         )
         assert isinstance(ctx, AgentServiceContext)
         assert ctx.feature_flags["test_flag"] is True
-        assert len(ctx.middleware_pipeline.middleware) == 0  # Empty until Task 11
+        assert len(ctx.middleware_pipeline.middleware) == 8
+
+
+class TestFactoryRegistersAllMiddleware:
+    def test_creates_all_middleware(self):
+        factory = AgentContextFactory()
+        ctx = factory.create(
+            agent_id="test",
+            session_id="test",
+            tools=[],
+            feature_flags={},
+        )
+        names = [mw.name for mw in ctx.middleware_pipeline.middleware]
+        assert "wall_clock_pressure" in names
+        assert "token_budget" in names
+        assert "security_assessment" in names
+        assert "hallucination_guard" in names
+        assert "efficiency_monitor" in names
+        assert "url_failure_guard" in names
+        assert "stuck_detection" in names
+        assert "error_handler" in names
+        assert len(names) == 8
