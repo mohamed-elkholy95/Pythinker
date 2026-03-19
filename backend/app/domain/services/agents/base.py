@@ -43,6 +43,8 @@ from app.domain.services.agents.tool_stream_parser import (
 
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
+    from app.domain.services.agents.agent_context import AgentServiceContext
+    from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
     from app.domain.services.agents.scratchpad import Scratchpad
     from app.domain.services.agents.tool_result_store import ToolResultStore
     from app.domain.services.agents.url_failure_guard import UrlFailureGuard
@@ -178,8 +180,8 @@ class BaseAgent:
     name: str = ""
     system_prompt: str = ""
     format: str | None = None
-    max_iterations: int = 400  # Doubled for complex tasks
-    max_retries: int = 3
+    max_iterations: int = 400  # Doubled for complex tasks — overridden by settings.max_iterations
+    max_retries: int = 3  # Overridden by settings.agent_max_retries
     retry_interval: float = 0.3  # Faster retry with exponential backoff
     retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
     max_consecutive_truncations: int = 3  # Force text-only response after this many
@@ -228,6 +230,7 @@ class BaseAgent:
         feature_flags: dict[str, bool] | None = None,
         cancel_token: "CancellationToken | None" = None,
         tool_result_store: "ToolResultStore | None" = None,
+        service_context: "AgentServiceContext | None" = None,
     ):
         if tools is None:
             tools = []
@@ -253,6 +256,14 @@ class BaseAgent:
         from app.domain.utils.cancellation import CancellationToken
 
         self._cancel_token = cancel_token or CancellationToken.null()
+
+        # Override class-level defaults from application settings
+        from app.core.config import get_settings as _get_base_settings
+
+        _base_cfg = _get_base_settings()
+        self.max_iterations = _base_cfg.max_iterations
+        self.max_retries = _base_cfg.agent_max_retries
+        self.max_step_iterations = _base_cfg.agent_max_step_iterations
 
         # Initialize metrics port for Prometheus integration
         from app.domain.external.observability import get_null_metrics
@@ -315,6 +326,32 @@ class BaseAgent:
         self._token_budget: Any = None  # TokenBudget — set by orchestrator via set_token_budget()
         self._token_budget_manager: Any = None  # TokenBudgetManager
         self._sliding_window: Any = None  # SlidingWindowContextManager
+
+        # Middleware pipeline (backward compatible: uses service_context if provided,
+        # otherwise builds default pipeline from embedded services above)
+        if service_context:
+            self._pipeline = service_context.middleware_pipeline
+        else:
+            self._pipeline = self._build_default_pipeline()
+
+    def _build_default_pipeline(self) -> "MiddlewarePipeline":
+        """Build default middleware pipeline from existing embedded services.
+
+        Backward compatible: reproduces identical behavior to current inline code.
+        Called when no service_context is provided.
+        """
+        from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
+        from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
+        from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
+        from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
+        from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
+
+        pipeline = MiddlewarePipeline()
+        pipeline.use(SecurityAssessmentMiddleware(assessor=self._security_assessor))
+        pipeline.use(HallucinationGuardMiddleware(detector=self._hallucination_detector))
+        pipeline.use(EfficiencyMonitorMiddleware(monitor=self._efficiency_monitor))
+        pipeline.use(StuckDetectionMiddleware(detector=self._stuck_detector))
+        return pipeline
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -2090,6 +2127,29 @@ class BaseAgent:
                     }
                 )
                 graceful_completion_requested = False  # Only inject once
+
+            # Phase 4b: Skill enforcement nudge — remind agent to invoke skill
+            if (
+                step_iteration_count >= getattr(self, "_skill_enforcement_nudge_after", 3)
+                and getattr(self, "_force_skill_invoke_first_turn", False)
+                and not getattr(self, "_skill_invoked_this_step", False)
+                and not getattr(self, "_skill_enforcement_nudge_sent", False)
+            ):
+                try:
+                    from app.core.config import get_settings as _get_skill_settings
+
+                    _sk_cfg = _get_skill_settings()
+                    if getattr(_sk_cfg, "skill_enforcement_nudge_enabled", True):
+                        from app.domain.services.agents.execution import SKILL_ENFORCEMENT_NUDGE
+
+                        tool_responses.append({"role": "user", "content": SKILL_ENFORCEMENT_NUDGE})
+                        self._skill_enforcement_nudge_sent = True
+                        # Reset tool_choice to auto since the forced call didn't happen
+                        self.tool_choice = None
+                        self._force_skill_invoke_first_turn = False
+                        logger.debug("Skill enforcement: nudge injected after %d iterations", step_iteration_count)
+                except Exception:
+                    logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
 
             message = await self.ask_with_messages(tool_responses)
         else:
