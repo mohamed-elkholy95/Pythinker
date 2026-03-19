@@ -827,6 +827,22 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.debug(f"HTTP session cleanup error: {e}")
 
+            # Close search engine clients (HTTP pool connections)
+            try:
+                from app.infrastructure.external.search import shutdown_search_engine
+
+                await shutdown_search_engine()
+            except Exception as e:
+                logger.debug(f"Search engine shutdown error: {e}")
+
+            # Flush pending coalesced writes before closing DB connections
+            try:
+                from app.infrastructure.repositories.mongo_agent_repository import shutdown_write_coalescer
+
+                await shutdown_write_coalescer()
+            except Exception as e:
+                logger.debug(f"WriteCoalescer shutdown error: {e}")
+
             # Close all HTTPClientPool connections (Phase 1: Connection pooling)
             try:
                 from app.infrastructure.external.http_pool import HTTPClientPool
