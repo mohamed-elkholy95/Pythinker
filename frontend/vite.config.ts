@@ -38,20 +38,42 @@ function patchNoVncTLA(): Plugin {
   };
 }
 
+/** Chroma → final colors for web overlay; must match `macOS.colors` in chroma-render.json. */
+function loadAppleCursorChromaRules(): Array<{ match: string; replace: string }> {
+  const p = resolve(__dirname, 'src/assets/cursors/apple_cursor-main/chroma-render.json');
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf-8')) as {
+      macOS?: { colors?: Array<{ match: string; replace: string }> };
+    };
+    const colors = j.macOS?.colors;
+    if (Array.isArray(colors) && colors.length > 0) return colors;
+  } catch {
+    /* use defaults below */
+  }
+  return [
+    { match: '#00FF00', replace: '#000000' },
+    { match: '#0000FF', replace: '#FFFFFF' },
+  ];
+}
+
+const APPLE_CURSOR_CHROMA = loadAppleCursorChromaRules();
+
 /**
- * Apple cursor SVGs in `apple_cursor-main/svg` use chroma fills (#00FF00) and strokes (#0000FF)
- * so `cbmp` can swap them when building X11 cursor themes (see sandbox/apple_cursor/render.json).
- * The Konva agent-cursor overlay imports those SVGs as URLs — without this step they render as
- * bright green/blue. Mirror the same replacements at build time.
+ * Apple cursor SVGs under `apple_cursor-main/svg` use chroma key colors; see chroma-render.json.
+ * The Konva overlay imports them as URLs — without recolor they show lime/blue in the browser.
  */
 function recolorAppleCursorSvgForWeb(): Plugin {
   const isAppleCursorSvg = (pathOnly: string) =>
     /apple_cursor-main[/\\]svg[/\\].+\.svg$/i.test(pathOnly);
 
-  const applyChromaToFinalColors = (svg: string) =>
-    svg
-      .replace(/#00[Ff]{2}00\b/g, '#000000')
-      .replace(/#0000[Ff]{2}\b/g, '#FFFFFF');
+  const applyChromaToFinalColors = (svg: string) => {
+    let out = svg;
+    for (const { match, replace } of APPLE_CURSOR_CHROMA) {
+      const escaped = match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(escaped, 'gi'), replace);
+    }
+    return out;
+  };
 
   return {
     name: 'recolor-apple-cursor-svg-web',
