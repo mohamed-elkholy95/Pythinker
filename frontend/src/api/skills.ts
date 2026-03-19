@@ -144,6 +144,38 @@ export async function getCommandMap(): Promise<Record<string, string>> {
   return response.data.data.command_map;
 }
 
+// Skill Authoring (LLM-assisted draft generation)
+export interface SkillDraftResponse {
+  instructions: string;
+  description_suggestion: string;
+  resource_plan: {
+    references: Array<{ name: string; reason: string }>;
+    scripts: Array<{ name: string; reason: string }>;
+    templates: Array<{ name: string; reason: string }>;
+  };
+}
+
+/**
+ * Generate a SKILL.md draft using LLM-assisted authoring
+ */
+export async function generateSkillDraft(
+  name: string,
+  description: string,
+  requiredTools: string[],
+  optionalTools: string[]
+): Promise<SkillDraftResponse> {
+  const response = await apiClient.post<{ data: SkillDraftResponse }>(
+    '/skills/authoring/draft',
+    {
+      name,
+      description,
+      required_tools: requiredTools,
+      optional_tools: optionalTools,
+    }
+  );
+  return response.data.data;
+}
+
 // Custom Skill CRUD Types
 export interface CreateCustomSkillRequest {
   name: string;
