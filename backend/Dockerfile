@@ -97,6 +97,7 @@ USER appuser
 
 ENV PYTHONPATH=/app
 ENV DSPY_CACHEDIR=/app/data/dspy_cache
+ENV HOME=/app
 
 EXPOSE 8000
 
