@@ -113,9 +113,22 @@
 
           <!-- System Prompt Addition -->
           <div class="form-group">
-            <label for="skill-prompt" class="form-label">
-              System Prompt Instructions <span class="required">*</span>
-            </label>
+            <div class="flex items-center justify-between mb-1">
+              <label for="skill-prompt" class="form-label" style="margin-bottom: 0">
+                System Prompt Instructions <span class="required">*</span>
+              </label>
+              <button
+                type="button"
+                :disabled="!form.name || !form.description || isGenerating"
+                class="generate-draft-btn"
+                @click="handleGenerateDraft"
+              >
+                <Loader2 v-if="isGenerating" :size="12" class="animate-spin" />
+                <Sparkles v-else :size="12" />
+                {{ isGenerating ? 'Generating...' : 'Generate draft' }}
+              </button>
+            </div>
+            <p v-if="generateError" class="generate-error">{{ generateError }}</p>
             <textarea
               id="skill-prompt"
               v-model="form.system_prompt_addition"
@@ -192,6 +205,7 @@ import {
   Zap,
 } from 'lucide-vue-next';
 import type { Skill, CreateCustomSkillRequest } from '@/api/skills';
+import { generateSkillDraft } from '@/api/skills';
 
 // Dialog refs
 const dialogBodyRef = ref<HTMLElement | null>(null);
@@ -211,6 +225,39 @@ const emit = defineEmits<{
 const isEditing = computed(() => !!props.editingSkill);
 const isSubmitting = ref(false);
 const formError = ref<string | null>(null);
+const isGenerating = ref(false);
+const generateError = ref('');
+
+async function handleGenerateDraft() {
+  if (!form.value.name || !form.value.description) return;
+  if (
+    form.value.system_prompt_addition &&
+    !confirm('Replace current instructions with generated draft?')
+  )
+    return;
+
+  isGenerating.value = true;
+  generateError.value = '';
+  try {
+    const draft = await generateSkillDraft(
+      form.value.name,
+      form.value.description,
+      form.value.required_tools || [],
+      form.value.optional_tools || [],
+    );
+    form.value.system_prompt_addition = draft.instructions;
+    if (draft.description_suggestion && draft.description_suggestion !== form.value.description) {
+      if (form.value.description.length < 80) {
+        form.value.description = draft.description_suggestion;
+      }
+    }
+  } catch (err: unknown) {
+    generateError.value = 'Failed to generate draft. Please try again.';
+    console.error('Draft generation error:', err);
+  } finally {
+    isGenerating.value = false;
+  }
+}
 
 // Form state
 const form = ref<CreateCustomSkillRequest>({
@@ -538,6 +585,50 @@ async function handleSubmit() {
   font-size: 11px;
   color: var(--text-quaternary);
   text-align: right;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.mb-1 {
+  margin-bottom: 4px;
+}
+
+.generate-draft-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text-brand);
+  transition: all 0.2s ease;
+}
+
+.generate-draft-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.generate-draft-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.generate-error {
+  font-size: 12px;
+  color: var(--function-error);
+  margin-top: 4px;
 }
 
 .form-hint {
