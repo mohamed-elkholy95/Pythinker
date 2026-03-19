@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="skill-dialog">
-      <div v-if="isOpen" class="skill-creator-overlay" @mousedown.self.stop="handleClose">
+      <div v-if="isOpen" class="skill-creator-overlay" @mousedown.self.stop="handleClose" @wheel.stop @scroll.stop>
         <div
           ref="dialogContainerRef"
           class="skill-creator-container"
@@ -384,32 +384,50 @@ function handleFocusTrap(e: KeyboardEvent) {
   }
 }
 
-// Manage focus and Radix dialog suppression
+// Fully suppress the Radix Settings dialog when Creator is open.
+// This prevents scroll, pointer, and focus from leaking to the background.
+function suppressRadixDialog() {
+  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+    (el as HTMLElement).style.display = 'none';
+  });
+  // Suppress the Radix overlay (click-to-dismiss layer)
+  document.querySelectorAll('[data-radix-dialog-overlay]').forEach((el) => {
+    (el as HTMLElement).style.pointerEvents = 'none';
+  });
+  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
+  if (radixContent) {
+    radixContent.setAttribute('inert', '');
+    radixContent.style.pointerEvents = 'none';
+    radixContent.style.overflow = 'hidden';
+  }
+}
+
+function restoreRadixDialog() {
+  document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
+    (el as HTMLElement).style.display = '';
+  });
+  document.querySelectorAll('[data-radix-dialog-overlay]').forEach((el) => {
+    (el as HTMLElement).style.pointerEvents = '';
+  });
+  const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
+  if (radixContent) {
+    radixContent.removeAttribute('inert');
+    radixContent.style.pointerEvents = '';
+    radixContent.style.overflow = '';
+  }
+}
+
 watch(
   () => props.isOpen,
   (open) => {
     if (open) {
-      // Suppress the Radix dialog behind us so its focus trap doesn't interfere
-      nextTick(() => {
-        document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
-          (el as HTMLElement).style.display = 'none';
-        });
-        const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
-        if (radixContent) radixContent.setAttribute('inert', '');
-      });
-
+      nextTick(suppressRadixDialog);
       setTimeout(() => {
         document.getElementById('skill-name')?.focus();
       }, 80);
       document.addEventListener('keydown', handleFocusTrap);
     } else {
-      // Restore Radix dialog
-      document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
-        (el as HTMLElement).style.display = '';
-      });
-      const radixContent = document.querySelector('[data-radix-dialog-content]') as HTMLElement | null;
-      if (radixContent) radixContent.removeAttribute('inert');
-
+      restoreRadixDialog();
       document.removeEventListener('keydown', handleFocusTrap);
     }
   }
@@ -417,6 +435,7 @@ watch(
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleFocusTrap);
+  restoreRadixDialog();
   // Restore Radix guards if unmounted while open
   document.querySelectorAll('[data-radix-focus-guard]').forEach((el) => {
     (el as HTMLElement).style.display = '';
