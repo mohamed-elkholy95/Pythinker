@@ -306,6 +306,10 @@ class FeatureFlagsSettingsMixin:
     # When the SSE stream exhausts but the agent is still running, defer cancellation
     # by this many seconds to allow the frontend to reconnect seamlessly.
     sse_disconnect_non_terminal_grace_seconds: float = 120.0
+    # SSE operational parameters
+    sse_session_poll_interval_seconds: int = 10  # Polling interval for session SSE streams
+    sse_ws_ping_interval_seconds: int = 20  # WebSocket ping interval for sandbox proxying
+    sse_ws_ping_timeout_seconds: int = 10  # WebSocket ping timeout for sandbox proxying
     # Phase 3: Zero-Hallucination Defense
     feature_structured_outputs: bool = False  # Pydantic structured LLM outputs with validation
     # Phase 4: Parallel Memory Architecture

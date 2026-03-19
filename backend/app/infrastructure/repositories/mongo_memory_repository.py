@@ -15,6 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
 from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure
 
+from app.core.retry import db_retry
 from app.domain.exceptions.base import DuplicateResourceException, IntegrationException, MergeException
 from app.domain.models.long_term_memory import (
     MemoryEntry,
@@ -115,6 +116,7 @@ class MongoMemoryRepository(MemoryRepository):
         doc.pop("content_hash", None)  # Remove computed field
         return MemoryEntry.model_validate(doc)
 
+    @db_retry
     async def create(self, memory: MemoryEntry) -> MemoryEntry:
         """Create a new memory entry."""
         await self.ensure_indexes()
@@ -136,6 +138,7 @@ class MongoMemoryRepository(MemoryRepository):
             logger.error("Failed to create memory: %s", e)
             raise IntegrationException(f"MongoDB write failed: {e}", service="mongodb") from e
 
+    @db_retry
     async def create_many(self, memories: list[MemoryEntry]) -> list[MemoryEntry]:
         """Create multiple memories in batch."""
         await self.ensure_indexes()
@@ -195,6 +198,7 @@ class MongoMemoryRepository(MemoryRepository):
             logger.warning("MongoDB get_by_ids failed for %d IDs: %s", len(memory_ids), e)
             return []
 
+    @db_retry
     async def update(self, memory_id: str, update: MemoryUpdate) -> MemoryEntry | None:
         """Update an existing memory."""
         update_data = update.model_dump(exclude_unset=True)
@@ -221,6 +225,7 @@ class MongoMemoryRepository(MemoryRepository):
             return self._from_document(result)
         return None
 
+    @db_retry
     async def delete(self, memory_id: str) -> bool:
         """Delete memory by ID."""
         try:
@@ -230,6 +235,7 @@ class MongoMemoryRepository(MemoryRepository):
             logger.warning("MongoDB delete failed for memory %s: %s", memory_id, e)
             return False
 
+    @db_retry
     async def delete_by_user(self, user_id: str) -> int:
         """Delete all memories for a user."""
         result = await self._collection.delete_many({"user_id": user_id})
@@ -528,6 +534,7 @@ class MongoMemoryRepository(MemoryRepository):
             most_accessed=most_accessed_doc.get("_id") if most_accessed_doc else None,
         )
 
+    @db_retry
     async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories."""
         query: dict[str, Any] = {"expires_at": {"$lt": datetime.now(UTC)}}
@@ -539,6 +546,7 @@ class MongoMemoryRepository(MemoryRepository):
         logger.info(f"Cleaned up {result.deleted_count} expired memories")
         return result.deleted_count
 
+    @db_retry
     async def record_access(self, memory_id: str) -> None:
         """Record memory access."""
         await self._collection.update_one(
