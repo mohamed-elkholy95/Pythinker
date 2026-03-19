@@ -312,7 +312,7 @@ class BaseAgent:
         self._stuck_recovery_exhausted: bool = False
 
         # Per-step counters for stability guards (reset at top of execute())
-        self._hallucination_count_this_step: int = 0
+        # _hallucination_count_this_step removed — managed by HallucinationGuardMiddleware
         self._compression_cycles_this_step: int = 0
         self._compression_guard_active: bool = False
         self._step_start_time: float | None = None
@@ -2528,7 +2528,9 @@ class BaseAgent:
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message
 
-            # ── Middleware after_step (stuck detection via pipeline) ──
+            # ── Stuck detection via middleware pipeline ──
+            # StuckDetectionMiddleware.after_step() calls track_response() and
+            # handles recovery (INJECT) or exhaustion (FORCE).
             if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
                 from app.domain.services.agents.middleware import (
                     MiddlewareSignal as _MwSig,
@@ -2543,58 +2545,6 @@ class BaseAgent:
                 elif _after_result.signal == _MwSig.INJECT:
                     await self._add_to_memory([filtered_message, {"role": "user", "content": _after_result.message}])
                     continue
-
-            # Track response for stuck detection (response-level) (Phase 4 P1: with confidence)
-            is_response_stuck, confidence = self._stuck_detector.track_response(filtered_message)
-
-            # Also check for action-level stuck patterns
-            action_analysis = self._stuck_detector.get_analysis()
-            is_action_stuck = action_analysis is not None
-
-            is_stuck = is_response_stuck or is_action_stuck
-
-            # Log stuck detection with confidence
-            if is_stuck:
-                logger.info(
-                    "Stuck detection triggered",
-                    extra={
-                        "response_stuck": is_response_stuck,
-                        "action_stuck": is_action_stuck,
-                        "confidence": confidence,
-                        "session_id": getattr(self, "_session_id", None),
-                    },
-                )
-
-            if is_stuck and self._stuck_detector.can_attempt_recovery():
-                self._stuck_detector.record_recovery_attempt()
-
-                # Use truncation-specific recovery if the stuck loop was
-                # caused by repeated output truncation (e.g., LLM keeps
-                # trying to write a large file in one tool call).
-                if self._recent_truncation_count >= 2:
-                    recovery_prompt = self._stuck_detector.get_truncation_recovery_prompt()
-                    logger.warning(
-                        "Agent stuck due to output truncation (%d consecutive), injecting split-output prompt",
-                        self._recent_truncation_count,
-                    )
-                elif action_analysis:
-                    # Use enhanced guidance if we have action-level analysis
-                    recovery_prompt = self._stuck_detector.get_recovery_guidance()
-                    logger.warning(
-                        f"Agent stuck detected ({action_analysis.loop_type.value}), "
-                        f"recovery strategy: {action_analysis.recovery_strategy.value}"
-                    )
-                else:
-                    recovery_prompt = self._stuck_detector.get_recovery_prompt()
-                    logger.warning("Agent stuck detected (response-level), injecting recovery prompt")
-
-                await self._add_to_memory([filtered_message, {"role": "user", "content": recovery_prompt}])
-                continue
-
-            # If stuck but recovery exhausted, set flag for caller (e.g., plan_act step execution)
-            if is_stuck and not self._stuck_detector.can_attempt_recovery():
-                self._stuck_recovery_exhausted = True
-                logger.warning("Stuck recovery exhausted — signaling caller to force-advance step")
 
             await self._add_to_memory([filtered_message])
             empty_response_count = 0  # Reset on successful non-empty response
@@ -2903,7 +2853,7 @@ class BaseAgent:
         self._truncation_retry_max_tokens = None
 
         # Reset per-step stability counters
-        self._hallucination_count_this_step = 0
+        # _hallucination_count_this_step removed — managed by HallucinationGuardMiddleware
         self._compression_cycles_this_step = 0
         self._compression_guard_active = False
         self._step_start_time = None
