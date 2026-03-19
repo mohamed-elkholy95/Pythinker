@@ -21,15 +21,12 @@
               <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
             </button>
             <!-- Desktop branding (visible when sidebar is collapsed) -->
-            <button
+            <PythinkerLogoTextIcon
               v-if="!isLeftPanelShow"
-              class="sidebar-brand-toggle hidden sm:inline-flex items-center justify-center rounded-lg px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 cursor-pointer"
-              @click="toggleLeftPanel"
-              aria-label="Open sidebar"
-            >
-              <span class="brand-label text-base font-semibold text-[var(--text-primary)] tracking-tight">Pythinker</span>
-              <PanelLeft class="brand-icon text-[var(--icon-secondary)]" />
-            </button>
+              :width="120"
+              :height="28"
+              class="hidden sm:block flex-shrink-0 -ml-2"
+            />
           </div>
           <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center"
@@ -106,9 +103,10 @@ import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import SearchIcon from '../components/icons/SearchIcon.vue';
+import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import PaletteIcon from '../components/icons/PaletteIcon.vue';
 import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
-import { Tag, PanelLeft } from 'lucide-vue-next';
+import { Tag } from 'lucide-vue-next';
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
