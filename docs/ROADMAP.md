@@ -1,7 +1,7 @@
 # Pythinker Enhancement Roadmap
 
 > **Generated:** 2026-03-18 | **Last Updated:** 2026-03-18
-> **Total Items:** 136 | **Completed:** 80 (59%) | **Phases:** 9
+> **Total Items:** 136 | **Completed:** 84 (62%) | **Phases:** 9
 
 ---
 
@@ -10,10 +10,10 @@
 | Phase | Total | Done | Status |
 |-------|-------|------|--------|
 | 1. Security & Critical | 17 | 17 | **COMPLETE** |
-| 2. Architecture & DDD | 18 | 11 | In Progress |
+| 2. Architecture & DDD | 18 | 12 | In Progress |
 | 3. Reliability | 15 | 11 | In Progress |
 | 4. Domain Model | 14 | 14 | **COMPLETE** |
-| 5. Frontend Quality | 18 | 0 | Not Started |
+| 5. Frontend Quality | 18 | 3 | In Progress |
 | 6. Test Coverage & CI | 21 | 0 | Not Started |
 | 7. Performance | 13 | 8 | In Progress |
 | 8. API & DX | 17 | 7 | In Progress |
@@ -57,12 +57,12 @@
 - [x] **DDD-008** Domain model importing from app.core (sync_outbox, user_settings)
 - [x] **DDD-009** BM25 encoder importing app.core.config
 
-### 2.2 Repository Standardization (1/5 done)
+### 2.2 Repository Standardization (2/5 done)
 
 - [x] **DDD-010** _(Partial)_ Renamed SyncOutboxRepositoryProtocol → SyncOutboxRepository
 - [ ] **DDD-011** CachedSessionRepository missing 19 Protocol methods
 - [ ] **DDD-012** CachedSessionRepository.update_by_id signature mismatch
-- [ ] **DDD-013** Analytics data structures use @dataclass not BaseModel
+- [x] **DDD-013** Analytics data structures use @dataclass not BaseModel
 - [ ] **DDD-014** Unify memory repository contracts
 
 ### 2.3 HTTPClientPool Compliance (3/4 done)
@@ -142,13 +142,13 @@
 - [ ] **FE-004** Complete Pinia store migration (eliminate dual-write)
 - [ ] **FE-005** Complete useSSEConnection → connectionStore migration
 
-### 5.2 Resource Cleanup
+### 5.2 Resource Cleanup (3/5 done)
 
-- [ ] **FE-006** Fix useWideResearch module-level timer leak
-- [ ] **FE-007** Fix useMcpStatus poll timer leak
+- [x] **FE-006** Fix useWideResearch module-level timer leak
+- [x] **FE-007** Fix useMcpStatus poll timer leak
 - [ ] **FE-008** Fix useTaskTimer reference counting fragility
 - [ ] **FE-009** Add visibility/completion check to ShellToolView polling
-- [ ] **FE-010** Fix useBackendHealth cleanup (onScopeDispose)
+- [x] **FE-010** Fix useBackendHealth cleanup (onScopeDispose)
 
 ### 5.3 Type Safety
 
