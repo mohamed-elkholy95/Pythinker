@@ -89,6 +89,12 @@ RUN chmod +x run.sh
 # DSPy/LiteLLM disk cache (mounted as named volume in docker-compose)
 RUN mkdir -p /app/data/dspy_cache
 
+# Non-root user for security (OWASP container hardening)
+RUN addgroup --system --gid 1001 appuser && \
+    adduser --system --uid 1001 --ingroup appuser appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
 ENV PYTHONPATH=/app
 ENV DSPY_CACHEDIR=/app/data/dspy_cache
 

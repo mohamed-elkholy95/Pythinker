@@ -1,9 +1,10 @@
 name: Security Scan
 
 on:
-  # Weekly only — no push trigger to save minutes
   schedule:
     - cron: "0 0 * * 0"
+  pull_request:
+    branches: [main, main-dev]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -39,7 +40,7 @@ jobs:
 
       - name: Run pip-audit
         id: pip-audit
-        continue-on-error: true
+        continue-on-error: false
         run: |
           pip-audit --format json --output pip-audit-report.json || true
           pip-audit
@@ -99,7 +100,7 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: steps.build.outcome == 'success'
-        continue-on-error: true
+        continue-on-error: false
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: "${{ matrix.image.name }}:scan"
