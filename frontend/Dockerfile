@@ -7,6 +7,8 @@ ARG NODE_MAX_OLD_SPACE_SIZE=3072
 ENV NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}
 
 # Install dependencies first for better layer caching
+# DEFERRED: Migrate to bun install once Vite WebSocket proxy issues with bun are resolved
+# (socket.destroySoon not implemented in bun — see Dockerfile.dev for details)
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -43,6 +45,9 @@ RUN chmod +x /docker-entrypoint.sh
 
 # Expose port 80
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:80/ || exit 1
 
 # Start nginx with environment variable substitution
 CMD ["/docker-entrypoint.sh"]

@@ -140,7 +140,7 @@ addopts = [
     "--color=yes",             # Colored output
     "--cov=app",               # Coverage for app directory
     "--cov-report=term-missing",  # Show missing lines in coverage report
-    "--cov-fail-under=24",     # Minimum coverage threshold
+    "--cov-fail-under=55",     # Minimum coverage threshold
     "-ra",                     # Show all test summary info (Context7 best practice)
 ]
 
@@ -224,10 +224,9 @@ exclude_lines = [
     "pass",
 ]
 show_missing = true
-# Coverage threshold - adjusted for codebase with heavy external service dependencies
+# Coverage threshold - raised to 55% as test coverage has improved
 # Domain logic and core services are tested, external integrations are excluded
-# Lowered to 24% to account for new tool/skill implementations (slides, excel, wide_research, etc.)
-fail_under = 24
+fail_under = 55
 
 [tool.pyright]
 pythonVersion = "3.11"
