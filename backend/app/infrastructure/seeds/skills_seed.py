@@ -14,7 +14,7 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
+from app.domain.models.skill import InstructionTrustLevel, Skill, SkillCategory, SkillInvocationType, SkillSource
 
 # =============================================================================
 # SKILL CREATOR PATHS
@@ -118,6 +118,7 @@ OFFICIAL_SKILLS: list[Skill] = [
         # Claude-style configuration
         invocation_type=SkillInvocationType.BOTH,
         trigger_patterns=[r"research\s+", r"find\s+information", r"look\s+up"],
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Coding Skill
@@ -178,6 +179,7 @@ When writing or modifying code:
         # Claude-style configuration
         invocation_type=SkillInvocationType.BOTH,
         trigger_patterns=[r"write\s+code", r"debug", r"fix\s+", r"implement", r"refactor"],
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Browser Skill
@@ -210,6 +212,7 @@ When writing or modifying code:
         version="1.0.0",
         author="Pythinker",
         is_premium=False,
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # File Management Skill
@@ -235,6 +238,7 @@ When writing or modifying code:
         version="1.0.0",
         author="Pythinker",
         is_premium=False,
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Data Analysis Skill
@@ -309,6 +313,7 @@ print("Chart saved to /workspace/chart.png")
             r"visualize",
             r"statistics",
         ],
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Excel Generator Skill
@@ -411,6 +416,7 @@ print("Excel file created: /workspace/output.xlsx")
             r"generate\s+.*\s+excel",
             r"export\s+to\s+excel",
         ],
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Stock Analysis Skill (Premium)
@@ -442,6 +448,7 @@ print("Excel file created: /workspace/output.xlsx")
         version="1.0.0",
         author="Pythinker",
         is_premium=True,
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Web Pilot Skill (Autonomous browsing)
@@ -470,6 +477,7 @@ print("Excel file created: /workspace/output.xlsx")
         version="1.0.0",
         author="Pythinker",
         is_premium=False,
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
     # -------------------------------------------------------------------------
     # Skill Creator Meta-Skill (for creating custom skills)
@@ -761,6 +769,7 @@ Before calling `skill_create`, verify:
         version="1.0.0",
         author="Pythinker",
         is_premium=False,
+        instruction_trust_level=InstructionTrustLevel.SYSTEM_AUTHORED,
     ),
 ]
 
