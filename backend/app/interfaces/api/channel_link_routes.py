@@ -39,6 +39,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/channel-links", tags=["channel-links"])
 
+
+def _get_channel_repo() -> MongoUserChannelRepository:
+    """Dependency provider for MongoUserChannelRepository."""
+    db = get_mongodb().database
+    return MongoUserChannelRepository(db)
+
+
 # Link code configuration
 _CODE_ALPHABET = string.ascii_uppercase + string.digits
 
@@ -217,8 +224,7 @@ async def generate_link_code(
 
 async def _get_linked_channels(user_id: str) -> list[LinkedChannelResponse]:
     """Retrieve all channel identities linked to *user_id* from MongoDB."""
-    db = get_mongodb().database
-    repo = MongoUserChannelRepository(db)
+    repo = _get_channel_repo()
     raw_docs = await repo.get_linked_channels(user_id)
     return [
         LinkedChannelResponse(
@@ -253,8 +259,7 @@ async def unlink_channel(
     except ValueError:
         raise NotFoundError(f"Channel '{channel}' not found or not supported") from None
 
-    db = get_mongodb().database
-    repo = MongoUserChannelRepository(db)
+    repo = _get_channel_repo()
     await repo.unlink_channel(current_user.id, channel_type)
 
     logger.info(
