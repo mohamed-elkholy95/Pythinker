@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 from tenacity import (
@@ -595,15 +595,15 @@ class PlannerAgent(BaseAgent):
         llm: LLM,
         tools: list[BaseTool],
         json_parser: JsonParser,
-        memory_service: Optional["MemoryService"] = None,
+        memory_service: MemoryService | None = None,
         user_id: str | None = None,
         skill_loader: SkillLoader | None = None,
         thought_tree_explorer=None,
         feature_flags: dict[str, bool] | None = None,
-        cancel_token: "CancellationToken | None" = None,
-        search_engine: "SearchEngine | None" = None,
+        cancel_token: CancellationToken | None = None,
+        search_engine: SearchEngine | None = None,
         tool_result_store=None,
-        config: "DomainConfig | None" = None,
+        config: DomainConfig | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
