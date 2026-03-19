@@ -7,6 +7,7 @@ const {
   pushMock,
   getSessionsMock,
   getSessionsSSEMock,
+  getServerConfigMock,
   stopSessionMock,
   sessionFeedData,
   refreshFeedMock,
@@ -20,6 +21,7 @@ const {
   pushMock: vi.fn(),
   getSessionsMock: vi.fn(),
   getSessionsSSEMock: vi.fn(),
+  getServerConfigMock: vi.fn(),
   stopSessionMock: vi.fn(),
   sessionFeedData: {
     value: [] as Array<Record<string, unknown>>,
@@ -57,6 +59,10 @@ vi.mock('../api/agent', () => ({
   stopSession: stopSessionMock,
   getSessions: getSessionsMock,
   getSessionsSSE: getSessionsSSEMock,
+}))
+
+vi.mock('@/api/settings', () => ({
+  getServerConfig: getServerConfigMock,
 }))
 
 vi.mock('@/composables/useSettingsDialog', () => ({
@@ -142,12 +148,24 @@ describe('LeftPanel channel source filtering', () => {
       sessions: [],
     })
     getSessionsSSEMock.mockResolvedValue(() => {})
+    getServerConfigMock.mockResolvedValue({
+      model_name: 'gpt-5',
+      api_base: 'https://api.openai.com/v1',
+      temperature: 0.2,
+      max_tokens: 4096,
+      llm_provider: 'openai',
+      search_provider: 'bing',
+      search_provider_chain: ['bing'],
+      configured_search_keys: ['bing'],
+    })
   })
 
   it('supports All / Telegram / Web filter controls in main workspace', async () => {
     const wrapper = mountLeftPanel()
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="workspace-sidebar-brand-link"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-model-pill"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="session-source-filters"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Telegram report')
     expect(wrapper.text()).toContain('Web task')

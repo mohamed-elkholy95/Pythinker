@@ -46,11 +46,19 @@
         'hidden': !isLeftPanelShow
       }"
     >
-      <div class="left-panel-header pl-2 pr-4 py-3 h-[56px]">
-        <div class="flex items-center gap-2">
-          <img src="/pythinker_animated.svg" alt="Pythinker" class="h-5 w-5" />
-          <PythinkerLogoTextIcon />
-        </div>
+      <div class="left-panel-header pl-3 pr-3 py-3 h-[60px]">
+        <button
+          type="button"
+          class="sidebar-brand-link"
+          data-testid="workspace-sidebar-brand-link"
+          aria-label="Pythinker home"
+          @click="router.push('/')"
+        >
+          <span class="sidebar-brand-mark" aria-hidden="true">
+            <img src="/pythinker_animated.svg" alt="" class="sidebar-brand-mascot" />
+          </span>
+          <PythinkerLogoTextIcon :width="126" :height="24" class="sidebar-brand-wordmark" />
+        </button>
         <button
           class="collapse-btn"
           @click="toggleLeftPanel()"
@@ -493,7 +501,51 @@ watch(() => route.path, async (newPath, oldPath) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+}
+
+.sidebar-brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 6px 4px 2px;
+  margin-left: -2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.sidebar-brand-link:hover {
+  opacity: 0.74;
+}
+
+.sidebar-brand-link:focus-visible {
+  outline: none;
+  opacity: 0.74;
+}
+
+.sidebar-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-mascot {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.sidebar-brand-wordmark {
+  display: block;
+  flex-shrink: 0;
 }
 
 .collapse-btn {
