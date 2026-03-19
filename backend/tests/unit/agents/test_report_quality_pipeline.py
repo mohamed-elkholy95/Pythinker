@@ -194,13 +194,11 @@ def _make_output_verifier(*, hallucination_verification_enabled: bool = True):
     return OutputVerifier(
         llm=MagicMock(),
         critic=MagicMock(),
-        cove=MagicMock(),
         context_manager=MagicMock(),
         source_tracker=mock_source_tracker,
         metrics=MagicMock(),
         resolve_feature_flags_fn=lambda: {"hallucination_verification": True},
         hallucination_verification_enabled=hallucination_verification_enabled,
-        cove_enabled=False,
     )
 
 
