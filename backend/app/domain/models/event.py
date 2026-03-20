@@ -105,7 +105,7 @@ class SearchToolContent(BaseModel):
 class ShellToolContent(BaseModel):
     """Shell tool content"""
 
-    console: list[dict[str, str]] | str
+    console: list[dict[str, Any]] | str
 
 
 class FileToolContent(BaseModel):
