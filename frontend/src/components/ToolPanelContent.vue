@@ -80,11 +80,11 @@
       <div
         :class="[
           'relative flex flex-col overflow-hidden flex-1 min-h-0',
-          currentViewType === 'terminal' ? 'panel-content-container--terminal' : 'bg-[var(--background-white-main)]',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
             : 'panel-content-container rounded-[12px] border border-[var(--border-light)] shadow-[0px_4px_16px_var(--shadow-XS)] mt-2'
-        ]">
+        ]"
+        :style="contentContainerStyle">
 
         <!-- Content Header: Centered operation label + View mode tabs.
              Hidden when embedded without a forced view mode. -->
@@ -340,11 +340,15 @@
               </div>
 
               <!-- Terminal View -->
-              <div v-else-if="currentViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+              <div
+                v-else-if="currentViewType === 'terminal'"
+                class="terminal-tool-host absolute inset-0 overflow-hidden box-border flex flex-col p-2.5 min-h-0 bg-[var(--terminal-tool-outer-bg)]"
+              >
                 <!-- Live terminal: xterm.js with SSE streaming -->
                 <TerminalLiveView
                   v-if="isTerminalLiveMode"
                   ref="terminalLiveRef"
+                  class="flex-1 min-h-0 w-full"
                   :session-id="props.sessionId ?? ''"
                   :shell-session-id="terminalShellSessionId"
                   :command="terminalLiveCommand"
@@ -352,6 +356,7 @@
                 <!-- Static/completed terminal view -->
                 <TerminalContentView
                   v-else
+                  class="flex-1 min-h-0 w-full"
                   :content="terminalContent"
                   :content-type="terminalContentType"
                   :is-live="isActiveOperation"
@@ -1160,6 +1165,25 @@ const showReportActivityIcon = computed(() => isSummaryPhase.value);
 const showPlanActivityIcon = computed(() => isPlanningPhase.value && !isSummaryPhase.value);
 
 const showActivitySpinner = computed(() => !showReportActivityIcon.value && !showPlanActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
+
+// Terminal background: inline style to guarantee seamless color match
+// xterm light = #ffffff, xterm dark (Tokyo Night) = #1a1b26
+const isDarkTheme = ref(document.documentElement.classList.contains('dark'))
+const darkObserver = new MutationObserver(() => {
+  isDarkTheme.value = document.documentElement.classList.contains('dark')
+})
+onMounted(() => darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] }))
+onUnmounted(() => darkObserver.disconnect())
+
+const contentContainerStyle = computed(() => {
+  if (currentViewType.value === 'terminal') {
+    return {
+      background: isDarkTheme.value ? '#1a1b26' : '#ffffff',
+      borderColor: isDarkTheme.value ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
+    }
+  }
+  return { background: 'var(--background-white-main)' }
+})
 
 // Content header label — unified context bar text (Pythinker-style)
 const contentHeaderLabel = computed(() => {
@@ -2207,26 +2231,20 @@ const handleBrowseUrl = async (url: string) => {
   border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Terminal: seamless background from container through title bar to terminal body */
-.panel-content-container--terminal {
-  background: #ffffff;
-}
-:global(.dark) .panel-content-container--terminal {
-  background: #1a1b26;
-}
+/* Terminal content-title: transparent bg so container inline bg shows through */
 .panel-content-header--terminal {
   background: transparent;
-  border-bottom-color: rgba(0, 0, 0, 0.08);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 :global(.dark) .panel-content-header--terminal {
   background: transparent;
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+  border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 .panel-content-header--terminal .context-bar-label {
-  color: var(--text-secondary);
+  color: #6b7280;
 }
 :global(.dark) .panel-content-header--terminal .context-bar-label {
-  color: rgba(192, 202, 245, 0.5);
+  color: #565f89;
 }
 
 .context-bar-label {
