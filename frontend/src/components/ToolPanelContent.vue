@@ -1218,9 +1218,9 @@ const contentHeaderLabel = computed(() => {
     if (props.isPlanStreaming) return 'Creating plan...';
     return 'Editor';
   }
-  // Browser: show URL
+  // Browser: show URL (empty string when no URL yet — header hides gracefully)
   if (currentViewType.value === 'live_preview') {
-    return resolvedBrowserUrl.value || '/'
+    return resolvedBrowserUrl.value || ''
   }
   // Terminal: show session name or working directory
   if (currentViewType.value === 'terminal') {
