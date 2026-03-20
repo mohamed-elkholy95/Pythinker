@@ -903,7 +903,12 @@ class AgentTaskRunner(TaskRunner):
             logger.warning("PDF generation failed for report %s: %s", event.id, e)
             return None
 
-        pdf_filename = f"report-{event.id}.pdf"
+        # Build a human-readable filename from the report title
+        title_slug = re.sub(r"[^\w\s-]", "", (event.title or "report").lower())
+        title_slug = re.sub(r"[\s_]+", "_", title_slug).strip("_")[:80]
+        pdf_filename = f"{title_slug}.pdf" if title_slug else f"report-{event.id}.pdf"
+        workspace_root = self._delivery_scope_root or await self._resolve_workspace_deliverables_root()
+        virtual_path = f"{workspace_root}/{pdf_filename}"
 
         try:
             pdf_file_info = await self._file_storage.upload_file(
@@ -911,8 +916,27 @@ class AgentTaskRunner(TaskRunner):
                 filename=pdf_filename,
                 user_id=self._user_id,
                 content_type="application/pdf",
-                metadata={**report_metadata, "is_pdf_report": True},
+                metadata={**report_metadata, "is_pdf_report": True, "title": event.title},
             )
+            if not pdf_file_info or not pdf_file_info.file_id:
+                logger.warning("PDF upload returned no file info for report %s", event.id)
+                return None
+
+            # Set file_path so sync_event_attachments_to_storage won't filter it out,
+            # and register directly with session.files (PDF was uploaded to storage
+            # directly, not written to sandbox, so the sandbox→storage sync path
+            # would fail to download it).
+            pdf_file_info.file_path = virtual_path
+            pdf_file_info.size = len(pdf_bytes)
+            try:
+                await self._session_repository.add_file(self._session_id, pdf_file_info)
+            except Exception as add_err:
+                logger.warning(
+                    "Failed to register PDF with session %s: %s",
+                    self._session_id,
+                    add_err,
+                )
+
             logger.info(
                 "Auto-generated PDF report (%d bytes) for session=%s report_id=%s",
                 len(pdf_bytes),
@@ -1962,8 +1986,19 @@ class AgentTaskRunner(TaskRunner):
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
     async def on_done(self, task: Task) -> None:
-        """Called when the task is done"""
-        logger.info(f"Agent {self._agent_id} task done")
+        """Called when the task is done — run final workspace sweep to catch all files."""
+        logger.info(f"Agent {self._agent_id} task done, running final file sweep")
+        try:
+            synced = await self._sweep_workspace_files()
+            if synced:
+                logger.info(
+                    "Agent %s: Final sweep synced %d file(s) to session %s",
+                    self._agent_id,
+                    len(synced),
+                    self._session_id,
+                )
+        except Exception as e:
+            logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
 
     async def destroy(self) -> None:
         """Destroy the task and release resources"""

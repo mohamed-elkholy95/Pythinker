@@ -237,9 +237,17 @@ const isReportFile = (file: FileInfo): boolean => {
 
 // Get display name for a file (use metadata title or resolved title for reports)
 const getDisplayName = (file: FileInfo): string => {
-    if (isReportFile(file)) {
-        if (file.metadata?.title) return file.metadata.title;
-        if (resolvedTitles.value[file.file_id]) return resolvedTitles.value[file.file_id];
+    // Reports (markdown) and PDF reports — show title from metadata
+    if (file.metadata?.title) {
+        const ext = file.filename.split('.').pop()?.toLowerCase();
+        if (isReportFile(file) || file.metadata?.is_pdf_report || file.metadata?.is_report) {
+            return ext === 'pdf'
+                ? `${file.metadata.title}`
+                : file.metadata.title;
+        }
+    }
+    if (isReportFile(file) && resolvedTitles.value[file.file_id]) {
+        return resolvedTitles.value[file.file_id];
     }
     return file.filename;
 };
@@ -359,24 +367,29 @@ const fetchFiles = async (sessionId: string) => {
     if (!sessionId) {
         return;
     }
-    let response: FileInfo[] = [];
-    if (shared.value) {
-        response = await getSharedSessionFiles(sessionId);
-    } else {
-        response = await getSessionFiles(sessionId);
-    }
-    // Sort: report files first, then by upload date (newest first)
-    files.value = response.sort((a, b) => {
-        const aIsReport = isReportFile(a) ? 1 : 0;
-        const bIsReport = isReportFile(b) ? 1 : 0;
-        if (aIsReport !== bIsReport) return bIsReport - aIsReport;
-        const dateA = a.upload_date ? new Date(a.upload_date).getTime() : 0;
-        const dateB = b.upload_date ? new Date(b.upload_date).getTime() : 0;
-        return dateB - dateA;
-    });
+    try {
+        let response: FileInfo[] = [];
+        if (shared.value) {
+            response = await getSharedSessionFiles(sessionId);
+        } else {
+            response = await getSessionFiles(sessionId);
+        }
+        // Sort: report files first, then by upload date (newest first)
+        files.value = response.sort((a, b) => {
+            const aIsReport = isReportFile(a) ? 1 : 0;
+            const bIsReport = isReportFile(b) ? 1 : 0;
+            if (aIsReport !== bIsReport) return bIsReport - aIsReport;
+            const dateA = a.upload_date ? new Date(a.upload_date).getTime() : 0;
+            const dateB = b.upload_date ? new Date(b.upload_date).getTime() : 0;
+            return dateB - dateA;
+        });
 
-    // Resolve titles for legacy report files without metadata
-    resolveReportTitles(files.value);
+        // Resolve titles for legacy report files without metadata
+        resolveReportTitles(files.value);
+    } catch (error) {
+        console.error('Failed to fetch session files:', error);
+        files.value = [];
+    }
 };
 
 const openFileDownload = async (fileInfo: FileInfo) => {

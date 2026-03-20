@@ -90,7 +90,7 @@ class TestSweepWorkspaceFiles:
         # Session has no existing files
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -112,7 +112,7 @@ class TestSweepWorkspaceFiles:
         session.files = [
             FileInfo(file_id="existing", filename="report.md", file_path="/workspace/test-session/report.md")
         ]
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -157,7 +157,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         # First file succeeds, second fails
         call_count = 0
@@ -195,7 +195,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -209,7 +209,7 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=True, data={"output": ""}))
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         await runner._sweep_workspace_files()
 
@@ -243,7 +243,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -266,7 +266,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -290,7 +290,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 
@@ -318,7 +318,7 @@ class TestSweepWorkspaceFiles:
         )
         session = MagicMock()
         session.files = []
-        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+        mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
 

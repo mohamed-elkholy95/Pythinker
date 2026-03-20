@@ -334,8 +334,8 @@ const handleBrowseUrl = (url: string) => {
 .tool-chip {
   border: 1px solid var(--border-main);
   background: var(--fill-tsp-gray-main);
-  padding: 6px 12px;
-  gap: 7px;
+  padding: 5px 10px;
+  gap: 6px;
   transition: all 0.15s ease;
 }
 
@@ -345,7 +345,7 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-idle {
-  background: var(--tool-category-bg, var(--fill-tsp-gray-main));
+  background: var(--fill-tsp-gray-main);
 }
 
 .tool-favicon {
@@ -370,8 +370,8 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-chip-text {
-  font-size: 13.5px;
-  line-height: 1.38;
+  font-size: 13px;
+  line-height: 1.35;
   color: var(--text-secondary);
   font-weight: 450;
   white-space: nowrap;

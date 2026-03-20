@@ -58,7 +58,7 @@ async def test_load_scoped_session_files_for_summary_sets_delivery_channel_and_f
     flow._delivery_scope_root = "/workspace/s1/runs/run-2"
     flow._session_id = "session-1"
     flow._session_repository = MagicMock(
-        find_by_id=AsyncMock(
+        find_by_id_with_files=AsyncMock(
             return_value=SimpleNamespace(
                 source="telegram",
                 files=[
@@ -92,7 +92,7 @@ async def test_load_scoped_session_files_for_summary_clears_stale_delivery_chann
     flow._delivery_scope_id = "run-2"
     flow._delivery_scope_root = "/workspace/s1/runs/run-2"
     flow._session_id = "session-1"
-    flow._session_repository = MagicMock(find_by_id=AsyncMock(side_effect=RuntimeError("session lookup failed")))
+    flow._session_repository = MagicMock(find_by_id_with_files=AsyncMock(side_effect=RuntimeError("session lookup failed")))
 
     result = await flow._load_scoped_session_files_for_summary()
 

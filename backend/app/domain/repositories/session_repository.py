@@ -21,6 +21,10 @@ class SessionRepository(Protocol):
         """Find a session by its ID with full payload (includes events/files)."""
         ...
 
+    async def find_by_id_with_files(self, session_id: str) -> Session | None:
+        """Find a session by its ID including files but excluding events."""
+        ...
+
     async def find_by_user_id(self, user_id: str) -> list[Session]:
         """Find all sessions for a specific user"""
         ...
