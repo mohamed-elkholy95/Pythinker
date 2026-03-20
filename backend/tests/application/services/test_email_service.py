@@ -666,42 +666,40 @@ class TestCreateVerificationEmail:
             return raw.decode()
         return str(part.get_payload())
 
-    def test_reset_email_contains_plain_text_html_and_inline_logo(self, service: EmailService) -> None:
+    def test_reset_email_contains_plain_text_html_and_embedded_logo(self, service: EmailService) -> None:
         msg = service._create_verification_email("dest@example.com", "987654")
 
         text_part = self._find_part(msg, "text/plain")
         html_part = self._find_part(msg, "text/html")
-        logo_part = self._find_part(msg, "image/png")
 
         assert text_part is not None
         assert html_part is not None
-        assert logo_part is not None
         assert "987654" in self._decode_payload(text_part)
-        assert "987654" in self._decode_payload(html_part)
-        assert "Reset your password" in self._decode_payload(html_part)
-        assert logo_part["Content-ID"] == "<pythinker_logo>"
-        assert logo_part.get_content_disposition() == "inline"
-        assert logo_part.get_filename() == "logo.png"
+        html_content = self._decode_payload(html_part)
+        assert "987654" in html_content
+        assert "Reset your password" in html_content
+        # Logo is embedded as base64 data URI, not a MIME attachment
+        assert "data:image/png;base64," in html_content
+        assert self._find_part(msg, "image/png") is None
 
-    def test_registration_email_uses_professional_copy_and_inline_logo(self, service: EmailService) -> None:
+    def test_registration_email_uses_professional_copy_and_embedded_logo(self, service: EmailService) -> None:
         msg = service._create_registration_verification_email("dest@example.com", "123456")
 
         text_part = self._find_part(msg, "text/plain")
         html_part = self._find_part(msg, "text/html")
-        logo_part = self._find_part(msg, "image/png")
 
         assert text_part is not None
         assert html_part is not None
-        assert logo_part is not None
         assert msg["Subject"] == "Verify Your Email — Pythinker"
         html_content = self._decode_payload(html_part)
         assert "Welcome to Pythinker" in html_content
         assert "verify your email address" in html_content.lower()
+        # Logo is embedded as base64 data URI, not a MIME attachment
+        assert "data:image/png;base64," in html_content
+        assert self._find_part(msg, "image/png") is None
         text_content = self._decode_payload(text_part)
         assert "123456" in text_content
         assert "10 minutes" in text_content
-        assert logo_part.get_content_disposition() == "inline"
-        assert logo_part.get_filename() == "logo.png"
 
     def test_uses_username_as_from_when_no_email_from(self, mock_cache: AsyncMock) -> None:
         settings = _make_settings(email_from="")
