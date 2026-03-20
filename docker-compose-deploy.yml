@@ -245,6 +245,7 @@ services:
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0.28
+    hostname: pythinker-mongodb
     restart: always
     command:
       - mongod
@@ -271,7 +272,7 @@ services:
       test: >-
         mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
           try { rs.status().ok }
-          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok }
+          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}).ok }
         "
       interval: 10s
       timeout: 10s
@@ -283,6 +284,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:8.4-alpine
+    hostname: pythinker-redis
     restart: always
     command:
       - redis-server
@@ -346,6 +348,7 @@ services:
   # ---------------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:v1.16.3
+    hostname: pythinker-qdrant
     restart: always
     volumes:
       - qdrant_data:/qdrant/storage
@@ -376,6 +379,7 @@ services:
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    hostname: pythinker-minio
     restart: always
     command: server /data --console-address ":9001"
     environment:
@@ -420,10 +424,11 @@ services:
       - -c
       - |
         sleep 3 && \
-        mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
-        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>/dev/null || true && \
-        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>/dev/null || true && \
-        echo "MinIO service user '$$MINIO_SERVICE_USER' ready"
+        mc alias set myminio http://pythinker-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>&1 || echo "User may already exist (OK)" && \
+        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>&1 || echo "Policy may already be attached (OK)" && \
+        mc admin user info myminio "$${MINIO_SERVICE_USER}" && \
+        echo "MinIO service user '$$MINIO_SERVICE_USER' ready with readwrite policy"
     networks:
       - pythinker-internal
     restart: "no"
