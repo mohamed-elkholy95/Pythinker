@@ -202,64 +202,30 @@ const handleBrowseUrl = (url: string) => {
 </script>
 
 <style scoped>
+/* Manus-style plain inline message — no card chrome */
 .inline-message-card {
   position: relative;
-  margin-top: 2px;
-  padding: 10px 12px 11px 15px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--border-main) 88%, white);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.82));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.inline-message-card::before {
-  content: '';
-  position: absolute;
-  inset-block: 10px;
-  inset-inline-start: 0;
-  width: 3px;
-  border-radius: 9999px;
-  background: rgba(59, 130, 246, 0.62);
+  margin: 4px 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
 }
 
 .inline-message-label {
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
+  display: none;
 }
 
 .inline-message-text {
-  margin-top: 6px;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 14.5px;
   line-height: 1.55;
   font-weight: 400;
 }
 
-:deep(.dark) .inline-message-card,
-.dark .inline-message-card {
-  border-color: rgba(148, 163, 184, 0.22);
-  background:
-    linear-gradient(135deg, rgba(30, 41, 59, 0.76), rgba(15, 23, 42, 0.72));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 1px 2px rgba(15, 23, 42, 0.18);
-}
-
-:deep(.dark) .inline-message-card::before,
-.dark .inline-message-card::before {
-  background: rgba(96, 165, 250, 0.7);
-}
-
 .tool-shimmer {
   background: var(--fill-tsp-gray-main);
-  border: 1px solid var(--border-main);
 }
 
 /* Text-only shimmer effect (narrow beam in light mode) */
@@ -332,15 +298,14 @@ const handleBrowseUrl = (url: string) => {
 
 <style>
 .tool-chip {
-  border: 1px solid var(--border-main);
+  border: none;
   background: var(--fill-tsp-gray-main);
-  padding: 5px 10px;
+  padding: 6px 12px;
   gap: 6px;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease;
 }
 
 .tool-chip:hover {
-  border-color: var(--border-dark);
   background: var(--fill-tsp-white-dark);
 }
 
@@ -364,7 +329,7 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-icon-glyph {
-  color: var(--tool-icon-accent, var(--icon-secondary));
+  color: var(--icon-secondary);
   flex-shrink: 0;
   display: block;
 }
@@ -379,75 +344,7 @@ const handleBrowseUrl = (url: string) => {
   text-overflow: ellipsis;
 }
 
-/* ── Category tint variables (light mode) ── */
-[data-tool-category="search"],
-[data-tool-category="wide_research"] {
-  --tool-category-bg: rgba(59, 130, 246, 0.08);
-  --tool-icon-accent: #3b82f6;
-}
-
-[data-tool-category="browser"],
-[data-tool-category="browser_agent"],
-[data-tool-category="playwright"] {
-  --tool-category-bg: rgba(139, 92, 246, 0.07);
-  --tool-icon-accent: #8b5cf6;
-}
-
-[data-tool-category="file"] {
-  --tool-category-bg: rgba(217, 119, 6, 0.07);
-  --tool-icon-accent: #d97706;
-}
-
-[data-tool-category="shell"],
-[data-tool-category="code_executor"] {
-  --tool-category-bg: rgba(22, 163, 74, 0.07);
-  --tool-icon-accent: #16a34a;
-}
-
-[data-tool-category="git"] {
-  --tool-category-bg: rgba(225, 29, 72, 0.07);
-  --tool-icon-accent: #e11d48;
-}
-
-[data-tool-category="deal_scraper"] {
-  --tool-category-bg: rgba(245, 158, 11, 0.08);
-  --tool-icon-accent: #f59e0b;
-}
-
-/* ── Category tint variables (dark mode) ── */
-.dark [data-tool-category="search"],
-.dark [data-tool-category="wide_research"] {
-  --tool-category-bg: rgba(59, 130, 246, 0.12);
-  --tool-icon-accent: #60a5fa;
-}
-
-.dark [data-tool-category="browser"],
-.dark [data-tool-category="browser_agent"],
-.dark [data-tool-category="playwright"] {
-  --tool-category-bg: rgba(139, 92, 246, 0.10);
-  --tool-icon-accent: #a78bfa;
-}
-
-.dark [data-tool-category="file"] {
-  --tool-category-bg: rgba(217, 119, 6, 0.10);
-  --tool-icon-accent: #fbbf24;
-}
-
-.dark [data-tool-category="shell"],
-.dark [data-tool-category="code_executor"] {
-  --tool-category-bg: rgba(22, 163, 74, 0.10);
-  --tool-icon-accent: #4ade80;
-}
-
-.dark [data-tool-category="git"] {
-  --tool-category-bg: rgba(225, 29, 72, 0.10);
-  --tool-icon-accent: #fb7185;
-}
-
-.dark [data-tool-category="deal_scraper"] {
-  --tool-category-bg: rgba(245, 158, 11, 0.10);
-  --tool-icon-accent: #fbbf24;
-}
+/* Category tint variables removed — Manus-style uniform neutral chips */
 
 /* ── Progress micro-label ── */
 .tool-progress-label {

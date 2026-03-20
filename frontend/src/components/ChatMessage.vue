@@ -219,6 +219,14 @@
           :class="{ 'rotate-180': isStepExpanded }">
           <path d="m6 9 6 6 6-6"></path>
         </svg>
+
+        <!-- Timestamp (visible like Manus) -->
+        <span
+          class="step-compact-time"
+          :title="formatTimestampTooltip(message.content.timestamp)"
+        >
+          {{ relativeTime(message.content.timestamp) }}
+        </span>
       </div>
 
       <!-- Collapsible tools -->
@@ -722,10 +730,10 @@ watch(
   background: var(--fill-tsp-white-main);
 }
 
-/* Status icons — small inline circles */
+/* Status icons — inline circles matching Manus */
 .step-compact-icon {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -735,8 +743,8 @@ watch(
 }
 
 .step-compact-icon--done {
-  background: var(--text-disable);
-  color: var(--icon-white);
+  background: #22c55e;
+  color: #fff;
 }
 
 .step-compact-icon--running {
@@ -772,12 +780,12 @@ watch(
   animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
-/* Title text */
+/* Title text — bold like Manus step headers */
 .step-compact-title {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 14.5px;
+  font-weight: 600;
   line-height: 1.35;
   color: var(--text-primary);
   white-space: nowrap;
@@ -792,6 +800,15 @@ watch(
   flex-shrink: 0;
   color: var(--text-tertiary);
   transition: transform 0.2s ease;
+}
+
+/* Timestamp — visible on right like Manus */
+.step-compact-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 /* ── Collapsible body ── */
@@ -811,10 +828,10 @@ watch(
 }
 
 .step-compact-tools {
-  padding: 4px 0 4px 36px;
+  padding: 6px 0 6px 38px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .step-thinking-nested {
@@ -840,8 +857,8 @@ watch(
 }
 
 :global(.dark) .step-compact-icon--done {
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.7);
+  background: #22c55e;
+  color: #fff;
 }
 
 :global(.dark) .step-compact-icon--running {
