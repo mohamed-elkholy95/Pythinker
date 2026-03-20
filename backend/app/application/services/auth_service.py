@@ -464,7 +464,12 @@ class AuthService:
         access_token = self.token_service.create_access_token(user)
         refresh_token = self.token_service.create_refresh_token(user)
 
-        return AuthToken(access_token=access_token, refresh_token=refresh_token, token_type="bearer", user=user)
+        return AuthToken(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            user=user,
+        )
 
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
         """Refresh access token using refresh token.
@@ -508,7 +513,11 @@ class AuthService:
             )
             new_access_token = self.token_service.create_access_token(user)
             new_refresh_token = self.token_service.create_refresh_token(user)
-            return AuthToken(access_token=new_access_token, refresh_token=new_refresh_token, token_type="bearer")
+            return AuthToken(
+                access_token=new_access_token,
+                refresh_token=new_refresh_token,
+                token_type="bearer",
+            )
 
         user = await self.user_repository.get_user_by_id(user_id)
 
@@ -523,7 +532,11 @@ class AuthService:
         new_access_token = self.token_service.create_access_token(user)
         new_refresh_token = self.token_service.create_refresh_token(user)
 
-        return AuthToken(access_token=new_access_token, refresh_token=new_refresh_token, token_type="bearer")
+        return AuthToken(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            token_type="bearer",
+        )
 
     async def verify_token(self, token: str) -> User | None:
         """Verify JWT token and return user"""

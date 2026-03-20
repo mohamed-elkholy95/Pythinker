@@ -126,15 +126,24 @@ def _parse_sse_events(
     return events
 
 
-def _create_session(message: str | None = None, retries: int = 3) -> str:
-    """Create a new session and return session_id. Retries on connection errors."""
+def _create_session(message: str | None = None, retries: int = 5) -> str:
+    """Create a new session and return session_id. Retries on connection errors and rate limits."""
     payload = {}
     if message:
         payload["message"] = message
-    last_error = None
+    last_error: Exception | str | None = None
     for attempt in range(retries):
         try:
             r = requests.put(f"{BASE_URL}/sessions", json=payload, headers=HEADERS, timeout=SHORT_TIMEOUT)
+            if r.status_code == 429:
+                # Respect rate limit: extract retry_after from response body or default to 4s
+                retry_after = 4
+                with contextlib.suppress(Exception):
+                    retry_after = int(r.json().get("error", {}).get("retry_after", 4)) + 1
+                last_error = f"Rate limited (429), retry_after={retry_after}s"
+                if attempt < retries - 1:
+                    time.sleep(retry_after)
+                continue
             assert r.status_code in {200, 201}, f"Session creation failed: {r.status_code} {r.text}"
             data = r.json()
             assert data.get("code") == 0 or data.get("success") is True, f"Unexpected response: {data}"
@@ -162,7 +171,7 @@ def _send_chat(
         "message": message,
         "timestamp": int(time.time()),
     }
-    last_error = None
+    last_error: Exception | str | None = None
     for attempt in range(retries):
         try:
             r = requests.post(
@@ -172,6 +181,14 @@ def _send_chat(
                 stream=True,
                 timeout=timeout,
             )
+            if r.status_code == 429:
+                retry_after = 4
+                with contextlib.suppress(Exception):
+                    retry_after = int(r.json().get("error", {}).get("retry_after", 4)) + 1
+                last_error = f"Rate limited (429), retry_after={retry_after}s"
+                if attempt < retries - 1:
+                    time.sleep(retry_after)
+                continue
             assert r.status_code == 200, f"Chat failed: {r.status_code} {r.text}"
             # Keep collection budget safely below HTTP read timeout to avoid
             # long-running hangs in streaming integration tests.
