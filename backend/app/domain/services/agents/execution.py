@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -601,6 +602,18 @@ class ExecutionAgent(BaseAgent):
                     # Use _display_result so step.result (the structured domain object)
                     # is never mutated by display-layer post-processing.
                     _display_result: str | None = step.result
+
+                    # Guard: extract clean text if _display_result is raw JSON
+                    # (happens when LLM returns {"success":..,"result":..} as step.result)
+                    if _display_result and _display_result.lstrip().startswith("{"):
+                        try:
+                            _parsed_display = json.loads(_display_result)
+                            if isinstance(_parsed_display, dict) and "result" in _parsed_display:
+                                _extracted = _parsed_display["result"]
+                                if _extracted and isinstance(_extracted, str):
+                                    _display_result = _extracted
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                     if step.result and self._user_request:
                         result_str = str(step.result)
                         if self._needs_verification(result_str, self._user_request):
