@@ -3,7 +3,7 @@
     <div class="sticky top-0 left-0 w-full z-[10] px-[48px] max-sm:px-[12px] max-sm:bg-[var(--background-gray-login)]">
       <div class="w-full h-[60px] mx-auto flex items-center justify-between text-[var(--text-primary)]">
         <a href="/">
-          <div class="flex">
+          <div class="flex items-center gap-[6px]">
             <img src="/icon.svg" alt="Pythinker" class="block w-[30px] h-[30px]" />
             <PythinkerLogoTextIcon />
           </div>
