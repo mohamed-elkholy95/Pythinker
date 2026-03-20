@@ -48,22 +48,25 @@
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <!-- Chat: collapse panel, focus chat -->
+          <!-- Take Control: pause agent and open browser for manual control -->
           <button
             class="panel-control-btn"
-            @click="switchToChat"
-            aria-label="Switch to chat"
+            :disabled="takeoverLoading"
+            @click="takeOver"
+            aria-label="Take control of browser"
           >
-            <MessageSquare class="w-5 h-5" />
+            <Loader2 v-if="takeoverLoading" class="w-5 h-5 animate-spin" />
+            <TakeOverIcon v-else class="w-5 h-5" />
           </button>
-          <!-- Split: toggle 50/50 width (desktop only) -->
+          <!-- Fullscreen: expand tool panel to full width (desktop only) -->
           <button
             v-if="!isMobilePanel"
             class="panel-control-btn"
-            @click="toggleSplit"
-            aria-label="Toggle split view"
+            @click="toggleFullscreen"
+            aria-label="Toggle fullscreen"
           >
-            <Columns2 class="w-5 h-5" />
+            <Minimize2 v-if="isFullscreen" class="w-5 h-5" />
+            <Maximize2 v-else class="w-5 h-5" />
           </button>
           <!-- Close -->
           <button
@@ -544,7 +547,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { MessageSquare, Columns2, MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
+import { Maximize2, Minimize2, MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -2000,7 +2003,6 @@ const emit = defineEmits<{
   (e: 'stepForward'): void,
   (e: 'stepBackward'): void,
   (e: 'seekByProgress', progress: number): void,
-  (e: 'switchToChat'): void,
   (e: 'requestWidth', width: number): void,
 }>();
 
@@ -2012,15 +2014,11 @@ const hide = () => {
 const isMobilePanel = ref(window.innerWidth < 1024)
 const onPanelResize = () => { isMobilePanel.value = window.innerWidth < 1024 }
 
-const isSplitMode = ref(false)
+const isFullscreen = ref(false)
 
-const switchToChat = () => {
-  emit('switchToChat')
-}
-
-const toggleSplit = () => {
-  isSplitMode.value = !isSplitMode.value
-  emit('requestWidth', isSplitMode.value ? -1 : 0)
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value
+  emit('requestWidth', isFullscreen.value ? -2 : 0)
 }
 
 const takeoverLoading = ref(false);
