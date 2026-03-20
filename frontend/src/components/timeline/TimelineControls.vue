@@ -34,20 +34,7 @@
           class="scrubber-track"
           @click="handleScrubberClick"
           @mousedown="startDragging"
-          @mouseenter="handleMouseEnter"
-          @mouseleave="handleMouseLeave"
-          @mousemove="handleMouseMove"
         >
-          <!-- Floating Tooltip (timestamp + tool name on hover/drag) -->
-          <div
-            v-if="tooltipVisible"
-            class="scrubber-tooltip"
-            :style="{ left: `${tooltipPosition}%` }"
-          >
-            <span v-if="tooltipToolLabel" class="scrubber-tooltip-label">{{ tooltipToolLabel }}</span>
-            <span v-if="tooltipTimestamp" class="scrubber-tooltip-time">{{ tooltipTimestamp }}</span>
-          </div>
-
           <!-- Progress Fill -->
           <div
             class="scrubber-fill"
@@ -89,10 +76,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { SkipBack, SkipForward, Play } from 'lucide-vue-next'
-import type { ToolContent } from '../../types/message'
-import { normalizeTimestampSeconds } from '../../utils/time'
-// Tool marker colors removed — clean minimal scrubber
-import { getToolDisplay } from '../../utils/toolDisplay'
 
 interface Props {
   progress: number
@@ -102,12 +85,6 @@ interface Props {
   canStepForward: boolean
   canStepBackward: boolean
   showTimestampOnInteract?: boolean
-  /** Tool timeline entries for markers and hover labels */
-  toolTimeline?: ToolContent[]
-  /** 1-based current step index (0 if nothing selected) */
-  currentStep?: number
-  /** Total number of steps in the tool timeline */
-  totalSteps?: number
 }
 
 const props = defineProps<Props>()
@@ -122,8 +99,6 @@ const emit = defineEmits<{
 const controlsRef = ref<HTMLElement | null>(null)
 const scrubberRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
-const isHovering = ref(false)
-const hoverPercent = ref(0)
 
 // ── Keyboard navigation ──
 const handleKeydown = (event: KeyboardEvent) => {
@@ -142,83 +117,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-// ── Timestamp formatting ──
-const formatTimestamp = (ts: number | undefined): string => {
-  const normalized = normalizeTimestampSeconds(ts ?? Number.NaN)
-  if (normalized === null) return ''
-  const date = new Date(normalized * 1000)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('en-US', {
-    month: 'numeric',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  })
-}
-
-const _formattedTimestamp = computed(() => formatTimestamp(props.currentTimestamp))
-
-// ── Hover tooltip (tool name + timestamp) ──
-const hoveredToolIndex = computed(() => {
-  const tools = props.toolTimeline ?? []
-  if (tools.length === 0) return -1
-  const maxIdx = tools.length - 1
-  return Math.round((hoverPercent.value / 100) * maxIdx)
-})
-
-const hoveredTool = computed(() => {
-  const tools = props.toolTimeline ?? []
-  const idx = hoveredToolIndex.value
-  if (idx < 0 || idx >= tools.length) return null
-  return tools[idx]
-})
-
-const tooltipVisible = computed(() => {
-  if (!props.showTimestampOnInteract) return showTimestamp.value
-  return (isHovering.value || isDragging.value) && hoveredTool.value !== null
-})
-
-const tooltipPosition = computed(() => {
-  if (isDragging.value) return progress.value
-  return hoverPercent.value
-})
-
-const tooltipToolLabel = computed(() => {
-  if (!hoveredTool.value) return ''
-  const display = getToolDisplay({
-    name: hoveredTool.value.name,
-    function: hoveredTool.value.function,
-    args: hoveredTool.value.args,
-    display_command: hoveredTool.value.display_command,
-  })
-  return display.displayName
-})
-
-const tooltipTimestamp = computed(() => {
-  if (!hoveredTool.value) return ''
-  return formatTimestamp(hoveredTool.value.timestamp)
-})
-
 const progress = computed(() => props.progress)
-
-// ── Mouse interaction ──
-const handleMouseEnter = () => {
-  isHovering.value = true
-}
-
-const handleMouseLeave = () => {
-  isHovering.value = false
-}
-
-const handleMouseMove = (event: MouseEvent) => {
-  if (!scrubberRef.value) return
-  const rect = scrubberRef.value.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  hoverPercent.value = Math.max(0, Math.min(100, (x / rect.width) * 100))
-}
 
 // Handle click on scrubber
 const handleScrubberClick = (event: MouseEvent) => {
@@ -242,9 +141,9 @@ const handleDrag = (event: MouseEvent) => {
 
   const rect = scrubberRef.value.getBoundingClientRect()
   const clickX = event.clientX - rect.left
-  hoverPercent.value = Math.max(0, Math.min(100, (clickX / rect.width) * 100))
+  const dragPercent = Math.max(0, Math.min(100, (clickX / rect.width) * 100))
 
-  emit('seekByProgress', hoverPercent.value)
+  emit('seekByProgress', dragPercent)
 }
 
 const stopDragging = () => {
@@ -384,36 +283,6 @@ onUnmounted(() => {
 :global(.dark) .scrubber-thumb {
   background: #60a5fa;
   box-shadow: 0 1px 4px rgba(96, 165, 250, 0.4);
-}
-
-/* ── Scrubber tooltip ── */
-.scrubber-tooltip {
-  position: absolute;
-  transform: translateX(-50%);
-  bottom: 12px;
-  border-radius: 6px;
-  background: var(--text-primary);
-  color: var(--background-white-main);
-  font-size: 10px;
-  font-weight: 500;
-  padding: 3px 8px;
-  pointer-events: none;
-  white-space: nowrap;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-}
-
-.scrubber-tooltip-label {
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.scrubber-tooltip-time {
-  font-size: 9px;
-  opacity: 0.7;
 }
 
 /* ── Jump to live (inline button) ── */
