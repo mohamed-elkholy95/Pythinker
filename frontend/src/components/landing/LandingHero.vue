@@ -15,15 +15,14 @@
 
           <Transition appear name="fade-up-d1">
             <h1 class="hero-headline">
-              Build. Deploy. Automate.<br />
-              <span class="hero-headline-accent">Scale Without Limits.</span>
+              Your AI agent that<br />
+              <span class="hero-headline-accent">gets work done.</span>
             </h1>
           </Transition>
 
           <Transition appear name="fade-up-d2">
             <p class="hero-sub">
-              An autonomous AI agent that researches, writes code, browses the web,
-              and delivers results &mdash; end to end. Give it a task and watch it work.
+              Research, code, browse, and deliver &mdash; autonomously.
             </p>
           </Transition>
 
@@ -260,14 +259,14 @@ const scrollTo = (id: string) => {
 }
 .hero-badge-icon { color: var(--text-brand); }
 .hero-headline {
-  font-family: var(--font-display); font-size: 52px; font-weight: 400;
-  line-height: 1.12; letter-spacing: -0.03em; color: var(--text-primary);
+  font-family: var(--font-display); font-size: 44px; font-weight: 400;
+  line-height: 1.15; letter-spacing: -0.025em; color: var(--text-primary);
 }
 .hero-headline-accent {
   background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
-.hero-sub { max-width: 520px; font-size: 16px; line-height: 1.65; color: var(--text-secondary); }
+.hero-sub { max-width: 440px; font-size: 15px; line-height: 1.6; color: var(--text-secondary); }
 .hero-ctas { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
 .hero-btn {
   display: inline-flex; align-items: center; gap: 8px;
@@ -558,8 +557,8 @@ const scrollTo = (id: string) => {
   .hero { padding: 90px 16px 40px; min-height: auto; }
   .hero-split { flex-direction: column-reverse; gap: 32px; }
   .hero-text { align-items: center; text-align: center; }
-  .hero-headline { font-size: 32px; }
-  .hero-sub { font-size: 15px; }
+  .hero-headline { font-size: 28px; }
+  .hero-sub { font-size: 14px; }
   .hero-ctas { flex-direction: column; width: 100%; }
   .hero-btn { width: 100%; justify-content: center; }
   .mascot-img { width: 180px; }
@@ -569,7 +568,7 @@ const scrollTo = (id: string) => {
   .pc-doc-lines:last-child { display: none; }
 }
 @media (min-width: 769px) and (max-width: 1024px) {
-  .hero-headline { font-size: 42px; }
+  .hero-headline { font-size: 36px; }
   .mascot-img { width: 220px; }
   .preview-sidebar { width: 120px; }
   .preview-pc-panel { width: 280px; }
