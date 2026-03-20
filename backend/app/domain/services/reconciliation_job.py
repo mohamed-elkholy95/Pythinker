@@ -7,6 +7,8 @@ Ensures data consistency by:
 - Reporting inconsistencies for monitoring
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -26,13 +28,17 @@ class ReconciliationJob:
     - MongoDB memories without Qdrant vectors
     - Qdrant vectors without MongoDB memories (orphans)
     - Stale failed sync operations
+
+    Accepts either a MemoriesCollectionProtocol implementation or a raw
+    Motor/AsyncIOMotorCollection for the memories_collection parameter.
+    When a raw Motor collection is provided, queries are performed directly.
     """
 
     def __init__(
         self,
         outbox_repo: SyncOutboxRepository,
         qdrant_repo: VectorMemoryRepository,
-        memories_collection: MemoriesCollectionProtocol,
+        memories_collection: MemoriesCollectionProtocol | Any,
         retry_failed_after_hours: int = 1,  # Retry failed syncs after 1 hour
         max_retries_per_run: int = 100,
     ):
@@ -41,6 +47,7 @@ class ReconciliationJob:
         self.memories_collection = memories_collection
         self.retry_failed_after_hours = retry_failed_after_hours
         self.max_retries_per_run = max_retries_per_run
+        self._is_protocol = isinstance(memories_collection, MemoriesCollectionProtocol)
 
     async def run_reconciliation(self) -> dict[str, Any]:
         """Run full reconciliation cycle.
@@ -91,6 +98,126 @@ class ReconciliationJob:
 
         return stats
 
+    async def _find_failed_memories(
+        self,
+        cutoff: datetime,
+        max_sync_attempts: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Find failed memory documents eligible for sync retry.
+
+        Delegates to MemoriesCollectionProtocol when available,
+        otherwise queries the raw Motor collection directly.
+        """
+        if self._is_protocol:
+            return await self.memories_collection.find_failed_memories(
+                cutoff=cutoff,
+                max_sync_attempts=max_sync_attempts,
+                limit=limit,
+            )
+
+        # Raw Motor collection: query directly
+        cursor = self.memories_collection.find(
+            {
+                "sync_state": "failed",
+                "last_sync_attempt": {"$lt": cutoff},
+                "sync_attempts": {"$lt": max_sync_attempts},
+            }
+        ).limit(limit)
+
+        return await cursor.to_list(length=limit)
+
+    async def _find_synced_memories_needing_verification(
+        self,
+        since: datetime,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Find recently synced memories that should be verified in vector store.
+
+        Delegates to MemoriesCollectionProtocol when available,
+        otherwise queries the raw Motor collection directly.
+        """
+        if self._is_protocol:
+            return await self.memories_collection.find_synced_memories_needing_verification(
+                since=since,
+                limit=limit,
+            )
+
+        # Raw Motor collection: query directly
+        cursor = self.memories_collection.find(
+            {
+                "sync_state": "synced",
+                "updated_at": {"$gte": since},
+                "embedding": {"$exists": True, "$ne": None},
+            }
+        ).limit(limit)
+
+        return await cursor.to_list(length=limit)
+
+    async def _update_sync_state(
+        self,
+        memory_id: str,
+        sync_state: str,
+        sync_attempts_increment: int = 0,
+        last_sync_attempt: datetime | None = None,
+    ) -> bool:
+        """Update sync state fields on a memory document.
+
+        Delegates to MemoriesCollectionProtocol when available,
+        otherwise updates the raw Motor collection directly.
+        """
+        if self._is_protocol:
+            return await self.memories_collection.update_sync_state(
+                memory_id=memory_id,
+                sync_state=sync_state,
+                sync_attempts_increment=sync_attempts_increment,
+                last_sync_attempt=last_sync_attempt,
+            )
+
+        # Raw Motor collection: update directly
+        from bson import ObjectId
+
+        update_doc: dict[str, Any] = {"$set": {"sync_state": sync_state}}
+
+        if last_sync_attempt is not None:
+            update_doc["$set"]["last_sync_attempt"] = last_sync_attempt
+
+        if sync_attempts_increment > 0:
+            update_doc["$inc"] = {"sync_attempts": sync_attempts_increment}
+
+        try:
+            object_id = ObjectId(memory_id)
+        except Exception:
+            logger.warning("Invalid ObjectId for memory_id=%r; skipping sync state update.", memory_id)
+            return False
+
+        result = await self.memories_collection.update_one(
+            {"_id": object_id},
+            update_doc,
+        )
+        return result.modified_count > 0
+
+    async def _aggregate_sync_states(self) -> dict[str, int]:
+        """Aggregate memory documents by sync state.
+
+        Delegates to MemoriesCollectionProtocol when available,
+        otherwise aggregates on the raw Motor collection directly.
+        """
+        if self._is_protocol:
+            return await self.memories_collection.aggregate_sync_states()
+
+        # Raw Motor collection: aggregate directly
+        pipeline = [
+            {"$group": {"_id": "$sync_state", "count": {"$sum": 1}}},
+        ]
+
+        sync_states: dict[str, int] = {}
+        async for doc in self.memories_collection.aggregate(pipeline):
+            state = doc["_id"] or "unknown"
+            sync_states[state] = doc["count"]
+
+        return sync_states
+
     async def _retry_failed_syncs(self) -> int:
         """Retry failed sync operations that are eligible for retry.
 
@@ -103,7 +230,7 @@ class ReconciliationJob:
         cutoff = datetime.now(UTC) - timedelta(hours=self.retry_failed_after_hours)
 
         # Find failed memories eligible for retry
-        failed_memories = await self.memories_collection.find_failed_memories(
+        failed_memories = await self._find_failed_memories(
             cutoff=cutoff,
             max_sync_attempts=10,
             limit=self.max_retries_per_run,
@@ -138,7 +265,7 @@ class ReconciliationJob:
                 )
 
                 # Update memory to indicate retry
-                await self.memories_collection.update_sync_state(
+                await self._update_sync_state(
                     memory_id=memory_id,
                     sync_state="pending",
                     sync_attempts_increment=1,
@@ -168,7 +295,7 @@ class ReconciliationJob:
         # Sample recently synced memories to verify
         recent_cutoff = datetime.now(UTC) - timedelta(hours=24)
 
-        synced_memories = await self.memories_collection.find_synced_memories_needing_verification(
+        synced_memories = await self._find_synced_memories_needing_verification(
             since=recent_cutoff,
             limit=100,
         )
@@ -207,7 +334,7 @@ class ReconciliationJob:
                     )
 
                     # Update sync state
-                    await self.memories_collection.update_sync_state(
+                    await self._update_sync_state(
                         memory_id=memory_id,
                         sync_state="pending",
                     )
@@ -244,7 +371,7 @@ class ReconciliationJob:
             Current state of sync operations
         """
         # Count memories by sync state
-        sync_states = await self.memories_collection.aggregate_sync_states()
+        sync_states = await self._aggregate_sync_states()
 
         # Get outbox stats
         outbox_stats = await self.outbox_repo.get_stats()
