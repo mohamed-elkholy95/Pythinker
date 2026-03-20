@@ -8,8 +8,102 @@
 
 /* Inform the browser which color schemes are supported so native UI elements
    (scrollbars, form controls, system backgrounds) match the active theme. */
-:root { color-scheme: light; }
-:root[data-theme='dark'], .dark { color-scheme: dark; }
+:root {
+  color-scheme: light;
+  /* Terminal — Manus light: white chrome, warm gray (#f8f8f8) viewport, shiki green prompt */
+  --terminal-tool-outer-bg: #ffffff;
+  --terminal-tool-viewport-bg: #f8f8f8;
+  --terminal-tool-border: #e8e8e8;
+  --terminal-tool-prompt: #16a34a;
+  --terminal-tool-text: #171717;
+  --terminal-tool-text-muted: #737373;
+}
+
+:root[data-theme='dark'],
+.dark {
+  color-scheme: dark;
+  /* Manus dark: #1e1e1e chrome, #252525 body (neutral, not navy / not pure black) */
+  --terminal-tool-outer-bg: #1e1e1e;
+  --terminal-tool-viewport-bg: #252525;
+  --terminal-tool-border: rgba(255, 255, 255, 0.08);
+  --terminal-tool-prompt: #4ade80;
+  --terminal-tool-text: #e8e8e8;
+  --terminal-tool-text-muted: #a3a3a3;
+}
+
+/* xterm / terminal surfaces: scrollbar only on hover, thin rail (WebKit + Firefox) */
+.terminal-tool-xterm-hover-scroll .xterm-viewport {
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+.terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--terminal-tool-text-muted) 55%, transparent) transparent;
+}
+.dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport,
+:root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
+  scrollbar-color: color-mix(in srgb, #ffffff 28%, transparent) transparent;
+}
+
+.terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar {
+  width: 5px;
+}
+.terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 5px;
+  transition: background-color 0.15s ease;
+}
+.terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--terminal-tool-text) 22%, transparent);
+}
+.dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb,
+:root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, #ffffff 22%, transparent);
+}
+
+/* Static shell output (Shiki HTML) — same hover scrollbar */
+.terminal-tool-shell-output-hover-scroll {
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+.terminal-tool-shell-output-hover-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--terminal-tool-text-muted) 55%, transparent) transparent;
+}
+.dark .terminal-tool-shell-output-hover-scroll:hover,
+:root[data-theme='dark'] .terminal-tool-shell-output-hover-scroll:hover {
+  scrollbar-color: color-mix(in srgb, #ffffff 28%, transparent) transparent;
+}
+.terminal-tool-shell-output-hover-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.terminal-tool-shell-output-hover-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-tool-shell-output-hover-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 5px;
+  transition: background-color 0.15s ease;
+}
+.terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--terminal-tool-text) 22%, transparent);
+}
+.dark .terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb,
+:root[data-theme='dark'] .terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, #ffffff 22%, transparent);
+}
+
+/* xterm 6+ macOS-style overlay scrollbar — hidden until terminal strip is hovered */
+.terminal-tool-xterm-hover-scroll .xterm-scrollable-element .scrollbar.vertical {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.terminal-tool-xterm-hover-scroll:hover .xterm-scrollable-element .scrollbar.vertical {
+  opacity: 1;
+}
 
 #app {
   display: contents;
