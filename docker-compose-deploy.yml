@@ -1,32 +1,28 @@
 # =============================================================================
-# Pythinker — Dokploy Deployment (Compose)
+# Pythinker — Production Deployment
 # =============================================================================
 #
-# Designed for Dokploy's managed Traefik reverse proxy.
-# Dokploy provides: TLS termination, domain routing, load balancing.
-# This file provides: application services + internal infrastructure.
+# Single compose file that works ANYWHERE:
 #
-# Routing architecture:
-#   Dokploy Traefik → frontend:80 (nginx) → /api/* proxied to backend:8000
+#   VPS (pre-built):   docker compose -f docker-compose-deploy.yml pull && \
+#                      docker compose -f docker-compose-deploy.yml up -d
 #
-# Dokploy setup:
-#   1. Create Compose project, point to this repo
-#   2. Set Compose Path: docker-compose-deploy.yml
-#   3. Add domain: pythinker.com → service "frontend", port 80
-#   4. Configure environment variables in Dokploy UI or .env file
-#   5. Create secrets/ directory with:
-#      - secrets/mongo_root_username.txt
-#      - secrets/mongo_root_password.txt
+#   Local (from source): docker compose -f docker-compose-deploy.yml up --build -d
 #
+#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull && up -d
+#
+# CI auto-deploys on push to main via SSH (see .github/workflows/deploy.yml).
+# First-time VPS setup: ./scripts/vps-bootstrap.sh
+#
+# Routing: Traefik (Dokploy) → frontend:80 (nginx) → /api/* → backend:8000
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # Frontend — Nginx serving Vue 3 SPA (built from source)
+  # Frontend — Nginx serving Vue 3 SPA
   # ---------------------------------------------------------------------------
-  # Dokploy routes pythinker.com → this container on port 80.
-  # Nginx proxies /api/* internally to backend:8000.
   frontend:
+    image: ghcr.io/mohamed-elkholy95/pythinker-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -52,9 +48,10 @@ services:
           cpus: '0.5'
 
   # ---------------------------------------------------------------------------
-  # Backend — FastAPI + uvicorn (built from source)
+  # Backend — FastAPI + uvicorn
   # ---------------------------------------------------------------------------
   backend:
+    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -121,6 +118,7 @@ services:
   # Gateway — Telegram / Channel Integration (reuses backend image)
   # ---------------------------------------------------------------------------
   gateway:
+    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -166,9 +164,10 @@ services:
       - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD}
 
   # ---------------------------------------------------------------------------
-  # Sandbox — Isolated Docker Execution Environment (built from source)
+  # Sandbox — Isolated Docker Execution Environment
   # ---------------------------------------------------------------------------
   sandbox:
+    image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
     build:
       context: ./sandbox
       dockerfile: Dockerfile
@@ -257,11 +256,8 @@ services:
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_root_username
-      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_root_password
-    secrets:
-      - mongo_root_username
-      - mongo_root_password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
     networks:
       - pythinker-internal
     deploy:
@@ -359,7 +355,6 @@ services:
       - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
       - QDRANT__STORAGE__QUANTIZATION__SCALAR__TYPE=int8
       - QDRANT__STORAGE__QUANTIZATION__SCALAR__ALWAYS_RAM=true
-      - QDRANT__STORAGE__OPTIMIZERS__INDEXING_THRESHOLD=20000
       - QDRANT__STORAGE__OPTIMIZERS__FLUSH_INTERVAL_SEC=5
     networks:
       - pythinker-internal
@@ -371,7 +366,7 @@ services:
         reservations:
           memory: 512M
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -434,16 +429,7 @@ services:
     restart: "no"
 
 # =============================================================================
-# Secrets — Mounted at /run/secrets/ (never visible in docker inspect)
-# =============================================================================
-secrets:
-  mongo_root_username:
-    file: ./secrets/mongo_root_username.txt
-  mongo_root_password:
-    file: ./secrets/mongo_root_password.txt
-
-# =============================================================================
-# Volumes
+# Volumes — Named volumes auto-create on first run, no manual setup needed
 # =============================================================================
 volumes:
   mongodb_data:
@@ -463,12 +449,9 @@ volumes:
 # Networks
 # =============================================================================
 networks:
-  # Dokploy's managed network — Traefik routes to containers on this network.
-  # Created and managed by Dokploy; declared external here.
+  # Traefik network — create with: docker network create dokploy-network
   dokploy-network:
     external: true
-  # Internal network for database and service communication.
-  # No external/internet access — containers only.
+  # Internal network — databases and services only, no internet access.
   pythinker-internal:
-    name: pythinker-internal
     internal: true
