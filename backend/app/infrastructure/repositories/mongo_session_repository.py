@@ -110,6 +110,22 @@ class MongoSessionRepository(SessionRepository):
             doc["id"] = doc.pop("session_id")
         return Session.model_validate(doc)
 
+    async def find_by_id_with_files(self, session_id: str) -> Session | None:
+        """Find a session by ID including files but excluding heavy events array."""
+        collection = SessionDocument.get_pymongo_collection()
+        doc = await collection.find_one(
+            {"session_id": session_id},
+            projection={"events": 0},
+        )
+        if not doc:
+            return None
+        doc.pop("_id", None)
+        doc.setdefault("events", [])
+        doc.setdefault("files", [])
+        if "session_id" in doc:
+            doc["id"] = doc.pop("session_id")
+        return Session.model_validate(doc)
+
     async def get_by_id(self, session_id: str) -> Session | None:
         """Backward-compatible alias for find_by_id."""
         return await self.find_by_id(session_id)

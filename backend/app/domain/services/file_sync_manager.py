@@ -700,7 +700,7 @@ class FileSyncManager:
             if not discovered_paths:
                 return []
 
-            session = await self._session_repository.find_by_id(self._session_id)
+            session = await self._session_repository.find_by_id_with_files(self._session_id)
             existing_paths: set[str] = set()
             if session and session.files:
                 for f in session.files:
@@ -797,9 +797,15 @@ class FileSyncManager:
                 return
 
             valid_attachments = []
+            already_uploaded = []
             for attachment in event.attachments:
                 if attachment.file_path and attachment.file_path.strip():
-                    valid_attachments.append(attachment)
+                    if attachment.file_id:
+                        # Already uploaded to storage (e.g., PDF generated in memory).
+                        # Preserve as-is — no need to re-download from sandbox.
+                        already_uploaded.append(attachment)
+                    else:
+                        valid_attachments.append(attachment)
                 else:
                     logger.warning(
                         "Agent %s: Skipping attachment with invalid file_path: file_id=%s, filename=%s",
@@ -808,7 +814,7 @@ class FileSyncManager:
                         attachment.filename,
                     )
 
-            if not valid_attachments:
+            if not valid_attachments and not already_uploaded:
                 logger.debug(
                     "Agent %s: No valid attachments to sync for %s event",
                     self._agent_id,
@@ -817,59 +823,69 @@ class FileSyncManager:
                 event.attachments = []
                 return
 
-            logger.info(
-                "Agent %s: Syncing %d attachments for %s event to storage",
-                self._agent_id,
-                len(valid_attachments),
-                event_type,
-            )
-
-            sync_tasks = [
-                self.sync_file_to_storage(
-                    attachment.file_path,
-                    content_type=attachment.content_type,
-                    metadata=attachment.metadata,
+            if already_uploaded:
+                logger.info(
+                    "Agent %s: Preserving %d already-uploaded attachments for %s event",
+                    self._agent_id,
+                    len(already_uploaded),
+                    event_type,
                 )
-                for attachment in valid_attachments
-            ]
-            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+                synced_attachments.extend(already_uploaded)
 
-            for i, result in enumerate(results):
-                file_path = valid_attachments[i].file_path
-                if isinstance(result, Exception):
-                    logger.warning(
-                        "Agent %s: Failed to sync attachment '%s': %s",
-                        self._agent_id,
-                        file_path,
-                        result,
+            if valid_attachments:
+                logger.info(
+                    "Agent %s: Syncing %d attachments for %s event to storage",
+                    self._agent_id,
+                    len(valid_attachments),
+                    event_type,
+                )
+
+                sync_tasks = [
+                    self.sync_file_to_storage(
+                        attachment.file_path,
+                        content_type=attachment.content_type,
+                        metadata=attachment.metadata,
                     )
-                elif result is None:
-                    logger.warning(
-                        "Agent %s: Sync returned None for attachment '%s'",
-                        self._agent_id,
-                        file_path,
-                    )
-                elif not result.file_id:
-                    logger.warning(
-                        "Agent %s: Synced attachment '%s' has no file_id",
-                        self._agent_id,
-                        file_path,
-                    )
-                else:
-                    synced_attachments.append(result)
-                    logger.debug(
-                        "Agent %s: Successfully synced attachment '%s' -> file_id=%s",
-                        self._agent_id,
-                        file_path,
-                        result.file_id,
-                    )
+                    for attachment in valid_attachments
+                ]
+                results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+                for i, result in enumerate(results):
+                    file_path = valid_attachments[i].file_path
+                    if isinstance(result, Exception):
+                        logger.warning(
+                            "Agent %s: Failed to sync attachment '%s': %s",
+                            self._agent_id,
+                            file_path,
+                            result,
+                        )
+                    elif result is None:
+                        logger.warning(
+                            "Agent %s: Sync returned None for attachment '%s'",
+                            self._agent_id,
+                            file_path,
+                        )
+                    elif not result.file_id:
+                        logger.warning(
+                            "Agent %s: Synced attachment '%s' has no file_id",
+                            self._agent_id,
+                            file_path,
+                        )
+                    else:
+                        synced_attachments.append(result)
+                        logger.debug(
+                            "Agent %s: Successfully synced attachment '%s' -> file_id=%s",
+                            self._agent_id,
+                            file_path,
+                            result.file_id,
+                        )
 
             logger.info(
-                "Agent %s: Successfully synced %d/%d attachments for %s event",
+                "Agent %s: Total attachments for %s event: %d synced + %d pre-uploaded",
                 self._agent_id,
-                len(synced_attachments),
-                len(valid_attachments),
                 event_type,
+                len(synced_attachments) - len(already_uploaded),
+                len(already_uploaded),
             )
 
         except Exception as e:

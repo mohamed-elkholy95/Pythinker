@@ -28,6 +28,9 @@ const ImageFilePreview = defineAsyncComponent(
 const HtmlFilePreview = defineAsyncComponent(
   () => import('../components/filePreviews/HtmlFilePreview.vue')
 );
+const PdfFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/PdfFilePreview.vue')
+);
 
 export interface FileType {
   icon: Component; // Lucide icon component
@@ -293,6 +296,14 @@ export const getFileType = (filename: string, metadata?: Record<string, any>): F
     return {
       icon: iconComponent,
       preview: ImageFilePreview,
+    };
+  }
+
+  // PDF files — embed in iframe for native browser preview
+  if (file_extension === 'pdf') {
+    return {
+      icon: iconComponent,
+      preview: PdfFilePreview,
     };
   }
 

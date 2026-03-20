@@ -442,7 +442,7 @@ describe('ChatMessage', () => {
         },
       })
 
-      const runningIndicator = wrapper.find('.step-running')
+      const runningIndicator = wrapper.find('.step-compact-icon--running')
       expect(runningIndicator.exists()).toBe(true)
     })
 
@@ -470,8 +470,8 @@ describe('ChatMessage', () => {
         },
       })
 
-      const toolsList = wrapper.find('.step-tools-list')
-      expect(toolsList.classes()).toContain('max-h-0')
+      const toolsBody = wrapper.find('.step-compact-body')
+      expect(toolsBody.classes()).toContain('step-compact-body--closed')
     })
 
     it('should auto-expand running steps', () => {
@@ -498,8 +498,8 @@ describe('ChatMessage', () => {
         },
       })
 
-      const toolsList = wrapper.find('.step-tools-list')
-      expect(toolsList.classes()).not.toContain('max-h-0')
+      const toolsBody = wrapper.find('.step-compact-body')
+      expect(toolsBody.classes()).toContain('step-compact-body--open')
     })
 
     it('passes isTaskRunning to last tool while step is running', () => {
@@ -538,7 +538,7 @@ describe('ChatMessage', () => {
       expect(tools[1].attributes('data-running')).toBe('true')
     })
 
-    it('renders bottom connector for first step and extends to next step', () => {
+    it('renders compact step header with status icon', () => {
       const wrapper = mount(ChatMessage, {
         props: {
           message: mockStepMessage,
@@ -554,12 +554,11 @@ describe('ChatMessage', () => {
         },
       })
 
-      expect(wrapper.find('.step-connector-top').exists()).toBe(false)
-      expect(wrapper.find('.step-connector-bottom').exists()).toBe(true)
-      expect(wrapper.find('.step-connector-bottom').classes()).toContain('step-connector-extended')
+      expect(wrapper.find('.step-compact-header').exists()).toBe(true)
+      expect(wrapper.find('.step-compact-icon').exists()).toBe(true)
     })
 
-    it('renders top connector only for last step', () => {
+    it('renders compact step title', () => {
       const wrapper = mount(ChatMessage, {
         props: {
           message: mockStepMessage,
@@ -575,8 +574,8 @@ describe('ChatMessage', () => {
         },
       })
 
-      expect(wrapper.find('.step-connector-top').exists()).toBe(true)
-      expect(wrapper.find('.step-connector-bottom').exists()).toBe(false)
+      expect(wrapper.find('.step-compact-title').exists()).toBe(true)
+      expect(wrapper.find('.step-compact-title').text()).toBe(mockStepMessage.content.description)
     })
   })
 })

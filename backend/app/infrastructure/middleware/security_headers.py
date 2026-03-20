@@ -152,6 +152,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;"
             )
 
+        # Allow same-origin framing for file downloads (PDF preview in iframe)
+        if "/files/" in path and path.endswith("/download"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+
         # Strict cache control for auth endpoints
         if "/auth/" in path or "/sessions/" in path:
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"

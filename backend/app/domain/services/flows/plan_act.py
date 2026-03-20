@@ -1594,7 +1594,7 @@ class PlanActFlow(BaseFlow):
         """Fetch session files for summarization and clear stale delivery-channel state on failure."""
         self.executor.set_delivery_channel(None)
         try:
-            session = await self._session_repository.find_by_id(self._session_id)
+            session = await self._session_repository.find_by_id_with_files(self._session_id)
         except Exception as e:
             logger.warning(f"Failed to fetch session files: {e}")
             return []

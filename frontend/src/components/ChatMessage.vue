@@ -1,8 +1,8 @@
 <template>
-  <div v-if="message.type === 'user'" class="chat-message-entry user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-3">
+  <div v-if="message.type === 'user'" class="chat-message-entry user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-2">
     <div class="user-message-inner flex max-w-[85%] flex-col gap-1 items-end">
       <div
-        class="user-message-bubble relative flex items-center rounded-[20px] overflow-hidden bg-[var(--background-white-main)] px-5 py-3.5 border border-[var(--border-main)]"
+        class="user-message-bubble relative flex items-center rounded-[18px] overflow-hidden bg-[var(--background-white-main)] px-4 py-3 border border-[var(--border-main)]"
       >
         <div class="flex items-center gap-2 w-full">
           <div
@@ -49,7 +49,7 @@
   <template v-else-if="message.type === 'assistant'">
     <div
       v-if="props.renderAsSummaryCard"
-      class="chat-message-entry assistant-summary-card-block flex flex-col gap-1 w-full group mt-3"
+      class="chat-message-entry assistant-summary-card-block flex flex-col gap-1 w-full group mt-2"
     >
       <div
         v-if="props.showAssistantHeader !== false"
@@ -90,7 +90,7 @@
       :class="[
         'chat-message-entry flex flex-col gap-1 w-full group',
         isAssistantSummaryCompact ? 'assistant-summary-layout' : '',
-        props.showAssistantHeader === false ? 'mt-1' : 'mt-3'
+        props.showAssistantHeader === false ? 'mt-0.5' : 'mt-2'
       ]"
     >
       <div
@@ -169,7 +169,7 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <div v-else-if="message.type === 'tool'" class="chat-message-entry mt-3">
+  <div v-else-if="message.type === 'tool'" class="chat-message-entry mt-2">
     <ToolUse
       :tool="toolContent"
       :is-active="true"
@@ -179,7 +179,7 @@
   </div>
   <div
     v-else-if="message.type === 'step'"
-    class="chat-message-entry step-message flex flex-col empty:pb-0"
+    class="chat-message-entry step-message-compact"
   >
     <!-- Finalization step: professional card with sub-stage progression -->
     <FinalizationStepCard
@@ -188,97 +188,61 @@
       :show-top-connector="showStepTopConnector"
       :show-bottom-connector="showStepBottomConnector"
     />
-    <!-- Unified step layout with left rail for timeline -->
-    <div v-else class="step-inner flex">
-      <!-- Left rail: Status indicator + Timeline line -->
-      <div class="step-left-rail w-[24px] relative flex-shrink-0">
-        <!-- Status indicator at top -->
-        <div class="step-status-node w-4 flex items-center justify-center relative z-[1]" style="height: 26px;">
-          <div v-if="stepContent.status === 'completed' || stepContent.status === 'skipped'"
-            class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex items-center justify-center rounded-[15px]">
-            <CheckIcon class="step-completed-check" :size="10" :stroke-width="2" />
-          </div>
-          <div v-else-if="stepContent.status === 'running' || stepContent.status === 'started'"
-            class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex items-center justify-center rounded-[15px] step-running">
-            <span class="step-running-dot" aria-hidden="true"></span>
-          </div>
-          <div v-else-if="stepContent.status === 'failed' || stepContent.status === 'blocked'"
-            class="step-status-indicator step-icon-badge step-icon-failed w-4 h-4 flex items-center justify-center rounded-[15px]">
-            <XIcon class="step-failed-x" :size="10" :stroke-width="2.5" />
-          </div>
-          <div v-else
-            class="step-status-indicator step-icon-badge step-icon-pending w-4 h-4 flex items-center justify-center rounded-[15px]">
-          </div>
+    <!-- Compact inline step (Manus-style: icon + title + chevron in one row) -->
+    <div v-else class="step-compact">
+      <!-- Step Header (clickable) -->
+      <div class="step-compact-header" @click="handleStepToggle">
+        <!-- Status icon -->
+        <div v-if="stepContent.status === 'completed' || stepContent.status === 'skipped'"
+          class="step-compact-icon step-compact-icon--done">
+          <CheckIcon :size="10" :stroke-width="2.5" />
         </div>
-        <!-- Timeline segments: top (to node) + bottom (from node) -->
-        <div
-          v-if="showStepTopConnector"
-          class="step-connector-segment step-connector-top"
-        ></div>
-        <div
-          v-if="showStepBottomConnector"
-          class="step-connector-segment step-connector-bottom"
-          :class="{ 'step-connector-extended': props.showStepConnector }"
-        ></div>
+        <div v-else-if="stepContent.status === 'running' || stepContent.status === 'started'"
+          class="step-compact-icon step-compact-icon--running">
+          <span class="step-running-dot" aria-hidden="true"></span>
+        </div>
+        <div v-else-if="stepContent.status === 'failed' || stepContent.status === 'blocked'"
+          class="step-compact-icon step-compact-icon--failed">
+          <XIcon :size="10" :stroke-width="2.5" />
+        </div>
+        <div v-else class="step-compact-icon step-compact-icon--pending"></div>
+
+        <!-- Title -->
+        <span class="step-compact-title" :title="stepContent.description">
+          {{ stepContent.description }}
+        </span>
+
+        <!-- Chevron -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          class="step-compact-chevron"
+          :class="{ 'rotate-180': isStepExpanded }">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
       </div>
-      
-      <!-- Right content: Header + Tools -->
-      <div class="step-right-content flex-1 min-w-0">
-        <!-- Step Header (clickable) -->
-        <div
-          class="step-header text-sm w-full clickable flex justify-between items-center truncate text-[var(--text-primary)]"
-          style="min-height: 26px;"
-          @click="handleStepToggle"
-        >
-          <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-2 truncate">
-            <div
-              class="step-title truncate font-medium"
-              :title="stepContent.description"
-              :aria-description="stepContent.description"
-            >
-              {{ stepContent.description }}
-            </div>
-            <span class="flex-shrink-0 flex">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                class="step-chevron transition-transform duration-300 w-4 h-4"
-                :class="{ 'rotate-180': isStepExpanded }">
-                <path d="m6 9 6 6 6-6"></path>
-              </svg>
-            </span>
-          </div>
-          <div
-            class="step-timestamp transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible flex-shrink-0"
-            :title="formatTimestampTooltip(message.content.timestamp)"
-          >
-            {{ relativeTime(message.content.timestamp) }}
-          </div>
-        </div>
-        
-        <!-- Tools list -->
-        <div
-          class="step-tools-list flex flex-col gap-2 overflow-hidden transition-[max-height,opacity] duration-150 ease-in-out"
-          :class="isStepExpanded ? 'max-h-[100000px] opacity-100' : 'max-h-0 opacity-0'"
-        >
-          <div class="step-tools-inner pt-2 flex flex-col gap-2">
-            <ToolUse
-              v-for="group in groupedTools"
-              :key="group.groupKey"
-              :tool="group.tool"
-              :group-count="group.count"
-              :is-active="group.containsActive"
-              :is-task-running="group.containsActive && stepContent.status === 'running'"
-              :show-fast-search-inline="false"
-              @click="handleToolClick(group.tool)"
-            />
-            <div v-if="showStepThinking" class="step-thinking-nested">
-              <ThinkingIndicator :showText="true" />
-            </div>
+
+      <!-- Collapsible tools -->
+      <div
+        class="step-compact-body"
+        :class="isStepExpanded ? 'step-compact-body--open' : 'step-compact-body--closed'"
+      >
+        <div class="step-compact-tools">
+          <ToolUse
+            v-for="group in groupedTools"
+            :key="group.groupKey"
+            :tool="group.tool"
+            :group-count="group.count"
+            :is-active="group.containsActive"
+            :is-task-running="group.containsActive && stepContent.status === 'running'"
+            :show-fast-search-inline="false"
+            @click="handleToolClick(group.tool)"
+          />
+          <div v-if="showStepThinking" class="step-thinking-nested">
+            <ThinkingIndicator :showText="true" />
           </div>
         </div>
       </div>
     </div>
-    
   </div>
   <PhaseGroup
     v-else-if="message.type === 'phase'"
@@ -288,7 +252,7 @@
     @toolClick="handleToolClick"
   />
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
-  <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-3">
+  <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-2">
     <!-- Main Report Card -->
     <ReportCard
       :report="reportData"
@@ -308,7 +272,7 @@
   </div>
   <!-- Deep Research Card removed — progress tracked by TaskProgressBar -->
   <!-- Skill Delivery Card -->
-  <div v-else-if="message.type === 'skill_delivery'" class="report-message-layout flex flex-col w-full mt-3">
+  <div v-else-if="message.type === 'skill_delivery'" class="report-message-layout flex flex-col w-full mt-2">
     <SkillDeliveryCard :skill="skillDeliveryContent" />
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
@@ -575,16 +539,16 @@ watch(
 
 <style>
 /* ══════════════════════════════════════════════════
-   Chat message entry animation (editorial feel)
+   Chat message entry animation (compact, snappy)
    ══════════════════════════════════════════════════ */
 .chat-message-entry {
-  animation: chat-message-enter 0.35s ease-out both;
+  animation: chat-message-enter 0.25s ease-out both;
 }
 
 @keyframes chat-message-enter {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -601,19 +565,19 @@ watch(
 }
 
 /* ══════════════════════════════════════════════════
-   Assistant Header
+   Assistant Header — Compact
    ══════════════════════════════════════════════════ */
 .assistant-header-row {
-  min-height: 32px;
+  min-height: 28px;
 }
 
 .assistant-brand {
-  gap: 7px;
+  gap: 6px;
 }
 
 .assistant-brand-icon {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .assistant-time {
@@ -626,8 +590,8 @@ watch(
 }
 
 .assistant-message-text {
-  font-size: 15.5px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.55;
   color: var(--text-primary);
   font-weight: 400;
 }
@@ -726,83 +690,68 @@ watch(
 }
 
 /* ══════════════════════════════════════════════════
-   Step Messages
+   Step Messages — Compact Manus-style
    ══════════════════════════════════════════════════ */
-.step-message {
+.step-message-compact {
   position: relative;
-  margin-top: 12px;
+  margin-top: 4px;
 }
 
-.step-message:first-child {
+.step-message-compact:first-child {
   margin-top: 0;
 }
 
-.step-inner {
+.step-compact {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
 }
 
-/* Left rail - contains status node and timeline */
-.step-left-rail {
-  flex-shrink: 0;
-  width: 24px;
+/* ── Compact header: icon + title + chevron ── */
+.step-compact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease;
 }
 
-/* Status node container */
-.step-status-node {
+.step-compact-header:hover {
+  background: var(--fill-tsp-white-main);
+}
+
+/* Status icons — small inline circles */
+.step-compact-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
   flex-shrink: 0;
-}
-
-/* Status indicators */
-.step-status-indicator {
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   transition: all 0.2s ease;
 }
 
-.step-icon-completed {
+.step-compact-icon--done {
   background: var(--text-disable);
-  border: 0;
-  border-radius: 15px;
-}
-
-.step-completed-check {
   color: var(--icon-white);
-  width: 9px;
-  height: 9px;
 }
 
-.step-icon-failed {
-  background: #fee2e2;
-  border: 0;
-  border-radius: 15px;
-}
-
-.step-failed-x {
-  color: #ef4444;
-  width: 9px;
-  height: 9px;
-}
-
-.step-icon-running {
+.step-compact-icon--running {
   background: var(--fill-tsp-white-dark);
-  border: 0;
-  border-radius: 15px;
   position: relative;
-  overflow: hidden;
 }
 
-.step-icon-pending {
-  background: transparent;
-  border: 0;
-  border-radius: 15px;
+.step-compact-icon--failed {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.step-compact-icon--pending {
+  background: var(--fill-tsp-gray-main);
+  border: 1px dashed var(--border-dark);
 }
 
 .step-running-dot {
@@ -823,74 +772,49 @@ watch(
   animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
-/* Timeline connector segments (bottom of first node -> top of last node) */
-.step-connector-segment {
-  position: absolute;
-  left: 8px;
-  width: 0;
-  border-left: 1px dashed var(--border-dark);
-  pointer-events: none;
-}
-
-.step-connector-top {
-  top: 0;
-  height: 5px; /* Node top at (26 - 16) / 2 */
-}
-
-.step-connector-bottom {
-  top: 21px; /* Node bottom: 5 + 16 */
-  bottom: 0;
-}
-
-.step-connector-extended {
-  bottom: -14px;
-}
-
-/* Right content */
-.step-right-content {
+/* Title text */
+.step-compact-title {
   flex: 1;
   min-width: 0;
-}
-
-.step-header {
-  color: var(--text-primary);
-  padding: 0;
-  cursor: pointer;
-}
-
-.step-title {
   font-size: 14px;
-  line-height: 1.35;
   font-weight: 500;
+  line-height: 1.35;
   color: var(--text-primary);
-  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.step-title :deep(p) {
-  margin: 0;
-}
-
-.step-chevron {
-  width: 16px;
-  height: 16px;
+/* Chevron */
+.step-compact-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
   color: var(--text-tertiary);
+  transition: transform 0.2s ease;
 }
 
-.step-timestamp {
-  opacity: 0;
-  transition: opacity 0.15s ease;
+/* ── Collapsible body ── */
+.step-compact-body {
+  overflow: hidden;
+  transition: max-height 0.15s ease-in-out, opacity 0.15s ease-in-out;
 }
 
-.step-header:hover .step-timestamp {
+.step-compact-body--open {
+  max-height: 100000px;
   opacity: 1;
 }
 
-.step-tools-list {
-  overflow: hidden;
+.step-compact-body--closed {
+  max-height: 0;
+  opacity: 0;
 }
 
-.step-tools-inner {
-  padding-top: 8px;
+.step-compact-tools {
+  padding: 4px 0 4px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .step-thinking-nested {
@@ -907,32 +831,35 @@ watch(
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-:global(.dark) .step-title {
-  color: #d5dae2;
-}
-
 :global(.dark) .assistant-message-text {
   color: #d5dbe4;
 }
 
-:global(.dark) .step-icon-completed {
-  background: var(--fill-tsp-white-dark);
+:global(.dark) .step-compact-title {
+  color: #d5dae2;
 }
 
-:global(.dark) .step-completed-check {
-  color: var(--icon-white-tsp);
+:global(.dark) .step-compact-icon--done {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
 }
 
-:global(.dark) .step-icon-failed {
+:global(.dark) .step-compact-icon--running {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:global(.dark) .step-compact-icon--failed {
   background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
-:global(.dark) .step-icon-running {
-  background: var(--fill-tsp-white-dark);
+:global(.dark) .step-compact-icon--pending {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
-:global(.dark) .step-icon-pending {
-  background: var(--fill-tsp-white-dark);
+:global(.dark) .step-compact-header:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 :global(.dark) .step-running-dot {
@@ -946,7 +873,7 @@ watch(
 /* ══════════════════════════════════════════════════
    Step Animations
    ══════════════════════════════════════════════════ */
-.step-running {
+.step-compact-icon--running {
   animation: step-pulse 1.5s ease-in-out infinite;
 }
 
