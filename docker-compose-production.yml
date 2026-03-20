@@ -232,11 +232,8 @@ services:
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_root_username
-      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_root_password
-    secrets:
-      - mongo_root_username
-      - mongo_root_password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
     restart: always
     networks:
       - pythinker-internal  # Internal-only network — no external access
@@ -396,15 +393,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-# =============================================================================
-# Secrets (mounted at /run/secrets/ — never visible in docker inspect)
-# =============================================================================
-secrets:
-  mongo_root_username:
-    file: ./secrets/mongo_root_username.txt
-  mongo_root_password:
-    file: ./secrets/mongo_root_password.txt
 
 # =============================================================================
 # Volumes
