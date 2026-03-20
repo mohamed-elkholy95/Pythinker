@@ -242,6 +242,3 @@ class PythinkerAgentFactory:
             },
         )
 
-
-# Backward compatibility: legacy name still referenced by tests/integrations.
-ManusAgentFactory = PythinkerAgentFactory
