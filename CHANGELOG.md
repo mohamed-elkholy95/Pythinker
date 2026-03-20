@@ -5,6 +5,64 @@ All notable changes to Pythinker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-20
+
+### Added
+
+- **Frontend**: Terminal tool design tokens and CSS variables for consistent terminal theming
+- **Frontend**: Live terminal ANSI prompt colorization and xterm theme integration
+- **Frontend**: Tool panel terminal stage and timeline chrome styling
+- **Frontend**: Floating jump-to-live overlay button for timeline navigation
+- **Frontend**: Unified content-title bar with session names and browser URL display
+- **Frontend**: Chat/Split/Close panel controls replacing header buttons
+- **Frontend**: Manus-style compact step design with dotted timeline
+- **Frontend**: BookOpen icon for skill_invoke tool events
+- **Frontend**: Data-driven chroma recolor from chroma-render.json for agent cursor overlay
+- **Frontend**: macOS Apple-style pointer cursor on all viewer surfaces
+- **Frontend**: Forward browser tool events to LiveViewer for agent cursor overlay
+- **Skills**: Deal Finder, Design, and Professional Coder official skills
+- **Skills**: Skill Creator dialog with Teleport, Radix suppression, and compact layout
+- **Skills**: "Create new skill" option in settings dropdown
+- **Deploy**: Self-contained full-stack deploy compose package
+- **Types**: session_name field and deriveSessionName utility
+
+### Fixed
+
+- **Test**: Handle 429 rate limit retries in integration test helpers
+- **Deploy**: Rewrite compose for Dokploy managed Traefik
+- **Panel**: Terminal dark mode background alignment and content-title labels
+- **Files**: Register all generated files with session and fix tracking pipeline
+- **Files**: Remove trailing quote from Content-Disposition filename header
+- **Skills**: Fix skill upsert with raw MongoDB update_one
+- **Skills**: Fix SkillCreatorDialog z-index and event propagation from settings
+- **Skills**: Correct OpenAILLM constructor parameter in draft endpoint
+- **Sandbox**: Enable VNC websockify for Take Control feature
+- **Agents**: Always emit wall-clock CRITICAL FORCE stop signal
+- **LLM**: Record Anthropic key-pool success on key actually used
+- **Docker**: Target specific Alpine packages instead of blanket upgrade
+- **Docker**: Pin gh CLI to v2.88.1 to fix CRITICAL grpc CVE
+- **Docker**: Upgrade Alpine base packages to fix libexpat/zlib CVEs
+- **CI**: Install deps before Pyright and make non-blocking
+- **CI**: Skip release creation when tag already exists
+- **CI**: Ignore unfixable diskcache CVE-2025-69872 in pip-audit
+
+### Changed
+
+- **Panel**: Standardize terminal design tokens and scrollbar CSS
+- **Timeline**: Simplify TimelineControls, remove tooltip and unused props
+- **Chat**: Polish compact step layout and remove tool chip borders
+- **Deploy**: Standardize internal network name across compose files
+- **Auth**: Multi-line AuthToken construction for readability
+
+### Security
+
+- **Dependencies**: Bump Pillow and pin authlib/pypdf to fix 12 CVEs
+- **Dependencies**: Bump flatted from 3.4.1 to 3.4.2 (frontend)
+
+### Performance
+
+- **Scraper**: Cache lazy __getattr__ exports in module globals
+
 ## [1.0.1] - 2026-03-17
 
 ### Fixed
