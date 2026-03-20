@@ -128,7 +128,7 @@ def mock_agent_factory() -> MagicMock:
     return factory
 
 
-class TestAgentTaskRunnerManusIntegration:
+class TestAgentTaskRunnerPythinkerIntegration:
     """Test suite for PythinkerAgentFactory integration in AgentTaskRunner."""
 
     def test_init_accepts_agent_factory(self, runner_deps: dict, mock_agent_factory: MagicMock) -> None:
@@ -250,10 +250,10 @@ class TestAgentTaskRunnerManusIntegration:
         await runner.destroy()
 
 
-class TestAgentTaskRunnerManusState:
+class TestAgentTaskRunnerPythinkerState:
     """Test suite for Pythinker component state management."""
 
-    def test_manus_component_attributes_default_to_none(self, runner_deps: dict) -> None:
+    def test_pythinker_component_attributes_default_to_none(self, runner_deps: dict) -> None:
         """Test that Pythinker component attributes default to None."""
         from app.domain.services.agent_task_runner import AgentTaskRunner
 

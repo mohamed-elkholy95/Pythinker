@@ -160,7 +160,7 @@
 
 :root[data-theme='dark'],
 .dark {
-  /* Warm charcoal palette — Manus-inspired neutral grays */
+  /* Warm charcoal palette — Pythinker-inspired neutral grays */
   --bolt-elements-borderColor: rgba(255, 255, 255, 0.1);
   --bolt-elements-borderColorActive: #ffffff;
   --bolt-elements-bg-depth-1: #121212;

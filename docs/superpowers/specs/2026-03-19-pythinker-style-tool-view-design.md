@@ -1,4 +1,4 @@
-# Manus-Style Tool View Design
+# Pythinker-Style Tool View Design
 
 **Date:** 2026-03-19
 **Status:** Approved (v2 — post spec-review fixes)
@@ -6,9 +6,9 @@
 
 ## Summary
 
-Adopt the Manus AI agent's "Computer" tool view UX into Pythinker's existing tool panel. The existing codebase is already ~70% there — this spec covers the remaining gaps to reach full Manus parity.
+Adopt Pythinker's unified "Computer" tool view UX in the existing tool panel. The existing codebase is already ~70% there — this spec covers the remaining gaps to reach full Pythinker design parity.
 
-## Reference: Manus Tool View Anatomy
+## Reference: Pythinker Tool View Anatomy
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -57,7 +57,7 @@ Before listing changes, here's what Pythinker already implements:
 
 **Current:** `activityHeadline` `·` `activitySubtitle` (middot separator, line 46)
 
-**New:** `activityHeadline` `│` `activitySubtitle` (pipe separator, matching Manus)
+**New:** `activityHeadline` `│` `activitySubtitle` (pipe separator, matching Pythinker layout)
 
 **Change:** Replace `&middot;` with `│` in the `panel-activity-separator` span (line 46). Adjust CSS if needed for spacing.
 
@@ -208,7 +208,7 @@ export function deriveSessionName(command: string | undefined): string {
 **Current:** Already has the right structure. Minor cleanup needed.
 
 **Changes:**
-- Remove the tooltip/hover label (`scrubber-tooltip`, lines 42-49) — Manus doesn't show tooltips on hover
+- Remove the tooltip/hover label (`scrubber-tooltip`, lines 42-49) — Pythinker design: no tooltips on hover
 - Remove `toolTimeline` prop and related marker logic — clean minimal scrubber only
 - Remove `currentStep` and `totalSteps` props — step counting is in TaskProgressBar
 - Keep emit names as-is: `seekByProgress` (0-100 range), `stepForward`, `stepBackward`, `jumpToLive`
@@ -226,10 +226,10 @@ export function deriveSessionName(command: string | undefined): string {
 
 ### 8. TaskProgressBar Styling (`TaskProgressBar.vue`)
 
-**Current:** Already close to Manus. Has expand/collapse, step list, step counting, timer.
+**Current:** Already close to Pythinker target layout. Has expand/collapse, step list, step counting, timer.
 
 **Changes (styling only, no structural changes):**
-- Collapsed bar: Ensure it matches Manus layout: `[icon] [task description]  [N / M]  [∧]`
+- Collapsed bar: Ensure it matches Pythinker layout: `[icon] [task description]  [N / M]  [∧]`
   - Currently shows a more complex layout with thumbnail and multiple sections
   - Simplify collapsed view: hide `LiveMiniPreview` when tool panel is open (the panel already shows the viewport)
   - Left-align: status icon (checkmark/spinner/circle) + current step description

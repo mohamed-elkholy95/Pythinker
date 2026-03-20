@@ -26,7 +26,7 @@
         >
           <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
         </button>
-        <!-- Center: Model name as header title (Manus-style) -->
+        <!-- Center: Model name as header title (Pythinker-style) -->
         <button
           v-if="activeHeaderModelName"
           type="button"
@@ -4531,7 +4531,7 @@ const handleFileListShow = () => {
   background-color: var(--background-gray-main);
 }
 
-/* Manus-style centered model title */
+/* Pythinker-style centered model title */
 .header-model-title {
   display: inline-flex;
   align-items: center;

@@ -1,14 +1,14 @@
-# Manus-Style Tool View Implementation Plan
+# Pythinker-Style Tool View Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Adopt Manus AI's "Computer" tool view UX into Pythinker's existing tool panel.
+**Goal:** Unify Pythinker's "Computer" tool view UX across the existing tool panel.
 
-**Architecture:** Modify 7 existing Vue components + 1 new utility file. No new components needed — existing `TimelineControls`, `TaskProgressBar`, and `ToolPanelContent` already implement ~70% of the Manus UX. Changes are: separator restyle, unified content-title bar, header button swap, floating jump-to-live overlay, terminal edge-to-edge CSS, and timeline/task-bar cleanup.
+**Architecture:** Modify 7 existing Vue components + 1 new utility file. No new components needed — existing `TimelineControls`, `TaskProgressBar`, and `ToolPanelContent` already implement ~70% of the target Pythinker UX. Changes are: separator restyle, unified content-title bar, header button swap, floating jump-to-live overlay, terminal edge-to-edge CSS, and timeline/task-bar cleanup.
 
 **Tech Stack:** Vue 3 Composition API, TypeScript, Lucide icons, xterm.js
 
-**Spec:** `docs/superpowers/specs/2026-03-19-manus-style-tool-view-design.md`
+**Spec:** `docs/superpowers/specs/2026-03-19-pythinker-style-tool-view-design.md`
 
 ---
 
@@ -136,7 +136,7 @@ Expected: PASS
 
 ```bash
 git add frontend/src/components/ToolPanelContent.vue
-git commit -m "style(panel): change activity separator from middot to pipe (Manus-style)"
+git commit -m "style(panel): change activity separator from middot to pipe (Pythinker-style)"
 ```
 
 ---
@@ -441,12 +441,12 @@ In `ChatPage.vue`, on the `<ToolPanel>` element (line 486), add:
 Add handlers in the script:
 
 ```typescript
-// Manus-style: switch to chat (collapse panel, focus input)
+// Pythinker-style: switch to chat (collapse panel, focus input)
 const handleSwitchToChat = () => {
   toolPanel.value?.hideToolPanel(true)
 }
 
-// Manus-style: split view width control
+// Pythinker-style: split view width control
 const preSplitWidth = ref(0)
 const handleRequestWidth = (signal: number) => {
   if (signal === -1) {
@@ -473,7 +473,7 @@ Expected: PASS
 
 ```bash
 git add frontend/src/components/ToolPanelContent.vue frontend/src/components/ToolPanel.vue frontend/src/pages/ChatPage.vue
-git commit -m "feat(panel): replace header buttons with Chat/Split/Close (Manus-style)"
+git commit -m "feat(panel): replace header buttons with Chat/Split/Close (Pythinker-style)"
 ```
 
 ---
@@ -490,7 +490,7 @@ Note: `showTimeline` is a prop of `ToolPanelContent` (confirmed at line 586: `sh
 Inside the content container div (the `relative flex flex-col overflow-hidden` div at line 78), after the content area and before the timeline controls (line 477), add:
 
 ```html
-        <!-- Floating "Jump to live" button (Manus-style) -->
+        <!-- Floating "Jump to live" button (Pythinker-style) -->
         <Transition name="fade-jump">
           <button
             v-if="showTimeline && !isTimelineLive"
@@ -565,7 +565,7 @@ Expected: PASS
 
 ```bash
 git add frontend/src/components/ToolPanelContent.vue
-git commit -m "feat(panel): add floating 'Jump to live' overlay button (Manus-style)"
+git commit -m "feat(panel): add floating 'Jump to live' overlay button (Pythinker-style)"
 ```
 
 ---
@@ -735,7 +735,7 @@ Expected: PASS
 
 ```bash
 git add frontend/src/components/toolViews/TerminalContentView.vue
-git commit -m "style(terminal): edge-to-edge layout with hidden scrollbar (Manus-style)"
+git commit -m "style(terminal): edge-to-edge layout with hidden scrollbar (Pythinker-style)"
 ```
 
 ---
@@ -759,7 +759,7 @@ Change to:
 const showCollapsedThumbnail = computed(() => props.showThumbnail && !props.compact)
 ```
 
-This hides the thumbnail when `compact=true` (i.e., when rendered inside the tool panel), matching the clean Manus collapsed bar: `[icon] [description] [N/M] [chevron]`.
+This hides the thumbnail when `compact=true` (i.e., when rendered inside the tool panel), matching the clean Pythinker collapsed bar: `[icon] [description] [N/M] [chevron]`.
 
 - [ ] **Step 2: Verify**
 

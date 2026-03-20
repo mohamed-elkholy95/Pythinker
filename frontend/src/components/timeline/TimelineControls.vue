@@ -62,7 +62,7 @@
         </div>
       </div>
 
-      <!-- Jump to live (inline, Manus-style) -->
+      <!-- Jump to live (inline, Pythinker-style) -->
       <button
         v-if="!isLive"
         @click="$emit('jumpToLive')"
@@ -263,7 +263,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ── Manus-style Timeline Controls ── */
+/* ── Pythinker-style Timeline Controls ── */
 .timeline-controls {
   user-select: none;
   padding: 8px 16px 10px;

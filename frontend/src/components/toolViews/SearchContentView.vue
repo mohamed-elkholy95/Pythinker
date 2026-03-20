@@ -202,7 +202,7 @@ function handleResultClick(result: SearchResult) {
   transform: translateY(6px);
 }
 
-/* ── Individual Result Item (Manus-style) ── */
+/* ── Individual Result Item (Pythinker-style) ── */
 .search-result-item {
   display: flex;
   align-items: flex-start;
