@@ -1,5 +1,5 @@
 <template>
-  <ContentContainer :scrollable="false" padding="none" class="terminal-view">
+  <div class="terminal-view">
     <div class="terminal-body">
       <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
         <div ref="terminalRef" class="terminal-surface"></div>
@@ -11,7 +11,7 @@
         />
       </div>
     </div>
-  </ContentContainer>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -19,7 +19,6 @@ import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 
 const props = defineProps<{
@@ -292,6 +291,8 @@ watch(
   min-height: 0;
   min-width: 0;
   width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 .terminal-body {
@@ -312,6 +313,11 @@ watch(
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
   font-size: 13px;
   overflow: hidden;
+  scrollbar-width: none;
+}
+
+.terminal-shell::-webkit-scrollbar {
+  display: none;
 }
 
 .terminal-shell.dark-mode {
