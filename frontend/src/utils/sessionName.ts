@@ -28,6 +28,9 @@ export function deriveSessionName(command: string | undefined): string {
   // Known tool commands
   if (cmd.includes('pdf') || cmd.includes('convert')) return 'pdf_conversion'
   if (cmd === 'git') return `git_${parts[1] || 'operation'}`
+  if (cmd === 'docker' || cmd === 'docker-compose') return 'docker'
+  if (cmd === 'make') return 'build'
 
-  return cmd.replace(/[^a-zA-Z0-9]/g, '_') || 'terminal'
+  // Generic commands (curl, ls, cat, etc.) → just show "terminal"
+  return 'terminal'
 }

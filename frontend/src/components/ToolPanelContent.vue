@@ -79,7 +79,8 @@
       <!-- Content Container with rounded frame -->
       <div
         :class="[
-          'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
+          'relative flex flex-col overflow-hidden flex-1 min-h-0',
+          currentViewType === 'terminal' ? 'panel-content-container--terminal' : 'bg-[var(--background-white-main)]',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
             : 'panel-content-container rounded-[12px] border border-[var(--border-light)] shadow-[0px_4px_16px_var(--shadow-XS)] mt-2'
@@ -89,7 +90,7 @@
              Hidden when embedded without a forced view mode. -->
         <div
           v-if="(contentHeaderLabel || contentConfig || showReportPresentation || showPlanPresentation) && (!embedded || forceViewType)"
-          class="panel-content-header">
+          :class="['panel-content-header', { 'panel-content-header--terminal': currentViewType === 'terminal' }]">
 
           <!-- Center: Context text (Pythinker-style — plain centered text, no icons) -->
           <div class="context-bar-label">
@@ -1169,7 +1170,7 @@ const contentHeaderLabel = computed(() => {
   }
   if (showPlanPresentation.value) {
     if (props.isPlanStreaming) return 'Creating plan...';
-    return 'Plan';
+    return 'Editor';
   }
   // Browser: show URL
   if (currentViewType.value === 'live_preview') {
@@ -2204,6 +2205,28 @@ const handleBrowseUrl = async (url: string) => {
 :global(.dark) .panel-content-header {
   background: rgba(255, 255, 255, 0.02);
   border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Terminal: seamless background from container through title bar to terminal body */
+.panel-content-container--terminal {
+  background: #ffffff;
+}
+:global(.dark) .panel-content-container--terminal {
+  background: #1a1b26;
+}
+.panel-content-header--terminal {
+  background: transparent;
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+:global(.dark) .panel-content-header--terminal {
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+.panel-content-header--terminal .context-bar-label {
+  color: var(--text-secondary);
+}
+:global(.dark) .panel-content-header--terminal .context-bar-label {
+  color: rgba(192, 202, 245, 0.5);
 }
 
 .context-bar-label {

@@ -49,16 +49,6 @@
         </div>
       </div>
 
-      <!-- Jump to live (inline, Pythinker-style) -->
-      <button
-        v-if="!isLive"
-        @click="$emit('jumpToLive')"
-        class="jump-to-live-btn"
-      >
-        <Play class="w-3 h-3" />
-        <span>Jump to live</span>
-      </button>
-
       <!-- Live / Replay Indicator -->
       <div class="timeline-status">
         <span
@@ -75,7 +65,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { SkipBack, SkipForward, Play } from 'lucide-vue-next'
+import { SkipBack, SkipForward } from 'lucide-vue-next'
 
 interface Props {
   progress: number
@@ -286,28 +276,6 @@ onUnmounted(() => {
 }
 
 /* ── Jump to live (inline button) ── */
-.jump-to-live-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: all 0.12s ease;
-}
-
-.jump-to-live-btn:hover {
-  color: var(--text-primary);
-  background: var(--fill-tsp-gray-main);
-}
-
 /* ── Live / Replay status ── */
 .timeline-status {
   display: flex;
