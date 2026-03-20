@@ -1,7 +1,10 @@
 <template>
   <div class="terminal-view">
     <div class="terminal-body">
-      <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
+      <div
+        class="terminal-shell terminal-tool-xterm-hover-scroll"
+        :class="{ 'dark-mode': isDarkMode }"
+      >
         <div ref="terminalRef" class="terminal-surface"></div>
         <EmptyState
           v-if="!content"
@@ -20,6 +23,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign';
 
 const props = defineProps<{
   content: string;
@@ -40,61 +44,14 @@ const lastContent = ref('');
 const isDarkMode = ref(false);
 let resizeObserver: ResizeObserver | null = null;
 
-// Light theme (matching the decorated design)
-const lightTheme = {
-  background: '#ffffff',
-  foreground: '#1f2937',
-  cursor: '#1f2937',
-  cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(0, 0, 0, 0.2)',
-  selectionForeground: '#1f2937',
-  black: '#1f2937',
-  red: '#dc2626',
-  green: '#16a34a',
-  yellow: '#ca8a04',
-  blue: '#2563eb',
-  magenta: '#9333ea',
-  cyan: '#0891b2',
-  white: '#f8f9fa',
-  brightBlack: '#6b7280',
-  brightRed: '#ef4444',
-  brightGreen: '#22c55e',
-  brightYellow: '#eab308',
-  brightBlue: '#3b82f6',
-  brightMagenta: '#a855f7',
-  brightCyan: '#06b6d4',
-  brightWhite: '#ffffff',
-};
-
-// Dark theme (Tokyo Night — shared with TerminalLiveView)
-const darkTheme = {
-  background: '#1a1b26',
-  foreground: '#c0caf5',
-  cursor: '#c0caf5',
-  cursorAccent: '#1a1b26',
-  selectionBackground: '#33467c',
-  selectionForeground: '#c0caf5',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-  brightBlack: '#414868',
-  brightRed: '#f7768e',
-  brightGreen: '#9ece6a',
-  brightYellow: '#e0af68',
-  brightBlue: '#7aa2f7',
-  brightMagenta: '#bb9af7',
-  brightCyan: '#7dcfff',
-  brightWhite: '#c0caf5',
-};
+const lightTheme = createTerminalToolXtermTheme('light');
+const darkTheme = createTerminalToolXtermTheme('dark');
 
 // Detect system/app dark mode
 const checkDarkMode = () => {
-  isDarkMode.value = document.documentElement.classList.contains('dark');
+  const root = document.documentElement;
+  isDarkMode.value =
+    root.classList.contains('dark') || root.getAttribute('data-theme') === 'dark';
   if (terminal.value) {
     terminal.value.options.theme = isDarkMode.value ? darkTheme : lightTheme;
   }
@@ -301,6 +258,7 @@ watch(
   height: 100%;
   min-width: 200px; /* Prevent xterm from calculating 0-width columns */
   overflow: hidden;
+  background: transparent;
 }
 
 .terminal-shell {
@@ -308,26 +266,20 @@ watch(
   flex: 1;
   width: 100%;
   height: 100%;
-  background: var(--bolt-elements-bg-depth-1);
-  color: var(--bolt-elements-textPrimary);
+  background: var(--terminal-tool-viewport-bg);
+  color: var(--terminal-tool-text);
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
   font-size: 13px;
   overflow: hidden;
-  scrollbar-width: none;
-}
-
-.terminal-shell::-webkit-scrollbar {
-  display: none;
-}
-
-.terminal-shell.dark-mode {
-  background: #1a1b26;
 }
 
 .terminal-surface {
   width: 100%;
   height: 100%;
-  padding: 12px 16px;
+  padding: 10px 12px;
   box-sizing: border-box;
 }
 
@@ -351,79 +303,34 @@ watch(
   overflow-y: auto !important;
 }
 
-/* Enhanced scrollbar for terminal */
-.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar) {
-  width: 8px;
-}
-
-.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-track) {
-  background: transparent;
-  margin: 8px 0;
-}
-
-.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background 0.15s ease;
-}
-
-.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-  background: rgba(0, 0, 0, 0.22);
-  background-clip: padding-box;
-}
-
-.terminal-shell.dark-mode :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
-  background: rgba(255, 255, 255, 0.12);
-  background-clip: padding-box;
-}
-
-.terminal-shell.dark-mode :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-  background: rgba(255, 255, 255, 0.22);
-  background-clip: padding-box;
-}
-
-/* Selection styling */
+/* Selection styling (neutral — avoid navy/blue tint) */
 .terminal-shell :deep(.xterm-selection div) {
-  background: rgba(0, 0, 0, 0.2) !important;
+  background: rgba(0, 0, 0, 0.18) !important;
 }
 
 .terminal-shell.dark-mode :deep(.xterm-selection div) {
-  background: rgba(0, 0, 0, 0.3) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 /* Empty state overlay */
 .terminal-view :deep(.empty-state.overlay) {
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--terminal-tool-viewport-bg) 88%, transparent);
   backdrop-filter: blur(4px);
 }
 
-.terminal-view:has(.dark-mode) :deep(.empty-state.overlay) {
-  background: rgba(26, 27, 38, 0.9);
-}
-
-:global(.dark) .terminal-view :deep(.empty-state.overlay) {
-  background: rgba(26, 27, 38, 0.9);
+:global(.dark) .terminal-view :deep(.empty-state.overlay),
+:global(html[data-theme='dark']) .terminal-view :deep(.empty-state.overlay) {
+  background: color-mix(in srgb, var(--terminal-tool-viewport-bg) 88%, transparent);
 }
 
 .terminal-view :deep(.empty-icon) {
-  color: rgba(31, 41, 55, 0.5);
+  color: var(--terminal-tool-text-muted);
+  opacity: 0.85;
 }
 
 .terminal-view :deep(.empty-message) {
-  color: rgba(31, 41, 55, 0.8);
-  font-weight: 500;
-}
-
-.terminal-shell.dark-mode ~ :deep(.empty-icon),
-:global(.dark) .terminal-view :deep(.empty-icon) {
-  color: rgba(229, 231, 235, 0.5);
-}
-
-.terminal-shell.dark-mode ~ :deep(.empty-message),
-:global(.dark) .terminal-view :deep(.empty-message) {
-  color: rgba(229, 231, 235, 0.8);
+  color: var(--terminal-tool-text);
+  opacity: 0.9;
   font-weight: 500;
 }
 </style>

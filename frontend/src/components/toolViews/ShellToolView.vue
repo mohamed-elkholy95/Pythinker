@@ -12,22 +12,21 @@
     :shell-session-id="shellSessionId ?? ''"
     :command="currentCommand"
   />
-  <!-- Existing static view for completed results -->
-  <ContentContainer v-else :scrollable="false" padding="none" class="shell-view">
-    <div class="shell-body">
-      <div class="shell-surface">
-        <LoadingState
-          v-if="isLoading"
-          label="Executing command"
-          animation="terminal"
-        />
-        <div v-else-if="hasShellOutput" class="shell-output">
-          <code v-html="shell"></code>
-        </div>
-        <EmptyState v-else :message="emptyMessage" icon="terminal" />
-      </div>
+  <div v-else class="shell-view">
+    <LoadingState
+      v-if="isLoading"
+      class="shell-loading"
+      label="Executing command"
+      animation="terminal"
+    />
+    <div
+      v-else-if="hasShellOutput"
+      class="shell-output terminal-tool-shell-output-hover-scroll"
+    >
+      <code v-html="shell"></code>
     </div>
-  </ContentContainer>
+    <EmptyState v-else class="shell-empty" :message="emptyMessage" icon="terminal" />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -35,7 +34,6 @@ import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
 import type { ConsoleRecord } from '@/types/response';
-import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import TerminalLiveView from './TerminalLiveView.vue';
@@ -69,7 +67,7 @@ const shell = ref('');
 const refreshTimer = ref<number | null>(null);
 
 // Shiki highlighting for shell output
-const { highlightDualTheme } = useShiki();
+const { highlightTerminalDualTheme } = useShiki();
 
 // Get shellSessionId from toolContent
 const shellSessionId = computed((): string => {
@@ -94,7 +92,7 @@ const updateShellContent = async (console: ConsoleRecord[] | undefined) => {
     // Highlight command using Shiki bash
     if (e.command) {
       try {
-        const highlightedCmd = await highlightDualTheme(e.command, 'bash');
+        const highlightedCmd = await highlightTerminalDualTheme(e.command, 'bash');
         // Extract just the code content from the highlighted output
         const cmdMatch = highlightedCmd.match(/<code[^>]*>([\s\S]*?)<\/code>/);
         const cmdContent = cmdMatch ? cmdMatch[1] : escapeHtml(e.command);
@@ -215,29 +213,38 @@ onUnmounted(() => {
 .shell-view {
   flex: 1;
   min-height: 0;
-}
-
-.shell-body {
+  width: 100%;
+  height: 100%;
   display: flex;
-  width: 100%;
-  height: 100%;
+  flex-direction: column;
+  background: var(--terminal-tool-viewport-bg);
+  color: var(--terminal-tool-text);
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
   overflow: hidden;
+  font-family:
+    'JetBrains Mono',
+    'Fira Code',
+    'SF Mono',
+    Menlo,
+    Monaco,
+    'Cascadia Code',
+    monospace;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.shell-surface {
+.shell-loading,
+.shell-empty {
   flex: 1;
-  width: 100%;
-  height: 100%;
-  background: #ffffff;
-  color: #1f2937;
-  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
-  font-size: 13px;
-  overflow: hidden;
+  min-height: 0;
 }
 
 .shell-output {
-  height: 100%;
-  padding: 12px 16px;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -245,50 +252,43 @@ onUnmounted(() => {
 
 .shell-view :deep(.empty-icon),
 .shell-view :deep(.empty-message) {
-  color: rgba(31, 41, 55, 0.5);
+  color: var(--terminal-tool-text-muted);
 }
 
-/* Green prompt (ubuntu@sandbox:~ $) */
+.shell-view :deep(.loading-state.shell-loading) {
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+  padding: var(--space-8);
+}
+
+.shell-view :deep(.loading-state.shell-loading .loading-text) {
+  color: var(--terminal-tool-text);
+}
+
+.shell-view :deep(.empty-state.shell-empty) {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-8) var(--space-4);
+}
+
+/* Prompt (reference green) */
 .shell-output :deep(.shell-prompt) {
-  color: #16a34a;
+  color: var(--terminal-tool-prompt);
 }
 
-/* Dark mode */
-:global(.dark) .shell-surface {
-  background: var(--terminal-bg);
-  color: var(--text-primary);
-}
-
-:global(.dark) .shell-view :deep(.empty-icon),
-:global(.dark) .shell-view :deep(.empty-message) {
-  color: var(--text-tertiary);
-}
-
-/* Green prompt in dark mode */
-:global(.dark) .shell-output :deep(.shell-prompt) {
-  color: #4ade80;
-}
-
-/* Highlighted command styling */
+/* Command + Shiki: inner HTML omits <pre>; spans carry light hex + --shiki-dark custom prop */
 .shell-output :deep(.shell-command) {
-  color: #1f2937;
+  color: var(--terminal-tool-text);
 }
 
-:global(.dark) .shell-output :deep(.shell-command) {
-  color: var(--text-primary);
-}
-
-/* Shiki dark theme support */
-:global(.dark) .shell-output :deep(.shell-command span) {
+:global(.dark) .shell-output :deep(.shell-command span),
+:global(html[data-theme='dark']) .shell-output :deep(.shell-command span) {
   color: var(--shiki-dark) !important;
 }
 
-/* Output text styling */
+/* Command output — same body text as reference */
 .shell-output :deep(.shell-output-text) {
-  color: #6b7280;
-}
-
-:global(.dark) .shell-output :deep(.shell-output-text) {
-  color: var(--text-secondary);
+  color: var(--terminal-tool-text);
 }
 </style>
