@@ -95,7 +95,8 @@ class EmbeddingClient:
         if not self._redis_client:
             return {}
         try:
-            pipe = self._redis_client.pipeline(transaction=False)
+            raw_redis = self._redis_client.client if hasattr(self._redis_client, "client") else self._redis_client
+            pipe = raw_redis.pipeline(transaction=False)
             for k in keys:
                 pipe.get(k)
             results = await pipe.execute()
@@ -113,7 +114,8 @@ class EmbeddingClient:
         if not self._redis_client or not items:
             return
         try:
-            pipe = self._redis_client.pipeline(transaction=False)
+            raw_redis = self._redis_client.client if hasattr(self._redis_client, "client") else self._redis_client
+            pipe = raw_redis.pipeline(transaction=False)
             for k, vec in items.items():
                 pipe.set(k, json.dumps(vec), ex=self._cache_ttl)
             await pipe.execute()
