@@ -1,101 +1,69 @@
 <template>
-  <div class="finalization-step-card flex flex-col empty:pb-0">
-    <div class="step-inner flex">
-      <!-- Left rail: Status indicator + Timeline line -->
-      <div class="step-left-rail w-[24px] relative flex-shrink-0">
-        <!-- Top-level status indicator -->
-        <div class="step-status-node w-4 flex items-center justify-center relative z-[1]" style="height: 26px;">
-          <div
-            v-if="isCompleted"
-            class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex items-center justify-center rounded-[15px]"
-          >
-            <CheckIcon class="step-completed-check" :size="10" :stroke-width="2" />
-          </div>
-          <div
-            v-else-if="isFailed"
-            class="step-status-indicator step-icon-badge step-icon-failed w-4 h-4 flex items-center justify-center rounded-[15px]"
-          >
-            <XIcon class="step-failed-icon" :size="10" :stroke-width="2.5" />
-          </div>
-          <div
-            v-else
-            class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex items-center justify-center rounded-[15px] step-running"
-          >
-            <span class="step-running-dot" aria-hidden="true"></span>
-          </div>
-        </div>
-        <!-- Timeline connectors -->
-        <div v-if="showTopConnector" class="step-connector-segment step-connector-top"></div>
-        <div v-if="showBottomConnector" class="step-connector-segment step-connector-bottom"></div>
+  <div class="step-compact" :class="{ 'step-compact--has-connector': showBottomConnector }">
+    <!-- Compact header: icon + title + chevron (same as regular steps) -->
+    <div class="step-compact-header" @click="toggleExpanded">
+      <!-- Status icon -->
+      <div v-if="isCompleted" class="step-compact-icon step-compact-icon--done">
+        <CheckIcon :size="10" :stroke-width="2.5" />
+      </div>
+      <div v-else-if="isFailed" class="step-compact-icon step-compact-icon--failed">
+        <XIcon :size="10" :stroke-width="2.5" />
+      </div>
+      <div v-else class="step-compact-icon step-compact-icon--running">
+        <span class="step-running-dot" aria-hidden="true"></span>
       </div>
 
-      <!-- Right content -->
-      <div class="finalization-right flex-1 min-w-0 pb-1">
-        <!-- Card header -->
-        <div
-          class="finalization-header flex items-center justify-between gap-2 cursor-pointer"
-          style="min-height: 26px;"
-          @click="toggleExpanded"
-        >
-          <div class="flex items-center gap-2 min-w-0 flex-1">
-            <span class="finalization-label text-sm font-medium text-[var(--text-primary)] truncate">
-              Finalizing Report
-            </span>
-          </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <ChevronDownIcon
-              :size="16"
-              class="text-[var(--text-tertiary)] transition-transform duration-200"
-              :class="{ 'rotate-180': isExpanded }"
-            />
-          </div>
-        </div>
+      <!-- Title -->
+      <span class="step-compact-title">Finalizing Report</span>
 
-        <!-- Sub-stages (collapsible) -->
-        <div
-          class="finalization-stages overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out"
-          :class="isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'"
-        >
-          <div class="finalization-stages-inner pt-1.5 pb-0.5 flex flex-col gap-0.5 pl-0.5">
-            <TransitionGroup name="stage" tag="div" class="flex flex-col gap-0.5">
-              <div
-                v-for="(stage, index) in stages"
-                :key="stage.description + index"
-                class="finalization-stage flex items-center gap-2 py-[3px]"
-              >
-                <!-- Stage status icon -->
-                <div class="stage-icon flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center">
-                  <CheckIcon
-                    v-if="stage.status === 'completed'"
-                    :size="11"
-                    :stroke-width="2.5"
-                    class="text-[var(--text-tertiary)]"
-                  />
-                  <XIcon
-                    v-else-if="stage.status === 'failed'"
-                    :size="11"
-                    :stroke-width="2.5"
-                    class="stage-icon-failed"
-                  />
-                  <span
-                    v-else
-                    class="stage-running-dot"
-                    aria-hidden="true"
-                  ></span>
-                </div>
-                <!-- Stage description -->
-                <span
-                  class="stage-label text-xs leading-[1.4]"
-                  :class="{
-                    'text-[var(--text-tertiary)]': stage.status === 'completed',
-                    'text-[var(--text-primary)] font-medium': stage.status === 'running',
-                    'stage-label-failed': stage.status === 'failed',
-                  }"
-                >{{ stage.description }}</span>
-              </div>
-            </TransitionGroup>
+      <!-- Chevron -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        class="step-compact-chevron"
+        :class="{ 'rotate-180': isExpanded }">
+        <path d="m6 9 6 6 6-6"></path>
+      </svg>
+    </div>
+
+    <!-- Sub-stages (collapsible) -->
+    <div
+      class="step-compact-body"
+      :class="isExpanded ? 'step-compact-body--open' : 'step-compact-body--closed'"
+    >
+      <div class="step-compact-tools">
+        <TransitionGroup name="stage" tag="div" class="flex flex-col gap-1">
+          <div
+            v-for="(stage, index) in stages"
+            :key="stage.description + index"
+            class="finalization-stage flex items-center gap-2 py-[2px]"
+          >
+            <!-- Stage status icon -->
+            <div class="stage-icon flex-shrink-0 w-4 h-4 flex items-center justify-center">
+              <CheckIcon
+                v-if="stage.status === 'completed'"
+                :size="12"
+                :stroke-width="2.5"
+                class="text-[var(--text-tertiary)]"
+              />
+              <XIcon
+                v-else-if="stage.status === 'failed'"
+                :size="12"
+                :stroke-width="2.5"
+                class="stage-icon-failed"
+              />
+              <span v-else class="stage-running-dot" aria-hidden="true"></span>
+            </div>
+            <!-- Stage description -->
+            <span
+              class="stage-label text-[13px] leading-[1.4]"
+              :class="{
+                'text-[var(--text-tertiary)]': stage.status === 'completed',
+                'text-[var(--text-primary)] font-medium': stage.status === 'running',
+                'stage-label-failed': stage.status === 'failed',
+              }"
+            >{{ stage.description }}</span>
           </div>
-        </div>
+        </TransitionGroup>
       </div>
     </div>
   </div>
@@ -103,7 +71,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { CheckIcon, XIcon, ChevronDownIcon } from 'lucide-vue-next';
+import { CheckIcon, XIcon } from 'lucide-vue-next';
 import type { StepContent } from '../types/message';
 
 const props = defineProps<{
@@ -167,12 +135,6 @@ const stages = computed((): Stage[] => {
 </script>
 
 <style scoped>
-.finalization-label {
-  font-size: 14px;
-  line-height: 1.35;
-  letter-spacing: 0;
-}
-
 /* Sub-stage running dot */
 .stage-running-dot {
   display: inline-block;

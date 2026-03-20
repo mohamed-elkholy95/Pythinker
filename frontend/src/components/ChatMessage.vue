@@ -169,13 +169,45 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <div v-else-if="message.type === 'tool'" class="chat-message-entry mt-2">
-    <ToolUse
-      :tool="toolContent"
-      :is-active="true"
-      :show-fast-search-inline="isStandaloneToolFastSearch(toolContent)"
-      @click="handleToolClick(toolContent)"
-    />
+  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row mt-1">
+    <!-- Skill invoke: render as mini-step aligned with step flow -->
+    <div v-if="toolContent.function === 'skill_invoke'" class="step-compact step-compact--has-connector">
+      <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
+        <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
+          <span class="step-running-dot" aria-hidden="true"></span>
+        </div>
+        <div v-else class="step-compact-icon step-compact-icon--done">
+          <CheckIcon :size="10" :stroke-width="2.5" />
+        </div>
+        <span class="step-compact-title step-compact-title--skill">
+          {{ toolContent.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.display_command || 'Working') }}
+        </span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          class="step-compact-chevron rotate-180">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
+      </div>
+      <div class="step-compact-body step-compact-body--open">
+        <div class="step-compact-tools">
+          <ToolUse
+            :tool="toolContent"
+            :is-active="true"
+            :show-fast-search-inline="false"
+            @click="handleToolClick(toolContent)"
+          />
+        </div>
+      </div>
+    </div>
+    <!-- Regular standalone tool -->
+    <div v-else class="standalone-tool-pill">
+      <ToolUse
+        :tool="toolContent"
+        :is-active="true"
+        :show-fast-search-inline="isStandaloneToolFastSearch(toolContent)"
+        @click="handleToolClick(toolContent)"
+      />
+    </div>
   </div>
   <div
     v-else-if="message.type === 'step'"
@@ -188,8 +220,8 @@
       :show-top-connector="showStepTopConnector"
       :show-bottom-connector="showStepBottomConnector"
     />
-    <!-- Compact inline step (Manus-style: icon + title + chevron in one row) -->
-    <div v-else class="step-compact">
+    <!-- Compact inline step (Pythinker-style: icon + title + chevron in one row) -->
+    <div v-else class="step-compact" :class="{ 'step-compact--has-connector': showStepBottomConnector }">
       <!-- Step Header (clickable) -->
       <div class="step-compact-header" @click="handleStepToggle">
         <!-- Status icon -->
@@ -220,7 +252,7 @@
           <path d="m6 9 6 6 6-6"></path>
         </svg>
 
-        <!-- Timestamp (visible like Manus) -->
+        <!-- Timestamp (visible like Pythinker) -->
         <span
           class="step-compact-time"
           :title="formatTimestampTooltip(message.content.timestamp)"
@@ -260,7 +292,7 @@
     @toolClick="handleToolClick"
   />
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
-  <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-2">
+  <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-5">
     <!-- Main Report Card -->
     <ReportCard
       :report="reportData"
@@ -439,7 +471,7 @@ const showStepTopConnector = computed(() => {
 
 const showStepBottomConnector = computed(() => {
   if (props.message.type !== 'step') return false;
-  return isStepExpanded.value || !!props.showStepConnector;
+  return !!props.showStepConnector;
 });
 
 // Control long-message expand/collapse state
@@ -691,6 +723,27 @@ watch(
 }
 
 /* ══════════════════════════════════════════════════
+   Standalone Tool — skill_invoke renders as mini-step,
+   regular tools get indented into step flow
+   ══════════════════════════════════════════════════ */
+.standalone-tool-row {
+  /* No padding — skill_invoke uses step-compact layout */
+}
+
+.standalone-tool-pill {
+  padding-left: 38px;
+}
+
+.step-compact-header--skill {
+  cursor: default;
+}
+
+.step-compact-title--skill {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ══════════════════════════════════════════════════
    Report Layout
    ══════════════════════════════════════════════════ */
 .report-message-layout {
@@ -698,7 +751,7 @@ watch(
 }
 
 /* ══════════════════════════════════════════════════
-   Step Messages — Compact Manus-style
+   Step Messages — Compact Pythinker-style
    ══════════════════════════════════════════════════ */
 .step-message-compact {
   position: relative;
@@ -712,6 +765,24 @@ watch(
 .step-compact {
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* Dotted timeline connector between consecutive steps.
+   Extends from below current icon to the top of the next step's icon.
+   Icon center = padding(6px) + half-icon(10px) = 16px from top.
+   So line starts at 26px (icon bottom) and extends past the container
+   bottom by margin(4px) + next-icon-top(6px) = ~10px overflow needed. */
+.step-compact--has-connector::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 26px;
+  bottom: -10px;
+  width: 0;
+  border-left: 1.5px dashed var(--border-dark);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* ── Compact header: icon + title + chevron ── */
@@ -730,7 +801,7 @@ watch(
   background: var(--fill-tsp-white-main);
 }
 
-/* Status icons — inline circles matching Manus */
+/* Status icons — inline circles */
 .step-compact-icon {
   width: 20px;
   height: 20px;
@@ -740,10 +811,12 @@ watch(
   justify-content: center;
   flex-shrink: 0;
   transition: all 0.2s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .step-compact-icon--done {
-  background: #22c55e;
+  background: #b0b0b0;
   color: #fff;
 }
 
@@ -780,7 +853,7 @@ watch(
   animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
-/* Title text — bold like Manus step headers */
+/* Title text — bold like Pythinker step headers */
 .step-compact-title {
   flex: 1;
   min-width: 0;
@@ -802,7 +875,7 @@ watch(
   transition: transform 0.2s ease;
 }
 
-/* Timestamp — visible on right like Manus */
+/* Timestamp — visible on right like Pythinker */
 .step-compact-time {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -857,7 +930,7 @@ watch(
 }
 
 :global(.dark) .step-compact-icon--done {
-  background: #22c55e;
+  background: #808080;
   color: #fff;
 }
 
@@ -877,6 +950,10 @@ watch(
 
 :global(.dark) .step-compact-header:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+:global(.dark) .step-compact--has-connector::after {
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 :global(.dark) .step-running-dot {
