@@ -168,8 +168,11 @@
           <!-- Connection status removed — Pythinker-style minimal content header -->
         </div>
 
-        <!-- Content Area: Dynamic content rendering -->
-        <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative isolate">
+        <!-- Content Area: Dynamic content rendering (opaque base masks z-index:-1 LiveViewer behind terminal/editor) -->
+        <div
+          class="panel-tool-stage flex-1 min-h-0 min-w-0 w-full overflow-hidden relative isolate"
+          :class="{ 'panel-tool-stage--terminal': currentViewType === 'terminal' }"
+        >
           <!-- Persistent browser background — always mounted when session is active.
                Tool-specific views overlay on top so the browser stays connected
                and instantly available when switching back (no reconnection delay). -->
@@ -342,7 +345,7 @@
               <!-- Terminal View -->
               <div
                 v-else-if="currentViewType === 'terminal'"
-                class="terminal-tool-host absolute inset-0 overflow-hidden box-border flex flex-col p-2.5 min-h-0 bg-[var(--terminal-tool-outer-bg)]"
+                class="terminal-tool-host absolute inset-0 overflow-hidden box-border flex flex-col p-0 min-h-0 bg-[var(--terminal-tool-viewport-bg)]"
               >
                 <!-- Live terminal: xterm.js with SSE streaming -->
                 <TerminalLiveView
@@ -500,8 +503,8 @@
           </button>
         </Transition>
 
-        <!-- Timeline Controls — only render when timeline data exists -->
-        <div v-if="showTimeline" class="mt-auto">
+        <!-- Timeline: flex-shrink-0 only — mt-auto caused an extra gap where z-index:-1 browser could show through -->
+        <div v-if="showTimeline" class="panel-timeline-slot flex-shrink-0">
           <TimelineControls
             :progress="timelineProgress ?? 0"
             :current-timestamp="timelineTimestamp"
@@ -1166,23 +1169,39 @@ const showPlanActivityIcon = computed(() => isPlanningPhase.value && !isSummaryP
 
 const showActivitySpinner = computed(() => !showReportActivityIcon.value && !showPlanActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
 
-// Terminal background: inline style to guarantee seamless color match
-// xterm light = #ffffff, xterm dark (Tokyo Night) = #1a1b26
-const isDarkTheme = ref(document.documentElement.classList.contains('dark'))
+// Terminal panel chrome: neutral zinc greys (no Tokyo Night / navy tint)
+function readDocumentDarkTheme(): boolean {
+  const root = document.documentElement
+  return root.classList.contains('dark') || root.getAttribute('data-theme') === 'dark'
+}
+
+const isDarkTheme = ref(readDocumentDarkTheme())
 const darkObserver = new MutationObserver(() => {
-  isDarkTheme.value = document.documentElement.classList.contains('dark')
+  isDarkTheme.value = readDocumentDarkTheme()
 })
-onMounted(() => darkObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] }))
+onMounted(() =>
+  darkObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-theme'],
+  }),
+)
 onUnmounted(() => darkObserver.disconnect())
 
-const contentContainerStyle = computed(() => {
+const contentContainerStyle = computed((): Record<string, string> => {
   if (currentViewType.value === 'terminal') {
+    const chrome = isDarkTheme.value ? '#1e1e1e' : '#ffffff'
     return {
-      background: isDarkTheme.value ? '#1a1b26' : '#ffffff',
-      borderColor: isDarkTheme.value ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
+      background: chrome,
+      borderColor: isDarkTheme.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+      '--panel-surface-bg': chrome,
+      /* Stage gutter matches card chrome; warm gray / #252525 is only inside terminal viewport */
+      '--panel-terminal-stage-bg': chrome,
     }
   }
-  return { background: 'var(--background-white-main)' }
+  return {
+    background: 'var(--background-white-main)',
+    '--panel-surface-bg': 'var(--background-white-main)',
+  }
 })
 
 // Content header label — unified context bar text (Pythinker-style)
@@ -2231,20 +2250,22 @@ const handleBrowseUrl = async (url: string) => {
   border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Terminal content-title: transparent bg so container inline bg shows through */
+/* Terminal title bar — white / charcoal chrome (inherits --panel-surface-bg from container) */
 .panel-content-header--terminal {
-  background: transparent;
-  border-bottom-color: rgba(0, 0, 0, 0.06);
+  background: var(--panel-surface-bg, #ffffff);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
-:global(.dark) .panel-content-header--terminal {
-  background: transparent;
-  border-bottom-color: rgba(255, 255, 255, 0.05);
+:global(.dark) .panel-content-header--terminal,
+:global(html[data-theme='dark']) .panel-content-header--terminal {
+  background: var(--panel-surface-bg, #1e1e1e);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .panel-content-header--terminal .context-bar-label {
-  color: #6b7280;
+  color: #737373;
 }
-:global(.dark) .panel-content-header--terminal .context-bar-label {
-  color: #565f89;
+:global(.dark) .panel-content-header--terminal .context-bar-label,
+:global(html[data-theme='dark']) .panel-content-header--terminal .context-bar-label {
+  color: #a3a3a3;
 }
 
 .context-bar-label {
@@ -2490,7 +2511,7 @@ const handleBrowseUrl = async (url: string) => {
   align-items: center;
   gap: 6px;
   padding: 8px 20px;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(15, 23, 42, 0.88);
   backdrop-filter: blur(8px);
   color: white;
   border: none;
@@ -2502,7 +2523,30 @@ const handleBrowseUrl = async (url: string) => {
   white-space: nowrap;
 }
 .jump-to-live-floating:hover {
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+/* Light panel: avoid a solid black pill over white terminal */
+:global(html:not(.dark):not([data-theme='dark'])) .jump-to-live-floating {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+}
+:global(html:not(.dark):not([data-theme='dark'])) .jump-to-live-floating:hover {
+  background: var(--background-white-main);
+}
+
+/* Tool stage: terminal uses chrome-colored gutter; inner viewport is --terminal-tool-viewport-bg */
+.panel-tool-stage {
+  background: var(--panel-terminal-stage-bg, var(--panel-surface-bg, var(--background-white-main)));
+}
+.panel-tool-stage--terminal {
+  padding: 0;
+  box-sizing: border-box;
+}
+.panel-timeline-slot {
+  background: var(--panel-surface-bg, var(--background-white-main));
 }
 .fade-jump-enter-active,
 .fade-jump-leave-active {
