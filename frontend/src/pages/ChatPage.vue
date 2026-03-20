@@ -511,7 +511,9 @@
         @timelineStepForward="handleTimelineStepForward"
         @timelineStepBackward="handleTimelineStepBackward"
         @timelineSeek="handleTimelineSeek"
-        @panelStateChange="handlePanelStateChange" />
+        @panelStateChange="handlePanelStateChange"
+        @switchToChat="handleSwitchToChat"
+        @requestWidth="handleRequestWidth" />
     </div>
   </SimpleBar>
 
@@ -1077,6 +1079,26 @@ const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
+
+// Switch to chat: collapse panel
+const handleSwitchToChat = () => {
+  toolPanel.value?.hideToolPanel(true)
+}
+
+// Split view width control
+const preSplitWidth = ref(0)
+const handleRequestWidth = (signal: number) => {
+  if (signal === -1) {
+    // 50% split
+    preSplitWidth.value = toolPanelSize.value
+    toolPanelSize.value = Math.floor(window.innerWidth * 0.5)
+  } else if (signal === 0) {
+    // Restore previous
+    toolPanelSize.value = preSplitWidth.value || 0
+  } else {
+    toolPanelSize.value = signal
+  }
+}
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const _observerRef = ref<HTMLDivElement>();
 const chatSplitRef = ref<HTMLDivElement>();
