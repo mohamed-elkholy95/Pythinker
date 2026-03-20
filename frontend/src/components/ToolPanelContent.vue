@@ -54,7 +54,7 @@
             @click="switchToChat"
             aria-label="Switch to chat"
           >
-            <MessageSquare class="w-4 h-4" />
+            <MessageSquare class="w-5 h-5" />
           </button>
           <!-- Split: toggle 50/50 width (desktop only) -->
           <button
@@ -63,7 +63,7 @@
             @click="toggleSplit"
             aria-label="Toggle split view"
           >
-            <Columns2 class="w-4 h-4" />
+            <Columns2 class="w-5 h-5" />
           </button>
           <!-- Close -->
           <button
@@ -71,7 +71,7 @@
             @click="hide"
             aria-label="Close"
           >
-            <X class="w-4 h-4" />
+            <X class="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -1189,13 +1189,13 @@ onUnmounted(() => darkObserver.disconnect())
 
 const contentContainerStyle = computed((): Record<string, string> => {
   if (currentViewType.value === 'terminal') {
-    const chrome = isDarkTheme.value ? '#1e1e1e' : '#ffffff'
+    const dark = isDarkTheme.value
     return {
-      background: chrome,
-      borderColor: isDarkTheme.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-      '--panel-surface-bg': chrome,
-      /* Stage gutter matches card chrome; warm gray / #252525 is only inside terminal viewport */
-      '--panel-terminal-stage-bg': chrome,
+      background: dark ? '#1e1e1e' : 'var(--background-gray-main, #f9fafb)',
+      borderColor: dark ? 'rgba(255, 255, 255, 0.06)' : 'var(--border-dark, #d1d5db)',
+      boxShadow: dark ? 'none' : '0px 4px 32px 0px rgba(0, 0, 0, 0.04)',
+      '--panel-surface-bg': dark ? '#1e1e1e' : 'var(--background-gray-main, #f9fafb)',
+      '--panel-terminal-stage-bg': 'var(--terminal-tool-viewport-bg)',
     }
   }
   return {
@@ -2201,28 +2201,25 @@ const handleBrowseUrl = async (url: string) => {
 }
 
 .panel-control-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 4px 6px;
+  border-radius: 6px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
-  color: var(--icon-tertiary);
-  transition: all 0.15s ease;
+  color: var(--icon-secondary, var(--icon-tertiary));
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .panel-control-btn:hover {
   background: var(--fill-tsp-gray-main);
-  border-color: var(--border-light);
-  color: var(--icon-primary);
+  color: var(--icon-primary, var(--text-primary));
 }
 
 :global(.dark) .panel-control-btn:hover {
   background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .panel-control-btn:disabled {
@@ -2250,22 +2247,27 @@ const handleBrowseUrl = async (url: string) => {
   border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Terminal title bar — white / charcoal chrome (inherits --panel-surface-bg from container) */
+/* Terminal title bar — reference: 36px, gray bg, inset highlight, border-b */
 .panel-content-header--terminal {
-  background: var(--panel-surface-bg, #ffffff);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  height: 36px;
+  background: var(--background-gray-main, #f9fafb);
+  border-bottom: 1px solid var(--border-main, #e5e7eb);
+  box-shadow: none;
 }
 :global(.dark) .panel-content-header--terminal,
 :global(html[data-theme='dark']) .panel-content-header--terminal {
-  background: var(--panel-surface-bg, #1e1e1e);
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
 }
 .panel-content-header--terminal .context-bar-label {
-  color: #737373;
+  color: var(--text-tertiary, #6b7280);
+  font-size: 14px;
+  font-weight: 500;
 }
 :global(.dark) .panel-content-header--terminal .context-bar-label,
 :global(html[data-theme='dark']) .panel-content-header--terminal .context-bar-label {
-  color: #a3a3a3;
+  color: var(--text-tertiary, #a1a1aa);
 }
 
 .context-bar-label {

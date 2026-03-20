@@ -152,18 +152,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ── Pythinker-style Timeline Controls ── */
+/* ── Reference-style Timeline Controls: 44px, menu-white bg, border-t ── */
 .timeline-controls {
   user-select: none;
-  padding: 8px 16px 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  background: var(--panel-surface-bg, var(--background-white-main));
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--border-main, rgba(0, 0, 0, 0.08));
+  background: var(--background-menu-white, var(--panel-surface-bg, var(--background-white-main)));
 }
 
 :global(.dark) .timeline-controls,
 :global(html[data-theme='dark']) .timeline-controls {
-  background: var(--panel-surface-bg, #1e1e1e);
-  border-top-color: rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+  border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 .timeline-controls:focus {
@@ -180,6 +183,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 /* ── Step buttons ── */
@@ -191,10 +195,11 @@ onUnmounted(() => {
 }
 
 .timeline-step-btn {
-  padding: 4px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
-  color: var(--text-tertiary);
-  transition: all 0.12s ease;
+  color: var(--icon-secondary, var(--text-tertiary));
+  transition: color 0.15s ease;
   cursor: pointer;
   background: transparent;
   border: none;
@@ -204,17 +209,15 @@ onUnmounted(() => {
 }
 
 .timeline-step-btn:hover {
-  color: var(--text-primary);
-  background: var(--fill-tsp-gray-main);
+  color: var(--icon-blue, var(--text-blue, #3b82f6));
 }
 
 :global(.dark) .timeline-step-btn {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--icon-secondary, rgba(255, 255, 255, 0.45));
 }
 
 :global(.dark) .timeline-step-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--icon-blue, var(--text-blue, #60a5fa));
 }
 
 .timeline-step-btn:disabled {
@@ -229,50 +232,52 @@ onUnmounted(() => {
   align-items: center;
 }
 
+/* Reference: h-1 (4px) rounded-full track, blue fill, 14px thumb with border */
 .scrubber-track {
   position: relative;
   width: 100%;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 9999px;
   cursor: pointer;
   overflow: visible;
   touch-action: none;
-  background: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+  background: var(--fill-tsp-gray-dark, rgba(0, 0, 0, 0.08));
 }
 
 :global(.dark) .scrubber-track {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--fill-tsp-gray-dark, rgba(255, 255, 255, 0.1));
 }
 
 .scrubber-fill {
   position: absolute;
   height: 100%;
-  border-radius: 2px;
-  background: #3b82f6;
-  opacity: 0.42;
+  border-radius: 9999px;
+  background: var(--text-blue, #3b82f6);
+  opacity: 1;
   transition: width 100ms ease;
 }
 
 :global(.dark) .scrubber-fill {
-  background: #60a5fa;
-  opacity: 0.45;
+  background: var(--text-blue, #60a5fa);
+  opacity: 1;
 }
 
 .scrubber-thumb {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  top: -3px;
+  top: -5px;
   transform: translateX(-50%);
   cursor: grab;
-  background: #3b82f6;
-  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+  background: var(--text-blue, #3b82f6);
+  border: 2px solid var(--fill-input-chat, #ffffff);
+  filter: drop-shadow(0px 1px 4px rgba(0, 0, 0, 0.06));
   transition: transform 0.1s ease;
 }
 
 .scrubber-thumb:hover {
-  transform: translateX(-50%) scale(1.2);
+  transform: translateX(-50%) scale(1.1);
 }
 
 .scrubber-thumb:active {
@@ -280,8 +285,8 @@ onUnmounted(() => {
 }
 
 :global(.dark) .scrubber-thumb {
-  background: #60a5fa;
-  box-shadow: 0 1px 4px rgba(96, 165, 250, 0.4);
+  background: var(--text-blue, #60a5fa);
+  border-color: var(--fill-input-chat, #2a2a2a);
 }
 
 /* ── Jump to live (inline button) ── */
@@ -289,8 +294,9 @@ onUnmounted(() => {
 .timeline-status {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
+  margin-inline-start: 2px;
 }
 
 .timeline-live-dot {
@@ -301,24 +307,20 @@ onUnmounted(() => {
 }
 
 .timeline-live-dot.is-live {
-  background: #1a1a1a;
-}
-
-:global(.dark) .timeline-live-dot.is-live {
-  background: #e5e5e5;
+  background: var(--text-tertiary, #6b7280);
 }
 
 .timeline-live-dot.is-replay {
-  background: #9ca3af;
+  background: var(--text-tertiary, #9ca3af);
 }
 
 .timeline-status-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 400;
   color: var(--text-tertiary);
 }
 
 .timeline-status-label.is-live {
-  color: var(--text-primary);
+  color: var(--text-tertiary);
 }
 </style>

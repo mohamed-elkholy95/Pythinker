@@ -132,16 +132,17 @@ onMounted(async () => {
   terminal.value = new Terminal({
     disableStdin: true,
     convertEol: true,
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
-    fontSize: 13,
-    lineHeight: 1.5,
+    fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
+    fontSize: 14,
+    lineHeight: 1.625,
     letterSpacing: 0,
     scrollback: 5000,
     cursorBlink: false,
     cursorStyle: 'block',
     theme: isDarkMode.value ? darkTheme : lightTheme,
     scrollOnUserInput: true,
-    cols: 80, // Set a reasonable default column count
+    overviewRulerLanes: 0,
+    cols: 80,
     rows: 24,
   });
   terminal.value.loadAddon(fitAddon.value);
@@ -250,6 +251,7 @@ watch(
   width: 100%;
   height: 100%;
   overflow: hidden;
+  background: var(--terminal-tool-viewport-bg);
 }
 
 .terminal-body {
@@ -258,7 +260,7 @@ watch(
   height: 100%;
   min-width: 200px; /* Prevent xterm from calculating 0-width columns */
   overflow: hidden;
-  background: transparent;
+  background: var(--terminal-tool-viewport-bg);
 }
 
 .terminal-shell {
@@ -271,28 +273,29 @@ watch(
   border: none;
   border-radius: 0;
   box-sizing: border-box;
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
-  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
+  font-size: 14px;
   overflow: hidden;
 }
 
 .terminal-surface {
   width: 100%;
   height: 100%;
-  padding: 10px 12px;
+  padding: 0 12px;
   box-sizing: border-box;
+  background: var(--terminal-tool-viewport-bg);
 }
 
 /* Ensure xterm fills the surface properly */
 .terminal-surface :deep(.xterm) {
   width: 100% !important;
   height: 100% !important;
+  background: var(--terminal-tool-viewport-bg) !important;
 }
 
 .terminal-surface :deep(.xterm-screen) {
   width: 100% !important;
 }
-
 
 /* xterm.js customization */
 .terminal-shell :deep(.xterm) {
@@ -301,6 +304,7 @@ watch(
 
 .terminal-shell :deep(.xterm-viewport) {
   overflow-y: auto !important;
+  background: var(--terminal-tool-viewport-bg) !important;
 }
 
 /* Selection styling (neutral — avoid navy/blue tint) */
