@@ -190,7 +190,7 @@
         />
       </div>
 
-      <!-- Compact Progress Bar (Manus-style: check + description + counter + chevron) -->
+      <!-- Compact Progress Bar (Pythinker-style: check + description + counter + chevron) -->
       <div
         class="progress-bar-collapsed"
         :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'completed-state': isAllCompleted }]"

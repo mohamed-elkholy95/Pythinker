@@ -202,7 +202,7 @@ const handleBrowseUrl = (url: string) => {
 </script>
 
 <style scoped>
-/* Manus-style plain inline message — no card chrome */
+/* Pythinker-style plain inline message — no card chrome */
 .inline-message-card {
   position: relative;
   margin: 4px 0;
@@ -344,7 +344,7 @@ const handleBrowseUrl = (url: string) => {
   text-overflow: ellipsis;
 }
 
-/* Category tint variables removed — Manus-style uniform neutral chips */
+/* Category tint variables removed — Pythinker-style uniform neutral chips */
 
 /* ── Progress micro-label ── */
 .tool-progress-label {

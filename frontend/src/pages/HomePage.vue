@@ -28,7 +28,7 @@
               class="hidden sm:block flex-shrink-0 -ml-2"
             />
           </div>
-          <!-- Center: Model name as header title (Manus-style) -->
+          <!-- Center: Model name as header title (Pythinker-style) -->
           <button
             v-if="activeModelName"
             type="button"
@@ -458,7 +458,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
   }
 }
 
-/* Manus-style centered model title */
+/* Pythinker-style centered model title */
 .header-model-title {
   display: inline-flex;
   align-items: center;
