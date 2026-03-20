@@ -94,7 +94,7 @@
           v-if="(contentConfig || showReportPresentation || showPlanPresentation) && (!embedded || forceViewType) && !showUrlStatusBar"
           class="panel-content-header">
 
-          <!-- Center: Context text (Manus-style — plain centered text, no icons) -->
+          <!-- Center: Context text (Pythinker-style — plain centered text, no icons) -->
           <div class="context-bar-label">
             <span>{{ contentHeaderLabel }}</span>
           </div>
@@ -167,7 +167,7 @@
             </span>
           </div>
 
-          <!-- Connection status removed — Manus-style minimal content header -->
+          <!-- Connection status removed — Pythinker-style minimal content header -->
         </div>
 
         <!-- Content Area: Dynamic content rendering -->
@@ -208,7 +208,7 @@
               </Transition>
             </div>
 
-            <!-- Take over button (Manus-style floating action) -->
+            <!-- Take over button (Pythinker-style floating action) -->
             <button
               v-if="!isShare && !!props.sessionId"
               @click="takeOver"
@@ -1138,7 +1138,7 @@ const showPlanActivityIcon = computed(() => isPlanningPhase.value && !isSummaryP
 
 const showActivitySpinner = computed(() => !showReportActivityIcon.value && !showPlanActivityIcon.value && (!!props.isThinking && !toolDisplay.value));
 
-// Content header label — unified context bar text (Manus-style)
+// Content header label — unified context bar text (Pythinker-style)
 const contentHeaderLabel = computed(() => {
   // Report streaming/display takes priority
   if (showReportPresentation.value) {

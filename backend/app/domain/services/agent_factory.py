@@ -241,4 +241,3 @@ class PythinkerAgentFactory:
                 "removed_context_manager": removed_context is not None,
             },
         )
-
