@@ -554,7 +554,7 @@ import { useContentConfig } from '@/composables/useContentConfig';
 import { cleanDisplayText } from '@/utils/toolDisplay';
 import { useCanvasLiveSync } from '@/composables/useCanvasLiveSync';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
-import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
+import { getToolDisplay } from '@/utils/toolDisplay';
 import { viewFile, viewShellSession, browseUrl, startTakeover } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
@@ -1218,9 +1218,9 @@ const contentHeaderLabel = computed(() => {
     if (props.isPlanStreaming) return 'Creating plan...';
     return 'Editor';
   }
-  // Browser: show URL (empty string when no URL yet — header hides gracefully)
+  // Browser: no label — the live preview speaks for itself
   if (currentViewType.value === 'live_preview') {
-    return resolvedBrowserUrl.value || ''
+    return ''
   }
   // Terminal: show session name or working directory
   if (currentViewType.value === 'terminal') {
@@ -1411,17 +1411,6 @@ watch(
 
 watch(liveViewerRef, () => {
   forwardToolEventToLiveViewer();
-});
-
-// ============ URL Bar Overlay ============
-const resolvedBrowserUrl = computed(() => {
-  // Prefer explicit URL from tool args (e.g. go_to_url → args.url)
-  const explicitUrl = extractToolUrl(props.toolContent?.args);
-  if (explicitUrl) return explicitUrl;
-  // Fall back to resourceLabel only if it looks like a URL (not a bare number/index)
-  const label = toolDisplay.value?.resourceLabel || '';
-  if (label && /[./]/.test(label)) return label;
-  return '';
 });
 
 // ============ Terminal Content ============
