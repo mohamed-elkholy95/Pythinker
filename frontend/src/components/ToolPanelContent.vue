@@ -83,15 +83,10 @@
             : 'panel-content-container rounded-[12px] border border-[var(--border-light)] shadow-[0px_4px_16px_var(--shadow-XS)] mt-2'
         ]">
 
-        <!-- URL Status Bar (browser views — replaces content header) -->
-        <div v-if="showUrlStatusBar" class="url-status-bar">
-          <span class="url-status-text">{{ resolvedBrowserUrl || '/' }}</span>
-        </div>
-
         <!-- Content Header: Centered operation label + View mode tabs.
-             Hidden for browser views when URL bar is active, or embedded without forced view mode. -->
+             Hidden when embedded without a forced view mode. -->
         <div
-          v-if="(contentConfig || showReportPresentation || showPlanPresentation) && (!embedded || forceViewType) && !showUrlStatusBar"
+          v-if="(contentHeaderLabel || contentConfig || showReportPresentation || showPlanPresentation) && (!embedded || forceViewType)"
           class="panel-content-header">
 
           <!-- Center: Context text (Pythinker-style — plain centered text, no icons) -->
@@ -573,6 +568,7 @@ import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search
 import type { ScreenshotMetadata } from '@/types/screenshot';
 import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
 import { stripCmdMarkers, cleanPs1, cleanShellOutput } from '@/utils/shellSanitizer';
+import { deriveSessionName } from '@/utils/sessionName';
 
 import type { ContentViewType } from '@/constants/tool';
 import type { DealToolContent } from '@/types/toolContent';
@@ -1149,14 +1145,27 @@ const contentHeaderLabel = computed(() => {
     if (props.isPlanStreaming) return 'Creating plan...';
     return 'Plan';
   }
-  // Terminal: show working directory from PS1 prompt
+  // Browser: show URL
+  if (currentViewType.value === 'live_preview') {
+    return resolvedBrowserUrl.value || '/'
+  }
+  // Terminal: show session name or working directory
   if (currentViewType.value === 'terminal') {
+    // Prefer explicit session name from backend
+    const sessionName = props.toolContent?.session_name
+    if (sessionName) return sessionName
+    // Derive from command as fallback
+    const cmd = props.toolContent?.command
+    if (cmd) {
+      const derived = deriveSessionName(cmd)
+      if (derived !== 'terminal') return derived
+    }
+    // Existing PS1 extraction fallback
     const content = props.toolContent?.content;
     if (content?.console && Array.isArray(content.console) && content.console.length > 0) {
       const lastRecord = content.console[content.console.length - 1];
       const ps1 = lastRecord?.ps1;
       if (typeof ps1 === 'string' && ps1.trim()) {
-        // Strip [CMD_BEGIN]/[CMD_END] markers from stored event data
         let cleanedPs1 = stripCmdMarkers(ps1).trim();
         if (cleanedPs1 && !cleanedPs1.endsWith('$')) cleanedPs1 += ' $';
         return cleanedPs1;
@@ -1341,13 +1350,6 @@ const resolvedBrowserUrl = computed(() => {
   if (label && /[./]/.test(label)) return label;
   return '';
 });
-
-const showUrlStatusBar = computed(() => {
-  // X11 screencast now captures Chrome's full browser chrome (tabs + address bar),
-  // so the frontend URL overlay is redundant and wastes vertical space.
-  return false;
-});
-
 
 // ============ Terminal Content ============
 const shellOutput = ref('');
@@ -2139,39 +2141,7 @@ const handleBrowseUrl = async (url: string) => {
   cursor: not-allowed;
 }
 
-/* ===== URL STATUS BAR ===== */
-.url-status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 20px;
-  border-bottom: 1px solid var(--border-light);
-  background: color-mix(in srgb, var(--fill-tsp-gray-main) 50%, transparent);
-  flex-shrink: 0;
-  border-radius: 12px 12px 0 0;
-}
-
-:global(.dark) .url-status-bar {
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom-color: rgba(255, 255, 255, 0.05);
-}
-
-.url-status-text {
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-:global(.dark) .url-status-text {
-  color: color-mix(in srgb, var(--text-tertiary) 70%, transparent);
-}
-
-/* ===== CONTENT HEADER (unified context bar — matches URL status bar) ===== */
+/* ===== CONTENT HEADER (unified context bar) ===== */
 .panel-content-header {
   display: flex;
   align-items: center;
