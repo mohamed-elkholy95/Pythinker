@@ -1194,10 +1194,10 @@ const contentContainerStyle = computed((): Record<string, string> => {
   if (currentViewType.value === 'terminal') {
     const dark = isDarkTheme.value
     return {
-      background: dark ? '#1e1e1e' : 'var(--background-gray-main, #f9fafb)',
-      borderColor: dark ? 'rgba(255, 255, 255, 0.06)' : 'var(--border-dark, #d1d5db)',
+      background: dark ? 'var(--terminal-tool-outer-bg)' : 'var(--background-gray-main)',
+      borderColor: dark ? 'rgba(255, 255, 255, 0.06)' : 'var(--border-dark)',
       boxShadow: dark ? 'none' : '0px 4px 32px 0px rgba(0, 0, 0, 0.04)',
-      '--panel-surface-bg': dark ? '#1e1e1e' : 'var(--background-gray-main, #f9fafb)',
+      '--panel-surface-bg': dark ? 'var(--terminal-tool-outer-bg)' : 'var(--background-gray-main)',
       '--panel-terminal-stage-bg': 'var(--terminal-tool-viewport-bg)',
     }
   }
@@ -2237,24 +2237,24 @@ const handleBrowseUrl = async (url: string) => {
 /* Terminal title bar — reference: 36px, gray bg, inset highlight, border-b */
 .panel-content-header--terminal {
   height: 36px;
-  background: var(--background-gray-main, #f9fafb);
-  border-bottom: 1px solid var(--border-main, #e5e7eb);
+  background: var(--background-gray-main);
+  border-bottom: 1px solid var(--border-main);
   box-shadow: none;
 }
 :global(.dark) .panel-content-header--terminal,
 :global(html[data-theme='dark']) .panel-content-header--terminal {
-  background: #1e1e1e;
+  background: var(--terminal-tool-outer-bg);
   border-bottom-color: rgba(255, 255, 255, 0.06);
   box-shadow: none;
 }
 .panel-content-header--terminal .context-bar-label {
-  color: var(--text-tertiary, #6b7280);
+  color: var(--text-tertiary);
   font-size: 14px;
   font-weight: 500;
 }
 :global(.dark) .panel-content-header--terminal .context-bar-label,
 :global(html[data-theme='dark']) .panel-content-header--terminal .context-bar-label {
-  color: var(--text-tertiary, #a1a1aa);
+  color: var(--text-tertiary);
 }
 
 .context-bar-label {
