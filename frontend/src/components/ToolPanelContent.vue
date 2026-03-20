@@ -48,22 +48,24 @@
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <button
-            v-if="!!props.sessionId"
-            class="panel-control-btn"
-            @click="takeOver"
-            :disabled="takeoverLoading"
-            aria-label="Open takeover"
-          >
-            <MonitorUp class="w-4 h-4" />
-          </button>
+          <!-- Chat: collapse panel, focus chat -->
           <button
             class="panel-control-btn"
-            @click="hide"
-            aria-label="Minimize"
+            @click="switchToChat"
+            aria-label="Switch to chat"
           >
-            <Minimize2 class="w-4 h-4" />
+            <MessageSquare class="w-4 h-4" />
           </button>
+          <!-- Split: toggle 50/50 width (desktop only) -->
+          <button
+            v-if="!isMobilePanel"
+            class="panel-control-btn"
+            @click="toggleSplit"
+            aria-label="Toggle split view"
+          >
+            <Columns2 class="w-4 h-4" />
+          </button>
+          <!-- Close -->
           <button
             class="panel-control-btn"
             @click="hide"
@@ -201,6 +203,17 @@
                   animation="globe"
                 />
               </Transition>
+
+              <!-- Floating takeover button -->
+              <button
+                v-if="!!props.sessionId && !embedded"
+                class="absolute bottom-3 right-3 z-10 p-2 rounded-lg bg-[var(--fill-tsp-gray-main)] hover:bg-[var(--fill-tsp-gray-hover)] transition-colors opacity-60 hover:opacity-100"
+                @click="takeOver"
+                :disabled="takeoverLoading"
+                aria-label="Open takeover"
+              >
+                <MonitorUp class="w-4 h-4 text-[var(--icon-secondary)]" />
+              </button>
             </div>
 
             <!-- Take over button (Pythinker-style floating action) -->
@@ -513,7 +526,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, FileText, PencilLine } from 'lucide-vue-next';
+import { MessageSquare, Columns2, MonitorUp, X, Loader2, FileText, PencilLine } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -1656,12 +1669,14 @@ onMounted(() => {
     loadShellContent();
   }
   startAutoRefresh();
+  window.addEventListener('resize', onPanelResize);
 });
 
 onUnmounted(() => {
   stopAutoRefresh();
   clearSearchBrowseTimer();
   clearBrowserHoldTimer();
+  window.removeEventListener('resize', onPanelResize);
 });
 
 // ============ Editor Content ============
@@ -1924,15 +1939,32 @@ const dealActiveStores = computed((): string[] => {
 // ============ Event Handlers ============
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void,
-  (e: 'hide'): void
-  (e: 'stepForward'): void
-  (e: 'stepBackward'): void
-  (e: 'seekByProgress', progress: number): void
+  (e: 'hide'): void,
+  (e: 'stepForward'): void,
+  (e: 'stepBackward'): void,
+  (e: 'seekByProgress', progress: number): void,
+  (e: 'switchToChat'): void,
+  (e: 'requestWidth', width: number): void,
 }>();
 
 const hide = () => {
   emit('hide');
 };
+
+// Mobile detection for split button visibility
+const isMobilePanel = ref(window.innerWidth < 1024)
+const onPanelResize = () => { isMobilePanel.value = window.innerWidth < 1024 }
+
+const isSplitMode = ref(false)
+
+const switchToChat = () => {
+  emit('switchToChat')
+}
+
+const toggleSplit = () => {
+  isSplitMode.value = !isSplitMode.value
+  emit('requestWidth', isSplitMode.value ? -1 : 0)
+}
 
 const takeoverLoading = ref(false);
 

@@ -44,6 +44,8 @@
         @stepForward="handleTimelineStepForward"
         @stepBackward="handleTimelineStepBackward"
         @seekByProgress="handleTimelineSeek"
+        @switchToChat="emit('switchToChat')"
+        @requestWidth="(w: number) => emit('requestWidth', w)"
         class="flex-1 min-h-0"
       />
     </div>
@@ -102,6 +104,8 @@ const emit = defineEmits<{
   (e: 'timelineStepForward'): void
   (e: 'timelineStepBackward'): void
   (e: 'timelineSeek', progress: number): void
+  (e: 'switchToChat'): void
+  (e: 'requestWidth', width: number): void
 }>()
 
 const panelProps = defineProps<{
