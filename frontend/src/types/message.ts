@@ -76,6 +76,8 @@ export interface ToolContent extends BaseContent {
   security_reason?: string;
   security_suggestions?: string[];
   confirmation_state?: string;
+  // Terminal session name (from backend or derived by frontend)
+  session_name?: string;
   // Streaming preview content (from tool_stream events)
   streaming_content?: string;
   streaming_content_type?: string;

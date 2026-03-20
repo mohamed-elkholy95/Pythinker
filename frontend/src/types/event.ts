@@ -147,6 +147,8 @@ export interface ToolEventData extends BaseEventData {
   security_reason?: string;
   security_suggestions?: string[];
   confirmation_state?: string;
+  // Terminal session name (optional, from backend agent)
+  session_name?: string;
 }
 
 export interface StepEventData extends BaseEventData {
