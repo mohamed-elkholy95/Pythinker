@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign'
+import { TerminalStreamAnsiTransformer } from '@/utils/terminalStreamAnsi'
 
 const props = defineProps<{
   sessionId: string
@@ -16,61 +18,15 @@ let fitAddon: FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
 let themeObserver: MutationObserver | null = null
 const isDarkMode = ref(true)
+const streamAnsi = new TerminalStreamAnsiTransformer()
 
-// Light theme (matching project's light mode)
-const lightTheme = {
-  background: '#ffffff',
-  foreground: '#1f2937',
-  cursor: '#1f2937',
-  cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(0, 0, 0, 0.2)',
-  selectionForeground: '#1f2937',
-  black: '#1f2937',
-  red: '#dc2626',
-  green: '#16a34a',
-  yellow: '#ca8a04',
-  blue: '#2563eb',
-  magenta: '#9333ea',
-  cyan: '#0891b2',
-  white: '#f8f9fa',
-  brightBlack: '#6b7280',
-  brightRed: '#ef4444',
-  brightGreen: '#22c55e',
-  brightYellow: '#eab308',
-  brightBlue: '#3b82f6',
-  brightMagenta: '#a855f7',
-  brightCyan: '#06b6d4',
-  brightWhite: '#ffffff',
-}
-
-// Dark theme (Tokyo Night inspired — matching project's dark mode)
-const darkTheme = {
-  background: '#1a1b26',
-  foreground: '#c0caf5',
-  cursor: '#c0caf5',
-  cursorAccent: '#1a1b26',
-  selectionBackground: '#33467c',
-  selectionForeground: '#c0caf5',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-  brightBlack: '#414868',
-  brightRed: '#f7768e',
-  brightGreen: '#9ece6a',
-  brightYellow: '#e0af68',
-  brightBlue: '#7aa2f7',
-  brightMagenta: '#bb9af7',
-  brightCyan: '#7dcfff',
-  brightWhite: '#c0caf5',
-}
+const lightTheme = createTerminalToolXtermTheme('light')
+const darkTheme = createTerminalToolXtermTheme('dark')
 
 function checkDarkMode() {
-  isDarkMode.value = document.documentElement.classList.contains('dark')
+  const root = document.documentElement
+  isDarkMode.value =
+    root.classList.contains('dark') || root.getAttribute('data-theme') === 'dark'
   if (terminal) {
     terminal.options.theme = isDarkMode.value ? darkTheme : lightTheme
   }
@@ -142,21 +98,25 @@ function initTerminal() {
   themeObserver = new MutationObserver(checkDarkMode)
   themeObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['class'],
+    attributeFilter: ['class', 'data-theme'],
   })
 
   // Write the command prompt if provided
   if (props.command) {
-    terminal.writeln(`\x1b[32m$\x1b[0m ${props.command}`)
+    terminal.writeln(`\x1b[32m$\x1b[0m ${props.command.replace(/\r?\n/g, '\r\n')}`)
   }
 }
 
 function writeData(data: string) {
-  terminal?.write(data)
+  if (!terminal || !data) return
+  const colored = streamAnsi.transform(data)
+  if (colored) terminal.write(colored)
 }
 
 function writeComplete(exitCode: number) {
   if (terminal) {
+    const tail = streamAnsi.flush()
+    if (tail) terminal.write(tail)
     terminal.writeln('')
     if (exitCode === 0) {
       terminal.writeln(`\x1b[32m[Process exited with code ${exitCode}]\x1b[0m`)
@@ -167,8 +127,16 @@ function writeComplete(exitCode: number) {
 }
 
 function clear() {
+  streamAnsi.reset()
   terminal?.clear()
 }
+
+watch(
+  () => props.shellSessionId,
+  () => {
+    streamAnsi.reset()
+  },
+)
 
 onMounted(() => {
   initTerminal()
@@ -216,7 +184,10 @@ defineExpose({
 </script>
 
 <template>
-  <div class="terminal-live-container" :class="{ 'dark-mode': isDarkMode }">
+  <div
+    class="terminal-live-container terminal-tool-xterm-hover-scroll"
+    :class="{ 'dark-mode': isDarkMode }"
+  >
     <div ref="terminalRef" class="terminal-element" />
   </div>
 </template>
@@ -226,19 +197,18 @@ defineExpose({
   width: 100%;
   height: 100%;
   min-height: 120px;
-  background: #ffffff;
-  border-radius: 6px;
+  background: var(--terminal-tool-viewport-bg);
+  color: var(--terminal-tool-text);
+  border: none;
+  border-radius: 0;
   overflow: hidden;
-}
-
-:global(.dark) .terminal-live-container {
-  background: #1a1b26;
+  box-sizing: border-box;
 }
 
 .terminal-element {
   width: 100%;
   height: 100%;
-  padding: 12px 16px;
+  padding: 10px 12px;
   box-sizing: border-box;
 }
 
@@ -261,45 +231,13 @@ defineExpose({
   overflow-y: auto !important;
 }
 
-/* Enhanced scrollbar for terminal */
-.terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar) {
-  width: 8px;
-}
-
-.terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar-track) {
-  background: transparent;
-  margin: 8px 0;
-}
-
-.terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background 0.15s ease;
-}
-
-.terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-  background: rgba(0, 0, 0, 0.22);
-  background-clip: padding-box;
-}
-
-:global(.dark) .terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
-  background: rgba(255, 255, 255, 0.12);
-  background-clip: padding-box;
-}
-
-:global(.dark) .terminal-live-container :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-  background: rgba(255, 255, 255, 0.22);
-  background-clip: padding-box;
-}
-
-/* Selection styling */
+/* Selection styling (neutral — avoid navy/blue tint) */
 .terminal-live-container :deep(.xterm-selection div) {
-  background: rgba(0, 0, 0, 0.2) !important;
+  background: rgba(0, 0, 0, 0.18) !important;
 }
 
-:global(.dark) .terminal-live-container :deep(.xterm-selection div) {
-  background: rgba(0, 0, 0, 0.3) !important;
+:global(.dark) .terminal-live-container :deep(.xterm-selection div),
+:global(html[data-theme='dark']) .terminal-live-container :deep(.xterm-selection div) {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 </style>
