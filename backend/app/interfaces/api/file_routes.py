@@ -86,7 +86,7 @@ async def download_file_with_signature(
 
     # Use 'inline' for browser-renderable types (PDF, images, HTML charts)
     if file_info.content_type == "application/pdf":
-        headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}'"
+        headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}"
 
     # Add CSP headers for HTML chart files (security hardening)
     if file_info.content_type == "text/html" and file_info.metadata:
@@ -96,7 +96,7 @@ async def download_file_with_signature(
                 "default-src 'none'; script-src https://cdn.plot.ly; style-src 'unsafe-inline'; img-src data:;"
             )
             headers["X-Content-Type-Options"] = "nosniff"
-            headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}'"
+            headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}"
 
     return StreamingResponse(
         file_data, media_type=file_info.content_type or "application/octet-stream", headers=headers
@@ -129,7 +129,7 @@ async def download_file(
 
     # Use 'inline' for browser-renderable types (PDF, images, HTML charts)
     if file_info.content_type == "application/pdf":
-        headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}'"
+        headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}"
 
     # Add CSP headers for HTML chart files (security hardening)
     if file_info.content_type == "text/html" and file_info.metadata:
