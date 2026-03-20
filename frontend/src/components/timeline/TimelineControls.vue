@@ -156,6 +156,14 @@ onUnmounted(() => {
 .timeline-controls {
   user-select: none;
   padding: 8px 16px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--panel-surface-bg, var(--background-white-main));
+}
+
+:global(.dark) .timeline-controls,
+:global(html[data-theme='dark']) .timeline-controls {
+  background: var(--panel-surface-bg, #1e1e1e);
+  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 .timeline-controls:focus {
@@ -240,13 +248,14 @@ onUnmounted(() => {
   position: absolute;
   height: 100%;
   border-radius: 2px;
-  background: var(--text-tertiary);
-  opacity: 0.35;
+  background: #3b82f6;
+  opacity: 0.42;
   transition: width 100ms ease;
 }
 
 :global(.dark) .scrubber-fill {
-  background: rgba(255, 255, 255, 0.2);
+  background: #60a5fa;
+  opacity: 0.45;
 }
 
 .scrubber-thumb {
