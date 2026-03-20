@@ -1,4 +1,4 @@
-name: Build Images
+name: Build & Deploy
 
 on:
   push:
@@ -147,7 +147,50 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.component }},mode=max
 
   # ---------------------------------------------------------------------------
-  # Deployment is handled by Dokploy (manual Deploy button).
-  # CI only builds and pushes images to ghcr.io.
-  # Dokploy pulls pre-built images when Deploy is clicked.
+  # Deploy to VPS via SSH — pull pre-built images and restart
   # ---------------------------------------------------------------------------
+  deploy:
+    needs: [changes, build]
+    if: always() && needs.build.result != 'failure' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: vps-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHCR_TOKEN
+          script_stop: true
+          script: |
+            set -e
+
+            DEPLOY_DIR="/opt/pythinker-deploy"
+            COMPOSE_FILE="docker-compose-deploy.yml"
+
+            cd "$DEPLOY_DIR"
+
+            # Sync compose file from repo
+            git fetch origin main --quiet
+            git checkout origin/main -- "$COMPOSE_FILE"
+
+            # Ensure GHCR auth is current
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u mohamed-elkholy95 --password-stdin 2>/dev/null
+
+            # Pull latest images (only updated layers download)
+            docker compose -f "$COMPOSE_FILE" pull --quiet
+
+            # Restart services with new images
+            docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+
+            # Cleanup dangling images older than 72h
+            docker image prune -f --filter "until=72h" 2>/dev/null || true
+
+            echo "=== Deploy complete ==="
+            docker compose -f "$COMPOSE_FILE" ps --format 'table {{.Name}}\t{{.Status}}' | head -15
