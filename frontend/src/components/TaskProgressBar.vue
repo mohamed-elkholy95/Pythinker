@@ -326,7 +326,7 @@ const isToolRunning = computed(() => {
 })
 
 // Computed: show thumbnails in collapsed/expanded view
-const showCollapsedThumbnail = computed(() => props.showThumbnail)
+const showCollapsedThumbnail = computed(() => props.showThumbnail && !props.compact)
 const showExpandedThumbnail = computed(() => props.showThumbnail)
 
 // Check if all tasks are completed
