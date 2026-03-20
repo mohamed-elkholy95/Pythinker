@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import secrets
@@ -7,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import Message
-from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -26,7 +26,15 @@ def _mask_email(email: str) -> str:
 
 
 _LOGO_PATH = Path(__file__).parent / "email_assets" / "logo.png"
-_LOGO_CID = "pythinker_logo"
+
+
+def _logo_data_uri() -> str:
+    """Return base64 data URI for the logo, or empty string if unavailable."""
+    if not _LOGO_PATH.exists():
+        logger.debug("Logo not found at %s, skipping", _LOGO_PATH)
+        return ""
+    b64 = base64.b64encode(_LOGO_PATH.read_bytes()).decode()
+    return f"data:image/png;base64,{b64}"
 
 
 def _build_code_email_text(
@@ -48,7 +56,14 @@ def _build_code_email_html(
     code: str,
     detail: str,
     ignore_note: str,
+    logo_src: str,
 ) -> str:
+    logo_html = (
+        f'<img src="{logo_src}" alt="Pythinker" width="64" height="64" '
+        f'style="display:block; margin:0 auto; border:0; border-radius:18px;" />'
+        if logo_src
+        else ""
+    )
     return f"""\
 <html>
 <body style="margin:0; padding:24px 12px; background:#eef4fb; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
@@ -58,7 +73,7 @@ def _build_code_email_html(
   <div style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #d9e4f2; border-radius:22px; overflow:hidden;">
     <div style="padding:32px 32px 24px; text-align:center; background:linear-gradient(135deg, #0f172a 0%, #2563eb 100%);">
       <div style="display:inline-block; width:88px; height:88px; border-radius:24px; background:rgba(255,255,255,0.14); padding:12px; box-sizing:border-box;">
-        <img src="cid:{_LOGO_CID}" alt="Pythinker" width="64" height="64" style="display:block; margin:0 auto; border:0; border-radius:18px;" />
+        {logo_html}
       </div>
       <p style="margin:16px 0 0; color:#dbeafe; font-size:13px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;">
         Pythinker
@@ -98,18 +113,6 @@ def _build_code_email_html(
   </div>
 </body>
 </html>"""
-
-
-def _build_logo_part() -> MIMEImage | None:
-    """Build an inline MIMEImage part for the Pythinker logo, or None if unavailable."""
-    if not _LOGO_PATH.exists():
-        logger.debug("Logo not found at %s, skipping CID attachment", _LOGO_PATH)
-        return None
-
-    img = MIMEImage(_LOGO_PATH.read_bytes(), _subtype="png")
-    img.add_header("Content-ID", f"<{_LOGO_CID}>")
-    img.add_header("Content-Disposition", "inline", filename="logo.png")
-    return img
 
 
 @dataclass(frozen=True)
@@ -298,27 +301,12 @@ class EmailService:
             code=code,
             detail=detail,
             ignore_note=ignore_note,
+            logo_src=_logo_data_uri(),
         )
 
-        # Build RFC 2387 structure:
-        #   multipart/alternative
-        #   ├── text/plain
-        #   └── multipart/related
-        #       ├── text/html
-        #       └── image/png  (Content-ID + Content-Disposition: inline)
-        logo_part = _build_logo_part()
-
-        if logo_part is not None:
-            html_related = MIMEMultipart("related")
-            html_related.attach(MIMEText(html, "html"))
-            html_related.attach(logo_part)
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(plain, "plain"))
-            msg.attach(html_related)
-        else:
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(plain, "plain"))
-            msg.attach(MIMEText(html, "html"))
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(plain, "plain"))
+        msg.attach(MIMEText(html, "html"))
 
         msg["From"] = f"Pythinker <{from_addr}>"
         msg["To"] = email
