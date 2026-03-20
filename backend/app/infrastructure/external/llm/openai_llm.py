@@ -1668,8 +1668,9 @@ To extract data from a webpage:
                     pending_tool_ids.discard(tool_call_id)
                     fixed_messages.append(msg)
                 elif not pending_tool_ids:
-                    # Orphaned tool response - skip it
-                    logger.warning(f"Removing orphaned tool response with id: {tool_call_id}")
+                    # Orphaned tool response — skip it (debug-level: recurs every LLM call
+                    # until the stale message is naturally evicted from conversation history)
+                    logger.debug(f"Removing orphaned tool response with id: {tool_call_id}")
                 else:
                     # Drop mismatched tool responses while a specific sequence is pending.
                     # Keeping them can create orphan tool messages and break strict APIs.

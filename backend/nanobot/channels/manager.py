@@ -164,10 +164,14 @@ class ChannelManager:
 
         Retries with exponential backoff (5s → 10s → 20s → ... → 120s max).
         Gives up after 10 consecutive failures to avoid infinite restart loops.
+
+        For Telegram "terminated by other getUpdates" conflicts, uses a longer
+        back-off (60s) since the other instance must be stopped or timed out first.
         """
         max_retries = 10
         base_delay = 5.0
         max_delay = 120.0
+        conflict_marker = "terminated by other getUpdates"
 
         for attempt in range(max_retries + 1):
             try:
@@ -176,17 +180,35 @@ class ChannelManager:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                is_telegram_conflict = conflict_marker in str(e)
                 if attempt >= max_retries:
-                    logger.error(
-                        "Channel {} failed after {} restart attempts, giving up: {}",
-                        name, max_retries, e,
-                    )
+                    if is_telegram_conflict:
+                        logger.error(
+                            "Channel {} giving up after {} attempts: another bot "
+                            "instance is using the same token. Stop the other "
+                            "instance and restart this container to recover.",
+                            name, max_retries,
+                        )
+                    else:
+                        logger.error(
+                            "Channel {} failed after {} restart attempts, giving up: {}",
+                            name, max_retries, e,
+                        )
                     return
-                delay = min(max_delay, base_delay * (2 ** attempt))
-                logger.warning(
-                    "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
-                    name, attempt + 1, max_retries, delay, e,
-                )
+
+                if is_telegram_conflict:
+                    delay = max(60.0, min(max_delay, base_delay * (2 ** attempt)))
+                    logger.warning(
+                        "Channel {} conflict: another bot instance is polling "
+                        "(attempt {}/{}), retrying in {:.0f}s",
+                        name, attempt + 1, max_retries, delay,
+                    )
+                else:
+                    delay = min(max_delay, base_delay * (2 ** attempt))
+                    logger.warning(
+                        "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
+                        name, attempt + 1, max_retries, delay, e,
+                    )
                 await asyncio.sleep(delay)
 
     async def start_all(self) -> None:
