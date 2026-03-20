@@ -16,6 +16,10 @@ import {
   normalizeLanguage,
   getLanguageFromFilename,
 } from '@/config/shiki'
+import {
+  SHIKI_TERMINAL_TOOL_THEMES,
+  SHIKI_TERMINAL_TOOL_THEME_IDS,
+} from '@/config/terminalToolDesign'
 
 // Singleton highlighter instance
 let highlighterInstance: Highlighter | null = null
@@ -57,7 +61,11 @@ async function initializeHighlighter(): Promise<Highlighter> {
     const { createHighlighter } = await import('shiki')
 
     highlighterInstance = await createHighlighter({
-      themes: [SHIKI_THEMES.light, SHIKI_THEMES.dark],
+      themes: [
+        SHIKI_THEMES.light,
+        SHIKI_THEMES.dark,
+        ...SHIKI_TERMINAL_TOOL_THEMES,
+      ],
       langs: SHIKI_LANGUAGES,
     })
 
@@ -287,6 +295,59 @@ export function useShiki() {
   }
 
   /**
+   * Dual-theme highlight for terminal tool commands (reference palette, not GitHub).
+   */
+  async function highlightTerminalDualTheme(
+    code: string,
+    language: string,
+    options: {
+      lineNumbers?: boolean
+      highlightLines?: number[]
+    } = {},
+  ): Promise<string> {
+    isLoading.value = true
+    try {
+      const highlighter = await initializeHighlighter()
+      const normalizedLang = normalizeLanguage(language)
+
+      const loadedLangs = highlighter.getLoadedLanguages()
+      const langString = normalizedLang as string
+      if (!loadedLangs.includes(normalizedLang) && langString !== 'text') {
+        try {
+          await highlighter.loadLanguage(normalizedLang)
+        } catch {
+          console.warn(`Failed to load language: ${normalizedLang}`)
+        }
+      }
+
+      const langToUse = highlighter.getLoadedLanguages().includes(normalizedLang)
+        ? normalizedLang
+        : ('text' as BundledLanguage)
+
+      let html = highlighter.codeToHtml(code, {
+        lang: langToUse,
+        themes: {
+          light: SHIKI_TERMINAL_TOOL_THEME_IDS.light,
+          dark: SHIKI_TERMINAL_TOOL_THEME_IDS.dark,
+        },
+        defaultColor: 'light',
+        cssVariablePrefix: '--shiki-',
+      })
+
+      if (options.lineNumbers) {
+        html = addLineNumbers(html, options.highlightLines)
+      }
+
+      return html
+    } catch (error) {
+      console.error('Shiki terminal-tool highlighting error:', error)
+      return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
    * Get language from filename
    */
   function detectLanguage(filename: string): string {
@@ -296,6 +357,7 @@ export function useShiki() {
   return {
     highlight,
     highlightDualTheme,
+    highlightTerminalDualTheme,
     detectLanguage,
     normalizeLanguage,
     isLoading,
