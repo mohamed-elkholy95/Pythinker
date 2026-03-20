@@ -449,7 +449,7 @@ import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
 import MousePointerClickIcon from '../components/icons/MousePointerClickIcon.vue';
 import MonitorIcon from '../components/icons/MonitorIcon.vue';
 import TerminalIcon from '../components/icons/TerminalIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette, BarChart3, Tag } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette, BarChart3, Tag, BookOpen } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -494,7 +494,7 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
 
   // === AUTOMATION ===
   "skill": Wand2,
-  "skill_invoke": Wand2,
+  "skill_invoke": BookOpen,
   "skill_creator": Wand2,
 
   // === OUTPUT ===
