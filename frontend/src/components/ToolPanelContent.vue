@@ -482,6 +482,18 @@
           </Transition>
         </div>
 
+        <!-- Floating "Jump to live" button -->
+        <Transition name="fade-jump">
+          <button
+            v-if="showTimeline && !isTimelineLive"
+            class="jump-to-live-floating"
+            @click="jumpToRealTime"
+          >
+            <Play class="w-3.5 h-3.5" />
+            <span>Jump to live</span>
+          </button>
+        </Transition>
+
         <!-- Timeline Controls — only render when timeline data exists -->
         <div v-if="showTimeline" class="mt-auto">
           <TimelineControls
@@ -492,9 +504,6 @@
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
-            :tool-timeline="toolTimeline"
-            :current-step="timelineCurrentStep"
-            :total-steps="timelineTotalSteps"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
             @step-backward="handleStepBackward"
@@ -526,7 +535,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { MessageSquare, Columns2, MonitorUp, X, Loader2, FileText, PencilLine } from 'lucide-vue-next';
+import { MessageSquare, Columns2, MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -747,6 +756,10 @@ const showPersistedFinalReport = computed(() => {
   if (!props.isReplayMode) return true;
   return props.realTime || isViewingLatestTimelineStep.value;
 });
+
+const isTimelineLive = computed(() => {
+  return props.realTime || (props.timelineProgress ?? 0) >= 99.5
+})
 
 const reportPresentationText = computed(() => {
   const persistedReportText = showPersistedFinalReport.value ? (props.finalReportText || '') : '';
@@ -2424,5 +2437,38 @@ const handleBrowseUrl = async (url: string) => {
   max-width: 200px;
   opacity: 1;
   margin-left: 6px;
+}
+
+.jump-to-live-floating {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.jump-to-live-floating:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+.fade-jump-enter-active,
+.fade-jump-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-jump-enter-from,
+.fade-jump-leave-to {
+  opacity: 0;
 }
 </style>
