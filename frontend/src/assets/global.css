@@ -10,99 +10,105 @@
    (scrollbars, form controls, system backgrounds) match the active theme. */
 :root {
   color-scheme: light;
-  /* Terminal — Manus light: white chrome, warm gray (#f8f8f8) viewport, shiki green prompt */
+  /* Terminal — reference: white surface, rgb(0,187,0) prompt, dark text */
   --terminal-tool-outer-bg: #ffffff;
-  --terminal-tool-viewport-bg: #f8f8f8;
-  --terminal-tool-border: #e8e8e8;
-  --terminal-tool-prompt: #16a34a;
-  --terminal-tool-text: #171717;
-  --terminal-tool-text-muted: #737373;
+  --terminal-tool-viewport-bg: #ffffff;
+  --terminal-tool-border: #e5e7eb;
+  --terminal-tool-prompt: #00bb00;
+  --terminal-tool-text: #1a1a1a;
+  --terminal-tool-text-muted: #6b7280;
 }
 
 :root[data-theme='dark'],
 .dark {
   color-scheme: dark;
-  /* Manus dark: #1e1e1e chrome, #252525 body (neutral, not navy / not pure black) */
+  /* Terminal dark: unified #1e1e1e surface, bright green prompt, light text */
   --terminal-tool-outer-bg: #1e1e1e;
-  --terminal-tool-viewport-bg: #252525;
+  --terminal-tool-viewport-bg: #1e1e1e;
   --terminal-tool-border: rgba(255, 255, 255, 0.08);
-  --terminal-tool-prompt: #4ade80;
-  --terminal-tool-text: #e8e8e8;
-  --terminal-tool-text-muted: #a3a3a3;
+  --terminal-tool-prompt: #00dd00;
+  --terminal-tool-text: #e5e5e5;
+  --terminal-tool-text-muted: #a1a1aa;
 }
 
-/* xterm / terminal surfaces: scrollbar only on hover, thin rail (WebKit + Firefox) */
+/* ── Terminal scrollbar: hair-thin 4px, hugs right edge, visible only on hover ── */
+
+/* xterm viewport — thin Firefox scrollbar, invisible by default */
 .terminal-tool-xterm-hover-scroll .xterm-viewport {
-  scrollbar-width: none;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 .terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--terminal-tool-text-muted) 55%, transparent) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 .dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport,
 :root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
-  scrollbar-color: color-mix(in srgb, #ffffff 28%, transparent) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
+/* WebKit: 4px track flush to right edge, transparent until hover */
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar {
-  width: 5px;
+  width: 4px !important;
+  background: transparent !important;
 }
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
+  margin: 4px 0;
 }
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 5px;
-  transition: background-color 0.15s ease;
+  background: transparent !important;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
 }
 .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--terminal-tool-text) 22%, transparent);
+  background: rgba(0, 0, 0, 0.15) !important;
 }
 .dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb,
 :root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, #ffffff 22%, transparent);
+  background: rgba(255, 255, 255, 0.15) !important;
 }
 
-/* Static shell output (Shiki HTML) — same hover scrollbar */
+/* Static shell output (Shiki HTML) — same thin hover scrollbar */
 .terminal-tool-shell-output-hover-scroll {
-  scrollbar-width: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 .terminal-tool-shell-output-hover-scroll:hover {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--terminal-tool-text-muted) 55%, transparent) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 .dark .terminal-tool-shell-output-hover-scroll:hover,
 :root[data-theme='dark'] .terminal-tool-shell-output-hover-scroll:hover {
-  scrollbar-color: color-mix(in srgb, #ffffff 28%, transparent) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 .terminal-tool-shell-output-hover-scroll::-webkit-scrollbar {
-  width: 5px;
+  width: 4px !important;
+  background: transparent !important;
 }
 .terminal-tool-shell-output-hover-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
+  margin: 4px 0;
 }
 .terminal-tool-shell-output-hover-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 5px;
-  transition: background-color 0.15s ease;
+  background: transparent !important;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
 }
 .terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--terminal-tool-text) 22%, transparent);
+  background: rgba(0, 0, 0, 0.15) !important;
 }
 .dark .terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb,
 :root[data-theme='dark'] .terminal-tool-shell-output-hover-scroll:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, #ffffff 22%, transparent);
+  background: rgba(255, 255, 255, 0.15) !important;
 }
 
-/* xterm 6+ macOS-style overlay scrollbar — hidden until terminal strip is hovered */
-.terminal-tool-xterm-hover-scroll .xterm-scrollable-element .scrollbar.vertical {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.terminal-tool-xterm-hover-scroll:hover .xterm-scrollable-element .scrollbar.vertical {
-  opacity: 1;
+/* xterm canvas scrollbar (v5+) — HIDE completely.
+   We rely on the native .xterm-viewport scrollbar instead, which respects
+   ::-webkit-scrollbar CSS for thin, hover-only appearance. */
+.terminal-tool-xterm-hover-scroll .scrollbar.vertical,
+.terminal-tool-xterm-hover-scroll .xterm .scrollbar.vertical {
+  display: none !important;
 }
 
 #app {

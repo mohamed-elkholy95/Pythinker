@@ -39,14 +39,15 @@ function initTerminal() {
 
   terminal = new Terminal({
     theme: isDarkMode.value ? darkTheme : lightTheme,
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
-    lineHeight: 1.5,
+    fontSize: 14,
+    fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
+    lineHeight: 1.625,
     cursorBlink: true,
     cursorStyle: 'bar',
     scrollback: 5000,
     convertEol: true,
     disableStdin: true,
+    overviewRulerLanes: 0,
     cols: 80,
     rows: 24,
   })
@@ -208,7 +209,7 @@ defineExpose({
 .terminal-element {
   width: 100%;
   height: 100%;
-  padding: 10px 12px;
+  padding: 0 12px;
   box-sizing: border-box;
 }
 
@@ -216,6 +217,7 @@ defineExpose({
 .terminal-element :deep(.xterm) {
   width: 100% !important;
   height: 100% !important;
+  background: var(--terminal-tool-viewport-bg) !important;
 }
 
 .terminal-element :deep(.xterm-screen) {
@@ -229,6 +231,7 @@ defineExpose({
 
 .terminal-live-container :deep(.xterm-viewport) {
   overflow-y: auto !important;
+  background: var(--terminal-tool-viewport-bg) !important;
 }
 
 /* Selection styling (neutral — avoid navy/blue tint) */

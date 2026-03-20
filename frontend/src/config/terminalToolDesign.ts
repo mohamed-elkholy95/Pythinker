@@ -7,22 +7,22 @@ import type { ThemeRegistration } from 'shiki'
 
 /**
  * Manus-style terminal (reference UI):
- * Light: white card chrome, warm gray viewport (#f8f8f8), charcoal body text, vibrant prompt green.
- * Dark: neutral charcoal chrome (#1e1e1e) + slightly lifted body (#252525), no navy.
+ * Light: unified white chrome + viewport, charcoal body text, vibrant prompt green.
+ * Dark: unified charcoal (#1e1e1e) chrome + viewport, no navy / no pure black.
  */
 export const TERMINAL_TOOL_COLORS = {
   outerBgLight: '#ffffff',
   outerBgDark: '#1e1e1e',
-  viewportBgLight: '#f8f8f8',
-  viewportBgDark: '#252525',
-  borderLight: '#e8e8e8',
+  viewportBgLight: '#ffffff',
+  viewportBgDark: '#1e1e1e',
+  borderLight: '#e5e7eb',
   borderDark: 'rgba(255, 255, 255, 0.08)',
-  promptLight: '#16a34a',
-  promptDark: '#4ade80',
-  textLight: '#171717',
-  textDark: '#e8e8e8',
-  mutedLight: '#737373',
-  mutedDark: '#a3a3a3',
+  promptLight: '#00bb00',
+  promptDark: '#00dd00',
+  textLight: '#1a1a1a',
+  textDark: '#e5e5e5',
+  mutedLight: '#6b7280',
+  mutedDark: '#a1a1aa',
   accentBlueLight: '#3b82f6',
   accentBlueDark: '#3b82f6',
 } as const
@@ -118,7 +118,7 @@ const ansi = {
     white: '#f3f4f6',
     brightBlack: TERMINAL_TOOL_COLORS.mutedLight,
     brightRed: '#ef4444',
-    brightGreen: '#16a34a',
+    brightGreen: '#00bb00',
     brightYellow: '#eab308',
     brightBlue: TERMINAL_TOOL_COLORS.accentBlueLight,
     brightMagenta: '#a855f7',
@@ -164,9 +164,9 @@ export function createTerminalToolXtermTheme(mode: 'light' | 'dark'): ITheme {
     selectionForeground: fg,
     scrollbarSliderBackground: 'transparent',
     scrollbarSliderHoverBackground:
-      mode === 'light' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.22)',
+      mode === 'light' ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
     scrollbarSliderActiveBackground:
-      mode === 'light' ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.3)',
+      mode === 'light' ? 'rgba(0, 0, 0, 0.18)' : 'rgba(255, 255, 255, 0.18)',
     black: a.black,
     red: a.red,
     green: a.green,

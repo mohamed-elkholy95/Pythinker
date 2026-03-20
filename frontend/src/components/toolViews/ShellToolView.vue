@@ -223,16 +223,11 @@ onUnmounted(() => {
   border-radius: 0;
   box-sizing: border-box;
   overflow: hidden;
-  font-family:
-    'JetBrains Mono',
-    'Fira Code',
-    'SF Mono',
-    Menlo,
-    Monaco,
-    'Cascadia Code',
-    monospace;
-  font-size: 13px;
-  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
+  font-size: 14px;
+  line-height: 1.625;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .shell-loading,
@@ -244,10 +239,11 @@ onUnmounted(() => {
 .shell-output {
   flex: 1;
   min-height: 0;
-  padding: 10px 12px;
-  overflow: auto;
+  padding: 0 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
 }
 
 .shell-view :deep(.empty-icon),
@@ -272,12 +268,12 @@ onUnmounted(() => {
   padding: var(--space-8) var(--space-4);
 }
 
-/* Prompt (reference green) */
+/* Prompt — always green (light + dark) */
 .shell-output :deep(.shell-prompt) {
-  color: var(--terminal-tool-prompt);
+  color: var(--terminal-tool-prompt) !important;
 }
 
-/* Command + Shiki: inner HTML omits <pre>; spans carry light hex + --shiki-dark custom prop */
+/* Command + Shiki: spans carry light hex + --shiki-dark custom prop */
 .shell-output :deep(.shell-command) {
   color: var(--terminal-tool-text);
 }
@@ -287,8 +283,8 @@ onUnmounted(() => {
   color: var(--shiki-dark) !important;
 }
 
-/* Command output — same body text as reference */
+/* Command output — same body text (light + dark) */
 .shell-output :deep(.shell-output-text) {
-  color: var(--terminal-tool-text);
+  color: var(--terminal-tool-text) !important;
 }
 </style>
