@@ -2494,17 +2494,44 @@ To extract data from a webpage:
 
                     llm_call_start = time.monotonic()
 
+                    # Timeout guard — ask_structured() must not hang indefinitely.
+                    # Uses the same LLM_REQUEST_TIMEOUT as ask() (default 90s).
+                    _structured_timeout = max(
+                        90.0,
+                        float(getattr(settings, "llm_request_timeout", 0.0) or 0.0),
+                    )
+
                     # ── instructor path ──────────────────────────────────────
                     if patched_client and not tools:
                         # Instructor handles response_format, JSON parsing, and
                         # Pydantic validation internally.  We pop response_format
                         # to avoid double-setting it.
                         params.pop("response_format", None)
-                        result, completion = await patched_client.chat.completions.create_with_completion(
-                            response_model=response_model,
-                            max_retries=1,
-                            **params,
-                        )
+                        try:
+                            result, completion = await asyncio.wait_for(
+                                patched_client.chat.completions.create_with_completion(
+                                    response_model=response_model,
+                                    max_retries=1,
+                                    **params,
+                                ),
+                                timeout=_structured_timeout,
+                            )
+                        except TimeoutError:
+                            llm_call_duration = time.monotonic() - llm_call_start
+                            logger.warning(
+                                "LLM ask_structured() [instructor] timed out after %.1fs "
+                                "(model=%s, schema=%s, attempt=%d/%d)",
+                                llm_call_duration,
+                                effective_model,
+                                response_model.__name__,
+                                attempt + 1,
+                                max_retries + 1,
+                            )
+                            if attempt < max_retries:
+                                continue
+                            raise TimeoutError(
+                                f"ask_structured() timed out after {_structured_timeout}s on attempt {attempt + 1}"
+                            ) from None
                         llm_call_duration = time.monotonic() - llm_call_start
                         _slow = get_settings().llm_slow_request_threshold
                         log_fn = logger.warning if llm_call_duration > _slow else logger.info
@@ -2517,7 +2544,26 @@ To extract data from a webpage:
                         return result
 
                     # ── manual path (fallback) ───────────────────────────────
-                    response = await client.chat.completions.create(**params)
+                    try:
+                        response = await asyncio.wait_for(
+                            client.chat.completions.create(**params),
+                            timeout=_structured_timeout,
+                        )
+                    except TimeoutError:
+                        llm_call_duration = time.monotonic() - llm_call_start
+                        logger.warning(
+                            "LLM ask_structured() timed out after %.1fs (model=%s, schema=%s, attempt=%d/%d)",
+                            llm_call_duration,
+                            effective_model,
+                            response_model.__name__,
+                            attempt + 1,
+                            max_retries + 1,
+                        )
+                        if attempt < max_retries:
+                            continue
+                        raise TimeoutError(
+                            f"ask_structured() timed out after {_structured_timeout}s on attempt {attempt + 1}"
+                        ) from None
                     llm_call_duration = time.monotonic() - llm_call_start
                     _slow = get_settings().llm_slow_request_threshold
                     log_fn = logger.warning if llm_call_duration > _slow else logger.info
