@@ -13,6 +13,13 @@ class StreamingMode(str, Enum):
     CDP_ONLY = "cdp_only"
 
 
+class SandboxLifecycleMode(str, Enum):
+    """Sandbox lifecycle mode selection."""
+
+    STATIC = "static"
+    EPHEMERAL = "ephemeral"
+
+
 class FlowMode(str, Enum):
     """Unified flow engine selection.
 
