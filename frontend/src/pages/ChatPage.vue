@@ -435,7 +435,7 @@
             v-model="inputMessage"
             :rows="1"
             @submit="handleSubmit"
-            :isRunning="isLoading"
+            :isRunning="isAgentRunning"
             :isBlocked="isSandboxInitializing"
             @stop="handleStop"
             :attachments="attachments"
@@ -1062,6 +1062,13 @@ const hasEmbeddedCompletionFooter = computed(() => {
 
 const showGlobalTaskCompletedFooter = computed(() =>
   canShowSuggestions.value && !hasEmbeddedCompletionFooter.value
+);
+
+// Whether the agent is truly running and can be stopped.
+// Excludes 'completing' phase (300ms wind-down after done event) so the Stop
+// button and animated loading indicators disappear as soon as the task finishes.
+const isAgentRunning = computed(() =>
+  isLoading.value && responsePhase.value !== 'completing'
 );
 
 const isSessionInterrupted = computed(() =>
@@ -2001,11 +2008,14 @@ const activeThinkingStepId = computed<string | undefined>(() => {
   return currentRunningStepId.value;
 });
 
-// Show standalone thinking indicator whenever the agent is processing
+// Show standalone thinking indicator whenever the agent is actively processing
 // (no running step or active tool call visible).
+// Exclude 'completing' phase — that is the 300ms wind-down after done event;
+// the task is already finished so no thinking indicator should appear.
 const showFloatingThinkingIndicator = computed(() => {
   if (showSessionWarmupMessage.value) return false;
   if (!isLoading.value) return false;
+  if (responsePhase.value === 'completing') return false;
   if (hasActiveToolCall.value) return false;
   if (hasRunningStep.value) return false;
   return true;
