@@ -39,11 +39,17 @@ SSE_COLLECT_TIMEOUT = 60
 
 
 def _is_backend_available() -> bool:
-    """Check if backend is available."""
+    """Check if backend is available.
+
+    Uses a short timeout (2s connect, 3s read) to avoid blocking test
+    collection when the backend is not running. OrbStack may accept the
+    TCP connection even when no container is listening, so the read
+    timeout is essential.
+    """
     try:
-        r = requests.get(f"{BASE_URL}/health", timeout=5)
+        r = requests.get(f"{BASE_URL}/health", timeout=(2, 3))
         return r.status_code == 200
-    except requests.RequestException:
+    except Exception:
         return False
 
 
