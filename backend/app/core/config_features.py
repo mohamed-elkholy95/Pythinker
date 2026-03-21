@@ -135,6 +135,7 @@ class AgentSafetySettingsMixin:
     # fires. Settings.effective_workflow_idle_timeout auto-floors this when it is too small.
     # Formula: 2 x LLM_REQUEST_TIMEOUT (300s) + 60s margin = 660s.
     workflow_idle_timeout_seconds: int = 660  # 11 min — survives full LLM attempt + one retry
+    cancellation_grace_period_seconds: int = 5  # Grace before cancelling during tool execution
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
 

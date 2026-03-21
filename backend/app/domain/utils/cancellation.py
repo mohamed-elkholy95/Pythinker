@@ -183,6 +183,16 @@ class CancellationToken:
 
         self._cleanup_callbacks.clear()
 
+    def clear(self) -> None:
+        """Clear cancellation state (e.g., when client reconnects).
+
+        Resets the internal event so that ``is_cancelled()`` returns False
+        and ``check_cancelled()`` no longer raises.
+        """
+        if self._event is not None:
+            self._event.clear()
+            self._checked_count = 0
+
     def __bool__(self) -> bool:
         """Allow using token in boolean context: if cancel_token: ..."""
         return not self.is_cancelled()
