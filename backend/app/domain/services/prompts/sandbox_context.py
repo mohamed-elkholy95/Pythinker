@@ -29,8 +29,8 @@ class SandboxContextManager:
     _warned_no_context: bool = False
 
     # Retry settings for startup loading
-    _RETRY_ATTEMPTS = 3
-    _RETRY_BASE_DELAY = 2.0  # seconds
+    _RETRY_ATTEMPTS = 6
+    _RETRY_BASE_DELAY = 1.0  # seconds
 
     @classmethod
     def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
@@ -62,7 +62,7 @@ class SandboxContextManager:
             if result is not None:
                 return result
             if attempt < cls._RETRY_ATTEMPTS - 1:
-                delay = cls._RETRY_BASE_DELAY * (attempt + 1)
+                delay = cls._RETRY_BASE_DELAY * (2 ** attempt)
                 logger.info(
                     f"Sandbox context not ready, retrying in {delay}s (attempt {attempt + 1}/{cls._RETRY_ATTEMPTS})"
                 )
