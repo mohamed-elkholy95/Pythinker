@@ -229,7 +229,7 @@ class DockerSandbox(Sandbox):
                 "HTTPS_PROXY": settings.sandbox_https_proxy,
                 "HTTP_PROXY": settings.sandbox_http_proxy,
                 "NO_PROXY": settings.sandbox_no_proxy,
-                "SANDBOX_STREAMING_MODE": settings.sandbox_streaming_mode.value,
+                "SANDBOX_STREAMING_MODE": str(settings.sandbox_streaming_mode),
             }
             if settings.sandbox_api_secret:
                 container_env["SANDBOX_API_SECRET"] = settings.sandbox_api_secret

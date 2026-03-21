@@ -392,7 +392,7 @@ async def create_session(
             if sandbox:
                 sandbox_info = SandboxInfo(
                     sandbox_id=sandbox.id,
-                    streaming_mode=settings.sandbox_streaming_mode.value,
+                    streaming_mode=str(settings.sandbox_streaming_mode),
                     status="initializing",
                 )
         except Exception as e:
@@ -425,7 +425,7 @@ async def get_session(
             status=session.status,
             source=getattr(session, "source", "web"),
             research_mode=session.research_mode,
-            streaming_mode=get_settings().sandbox_streaming_mode.value,
+            streaming_mode=str(get_settings().sandbox_streaming_mode),
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
         )
@@ -485,7 +485,7 @@ async def get_session_status(
             session_id=session.id,
             status=session.status,
             sandbox_id=session.sandbox_id,
-            streaming_mode=get_settings().sandbox_streaming_mode.value,
+            streaming_mode=str(get_settings().sandbox_streaming_mode),
             created_at=session.created_at.timestamp() if session.created_at else None,
         )
     )
@@ -514,7 +514,7 @@ async def get_active_session(
                 session_id=active.id,
                 status=active.status,
                 sandbox_id=active.sandbox_id,
-                streaming_mode=get_settings().sandbox_streaming_mode.value,
+                streaming_mode=str(get_settings().sandbox_streaming_mode),
                 created_at=active.created_at.timestamp() if active.created_at else None,
             )
         )
