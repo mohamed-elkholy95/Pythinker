@@ -200,6 +200,7 @@ services:
       - /tmp:size=1G,nosuid,nodev
       - /home/ubuntu:size=2G,nosuid,nodev,uid=1000,gid=1000
       - /var:size=500M,nosuid,nodev
+      - /workspace:size=2G,nosuid,nodev,uid=1000,gid=1000
     ulimits:
       nofile:
         soft: 65536
