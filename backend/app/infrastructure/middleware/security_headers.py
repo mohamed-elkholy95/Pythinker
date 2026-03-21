@@ -57,8 +57,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # === HSTS (HTTP Strict Transport Security) ===
         # Force HTTPS for 1 year (31536000 seconds)
         # Context7: Enable only in production with HTTPS
+        # Note: HSTS is set conditionally in dispatch() — emitted when environment
+        # is production OR when the request arrives via HTTPS (X-Forwarded-Proto).
         if self._settings.is_production:
-            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         # === Content Security Policy (CSP) ===
         # Restrict resource loading to prevent XSS attacks
@@ -138,6 +140,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Add standard security headers
         for header, value in self._headers.items():
             response.headers[header] = value
+
+        # === HSTS for non-production HTTPS requests ===
+        # When not in production, still emit HSTS if the request arrived over HTTPS
+        # (detected via X-Forwarded-Proto set by reverse proxies like Traefik).
+        if not self._settings.is_production:
+            forwarded_proto = request.headers.get("x-forwarded-proto", "")
+            if forwarded_proto == "https":
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        # === Suppress uvicorn Server header ===
+        # Prevents server fingerprinting (CWE-200). Uvicorn sets "server: uvicorn"
+        # by default; removing it reduces information leakage.
+        if "server" in response.headers:
+            del response.headers["server"]
 
         # === Path-Specific Headers ===
 
