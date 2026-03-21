@@ -376,10 +376,15 @@ async def _collect_sse_events(response) -> list[dict]:
 
     EventSourceResponse wraps an async generator.  We iterate the
     generator attribute directly to collect ServerSentEvent objects.
+    Skips retry-only frames (event=None, data=None) which are SSE
+    transport configuration, not application events.
     """
     events: list[dict] = []
     # The response body_iterator is the async generator
     async for sse in response.body_iterator:
+        # Skip retry-only SSE frames (e.g., ServerSentEvent(retry=1500))
+        if sse.event is None and not sse.data:
+            continue
         # sse is a ServerSentEvent — extract event name + data
         data = None
         if sse.data:
