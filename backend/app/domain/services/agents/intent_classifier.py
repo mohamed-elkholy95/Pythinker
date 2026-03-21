@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from app.domain.models.session import AgentMode
+from app.domain.models.session import AgentMode, SessionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,13 @@ class ClassificationContext:
 
     # Active MCP tools that might be relevant
     mcp_tools: list[str] = field(default_factory=list)
+
+    # Session execution awareness (added for plan-guard)
+    session_mode: AgentMode | None = None
+    session_had_plan: bool = False
+    session_plan_title: str | None = None
+    session_status: SessionStatus | None = None
+    session_completed_steps: int = 0
 
     def has_attachments(self) -> bool:
         """Check if context has any attachments."""
@@ -212,6 +219,19 @@ class IntentClassifier:
         "would you",
     ]
 
+    _CONTINUATION_PATTERNS: ClassVar[list[str]] = [
+        r"^(do it|go ahead|continue|proceed|yes|yes please|ok do it|sure)[\s!.]*$",
+        r"^(keep going|carry on|finish it|complete it)[\s!.]*$",
+    ]
+
+    def _is_continuation_phrase(self, message: str) -> bool:
+        """Check if message is a continuation/approval phrase."""
+        normalized = message.lower().strip()
+        return any(
+            re.match(p, normalized, re.IGNORECASE)
+            for p in self._CONTINUATION_PATTERNS
+        )
+
     def classify(self, message: str) -> tuple[str, AgentMode, float]:
         """Classify user intent and recommend agent mode.
 
@@ -338,6 +358,40 @@ class IntentClassifier:
 
         if not context:
             return ClassificationResult(intent=intent, mode=mode, confidence=confidence, reasons=reasons)
+
+        # Guard 2: Continuation phrases in planned session → stay AGENT
+        # (checked before Guard 1 so continuation intent takes precedence)
+        if (
+            context.is_follow_up
+            and context.session_had_plan
+            and self._is_continuation_phrase(message)
+        ):
+            reasons.append("Continuation phrase in planned session → AGENT")
+            return ClassificationResult(
+                intent="continuation",
+                mode=AgentMode.AGENT,
+                confidence=0.95,
+                reasons=reasons,
+                context_signals={"continuation_in_plan": True},
+            )
+
+        # Guard 1: Never downgrade AGENT→DISCUSS if session had a plan
+        if (
+            context.session_mode == AgentMode.AGENT
+            and mode == AgentMode.DISCUSS
+            and context.session_had_plan
+        ):
+            reasons.append(
+                f"BLOCKED: AGENT→DISCUSS downgrade prevented — "
+                f"session has plan '{context.session_plan_title}'"
+            )
+            return ClassificationResult(
+                intent="follow_up_to_planned_task",
+                mode=AgentMode.AGENT,
+                confidence=0.90,
+                reasons=reasons,
+                context_signals={"plan_guard_active": True},
+            )
 
         # Analyze context signals
         normalized = message.lower().strip()
