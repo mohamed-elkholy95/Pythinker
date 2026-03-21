@@ -1008,6 +1008,7 @@ async def chat(
         if replay_events:
 
             async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+                yield ServerSentEvent(retry=1500)
                 if stale_resume_gap_event:
                     yield stale_resume_gap_event
                 for replay_event in replay_events:
@@ -1019,6 +1020,7 @@ async def chat(
         sse_done = await EventMapper.event_to_sse_event(done_event)
 
         async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+            yield ServerSentEvent(retry=1500)
             if stale_resume_gap_event:
                 yield stale_resume_gap_event
             if sse_done:
@@ -1063,6 +1065,7 @@ async def chat(
 
         async def remote_session_generator() -> AsyncGenerator[ServerSentEvent, None]:
             """Poll MongoDB for events from a gateway-owned session."""
+            yield ServerSentEvent(retry=1500)
             sent_event_ids: set[str] = set()
             elapsed = 0.0
             last_heartbeat = 0.0
@@ -1217,6 +1220,11 @@ async def chat(
         heartbeat_count = 0
         close_reason = "unknown"
         last_emitted_event_id: str | None = None  # Updated to UUID as real events are sent.
+        # Monotonic counter for discuss-mode SSE `id:` fields.  Discuss events
+        # use UUID event_ids which are not valid Redis stream resume cursors.
+        # A simple counter lets native EventSource clients track position for
+        # basic reconnection support without polluting Last-Event-ID with UUIDs.
+        _discuss_seq: int = 0
         reconnect_first_non_heartbeat_seconds: float | None = None
         disconnect_event = asyncio.Event()
         cancel_token = CancellationToken(event=disconnect_event, session_id=session_id)
@@ -1234,6 +1242,9 @@ async def chat(
         pm.record_sse_stream_open(endpoint="chat")
 
         try:
+            # SSE retry directive: tell EventSource clients to reconnect after 1500ms
+            yield ServerSentEvent(retry=1500)
+
             # INSTANT FEEDBACK: Emit ProgressEvent immediately (<100ms)
             # This gives users visual feedback before any processing begins
             instant_ack = ProgressEvent(
@@ -1424,6 +1435,12 @@ async def chat(
                         # internally via last_emitted_event_id but never sent to the browser.
                         if event_id_val and _REDIS_STREAM_ID_RE.match(str(event_id_val)):
                             sse_kwargs["id"] = str(event_id_val)
+                        elif event_id_val:
+                            # Discuss-mode and other non-Redis events: emit a monotonic
+                            # counter as the SSE `id:` field so native EventSource clients
+                            # can track position for basic reconnection support.
+                            _discuss_seq += 1
+                            sse_kwargs["id"] = f"seq-{_discuss_seq}"
                         sse_payload = ServerSentEvent(**sse_kwargs)
                         if send_timeout:
                             try:
@@ -1727,6 +1744,7 @@ async def browse_url(
     """
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(retry=1500)
         disconnect_event = asyncio.Event()
         guard = StreamGuard(
             session_id=session_id,
