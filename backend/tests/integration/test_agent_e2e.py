@@ -30,11 +30,15 @@ import requests
 BASE_URL = "http://localhost:8000/api/v1"
 HEADERS = {"Content-Type": "application/json"}
 
-# Timeout for SSE streaming (seconds)
-SSE_TIMEOUT = 90
-# Short timeout for quick operations
-SHORT_TIMEOUT = 15
-# Max time to collect SSE events before giving up
+# Timeout for SSE streaming HTTP request (seconds).
+# Must be >= SSE_COLLECT_TIMEOUT so the collection loop controls termination,
+# not the socket.  Add 10s margin for TCP setup / first byte.
+SSE_TIMEOUT = 75
+# Short timeout for quick operations (non-streaming)
+SHORT_TIMEOUT = 10
+# Max time to collect SSE events before giving up.
+# _parse_sse_events also sets a per-read socket timeout (15s between chunks)
+# so even if this wall-clock budget isn't reached, a stalled stream unblocks.
 SSE_COLLECT_TIMEOUT = 60
 
 
@@ -64,15 +68,19 @@ def _wait_for_backend(timeout: float = 30) -> bool:
 
 
 def _get_auth_provider() -> str | None:
-    """Best-effort detection of backend auth provider from /auth/status."""
+    """Best-effort detection of backend auth provider from /auth/status.
+
+    Uses short timeout (2s connect, 3s read) to avoid blocking test
+    collection when OrbStack accepts TCP but no container responds.
+    """
     try:
-        r = requests.get(f"{BASE_URL}/auth/status", timeout=5)
+        r = requests.get(f"{BASE_URL}/auth/status", timeout=(2, 3))
         if r.status_code == 200:
             data = r.json().get("data", {})
             provider = data.get("auth_provider")
             if isinstance(provider, str):
                 return provider
-    except requests.RequestException:
+    except Exception:
         pass
     return None
 
@@ -86,15 +94,29 @@ def _parse_sse_events(
 
     Returns list of dicts with 'event' and 'data' keys.
     Stops after max_events or timeout_seconds, whichever comes first.
+
+    Sets a per-read socket timeout so iter_lines() cannot block
+    indefinitely when the server stalls (e.g., agent waiting on LLM).
     """
     events = []
     current_event = None
     current_data_lines = []
     start = time.time()
 
+    # Set socket-level read timeout to prevent iter_lines() from blocking
+    # indefinitely. This is the max wait between individual TCP reads.
+    _PER_READ_TIMEOUT = 15.0  # seconds between data chunks
+    raw_socket = getattr(response.raw, "_fp", None)
+    if raw_socket is not None:
+        sock = getattr(raw_socket, "fp", None) or getattr(raw_socket, "_sock", None)
+        if sock is not None:
+            with contextlib.suppress(Exception):
+                sock.settimeout(_PER_READ_TIMEOUT)
+
     try:
         for line in response.iter_lines(decode_unicode=True):
-            if time.time() - start > timeout_seconds:
+            elapsed = time.time() - start
+            if elapsed > timeout_seconds:
                 break
 
             if line is None:
@@ -125,8 +147,14 @@ def _parse_sse_events(
 
                 if len(events) >= max_events:
                     break
-    except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError):
-        # Stream ended - that's fine, return what we collected
+    except (
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ReadTimeout,
+        TimeoutError,
+        OSError,
+    ):
+        # Stream ended or timed out - return what we collected
         pass
 
     return events
@@ -418,6 +446,7 @@ class TestSessionLifecycle:
 # =============================================================================
 
 
+@pytest.mark.timeout(120)
 class TestChatStreaming:
     """Tests for chat message sending and SSE event streaming."""
 
@@ -689,6 +718,7 @@ class TestAPIEndpoints:
 # =============================================================================
 
 
+@pytest.mark.timeout(120)
 class TestAgentBehavior:
     """Tests for agent behavioral quality: grounding, tool use, reasoning.
 
@@ -939,6 +969,7 @@ class TestExistingSessionAnalysis:
 # =============================================================================
 
 
+@pytest.mark.timeout(120)
 class TestHallucinationGrounding:
     """Tests informed by testing.md hallucination detection best practices.
 
