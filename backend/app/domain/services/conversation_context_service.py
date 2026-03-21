@@ -576,13 +576,21 @@ class ConversationContextService:
         Returns None for events that should not be stored (partial streams, UI-only events).
         """
         from app.domain.models.event import (
+            ComprehensionEvent,
             ErrorEvent,
             MessageEvent,
+            ModeChangeEvent,
+            PlanEvent,
+            PlanStatus,
+            ReflectionEvent,
             ReportEvent,
             StepEvent,
             StepStatus,
+            TaskRecreationEvent,
+            ThoughtEvent,
             ToolEvent,
             ToolStatus,
+            VerificationEvent,
         )
 
         content: str | None = None
@@ -591,45 +599,100 @@ class ConversationContextService:
         step_id: str | None = None
         tool_name: str | None = None
 
-        if isinstance(event, MessageEvent):
-            content = event.message
-            role = TurnRole.USER if event.role == "user" else TurnRole.ASSISTANT
-            event_type = TurnEventType.MESSAGE
+        match event:
+            case MessageEvent():
+                content = event.message
+                role = TurnRole.USER if event.role == "user" else TurnRole.ASSISTANT
+                event_type = TurnEventType.MESSAGE
 
-        elif isinstance(event, ToolEvent):
-            # Only store completed tool results, not invocations
-            if event.status != ToolStatus.CALLED:
-                return None
-            tool_name = getattr(event, "tool_name", None) or getattr(event, "function_name", None) or "unknown"
-            result_str = str(getattr(event, "function_result", "") or "")[:500]
-            content = f"{tool_name}: {result_str}"
-            role = TurnRole.TOOL_SUMMARY
-            event_type = TurnEventType.TOOL_RESULT
+            case ToolEvent():
+                # Only store completed tool results, not invocations
+                if event.status != ToolStatus.CALLED:
+                    return None
+                tool_name = getattr(event, "tool_name", None) or getattr(event, "function_name", None) or "unknown"
+                result_str = str(getattr(event, "function_result", "") or "")[:500]
+                content = f"{tool_name}: {result_str}"
+                role = TurnRole.TOOL_SUMMARY
+                event_type = TurnEventType.TOOL_RESULT
 
-        elif isinstance(event, StepEvent):
-            # Only store completed steps
-            if event.status != StepStatus.COMPLETED:
-                return None
-            step_desc = event.step.description if event.step else ""
-            step_result = str(getattr(event.step, "result", "") or "")[:500]
-            content = f"Step: {step_desc}. Result: {step_result}"
-            role = TurnRole.STEP_SUMMARY
-            event_type = TurnEventType.STEP_COMPLETION
-            step_id = getattr(event, "step_id", None) or getattr(event, "id", None)
+            case StepEvent():
+                # Only store completed steps
+                if event.status != StepStatus.COMPLETED:
+                    return None
+                step_desc = event.step.description if event.step else ""
+                step_result = str(getattr(event.step, "result", "") or "")[:500]
+                content = f"Step: {step_desc}. Result: {step_result}"
+                role = TurnRole.STEP_SUMMARY
+                event_type = TurnEventType.STEP_COMPLETION
+                step_id = getattr(event, "step_id", None) or getattr(event, "id", None)
 
-        elif isinstance(event, ReportEvent):
-            title = getattr(event, "title", "") or ""
-            report_content = getattr(event, "content", "") or ""
-            content = f"{title}\n{report_content}"[:2000]
-            role = TurnRole.ASSISTANT
-            event_type = TurnEventType.REPORT
-
-        elif isinstance(event, ErrorEvent):
-            error_msg = getattr(event, "error", "") or ""
-            if error_msg:
-                content = f"Error: {error_msg}"
+            case ReportEvent():
+                title = getattr(event, "title", "") or ""
+                report_content = getattr(event, "content", "") or ""
+                content = f"{title}\n{report_content}"[:2000]
                 role = TurnRole.ASSISTANT
-                event_type = TurnEventType.ERROR
+                event_type = TurnEventType.REPORT
+
+            case ErrorEvent():
+                error_msg = getattr(event, "error", "") or ""
+                if error_msg:
+                    content = f"Error: {error_msg}"
+                    role = TurnRole.ASSISTANT
+                    event_type = TurnEventType.ERROR
+
+            case PlanEvent():
+                # Only store the initial plan creation, not updates
+                if event.status != PlanStatus.CREATED:
+                    return None
+                title = event.plan.title or ""
+                steps = event.plan.steps or []
+                step_lines = "\n".join(f"- {s.description}" for s in steps)
+                content = f"Plan: {title}\nSteps:\n{step_lines}"
+                role = TurnRole.PLAN_SUMMARY
+                event_type = TurnEventType.PLAN
+
+            case ThoughtEvent():
+                # Only store the final thought in a chain
+                if not event.is_final:
+                    return None
+                thought_content = event.content or ""
+                thought_type = event.thought_type or "thought"
+                content = f"Thought ({thought_type}): {thought_content}"
+                role = TurnRole.THOUGHT
+                event_type = TurnEventType.THOUGHT
+
+            case ReflectionEvent():
+                summary = event.summary or event.decision or ""
+                content = f"Reflection: {summary}"
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.REFLECTION
+
+            case VerificationEvent():
+                summary = event.summary or ""
+                status_val = event.status.value if event.status else ""
+                content = f"Verification ({status_val}): {summary}"
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.VERIFICATION
+
+            case ComprehensionEvent():
+                summary = event.summary or ""
+                content = f"Task comprehension: {summary}"
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.COMPREHENSION
+
+            case ModeChangeEvent():
+                reason = event.reason or ""
+                content = f"Mode changed to {event.mode}: {reason}"
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.MODE_CHANGE
+
+            case TaskRecreationEvent():
+                content = f"Task recreated: {event.reason}"
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.TASK_RECREATION
+
+            case _:
+                return None
 
         if not content or len(content.strip()) < self._min_content_length:
             return None
