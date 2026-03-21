@@ -101,7 +101,7 @@ class FastAcknowledgmentRefiner:
                     "- Be professional, direct, and action-oriented.\n"
                     "- Correct obvious typos and awkward phrasing from the user request.\n"
                     "- State what you will do next immediately (review/research/build/create/fix as appropriate).\n"
-                    "- You may include a brief time estimate (e.g. 'This should take about 5-10 minutes.').\n"
+                    "- Do NOT include time estimates. Never say how long something will take.\n"
                     "- Do not ask follow-up questions.\n"
                     "- Do not include bullet points or markdown.\n"
                     "- NEVER mention specific search sites, sources, or platforms (Reddit, Google, Stack Overflow,\n"
