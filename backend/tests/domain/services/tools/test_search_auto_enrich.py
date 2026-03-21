@@ -258,6 +258,9 @@ class TestInfoSearchWebEnrichmentIntegration:
     async def test_browse_guidance_when_no_enrichment(self, mock_search_engine):
         """When enrichment is off but browser exists, note should encourage browsing."""
         mock_browser = AsyncMock()
+        # Sync methods — use MagicMock to avoid unawaited coroutine warnings
+        mock_browser.allow_background_browsing = MagicMock()
+        mock_browser.is_connected = MagicMock(return_value=True)
         with patch(_SETTINGS_PATCH) as ms:
             ms.return_value = _default_settings(search_auto_enrich_enabled=False)
             tool = SearchTool(
