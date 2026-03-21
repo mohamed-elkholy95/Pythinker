@@ -307,11 +307,18 @@ onUnmounted(() => {
 }
 
 .timeline-live-dot.is-live {
-  background: var(--text-tertiary, #6b7280);
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+  animation: live-pulse 2s ease-in-out infinite;
 }
 
 .timeline-live-dot.is-replay {
   background: var(--text-tertiary, #9ca3af);
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .timeline-status-label {
@@ -321,6 +328,6 @@ onUnmounted(() => {
 }
 
 .timeline-status-label.is-live {
-  color: var(--text-tertiary);
+  color: #22c55e;
 }
 </style>
