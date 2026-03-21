@@ -1033,7 +1033,7 @@ class FastPathRouter:
             # Try streaming if available
             if hasattr(self._llm, "ask_stream"):
                 yield ProgressEvent(
-                    phase=PlanningPhase.PLANNING,
+                    phase=PlanningPhase.RECEIVED,
                     message="Generating response...",
                     progress_percent=40,
                 )
