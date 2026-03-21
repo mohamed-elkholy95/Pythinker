@@ -1,5 +1,5 @@
 <template>
-  <div v-if="suggestions.length > 0" class="suggestions-container">
+  <div v-if="suggestions.length > 0" class="suggestions-container" role="group" aria-label="Suggested follow-ups">
     <div class="suggestions-title">
       {{ $t('Suggested follow-ups') }}
     </div>

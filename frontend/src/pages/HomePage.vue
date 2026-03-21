@@ -18,7 +18,7 @@
               @click="toggleLeftPanel"
               aria-label="Open sidebar"
             >
-              <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
+              <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" style="aspect-ratio: 1 / 1;" />
             </button>
             <!-- Desktop branding (visible when sidebar is collapsed) -->
             <PythinkerLogoTextIcon
@@ -125,6 +125,7 @@ import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { useSettingsDialog } from '../composables/useSettingsDialog';
 import UserMenu from '../components/UserMenu.vue';
+import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { getServerConfig, getSettings } from '../api/settings';
 import { resolveInitialHeaderModelName } from '@/utils/chatHeaderModel';

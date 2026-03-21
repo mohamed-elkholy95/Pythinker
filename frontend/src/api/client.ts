@@ -300,7 +300,7 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
     apiError.message = 'Network error, please check your connection';
   }
 
-  console.error('API Error:', apiError);
+  console.error('API Error:', apiError.message || JSON.stringify(apiError));
   return Promise.reject(apiError);
 };
 

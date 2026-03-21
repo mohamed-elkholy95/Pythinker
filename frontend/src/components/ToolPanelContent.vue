@@ -202,7 +202,7 @@
               <!-- Reconnecting overlay -->
               <Transition name="fade">
                 <LoadingState
-                  v-if="livePreviewDisconnected && !!sessionId"
+                  v-if="livePreviewDisconnected && !!sessionId && !isSessionComplete"
                   class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
                   :label="livePreviewPlaceholderLabel || 'Reconnecting'"
                   :detail="livePreviewPlaceholderDetail"
