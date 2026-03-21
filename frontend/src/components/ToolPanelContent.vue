@@ -504,6 +504,7 @@
             :current-timestamp="timelineTimestamp"
             :is-live="realTime"
             :is-replay-mode="!!isReplayMode"
+            :is-session-active="!!isLoading"
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
