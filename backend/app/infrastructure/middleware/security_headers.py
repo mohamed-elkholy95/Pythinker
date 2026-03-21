@@ -70,7 +70,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             csp_directives = [
                 "default-src 'self'",
                 "script-src 'self'",
-                "style-src 'self' 'unsafe-inline'",  # Allow inline styles for UI frameworks
+                "style-src 'self'",  # Vite production builds extract styles to CSS files
                 "img-src 'self' data: https:",
                 "font-src 'self' data:",
                 "connect-src 'self' wss:",

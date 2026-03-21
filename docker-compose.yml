@@ -213,7 +213,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-      - SYS_CHROOT
     volumes:
       - /app/__pycache__
       - /app/.venv
