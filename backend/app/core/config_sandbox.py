@@ -4,15 +4,33 @@ Contains configuration for Docker sandbox lifecycle, pool management, browser ag
 anti-bot stealth, connection pooling, crash detection, screenshots, and stuck detection.
 """
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
-from app.core.config_enums import StreamingMode
+from app.core.config_enums import SandboxLifecycleMode, StreamingMode
 
 
 class SandboxSettingsMixin:
     """Core sandbox lifecycle and pool configuration."""
 
-    sandbox_lifecycle_mode: str = "static"  # "static" | "ephemeral"
+    sandbox_lifecycle_mode: SandboxLifecycleMode = SandboxLifecycleMode.STATIC
+
+    @field_validator("sandbox_lifecycle_mode", mode="before")
+    @classmethod
+    def _coerce_sandbox_lifecycle_mode(cls, v: object) -> SandboxLifecycleMode:
+        """Coerce plain string values (e.g. from .env) to the SandboxLifecycleMode enum."""
+        if isinstance(v, SandboxLifecycleMode):
+            return v
+        if isinstance(v, str):
+            lowered = v.strip().lower()
+            try:
+                return SandboxLifecycleMode(lowered)
+            except ValueError:
+                allowed = ", ".join(m.value for m in SandboxLifecycleMode)
+                msg = f"Invalid sandbox_lifecycle_mode '{v}'. Allowed values: {allowed}"
+                raise ValueError(msg) from None
+        msg = f"sandbox_lifecycle_mode must be a string, got {type(v).__name__}"
+        raise TypeError(msg)
+
     sandbox_streaming_mode: StreamingMode = StreamingMode.CDP_ONLY
     # State snapshot retention (MongoDB SnapshotDocument, NOT sandbox container tarballs)
     sandbox_snapshot_ttl_days: int = 7  # State snapshot retention period
