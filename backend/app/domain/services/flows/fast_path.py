@@ -171,7 +171,61 @@ KNOWLEDGE_PATTERNS = [
     r"^(?:explain|define|describe|tell\s+me\s+about)\s+",
     r"^(?:can\s+you\s+)?(?:help\s+me\s+)?(?:understand|explain)\s+",
     r"\?$",  # Ends with question mark (likely a question)
+    # Simple arithmetic / calculation queries
+    r"^\d+\s*[+\-*/x]\s*\d+",
+    r"^(?:what\s+is\s+|calculate\s+|compute\s+)?\d+\s*[+\-*/x]\s*\d+",
+    # "What is..." factual questions (broader catch)
+    r"^what(?:'s|\s+is)\s+(?:the\s+)?(?:capital|population|meaning|definition|currency|language|area|height|weight|distance|speed|time|date|name)\b",
+    # Simple factual question starters
+    r"^(?:who|when|where)\s+(?:is|are|was|were|did)\s+",
+    # "How many/much" factual queries
+    r"^how\s+(?:many|much|old|long|far|tall|big|fast)\s+",
+    # "Is/Are ... ?" yes/no factual questions
+    r"^(?:is|are|was|were|does|do|did|can|has|have)\s+.+\?$",
+    # "Name the..." / "List the..." short factual
+    r"^(?:name|list)\s+(?:the\s+)?(?:\d+\s+)?(?:main|top|primary|major|most)?\s*\w+\s+(?:of|in|for)\s+",
+    # Direct topic lookup: "Python", "Bitcoin", short noun phrases
+    r"^(?:tell\s+me\s+about|what\s+about|info\s+on|information\s+about)\s+",
 ]
+
+# Action verbs that indicate a task rather than a question, used to
+# prevent short queries with these verbs from being classified as KNOWLEDGE.
+_TASK_ACTION_VERBS = frozenset(
+    {
+        "create",
+        "build",
+        "write",
+        "generate",
+        "make",
+        "develop",
+        "implement",
+        "design",
+        "fix",
+        "debug",
+        "solve",
+        "resolve",
+        "troubleshoot",
+        "refactor",
+        "optimize",
+        "improve",
+        "enhance",
+        "analyze",
+        "analyse",
+        "compare",
+        "evaluate",
+        "review",
+        "audit",
+        "assess",
+        "research",
+        "investigate",
+        "deploy",
+        "install",
+        "configure",
+        "set up",
+        "setup",
+        "migrate",
+    }
+)
 
 # Queries matching KNOWLEDGE_PATTERNS but containing these indicators should
 # be escalated to the full workflow (WEB_SEARCH / TASK) because they require
@@ -439,6 +493,35 @@ class FastPathRouter:
                 logger.info("Query classified as KNOWLEDGE (simple response directive)")
                 return QueryIntent.KNOWLEDGE, {"question": message_clean}
 
+        word_count = len(message_clean.split())
+
+        # For short queries (under ~15 words), check KNOWLEDGE BEFORE TASK patterns.
+        # Simple factual questions like "What is the capital of France?" should not
+        # be caught by broad TASK patterns (e.g., "compare" in "What is X compared to Y?").
+        # Only escalate to TASK if the query contains explicit action verbs.
+        if word_count <= 15:
+            # Check if query contains explicit task action verbs
+            words_set = set(message_lower.split())
+            has_action_verb = bool(words_set & _TASK_ACTION_VERBS)
+
+            if not has_action_verb:
+                for pattern in KNOWLEDGE_PATTERNS:
+                    if re.search(pattern, message_lower):
+                        # Still apply escalation checks for health/safety/legal topics
+                        escalated = False
+                        for esc_pattern in KNOWLEDGE_ESCALATION_PATTERNS:
+                            if re.search(esc_pattern, message_lower):
+                                logger.info(
+                                    "Short query matched KNOWLEDGE but escalated to TASK (escalation pattern: %s)",
+                                    esc_pattern,
+                                )
+                                escalated = True
+                                break
+
+                        if not escalated:
+                            logger.info("Query classified as KNOWLEDGE (short simple query)")
+                            return QueryIntent.KNOWLEDGE, {"question": message_clean}
+
         # Check for explicit task indicators
         for pattern in TASK_PATTERNS:
             if re.search(pattern, message_lower):
@@ -465,7 +548,6 @@ class FastPathRouter:
 
         # Check for knowledge questions (simple enough for direct LLM response)
         # But only if it's short enough (long questions may need research)
-        word_count = len(message_clean.split())
         if word_count < 35:
             for pattern in KNOWLEDGE_PATTERNS:
                 if re.search(pattern, message_lower):
