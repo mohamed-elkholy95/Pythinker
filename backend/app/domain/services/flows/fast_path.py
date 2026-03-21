@@ -518,6 +518,16 @@ class FastPathRouter:
                                 escalated = True
                                 break
 
+                        # Escalation check 2: multi-sub-question (3+ conjunctions)
+                        if not escalated:
+                            conjunction_count = len(re.findall(r"\band\b", message_lower))
+                            if conjunction_count >= 3:
+                                logger.info(
+                                    "Short query matched KNOWLEDGE but escalated to TASK (multi-sub-question: %d conjunctions)",
+                                    conjunction_count,
+                                )
+                                escalated = True
+
                         if not escalated:
                             logger.info("Query classified as KNOWLEDGE (short simple query)")
                             return QueryIntent.KNOWLEDGE, {"question": message_clean}
