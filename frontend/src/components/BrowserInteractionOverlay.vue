@@ -15,7 +15,6 @@ const props = defineProps<{
   scaleY: number
 }>()
 
-const navToast = ref<{ url: string; visible: boolean }>({ url: '', visible: false })
 const clickRipple = ref<{ x: number; y: number; visible: boolean }>({
   x: 0,
   y: 0,
@@ -26,12 +25,10 @@ const scrollIndicator = ref<{ direction: 'up' | 'down'; visible: boolean }>({
   visible: false,
 })
 
-let navTimeout: ReturnType<typeof setTimeout> | null = null
 let rippleTimeout: ReturnType<typeof setTimeout> | null = null
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
 
 function clearAllTimeouts() {
-  if (navTimeout) clearTimeout(navTimeout)
   if (rippleTimeout) clearTimeout(rippleTimeout)
   if (scrollTimeout) clearTimeout(scrollTimeout)
 }
@@ -40,14 +37,6 @@ watch(
   () => props.lastAction,
   (action) => {
     if (!action) return
-
-    if (action.type === 'navigate' && action.url) {
-      navToast.value = { url: action.url, visible: true }
-      if (navTimeout) clearTimeout(navTimeout)
-      navTimeout = setTimeout(() => {
-        navToast.value.visible = false
-      }, 2500)
-    }
 
     if (action.type === 'click' && action.x != null && action.y != null) {
       clickRipple.value = {
@@ -82,14 +71,6 @@ onUnmounted(() => {
 
 <template>
   <div class="interaction-overlay">
-    <!-- Navigation Toast -->
-    <Transition name="nav-toast">
-      <div v-if="navToast.visible" class="nav-toast">
-        <span class="nav-icon">&#x1F310;</span>
-        <span class="nav-url">{{ navToast.url }}</span>
-      </div>
-    </Transition>
-
     <!-- Click Ripple -->
     <Transition name="ripple">
       <div
@@ -123,59 +104,6 @@ onUnmounted(() => {
   pointer-events: none;
   z-index: 10;
   overflow: hidden;
-}
-
-.nav-toast {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 14px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border-radius: 16px;
-  border: 1px solid rgba(37, 99, 235, 0.2);
-  color: #1f2937;
-  font-size: 11px;
-  max-width: 80%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-:global(.dark) .nav-toast {
-  background: rgba(26, 27, 38, 0.85);
-  border-color: rgba(122, 162, 247, 0.3);
-  color: #c0caf5;
-}
-
-.nav-icon {
-  font-size: 12px;
-}
-
-.nav-url {
-  opacity: 0.9;
-}
-
-.nav-toast-enter-active {
-  transition: all 0.3s ease-out;
-}
-
-.nav-toast-leave-active {
-  transition: all 0.4s ease-in;
-}
-
-.nav-toast-enter-from {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-10px);
-}
-
-.nav-toast-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-5px);
 }
 
 .click-ripple {
