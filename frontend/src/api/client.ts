@@ -945,7 +945,12 @@ export const createSSEConnection = async <T = unknown>(
             }
 
             const envelope = parsedData as StreamEnvelope;
-            const eventId = envelope.event_id;
+            const payloadEventId = envelope.event_id;
+            const sseId = event.id;
+
+            // Prefer the SSE transport-level id (Redis stream format "12345-0")
+            // over the JSON payload's event_id (UUID format)
+            const eventId = sseId || payloadEventId;
             if (eventId) {
               const isUniqueEvent = trackEventId(eventId);
               if (!isUniqueEvent) {
@@ -1394,7 +1399,9 @@ export const createEventSourceConnection = async <T = unknown>(
     }
 
     const envelope = parsedData as StreamEnvelope;
-    const eventId = envelope.event_id || nativeEventId;
+    // Prefer the SSE transport-level id (Redis stream format "12345-0")
+    // over the JSON payload's event_id (UUID format)
+    const eventId = nativeEventId || envelope.event_id;
     if (eventId) {
       const isUniqueEvent = trackEventId(eventId);
       if (!isUniqueEvent) {
