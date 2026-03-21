@@ -717,8 +717,8 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from app.domain.models.event import (
-    BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanStatus,
-    ProgressEvent, StepEvent, StepStatus, StreamEvent, ToolEvent, ToolStatus,
+    BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanningPhase,
+    PlanStatus, ProgressEvent, StepEvent, StepStatus, StreamEvent, ToolEvent, ToolStatus,
 )
 from app.domain.models.plan import Plan, Step, StepType
 
@@ -798,12 +798,15 @@ async def stream_graph_as_pythinker_events(
             elif kind == "on_chain_end" and name == "summarize":
                 output = data.get("output", {})
                 if isinstance(output, dict) and "final_report" in output:
-                    yield MessageEvent(content=output["final_report"])
+                    yield MessageEvent(message=output["final_report"])
 
             # --- Heartbeat (prevents proxy/SSE timeout) ---
             now = time.monotonic()
             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                yield ProgressEvent()
+                yield ProgressEvent(
+                    phase=PlanningPhase.HEARTBEAT,
+                    message="Processing...",
+                )
                 last_heartbeat = now
 
         yield DoneEvent()
@@ -836,8 +839,14 @@ elif kind == "on_chain_end" and name == "plan":
     output = data.get("output", {})
     plan_dict = output.get("plan")
     if plan_dict:
-        # Convert plain dict to Plan Pydantic model for frontend compatibility
-        plan_model = Plan.model_validate(plan_dict)  # Pydantic v2 dict → model
+        # Convert plain dict to Plan Pydantic model for frontend compatibility.
+        # Strip unknown fields (e.g. "context" from LLM) before validation,
+        # since Step model does not allow extras.
+        clean_steps = [
+            {k: v for k, v in s.items() if k in Step.model_fields}
+            for s in plan_dict.get("steps", [])
+        ]
+        plan_model = Plan.model_validate({**plan_dict, "steps": clean_steps})
         yield PlanEvent(plan=plan_model, status=PlanStatus.CREATED)
 ```
 
