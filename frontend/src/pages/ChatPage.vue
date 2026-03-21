@@ -520,7 +520,8 @@
         @timelineStepBackward="handleTimelineStepBackward"
         @timelineSeek="handleTimelineSeek"
         @panelStateChange="handlePanelStateChange"
-        @requestWidth="handleRequestWidth" />
+        @requestWidth="handleRequestWidth"
+        @open-canvas="openCanvasViewer" />
     </div>
   </SimpleBar>
 
@@ -551,6 +552,17 @@
   </Dialog>
 
   <!-- Side Panels — ContextPanel + CheckoutDialog not yet implemented, refs removed to silence warnings -->
+
+  <!-- Canvas Viewer Modal (chart image zoom/pan) -->
+  <CanvasViewerModal
+    :visible="canvasViewer.visible"
+    :image-url="canvasViewer.imageUrl"
+    :filename="canvasViewer.filename"
+    :width="canvasViewer.width"
+    :height="canvasViewer.height"
+    @close="canvasViewer.visible = false"
+    @download="downloadCanvasImage"
+  />
 </template>
 
 <script setup lang="ts">
@@ -595,11 +607,12 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
+import CanvasViewerModal from '@/components/canvas/CanvasViewerModal.vue'
 import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send, ChevronDown } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { getServerConfig, getSettings } from '@/api/settings';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
-import { downloadFile } from '../api/file';
+import { downloadFile, fileApi } from '../api/file';
 import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel'
 import { useSessionFileList } from '../composables/useSessionFileList'
@@ -860,6 +873,15 @@ const {
   planPresentationSource,
   lastPlanningProgressSignature,
 } = toRefs(state);
+
+// ── Canvas Viewer Modal state ──
+const canvasViewer = reactive({
+  visible: false,
+  imageUrl: '',
+  filename: '',
+  width: 0,
+  height: 0,
+});
 
 // ── Composables: share popover + takeover CTA ──
 const {
@@ -3381,6 +3403,27 @@ const closeFilePreview = () => {
   filePreviewFile.value = null;
 };
 
+// ── Canvas Viewer handlers ──
+const openCanvasViewer = (tool: ToolContent) => {
+  const content = tool?.content;
+  if (!content) return;
+  const pngFileId = content.png_file_id;
+  if (!pngFileId) return;
+  canvasViewer.imageUrl = fileApi.getFileUrl(pngFileId);
+  canvasViewer.filename = content.title ? `${String(content.title).replace(/\s+/g, '_')}.png` : 'chart.png';
+  canvasViewer.width = content.width || 800;
+  canvasViewer.height = content.height || 600;
+  canvasViewer.visible = true;
+};
+
+const downloadCanvasImage = () => {
+  if (!canvasViewer.imageUrl) return;
+  const a = document.createElement('a');
+  a.href = canvasViewer.imageUrl;
+  a.download = canvasViewer.filename;
+  a.click();
+};
+
 // Handle report file open
 const handleReportFileOpen = async (file: FileInfo) => {
   hideFilePanel();
@@ -4793,6 +4836,10 @@ const handleFileListShow = () => {
 .chat-bottom-dock {
   padding-top: 100px;
   z-index: 20;
+  /* Gradient mask: transparent at top → solid background at bottom.
+     Covers the 100px padding-top so scrolling content fades out
+     before reaching the chatbox instead of showing through. */
+  background: linear-gradient(to bottom, transparent 0%, var(--background-gray-main) 60px);
 }
 
 .chat-bottom-dock-fixed {

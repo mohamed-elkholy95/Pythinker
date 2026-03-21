@@ -45,6 +45,7 @@
         @stepBackward="handleTimelineStepBackward"
         @seekByProgress="handleTimelineSeek"
         @requestWidth="(w: number) => emit('requestWidth', w)"
+        @open-canvas="(tool: ToolContent) => emit('open-canvas', tool)"
         class="flex-1 min-h-0"
       />
     </div>
@@ -104,6 +105,7 @@ const emit = defineEmits<{
   (e: 'timelineStepBackward'): void
   (e: 'timelineSeek', progress: number): void
   (e: 'requestWidth', width: number): void
+  (e: 'open-canvas', tool: ToolContent): void
 }>()
 
 const panelProps = defineProps<{

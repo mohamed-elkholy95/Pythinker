@@ -407,6 +407,7 @@
                   :view-mode="chartViewMode"
                   :show-header-controls="true"
                   @update:viewMode="chartViewMode = $event"
+                  @open-canvas="emit('open-canvas', toolContent)"
                 />
               </div>
 
@@ -1983,6 +1984,7 @@ const emit = defineEmits<{
   (e: 'stepBackward'): void,
   (e: 'seekByProgress', progress: number): void,
   (e: 'requestWidth', width: number): void,
+  (e: 'open-canvas', tool: ToolContent): void,
 }>();
 
 const hide = () => {
