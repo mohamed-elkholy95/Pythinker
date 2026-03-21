@@ -1866,7 +1866,33 @@ class BaseAgent:
                             )
                             continue
 
-                        tool = self.get_tool(function_name)
+                        try:
+                            tool = self.get_tool(function_name)
+                        except ToolNotFoundException as tnf:
+                            logger.warning("Tool not found: %s — returning error result", function_name)
+                            not_found_result = ToolResult(
+                                success=False,
+                                message=str(tnf),
+                            )
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=function_name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLED,
+                                function_result=not_found_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        not_found_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
 
                         # ── Middleware before_tool_call (parallel path) ──
                         from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
@@ -2062,7 +2088,33 @@ class BaseAgent:
                             )
                             continue
 
-                        tool = self.get_tool(function_name)
+                        try:
+                            tool = self.get_tool(function_name)
+                        except ToolNotFoundException as tnf:
+                            logger.warning("Tool not found: %s — returning error result", function_name)
+                            not_found_result = ToolResult(
+                                success=False,
+                                message=str(tnf),
+                            )
+                            yield self._create_tool_event(
+                                tool_call_id=tool_call_id,
+                                tool_name=function_name,
+                                function_name=function_name,
+                                function_args=function_args,
+                                status=ToolStatus.CALLED,
+                                function_result=not_found_result,
+                            )
+                            tool_responses.append(
+                                {
+                                    "role": "tool",
+                                    "function_name": function_name,
+                                    "tool_call_id": tool_call_id,
+                                    "content": self._serialize_tool_result_for_memory(
+                                        not_found_result, function_name=function_name
+                                    ),
+                                }
+                            )
+                            continue
 
                         # ── Middleware before_tool_call ──
                         from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo

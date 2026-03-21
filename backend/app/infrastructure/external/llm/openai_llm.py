@@ -1593,11 +1593,13 @@ To extract data from a webpage:
         for tc in tool_calls:
             func = tc.get("function", {})
             name = func.get("name", "unknown")
-            args_str = func.get("arguments", "{}")
+            raw_args = func.get("arguments", "{}")
+            # Ensure args is a string (may be a parsed dict after internal processing)
+            args_str = raw_args if isinstance(raw_args, str) else json.dumps(raw_args, ensure_ascii=False)
             # Truncate large arguments for readability
             if len(args_str) > 200:
                 args_str = args_str[:200] + "..."
-            parts.append(f"[Attempted to call {name} with {args_str}]")
+            parts.append(f"[Previously called {name}]")
         return "\n".join(parts)
 
     def _convert_orphaned_assistant(self, msg: dict[str, Any]) -> dict[str, Any]:
