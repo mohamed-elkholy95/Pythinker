@@ -80,7 +80,7 @@ def _get_auth_provider() -> str | None:
             provider = data.get("auth_provider")
             if isinstance(provider, str):
                 return provider
-    except Exception:
+    except Exception:  # noqa: S110 — best-effort, no logging needed
         pass
     return None
 
@@ -105,13 +105,13 @@ def _parse_sse_events(
 
     # Set socket-level read timeout to prevent iter_lines() from blocking
     # indefinitely. This is the max wait between individual TCP reads.
-    _PER_READ_TIMEOUT = 15.0  # seconds between data chunks
+    per_read_timeout = 15.0  # seconds between data chunks
     raw_socket = getattr(response.raw, "_fp", None)
     if raw_socket is not None:
         sock = getattr(raw_socket, "fp", None) or getattr(raw_socket, "_sock", None)
         if sock is not None:
             with contextlib.suppress(Exception):
-                sock.settimeout(_PER_READ_TIMEOUT)
+                sock.settimeout(per_read_timeout)
 
     try:
         for line in response.iter_lines(decode_unicode=True):
