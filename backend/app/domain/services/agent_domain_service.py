@@ -397,15 +397,30 @@ class AgentDomainService:
                     # EARLY FAST PATH: For simple queries (GREETING/KNOWLEDGE) on new sessions,
                     # skip expensive task creation (sandbox + browser init ~60s) and respond directly.
                     # This reduces "Hello" latency from 60-90s to <2s.
+                    #
+                    # Guard: if the session already had a plan, skip early fast path entirely so the
+                    # full classify_intent_with_context() flow (which enforces AGENT→DISCUSS downgrade
+                    # protection) handles the follow-up question instead.
                     if task is None and not attachments and not skills:
                         from app.domain.models.message import Message
+                        from app.domain.services.agents.session_context_extractor import (
+                            SessionContextExtractor,
+                        )
                         from app.domain.services.flows.fast_path import (
                             FastPathRouter,
                             QueryIntent,
                             should_use_fast_path,
                         )
 
-                        if should_use_fast_path(message, follow_up_source=follow_up_source):
+                        exec_ctx = SessionContextExtractor.extract(session)
+                        if exec_ctx.had_plan:
+                            logger.info(
+                                "Skipping early fast path for session %s — session has plan '%s'",
+                                session_id,
+                                exec_ctx.plan_title,
+                            )
+
+                        if not exec_ctx.had_plan and should_use_fast_path(message, follow_up_source=follow_up_source):
                             # Classify intent first (no API calls) before any expensive I/O.
                             # Previously memory retrieval (embedding API ~1s) fired unconditionally
                             # for every fast-path candidate, even messages that fall through to
