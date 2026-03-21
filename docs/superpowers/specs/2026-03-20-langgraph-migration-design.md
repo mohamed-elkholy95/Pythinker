@@ -218,10 +218,9 @@ async def build_agent_graph(tools, llm, sandbox):
     """Build the main agent workflow graph.
 
     Graph topology:
-        START → route
-        route  →  plan         (mode="agent")
-               →  discuss      (mode="discuss")
-               →  fast_search  (mode="fast_search")
+        START →  plan         (mode="agent")
+              →  discuss      (mode="discuss")
+              →  fast_search  (mode="fast_search")
         plan → execute_step
         execute_step → execute_step  (next step)
                      → verify        (all steps done)
@@ -234,20 +233,16 @@ async def build_agent_graph(tools, llm, sandbox):
     """
     workflow = StateGraph(AgentState)
 
-    # Register nodes
-    workflow.add_node("route", route_by_mode)
-    workflow.add_node("plan", planning_node)
-    workflow.add_node("execute_step", execution_node)
-    workflow.add_node("verify", verification_node)
-    workflow.add_node("summarize", summarize_node)
-    workflow.add_node("discuss", discuss_node)
-    workflow.add_node("fast_search", fast_search_node)
+    # Register nodes (using closure factories for dependency injection)
+    workflow.add_node("plan", make_planning_node(llm))
+    workflow.add_node("execute_step", make_execution_node(llm, tools))
+    workflow.add_node("verify", make_verification_node(llm))
+    workflow.add_node("summarize", make_summarize_node(llm))
+    workflow.add_node("discuss", make_discuss_node(llm))
+    workflow.add_node("fast_search", make_fast_search_node(llm, tools))
 
-    # Entry edge
-    workflow.add_edge(START, "route")
-
-    # Mode routing
-    workflow.add_conditional_edges("route", mode_router, {
+    # Entry: route directly from START based on mode (no pass-through node)
+    workflow.add_conditional_edges(START, mode_router, {
         "agent": "plan",
         "discuss": "discuss",
         "fast_search": "fast_search",
@@ -282,18 +277,20 @@ from typing import Literal
 from app.domain.services.graphs.state import AgentState
 
 
-def route_by_mode(state: AgentState) -> AgentState:
-    """Pass-through node; mode is already set in state."""
-    return state
-
-
 def mode_router(state: AgentState) -> Literal["agent", "discuss", "fast_search"]:
-    """Route to the correct subflow based on mode."""
+    """Route to the correct subflow based on mode.
+
+    Used as a conditional edge directly from START — no pass-through node needed.
+    """
     return state["mode"]
 
 
 def step_router(state: AgentState) -> Literal["next_step", "verify", "max_iter"]:
-    """Decide whether to execute next step, verify, or exit."""
+    """Decide whether to execute next step, verify, or exit.
+
+    Also counts replan cycles: each plan+execute+verify cycle increments
+    iteration_count, preventing infinite replan loops.
+    """
     if state["iteration_count"] >= state["max_iterations"]:
         return "max_iter"
     if state["plan"] and state["current_step_index"] < len(state["plan"]["steps"]):
@@ -309,54 +306,90 @@ def verify_router(state: AgentState) -> Literal["passed", "replan"]:
     return "passed"
 ```
 
+**Note**: The `route` node from the graph topology is eliminated — `mode_router` is used as a conditional edge directly from `START`:
+
+```python
+workflow.add_conditional_edges(START, mode_router, {
+    "agent": "plan",
+    "discuss": "discuss",
+    "fast_search": "fast_search",
+})
+```
+
 ### 4.4 Execution Node (ReAct Agent)
+
+**IMPORTANT**: LangGraph node functions receive exactly one argument — the state dict
+(or state + `RunnableConfig`). Extra parameters like `llm` and `tools` must be bound
+at graph-build time via closures, not passed as node function arguments.
 
 ```python
 # domain/services/graphs/nodes/execution.py
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import HumanMessage
 from app.domain.services.graphs.state import AgentState
 
 
-def make_react_agent(llm, tools):
-    """Create a ReAct agent for step execution.
+def make_execution_node(llm, tools):
+    """Factory that returns an execution node function with llm/tools bound via closure.
+
+    LangGraph calls node functions as node_fn(state). We use a closure
+    to capture llm and tools at graph-build time.
 
     Replaces: BaseAgent.execute() ReAct loop (400 lines),
     MiddlewarePipeline (5 middleware classes), all monitors.
     """
-    return create_react_agent(
-        model=llm,
-        tools=tools,
-    )
+    react_agent = create_react_agent(model=llm, tools=tools)
 
+    async def execution_node(state: AgentState) -> dict:
+        """Execute current plan step via ReAct agent.
 
-async def execution_node(state: AgentState, llm, tools) -> dict:
-    """Execute current plan step via ReAct agent.
+        Each invocation handles one step. The step_router conditional edge
+        loops back to this node for the next step.
 
-    Each invocation handles one step. The step_router conditional edge
-    loops back to this node for the next step.
-    """
-    step = state["plan"]["steps"][state["current_step_index"]]
-    step_instruction = HumanMessage(
-        content=f"Execute this step: {step['description']}\n\nContext: {step.get('context', '')}"
-    )
+        To avoid message bloat, we only surface a summary of the ReAct
+        agent's work back into the parent graph state, not all intermediate
+        tool-call messages.
+        """
+        step = state["plan"]["steps"][state["current_step_index"]]
+        step_instruction = HumanMessage(
+            content=f"Execute this step: {step['description']}\n\nContext: {step.get('context', '')}"
+        )
 
-    react_agent = make_react_agent(llm, tools)
-    result = await react_agent.ainvoke({
-        "messages": state["messages"] + [step_instruction]
-    })
+        result = await react_agent.ainvoke({
+            "messages": state["messages"] + [step_instruction]
+        })
 
-    return {
-        "messages": result["messages"],
-        "step_results": state["step_results"] + [{
-            "step_index": state["current_step_index"],
-            "description": step["description"],
-            "status": "completed",
-        }],
-        "current_step_index": state["current_step_index"] + 1,
-        "iteration_count": state["iteration_count"] + 1,
-    }
+        # Summarize: only surface the final assistant message, not all
+        # intermediate tool calls, to prevent checkpoint bloat and
+        # context window exhaustion on subsequent LLM calls.
+        final_messages = [m for m in result["messages"] if isinstance(m, AIMessage) and not m.tool_calls]
+        summary_msg = final_messages[-1] if final_messages else AIMessage(content="Step completed.")
+
+        return {
+            "messages": [summary_msg],  # Reducer appends this single summary
+            "step_results": state["step_results"] + [{
+                "step_index": state["current_step_index"],
+                "description": step["description"],
+                "status": "completed",
+            }],
+            "current_step_index": state["current_step_index"] + 1,
+            "iteration_count": state["iteration_count"] + 1,
+        }
+
+    return execution_node
 ```
+
+**Usage in graph builder** (closure binding pattern):
+
+```python
+# In agent_graph.py
+workflow.add_node("execute_step", make_execution_node(llm, tools))
+workflow.add_node("plan", make_planning_node(llm))
+workflow.add_node("verify", make_verification_node(llm))
+```
+
+All node factories follow this same closure pattern — `make_*_node(deps)` returns
+an `async def node(state) -> dict` function with dependencies captured.
 
 ### 4.5 Planning Node
 
@@ -376,22 +409,27 @@ create a structured plan with concrete steps. Return a JSON object:
 Keep plans concise: 2-5 steps for most tasks."""
 
 
-async def planning_node(state: AgentState, llm) -> dict:
-    """Generate a structured plan from the user's request."""
-    messages = [
-        SystemMessage(content=PLANNING_SYSTEM_PROMPT),
-        *state["messages"],
-    ]
+def make_planning_node(llm):
+    """Factory: returns a planning node with llm bound via closure."""
 
-    response = await llm.ainvoke(messages)
-    plan = _parse_plan(response.content)
+    async def planning_node(state: AgentState) -> dict:
+        """Generate a structured plan from the user's request."""
+        messages = [
+            SystemMessage(content=PLANNING_SYSTEM_PROMPT),
+            *state["messages"],
+        ]
 
-    return {
-        "messages": [response],
-        "plan": plan,
-        "current_step_index": 0,
-        "step_results": [],
-    }
+        response = await llm.ainvoke(messages)
+        plan = _parse_plan(response.content)
+
+        return {
+            "messages": [response],
+            "plan": plan,
+            "current_step_index": 0,
+            "step_results": [],
+        }
+
+    return planning_node
 
 
 def _parse_plan(content: str) -> dict:
@@ -420,20 +458,25 @@ If critical issues exist, respond with 'REPLAN: <reason>'.
 Otherwise, respond with 'PASSED: <summary>'."""
 
 
-async def verification_node(state: AgentState, llm) -> dict:
-    """Verify execution results and decide pass/replan."""
-    step_summary = "\n".join(
-        f"Step {r['step_index']}: {r['description']} -> {r['status']}"
-        for r in state["step_results"]
-    )
+def make_verification_node(llm):
+    """Factory: returns a verification node with llm bound via closure."""
 
-    messages = [
-        SystemMessage(content=VERIFICATION_PROMPT),
-        HumanMessage(content=f"Steps executed:\n{step_summary}"),
-    ]
+    async def verification_node(state: AgentState) -> dict:
+        """Verify execution results and decide pass/replan."""
+        step_summary = "\n".join(
+            f"Step {r['step_index']}: {r['description']} -> {r['status']}"
+            for r in state["step_results"]
+        )
 
-    response = await llm.ainvoke(messages)
-    return {"messages": [response]}
+        messages = [
+            SystemMessage(content=VERIFICATION_PROMPT),
+            HumanMessage(content=f"Steps executed:\n{step_summary}"),
+        ]
+
+        response = await llm.ainvoke(messages)
+        return {"messages": [response]}
+
+    return verification_node
 ```
 
 ### 4.7 Tool Adaptation Layer
@@ -465,13 +508,14 @@ def adapt_pythinker_tools(pythinker_tools: list[PythinkerBaseTool]) -> list[Stru
             args_model = _json_schema_to_pydantic(func_name, func_def.get("parameters", {}))
 
             # Create async wrapper that delegates to Pythinker tool
+            # ToolResult fields: success (bool), message (str|None), data (Any|None)
             async def _invoke(
                 _tool=pythinker_tool, _name=func_name, **kwargs: Any
             ) -> str:
                 result = await _tool.invoke_function(_name, **kwargs)
                 if result.success:
-                    return result.output or "Success (no output)"
-                return f"Error: {result.error or 'Unknown error'}"
+                    return result.message or "Success (no output)"
+                return f"Error: {result.message or 'Unknown error'}"
 
             adapted.append(
                 StructuredTool.from_function(
@@ -485,16 +529,23 @@ def adapt_pythinker_tools(pythinker_tools: list[PythinkerBaseTool]) -> list[Stru
 
 
 def _json_schema_to_pydantic(name: str, schema: dict) -> type[BaseModel]:
-    """Convert OpenAI function parameters JSON schema to a Pydantic model."""
+    """Convert OpenAI function parameters JSON schema to a Pydantic model.
+
+    Preserves field descriptions — LangChain uses these to generate the
+    tool schema sent to the LLM. Without descriptions, the LLM sees
+    parameter names but no explanation, degrading tool-calling accuracy.
+    """
+    from pydantic import Field as PydanticField
+
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
 
     fields = {}
     for prop_name, prop_def in properties.items():
         python_type = _json_type_to_python(prop_def.get("type", "string"))
-        default = ... if prop_name in required else None
         description = prop_def.get("description", "")
-        fields[prop_name] = (python_type, default)
+        default = ... if prop_name in required else None
+        fields[prop_name] = (python_type, PydanticField(default=default, description=description))
 
     return create_model(f"{name}_args", **fields)
 
@@ -516,37 +567,80 @@ def _json_type_to_python(json_type: str) -> type:
 
 ```python
 # infrastructure/external/llm/langchain_llm.py
+import logging
 from langchain_openai import ChatOpenAI
 from app.core.config_llm import get_llm_settings
 
-_chat_model: ChatOpenAI | None = None
+logger = logging.getLogger(__name__)
 
 
-def get_chat_model() -> ChatOpenAI:
-    """Create LangChain chat model from Pythinker settings.
+class RotatingChatOpenAI:
+    """ChatOpenAI wrapper with API key rotation on 429/401 errors.
+
+    Replaces the APIKeyPool pattern. Maintains a list of API keys and
+    creates a new ChatOpenAI instance when the current key fails.
 
     All Pythinker providers (GLM, DeepSeek, Kimi, OpenRouter)
     are OpenAI-compatible. ChatOpenAI handles them via base_url.
-
-    Replaces: LLM protocol, OpenAILLM, UniversalLLM,
-    InstructorAdapter, provider auto-detection (~3,000 lines).
     """
-    global _chat_model
-    if _chat_model is not None:
-        return _chat_model
 
-    settings = get_llm_settings()
+    def __init__(self):
+        settings = get_llm_settings()
+        self._api_keys = settings.get_all_api_keys()  # Returns list of keys
+        self._current_key_index = 0
+        self._settings = settings
+        self._model: ChatOpenAI | None = None
 
-    _chat_model = ChatOpenAI(
-        model=settings.model_name,
-        openai_api_key=settings.api_key,
-        openai_api_base=settings.api_base,
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-        streaming=True,
-    )
-    return _chat_model
+    def get_model(self) -> ChatOpenAI:
+        """Get current ChatOpenAI instance, creating if needed."""
+        if self._model is None:
+            self._model = self._create_model(self._api_keys[self._current_key_index])
+        return self._model
+
+    def rotate_key(self) -> ChatOpenAI:
+        """Rotate to next API key and return new model instance.
+
+        Called by error handler when 429/401 is detected.
+        """
+        self._current_key_index = (self._current_key_index + 1) % len(self._api_keys)
+        logger.warning(f"Rotating API key to index {self._current_key_index}")
+        self._model = self._create_model(self._api_keys[self._current_key_index])
+        return self._model
+
+    def _create_model(self, api_key: str) -> ChatOpenAI:
+        return ChatOpenAI(
+            model=self._settings.model_name,
+            openai_api_key=api_key,
+            openai_api_base=self._settings.api_base,
+            temperature=self._settings.temperature,
+            max_tokens=self._settings.max_tokens,
+            streaming=True,
+        )
+
+
+# Singleton
+_rotating_llm: RotatingChatOpenAI | None = None
+
+
+def get_chat_model() -> ChatOpenAI:
+    """Get the current ChatOpenAI instance with key rotation support."""
+    global _rotating_llm
+    if _rotating_llm is None:
+        _rotating_llm = RotatingChatOpenAI()
+    return _rotating_llm.get_model()
+
+
+def rotate_and_get_chat_model() -> ChatOpenAI:
+    """Rotate API key and return new model. Called on 429/401."""
+    global _rotating_llm
+    if _rotating_llm is None:
+        _rotating_llm = RotatingChatOpenAI()
+    return _rotating_llm.rotate_key()
 ```
+
+**Key rotation integration**: The graph's error handling (in node try/except blocks or a
+LangGraph callback) catches HTTP 429/401, calls `rotate_and_get_chat_model()`, and retries.
+This preserves the multi-key failover pattern without the full `APIKeyPool` complexity.
 
 ### 4.9 MongoDB Checkpointer
 
@@ -574,73 +668,128 @@ async def get_checkpointer() -> AsyncMongoDBSaver:
             settings.mongodb_url,
             db_name="pythinker_checkpoints",
         )
+        # Required: creates indexes and verifies connection
+        await _checkpointer.setup()
     return _checkpointer
+
+
+async def shutdown_checkpointer() -> None:
+    """Cleanup checkpointer on app shutdown."""
+    global _checkpointer
+    if _checkpointer is not None:
+        # AsyncMongoDBSaver uses motor; close the underlying client
+        _checkpointer = None
+```
+
+**Lifecycle integration** — wire into FastAPI lifespan:
+
+```python
+# In main.py lifespan
+from app.domain.services.graphs.checkpointer import get_checkpointer, shutdown_checkpointer
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await get_checkpointer()  # Initialize + setup on startup
+    yield
+    await shutdown_checkpointer()  # Cleanup on shutdown
 ```
 
 ### 4.10 SSE Event Mapper
 
 ```python
 # application/services/event_mapper.py
+import asyncio
+import time
 from collections.abc import AsyncGenerator
 from app.domain.models.event import (
-    BaseEvent, DoneEvent, ErrorEvent, MessageEvent,
-    StepEvent, StepStatus, StreamEvent, ToolEvent, ToolStatus,
+    BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanStatus,
+    ProgressEvent, StepEvent, StepStatus, StreamEvent, ToolEvent, ToolStatus,
 )
+from app.domain.models.plan import Plan, Step
 
 
 async def stream_graph_as_pythinker_events(
-    graph, input_state: dict, config: dict
+    graph, input_state: dict | None, config: dict
 ) -> AsyncGenerator[BaseEvent, None]:
     """Bridge LangGraph astream_events to Pythinker SSE events.
 
     Maps LangGraph's internal event stream to the existing frontend
     SSE contract so the Vue app requires zero changes.
 
-    LangGraph events (v2):
+    LangGraph v2 events -> Pythinker events:
       on_chat_model_stream  -> StreamEvent (token-level)
-      on_tool_start         -> ToolEvent(status=CALLING)
-      on_tool_end           -> ToolEvent(status=CALLED)
-      on_chain_start        -> StepEvent(status=STARTED)
-      on_chain_end          -> StepEvent(status=COMPLETED) / DoneEvent
+      on_tool_start         -> ToolEvent(status=CALLING, tool_call_id, function_name, function_args)
+      on_tool_end           -> ToolEvent(status=CALLED, function_result)
+      on_chain_start        -> StepEvent(status=STARTED, step=Step)
+      on_chain_end          -> StepEvent(status=COMPLETED) / MessageEvent / DoneEvent
 
-    Pythinker events (unchanged):
-      StreamEvent, ToolEvent, StepEvent, MessageEvent, DoneEvent, ErrorEvent
+    Note: input_state is None for checkpoint resume (crash recovery).
+    When None, LangGraph resumes from the last checkpoint for the thread_id.
     """
+    last_heartbeat = time.monotonic()
+    HEARTBEAT_INTERVAL = 30  # seconds — prevents proxy timeouts
+
     try:
         async for event in graph.astream_events(input_state, config, version="v2"):
             kind = event["event"]
             data = event.get("data", {})
             name = event.get("name", "")
+            run_id = event.get("run_id", "")
 
+            # --- Token streaming ---
             if kind == "on_chat_model_stream":
                 chunk = data.get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     yield StreamEvent(content=chunk.content)
 
+            # --- Tool start ---
             elif kind == "on_tool_start":
+                tool_input = data.get("input", {})
                 yield ToolEvent(
+                    tool_call_id=run_id,
+                    tool_name=name,
+                    function_name=name,
+                    function_args=tool_input if isinstance(tool_input, dict) else {"input": str(tool_input)},
                     status=ToolStatus.CALLING,
-                    tool_name=data.get("input", {}).get("name", name),
-                    input=data.get("input", {}),
                 )
 
+            # --- Tool end ---
             elif kind == "on_tool_end":
                 yield ToolEvent(
-                    status=ToolStatus.CALLED,
+                    tool_call_id=run_id,
                     tool_name=name,
-                    output=str(data.get("output", "")),
+                    function_name=name,
+                    function_args={},
+                    status=ToolStatus.CALLED,
+                    function_result=str(data.get("output", "")),
                 )
 
+            # --- Step start ---
             elif kind == "on_chain_start" and name == "execute_step":
-                yield StepEvent(status=StepStatus.STARTED)
+                # Construct a minimal Step object for the frontend
+                yield StepEvent(
+                    step=Step(description=f"Executing step", type="execution"),
+                    status=StepStatus.STARTED,
+                )
 
+            # --- Step end ---
             elif kind == "on_chain_end" and name == "execute_step":
-                yield StepEvent(status=StepStatus.COMPLETED)
+                yield StepEvent(
+                    step=Step(description="Step completed", type="execution"),
+                    status=StepStatus.COMPLETED,
+                )
 
+            # --- Summarization complete ---
             elif kind == "on_chain_end" and name == "summarize":
                 output = data.get("output", {})
                 if isinstance(output, dict) and "final_report" in output:
                     yield MessageEvent(content=output["final_report"])
+
+            # --- Heartbeat (prevents proxy/SSE timeout) ---
+            now = time.monotonic()
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                yield ProgressEvent()
+                last_heartbeat = now
 
         yield DoneEvent()
 
@@ -651,6 +800,86 @@ async def stream_graph_as_pythinker_events(
             recoverable=True,
         )
 ```
+
+**Key design decisions:**
+- `tool_call_id` uses LangGraph's `run_id` which uniquely identifies each tool invocation
+- `function_name` and `tool_name` both use the tool `name` (LangGraph does not distinguish these)
+- `function_args` comes from `data["input"]` on tool start
+- `Step` objects are constructed minimally — the frontend only needs `description` and `type` for rendering
+- `input_state=None` triggers checkpoint resume (crash recovery) — no new input, graph resumes from last node
+- Heartbeat `ProgressEvent` every 30s prevents proxy timeouts (matching existing behavior)
+
+### 4.11 PlanEvent Emission
+
+The existing frontend expects `PlanEvent` with a `Plan` Pydantic model to render the plan panel.
+Since the graph stores `plan` as a plain `dict`, the planning node must emit a `PlanEvent` through
+the event mapper when the plan is created:
+
+```python
+# In the event mapper, handle planning node completion:
+elif kind == "on_chain_end" and name == "plan":
+    output = data.get("output", {})
+    plan_dict = output.get("plan")
+    if plan_dict:
+        # Convert plain dict to Plan model for frontend compatibility
+        plan_model = Plan.from_dict(plan_dict)  # Add this factory method to Plan
+        yield PlanEvent(plan=plan_model, status=PlanStatus.CREATED)
+```
+
+If `Plan.from_dict()` is too heavy, a lightweight alternative is to emit a new `PlanDictEvent`
+type that the frontend accepts. But reusing the existing `PlanEvent` + `Plan` model is simpler
+since the frontend already renders it.
+
+### 4.12 Dynamic Tool Selection
+
+The existing system uses `DynamicToolsetManager` to select relevant tools per task, avoiding
+context window waste from registering all 50+ tool functions for every LLM call.
+
+In the LangGraph migration, this is handled by:
+
+1. **Per-node tool scoping**: Each node factory (`make_execution_node`, `make_planning_node`)
+   receives only the tools relevant to its phase. The graph builder selects tools per node:
+
+```python
+# In agent_graph.py
+planning_tools = [search_tool]  # Planning only needs search
+execution_tools = adapt_pythinker_tools([shell, browser, file, search, ...])  # Full set
+verify_tools = []  # Verification is LLM-only
+
+workflow.add_node("plan", make_planning_node(llm))  # No tools
+workflow.add_node("execute_step", make_execution_node(llm, execution_tools))
+workflow.add_node("verify", make_verification_node(llm))  # No tools
+```
+
+2. **Optional dynamic filtering**: For complex tasks, a routing function can inspect the plan
+   step type and select a subset of tools before passing to `create_react_agent`. This replaces
+   `BaseAgent.PHASE_TOOL_GROUPS`.
+
+### 4.13 Deletion Inventory — Complete Accounting
+
+The `domain/services/agents/` directory contains ~80 files. The following categorizes ALL files:
+
+**Deleted (replaced by LangGraph):**
+All files listed in Section 3 "What gets deleted" (~50 files).
+
+**Also deleted (not previously listed but superseded):**
+- `agent_context.py`, `agent_context_factory.py` — context assembly (LangGraph manages state)
+- `parallel_executor.py` — parallel step execution (LangGraph handles via subgraphs)
+- `research_agent.py` — research-specific agent (becomes a graph node or tool)
+- `task_decomposer.py` — task decomposition (absorbed into planning node)
+- `spawner.py` — agent spawning (replaced by subgraph composition)
+- `guardrails.py`, `content_safety.py`, `compliance_gates.py` — safety checks (dropped per user decision)
+- `self_healing_loop.py` — auto-recovery (LangGraph checkpointing replaces this)
+- `gaming_detector.py` — abuse detection (dropped per user decision)
+
+**Kept (utility files not tied to agent orchestration):**
+- `agent_session_lifecycle.py` — sandbox lifecycle management (still needed)
+- `agent_task_factory.py` — sandbox allocation (simplified but kept)
+- Any files that are pure utility functions without agent orchestration logic
+
+**Rule**: If a file's primary purpose is agent orchestration, state management, or reliability
+monitoring, it gets deleted. If it manages sandbox lifecycle or external resource allocation,
+it stays and gets simplified.
 
 ## 5. Data Flow
 
@@ -683,11 +912,24 @@ Process crashes during execute_step (step 3 of 5)
   ├── MongoDB checkpoint has state after step 2 (last completed node)
   │
   ├── User reconnects, POST /sessions/{id}/chat
-  │     Same thread_id → LangGraph loads checkpoint
-  │     Graph resumes from execute_step (step 3)
+  │     Same thread_id in config
+  │
+  ├── AgentService detects existing checkpoint for thread_id:
+  │     checkpoint = await graph.aget_state(config)
+  │     if checkpoint.values:  # Existing state found
+  │         # Resume: pass None as input (no new user message)
+  │         stream = graph.astream_events(None, config, version="v2")
+  │     else:
+  │         # Fresh run: pass full input state
+  │         stream = graph.astream_events(input_state, config, version="v2")
+  │
+  ├── Graph resumes from execute_step (step 3)
   │
   └── Frontend receives events from step 3 onward
 ```
+
+**Key distinction**: `input=None` triggers checkpoint resume. `input={...}` starts a fresh run.
+The `agent_service.py` must check for existing checkpoints to decide which path to take.
 
 ### 5.3 Tool Execution (inside ReAct agent)
 
@@ -743,6 +985,7 @@ Pin upper bounds to avoid LangGraph 2.0 breaking changes (expected Q2 2026). Mig
 | Checkpoint storage growth | Low | MongoDB TTL index on checkpoints collection; 7-day auto-expiry |
 | Provider-specific structured output | Medium | LangChain's `with_structured_output()` handles most cases; test with each provider |
 | Sandbox tool latency unchanged | None | Tool implementations untouched; only the dispatch layer changes |
+| Prometheus metrics lost | Low | Existing metrics (`pythinker_tool_errors_total`, `pythinker_step_failures_total`, `pythinker_model_tier_selections_total`) are dropped with the old agent stack. Re-add as LangGraph callback handlers that increment counters on `on_tool_end` (error check), `on_chain_end` (step completion), etc. This is Phase 2+ work, not blocking. |
 
 ## 8. Testing Strategy
 
