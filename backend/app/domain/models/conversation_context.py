@@ -19,8 +19,6 @@ class TurnRole(StrEnum):
     ASSISTANT = "assistant"
     TOOL_SUMMARY = "tool_summary"
     STEP_SUMMARY = "step_summary"
-    PLAN_SUMMARY = "plan_summary"
-    THOUGHT = "thought"
 
 
 class TurnEventType(StrEnum):
@@ -33,11 +31,10 @@ class TurnEventType(StrEnum):
     ERROR = "error"
     PLAN = "plan"
     THOUGHT = "thought"
-    REFLECTION = "reflection"
     VERIFICATION = "verification"
-    COMPREHENSION = "comprehension"
-    MODE_CHANGE = "mode_change"
-    TASK_RECREATION = "task_recreation"
+    FLOW_TRANSITION = "flow_transition"
+    REFLECTION = "reflection"
+    SUGGESTION = "suggestion"
 
 
 @dataclass(frozen=True)
