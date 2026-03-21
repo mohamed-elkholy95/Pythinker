@@ -7,7 +7,25 @@
       <!-- Frame Header: Pythinker's Computer + activity + window controls -->
       <div v-if="!embedded" class="panel-frame-header">
         <div class="flex flex-col gap-0.5 flex-1 min-w-0">
-          <div class="text-[var(--text-primary)] text-[15px] font-semibold leading-snug">{{ $t("Pythinker's Computer") }}</div>
+          <div class="text-[var(--text-primary)] text-[15px] font-semibold leading-snug flex items-center gap-1.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0 panel-pc-icon">
+              <!-- Monitor body with rounded corners -->
+              <rect x="2" y="3" width="20" height="13" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+              <!-- Stand neck -->
+              <line x1="12" y1="16" x2="12" y2="19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <!-- Stand base -->
+              <line x1="8" y1="19" x2="16" y2="19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <!-- Animated cursor blink on screen -->
+              <rect x="6" y="7" width="1.2" height="5" rx="0.6" fill="currentColor">
+                <animate attributeName="opacity" values="0.7;0.15;0.7" dur="2s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+              </rect>
+              <!-- Code lines on screen -->
+              <line x1="9" y1="7.5" x2="17" y2="7.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.25"/>
+              <line x1="9" y1="9.5" x2="14" y2="9.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.18"/>
+              <line x1="9" y1="11.5" x2="16" y2="11.5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.15"/>
+            </svg>
+            {{ $t("Pythinker's Computer") }}
+          </div>
           <div v-if="activityHeadline" class="panel-activity-line">
             <span
               v-if="showReportActivityIcon"
@@ -48,15 +66,32 @@
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <!-- Take Control: pause agent and open browser for manual control -->
+          <!-- Use Pythinker PC: pause agent and open browser for manual control -->
           <button
             class="panel-control-btn"
             :disabled="takeoverLoading"
             @click="takeOver"
-            aria-label="Take control of browser"
+            aria-label="Use Pythinker's computer"
           >
             <Loader2 v-if="takeoverLoading" class="w-5 h-5 animate-spin" />
-            <TakeOverIcon v-else class="w-5 h-5" />
+            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="min-width: 16px; min-height: 16px;">
+              <!-- Laptop screen -->
+              <rect x="3" y="4" width="18" height="12" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/>
+              <!-- Laptop base / keyboard -->
+              <path d="M1 18.5h22" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <!-- Slow blinking power dot -->
+              <circle cx="12" cy="17" r="0.7" fill="currentColor">
+                <animate attributeName="opacity" values="0.5;0.15;0.5" dur="4s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+              </circle>
+              <!-- Animated typing cursor on screen -->
+              <rect x="7" y="8" width="1" height="4.5" rx="0.5" fill="currentColor">
+                <animate attributeName="opacity" values="0.6;0;0.6" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+              </rect>
+              <!-- Faint text lines -->
+              <line x1="10" y1="8.5" x2="18" y2="8.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" opacity="0.2"/>
+              <line x1="10" y1="10.5" x2="15" y2="10.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" opacity="0.15"/>
+              <line x1="10" y1="12.5" x2="17" y2="12.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" opacity="0.12"/>
+            </svg>
           </button>
           <!-- Close -->
           <button
@@ -504,7 +539,6 @@
             :current-timestamp="timelineTimestamp"
             :is-live="realTime"
             :is-replay-mode="!!isReplayMode"
-            :is-session-active="!!isLoading"
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
