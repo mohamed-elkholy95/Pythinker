@@ -53,9 +53,9 @@
       <div class="timeline-status">
         <span
           class="timeline-live-dot"
-          :class="isReplayMode ? 'is-replay' : isLive ? 'is-live' : 'is-replay'"
+          :class="isSessionActive && !isReplayMode ? 'is-live' : 'is-replay'"
         />
-        <span class="timeline-status-label" :class="{ 'is-live': isLive && !isReplayMode }">
+        <span class="timeline-status-label" :class="{ 'is-live': isSessionActive && !isReplayMode }">
           {{ isReplayMode ? 'replay' : 'live' }}
         </span>
       </div>
@@ -72,6 +72,7 @@ interface Props {
   currentTimestamp?: number
   isLive: boolean
   isReplayMode?: boolean
+  isSessionActive?: boolean
   canStepForward: boolean
   canStepBackward: boolean
   showTimestampOnInteract?: boolean

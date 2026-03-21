@@ -247,19 +247,7 @@ onMounted(async () => {
     display: flex;
     flex-direction: column;
     width: 100%;
-}
-
-/* Gradient mask above chatbox — fades scrolling content so it doesn't bleed underneath */
-.chatbox-wrapper::before {
-    content: '';
-    position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
-    height: 40px;
-    background: linear-gradient(to bottom, transparent, var(--background-gray-main));
-    pointer-events: none;
-    z-index: 1;
+    background: var(--background-gray-main);
 }
 
 .chatbox-wrapper.expand-up {

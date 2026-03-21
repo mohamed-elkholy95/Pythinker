@@ -593,14 +593,26 @@ onUnmounted(() => {
 .progress-bar-collapsed {
   position: relative;
   z-index: 7;
-  background: var(--background-white-main, #fff);
-  border-top: 1px solid var(--border-light);
+  background: var(--background-menu-white, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
   padding: 10px 16px;
   display: flex;
   align-items: center;
   gap: 10px;
   cursor: pointer;
   transition: background-color 0.15s ease;
+  box-shadow: 0px 0px 1px 0px rgba(0, 0, 0, 0.05), 0px 8px 32px 0px rgba(0, 0, 0, 0.04);
+}
+
+@media (min-width: 640px) {
+  .progress-bar-collapsed {
+    border-radius: 12px;
+  }
+}
+
+:global(.dark) .progress-bar-collapsed {
+  border-color: var(--border-main);
 }
 
 .progress-bar-collapsed:hover {
@@ -714,12 +726,38 @@ onUnmounted(() => {
 .live-preview-thumbnail-floating {
   position: absolute;
   left: 12px;
-  bottom: 8px;
+  bottom: 7px;
   z-index: 10;
+  width: 56px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .live-preview-thumbnail-floating {
+    position: absolute;
+    bottom: 7px;
+    left: 12px;
+    width: 100px;
+    height: 68px;
+  }
+}
+
+.live-preview-thumbnail-floating :deep(.live-mini-preview) {
+  width: 100% !important;
+  height: 100%;
+  aspect-ratio: unset;
 }
 
 .progress-bar-collapsed.has-thumbnail {
-  padding-left: 160px; /* Space for 144px wide preview + gap */
+  padding-left: 80px; /* Space for 56px wide preview + gap (mobile) */
+}
+
+@media (min-width: 640px) {
+  .progress-bar-collapsed.has-thumbnail {
+    padding-left: 124px; /* Space for 100px wide preview + gap (desktop) */
+  }
 }
 
 .live-preview-thumbnail-expanded {
