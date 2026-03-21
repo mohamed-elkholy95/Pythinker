@@ -576,15 +576,19 @@ class ConversationContextService:
         Returns None for events that should not be stored (partial streams, UI-only events).
         """
         from app.domain.models.event import (
+            ComprehensionEvent,
             ErrorEvent,
             FlowTransitionEvent,
             MessageEvent,
+            ModeChangeEvent,
             PlanEvent,
+            PlanStatus,
             ReflectionEvent,
             ReportEvent,
             StepEvent,
             StepStatus,
             SuggestionEvent,
+            TaskRecreationEvent,
             ThoughtEvent,
             ToolEvent,
             ToolStatus,
@@ -638,25 +642,29 @@ class ConversationContextService:
                 event_type = TurnEventType.ERROR
 
         elif isinstance(event, PlanEvent):
-            # Capture plan creation/updates for follow-up context
+            # Only capture plan creation — updates are redundant context
+            if getattr(event, "status", None) != PlanStatus.CREATED:
+                return None
             plan_title = getattr(event.plan, "title", "") or getattr(event.plan, "name", "") or ""
             plan_steps = getattr(event.plan, "steps", []) or []
             step_descs = [getattr(s, "description", str(s))[:100] for s in plan_steps[:10]]
-            plan_status = getattr(event, "status", "")
-            plan_summary = f"Plan ({plan_status}): {plan_title}"
+            plan_summary = f"Plan: {plan_title}"
             if step_descs:
                 plan_summary += "\nSteps: " + "; ".join(step_descs)
             content = plan_summary[:1500]
-            role = TurnRole.ASSISTANT
+            role = TurnRole.PLAN_SUMMARY
             event_type = TurnEventType.PLAN
 
         elif isinstance(event, ThoughtEvent):
+            # Only store final thoughts — partial chains pollute vector store
+            if not getattr(event, "is_final", False):
+                return None
             thought_content = getattr(event, "content", "") or ""
             thought_type = getattr(event, "thought_type", "") or ""
             if thought_content:
                 prefix = f"[{thought_type}] " if thought_type else ""
                 content = f"Thought: {prefix}{thought_content}"[:1000]
-                role = TurnRole.ASSISTANT
+                role = TurnRole.THOUGHT
                 event_type = TurnEventType.THOUGHT
 
         elif isinstance(event, VerificationEvent):
@@ -694,6 +702,35 @@ class ConversationContextService:
             content = ". ".join(parts)
             role = TurnRole.ASSISTANT
             event_type = TurnEventType.REFLECTION
+
+        elif isinstance(event, ModeChangeEvent):
+            mode = getattr(event, "mode", "") or ""
+            reason = getattr(event, "reason", "") or ""
+            content = f"Mode changed to: {mode}"
+            if reason:
+                content += f". Reason: {reason}"
+            role = TurnRole.ASSISTANT
+            event_type = TurnEventType.MODE_CHANGE
+
+        elif isinstance(event, ComprehensionEvent):
+            summary = getattr(event, "summary", "") or ""
+            key_reqs = getattr(event, "key_requirements", []) or []
+            if summary:
+                content = f"Comprehension: {summary}"
+                if key_reqs:
+                    content += "\nKey requirements: " + "; ".join(str(r) for r in key_reqs[:10])
+                content = content[:1500]
+                role = TurnRole.ASSISTANT
+                event_type = TurnEventType.COMPREHENSION
+
+        elif isinstance(event, TaskRecreationEvent):
+            reason = getattr(event, "reason", "") or ""
+            prev_steps = getattr(event, "previous_step_count", 0)
+            new_steps = getattr(event, "new_step_count", 0)
+            preserved = getattr(event, "preserved_findings", 0)
+            content = f"Tasks recreated: {reason}. Steps: {prev_steps} → {new_steps}, preserved {preserved} findings"
+            role = TurnRole.ASSISTANT
+            event_type = TurnEventType.TASK_RECREATION
 
         elif isinstance(event, SuggestionEvent):
             suggestions = getattr(event, "suggestions", []) or []
