@@ -844,6 +844,22 @@ class PlaywrightBrowser:
         await context.route("**/*", route_handler)
         logger.debug(f"Network route interception configured (resource blocking: {self.blocked_types})")
 
+    async def _park_cursor(self) -> None:
+        """Move the mouse cursor outside the visible viewport.
+
+        CDP screencast renders Chrome's internal compositor cursor at the
+        last ``mouse.move()`` position.  No CSS rule can hide it — it is
+        drawn by the browser, not the page.  Parking the cursor beyond the
+        viewport boundary (negative coordinates) keeps it out of every
+        subsequent screencast frame.
+        """
+        if not self.page:
+            return
+        try:
+            await self.page.mouse.move(-100, -100)
+        except Exception:
+            pass  # best-effort; never block the action
+
     async def _setup_dialog_handlers(self, page: Page) -> None:
         """Set up automatic dialog/popup handlers for the page.
 
@@ -2474,6 +2490,8 @@ class PlaywrightBrowser:
 
             # Successful navigation — reset display circuit breaker
             self._display_failure_count = 0
+            # Park cursor outside viewport so it doesn't appear in screencast
+            await self._park_cursor()
             return ToolResult(success=True, data=result_data)
         except PlaywrightTimeoutError:
             # Page might still be usable even after timeout
@@ -2733,6 +2751,29 @@ class PlaywrightBrowser:
             else:
                 logger.debug(f"navigate_for_display failed for {url}: {e}")
             return False
+
+    async def gentle_scroll_for_preview(self, scroll_steps: int = 2, step_pause: float = 1.5) -> None:
+        """Scroll slowly through a page during background preview so the user sees content.
+
+        Unlike _smart_scroll_for_lazy_content (which is for content extraction), this
+        scrolls at a human-readable pace purely for visual UX in the CDP screencast.
+
+        Args:
+            scroll_steps: Number of viewport-height scrolls (default 2)
+            step_pause: Seconds to pause between each scroll step (default 1.5s)
+        """
+        try:
+            await self._ensure_page()
+            viewport_height = await self.page.evaluate("window.innerHeight")
+            scroll_increment = int(viewport_height * 0.7)
+
+            for i in range(scroll_steps):
+                target = scroll_increment * (i + 1)
+                await self.page.evaluate(f"window.scrollTo({{top: {target}, behavior: 'smooth'}})")
+                await asyncio.sleep(step_pause)
+        except Exception as exc:
+            # Non-critical: if scroll fails, the page is still displayed
+            logger.debug("gentle_scroll_for_preview failed: %s", exc)
 
     def cancel_background_browsing(self) -> None:
         """Signal background browsing loops to stop.
@@ -3014,6 +3055,8 @@ class PlaywrightBrowser:
             if wait_for_navigation:
                 await self.wait_for_navigation(timeout=5000)
 
+            # Park cursor outside viewport so it doesn't appear in screencast
+            await self._park_cursor()
             return ToolResult(success=True, data=resolved_coords)
 
         except PlaywrightError as e:
@@ -3120,6 +3163,8 @@ class PlaywrightBrowser:
                 # Wait for potential form submission
                 await self.wait_for_navigation(timeout=5000)
 
+            # Park cursor outside viewport so it doesn't appear in screencast
+            await self._park_cursor()
             return ToolResult(success=True, data=resolved_coords)
 
         except Exception as e:
@@ -3129,6 +3174,7 @@ class PlaywrightBrowser:
         """Move the mouse"""
         await self._ensure_page()
         await self.page.mouse.move(coordinate_x, coordinate_y)
+        await self._park_cursor()
         return ToolResult(success=True)
 
     async def press_key(self, key: str) -> ToolResult:
