@@ -336,6 +336,11 @@
             :showRating="false"
             class="mt-3 mb-1"
           />
+          <!-- Task interrupted - amber banner with retry button for cancelled sessions -->
+          <TaskInterruptedFooter
+            v-if="isSessionInterrupted && !isLoading"
+            @retry="handleRetryInterrupted"
+          />
           <!-- Suggestions - show in dedicated area after response is settled -->
           <Suggestions
             v-if="canShowSuggestions"
@@ -601,7 +606,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
-import { ReportModal, TaskCompletedFooter } from '@/components/report';
+import { ReportModal, TaskCompletedFooter, TaskInterruptedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { collapseDuplicateReportBlocks, preparePlainTextForViewer } from '@/components/report/reportContentNormalizer';
@@ -1054,6 +1059,11 @@ const hasEmbeddedCompletionFooter = computed(() => {
 const showGlobalTaskCompletedFooter = computed(() =>
   canShowSuggestions.value && !hasEmbeddedCompletionFooter.value
 );
+
+const isSessionInterrupted = computed(() =>
+  sessionStatus.value === SessionStatus.CANCELLED &&
+  messages.value.length > 0
+)
 
 // Screenshot replay for completed sessions.
 // Must be initialized after sessionId ref is created to avoid TDZ runtime errors.
@@ -3299,6 +3309,17 @@ const handleSuggestionSelect = (suggestion: string) => {
   pendingFollowUpSuggestion.value = suggestion; // Track that this came from a suggestion
   suggestions.value = []; // Clear suggestions after selection
   handleSubmit();
+}
+
+// Handle retry after a cancelled/interrupted session
+const handleRetryInterrupted = () => {
+  const originalMessage = messages.value.find(
+    (m) => m.type === 'user'
+  )
+  if (originalMessage) {
+    inputMessage.value = (originalMessage.content as import('@/types/message').MessageContent).content
+    handleSubmit()
+  }
 }
 
 // Handle report open (from ChatMessage)
