@@ -82,6 +82,30 @@ setup_telemetry(app)
 app.include_router(api_router, prefix="/api/v1")
 
 
+@app.get("/sandbox-context")
+async def get_sandbox_context():
+    """Serve sandbox context JSON for backend consumption.
+
+    Placed at the top level (not under /api/v1/) so it is accessible without
+    the X-Sandbox-Secret header — the context file contains only environment
+    metadata (no secrets) and must be reachable by the backend at startup.
+    """
+    import json
+
+    context_path = "/app/sandbox_context.json"
+    try:
+        with open(context_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=503, detail="Context not generated yet")
+    except Exception as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=500, detail=f"Failed to read context: {exc}")
+
+
 @app.get("/health")
 async def health_check(response: Response):
     """Health check endpoint for container orchestration.
