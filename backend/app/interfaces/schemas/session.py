@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.application.schemas.session import (
     ConsoleRecord as ApplicationConsoleRecord,
@@ -27,6 +27,22 @@ class CreateSessionRequest(BaseModel):
     )  # Phase 4 P0: Initial message for intent classification
     require_fresh_sandbox: bool = True
     sandbox_wait_seconds: float = 3.0
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def _reject_empty_message(cls, v: object) -> str | None:
+        """Reject empty or whitespace-only messages.
+
+        Returns 422 instead of creating a session that immediately cancels.
+        """
+        if v is None:
+            return None
+        if isinstance(v, str):
+            if not v.strip():
+                msg = "Message must not be empty or whitespace-only."
+                raise ValueError(msg)
+            return v
+        return v
 
 
 class FollowUpContext(BaseModel):
