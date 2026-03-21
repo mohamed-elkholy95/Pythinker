@@ -98,3 +98,23 @@ class TestCancellationToken:
         # Third check
         assert token.is_cancelled()
         assert token._checked_count == 3
+
+    def test_clear_resets_cancellation(self):
+        """clear() should reset the token so is_cancelled() returns False."""
+        event = asyncio.Event()
+        token = CancellationToken(event=event, session_id="test-123")
+        event.set()
+        assert token.is_cancelled() is True
+        token.clear()
+        assert token.is_cancelled() is False
+
+    @pytest.mark.asyncio
+    async def test_clear_allows_reuse_after_cancel(self):
+        """After clear(), check_cancelled() should not raise."""
+        event = asyncio.Event()
+        token = CancellationToken(event=event, session_id="test-456")
+        event.set()
+        with pytest.raises(asyncio.CancelledError):
+            await token.check_cancelled()
+        token.clear()
+        await token.check_cancelled()  # Should not raise
