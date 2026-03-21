@@ -1091,23 +1091,50 @@ class AgentService:
                     "[DEBUG-SVC] chat:finally SKIPPED pop - cancel_event was replaced by newer stream session=%s",
                     session_id,
                 )
+            # Decide whether to kill the domain stream or let the agent keep
+            # running so the frontend can reconnect.  When cancel_event was
+            # explicitly set (user stop, deferred disconnect grace expired) we
+            # MUST propagate.  When the generator is being closed due to a
+            # transient SSE disconnect (cancel_event NOT set), we leave the
+            # domain task alive — the deferred cancellation mechanism in
+            # session_routes.py will stop it after the grace period if the
+            # client never reconnects.
+            _explicit_cancel = cancel_event.is_set()
             if next_task is not None:
                 if not next_task.done():
-                    next_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await next_task
+                    if _explicit_cancel:
+                        next_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await next_task
+                    else:
+                        # Detach: let domain stream keep running in background.
+                        # Suppress "Task exception was never retrieved" by adding
+                        # a silent done callback.
+                        def _suppress_unhandled(t: asyncio.Task) -> None:
+                            with contextlib.suppress(asyncio.CancelledError, Exception):
+                                t.result()
+
+                        next_task.add_done_callback(_suppress_unhandled)
+                        logger.info(
+                            "SSE disconnect for session %s: domain stream detached (agent continues)",
+                            session_id,
+                        )
                 # Retrieve result to suppress "Task exception was never retrieved"
                 # (e.g. StopAsyncIteration when stream ends while cancel fires)
                 # Note: CancelledError is BaseException (not Exception) in Python 3.8+
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    next_task.result()
+                if next_task.done():
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        next_task.result()
             # Cancel the cancel_task to avoid "Task was destroyed but it is pending" on disconnect
             if cancel_task is not None and not cancel_task.done():
                 cancel_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await cancel_task
-            with contextlib.suppress(Exception):
-                await stream_iter.aclose()
+            # Only close the domain stream if cancellation was explicitly requested.
+            # On transient SSE disconnect, the stream stays alive for reconnection.
+            if _explicit_cancel:
+                with contextlib.suppress(Exception):
+                    await stream_iter.aclose()
 
             elapsed_ms = (time.perf_counter() - started_at) * 1000
             logger.info(
