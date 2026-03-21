@@ -300,13 +300,6 @@
       @open="handleReportOpen"
       @selectSuggestion="handleSelectSuggestion"
     />
-    <!-- Attachments shown separately below the report card (excluding the report's own .md file) -->
-    <AttachmentsInlineGrid
-      v-if="reportSupplementaryAttachments.length > 0"
-      :attachments="reportSupplementaryAttachments"
-      @openFile="handleReportFileOpen"
-      @showAllFiles="handleShowAllFiles"
-    />
     <!-- Task Completed Footer - shown below everything -->
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
@@ -330,7 +323,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
+import { ReportCard, TaskCompletedFooter } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
 import type { ReasoningStage } from '@/types/reasoning';
 import type { ReportData } from './report';
@@ -384,7 +377,7 @@ const handleReportFileOpen = (file: FileInfo) => {
   emit('reportFileOpen', file);
 };
 
-const handleShowAllFiles = () => {
+const _handleShowAllFiles = () => {
   emit('showAllFiles');
 };
 
@@ -449,7 +442,7 @@ const reportData = computed<ReportData>(() => {
 
 // Filter out the report's own .md file from the attachment grid — it duplicates
 // the report card content (created by _ensure_report_file on the backend).
-const reportSupplementaryAttachments = computed(() => {
+const _reportSupplementaryAttachments = computed(() => {
   const atts = reportData.value.attachments;
   if (!atts || atts.length === 0) return [];
   const reportId = reportData.value.id;
