@@ -129,37 +129,6 @@
       <div class="content-fade"></div>
     </div>
 
-    <!-- File Attachments Grid (below content, inside card) -->
-    <div v-if="report.attachments && report.attachments.length > 0" class="attachments-grid">
-      <div
-        v-for="file in displayedAttachments"
-        :key="file.file_id"
-        class="attachment-card"
-        @click.stop="handleFileClick(file)"
-      >
-        <div class="attachment-icon">
-          <svg class="attachment-doc-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z" fill="#4D81E8" />
-            <path d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z" fill="#9CC3F4" />
-            <path opacity="0.9" d="M10.1685 18.2363H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-            <path opacity="0.9" d="M10.1685 14.3472H16.9737" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-            <path opacity="0.9" d="M10.1685 21.8333H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-          </svg>
-        </div>
-        <div class="attachment-info">
-          <span class="attachment-name">{{ file.filename }}</span>
-          <span class="attachment-meta">{{ getFileType(file) }} · {{ formatFileSize(file.size) }}</span>
-        </div>
-      </div>
-      <button
-        class="attachment-card attachment-view-all"
-        @click.stop="emit('viewAllFiles')"
-      >
-        <FolderOpen class="view-all-icon" :size="20" />
-        <span class="view-all-text">View all files in this task</span>
-      </button>
-    </div>
-
     <!-- Suggested Follow-ups Section -->
     <div v-if="suggestions && suggestions.length > 0" class="suggestions-section">
       <div class="suggestions-header">
@@ -200,8 +169,7 @@ import {
   MousePointer2,
   Share2,
   Download,
-  ChevronRight,
-  FolderOpen
+  ChevronRight
 } from 'lucide-vue-next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import TiptapReportEditor from './TiptapReportEditor.vue';
@@ -221,46 +189,11 @@ const emit = defineEmits<{
   (e: 'share', report: ReportData): void;
   (e: 'download', report: ReportData, format: string): void;
   (e: 'saveToCloud', report: ReportData, service: string): void;
-  (e: 'viewAllFiles'): void;
-  (e: 'openFile', file: import('@/api/file').FileInfo): void;
 }>();
 
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
 const normalizedReportContent = computed(() => collapseDuplicateReportBlocks(props.report.content || ''));
-
-// Show max 3 file cards in grid (rest accessible via "View all files")
-const displayedAttachments = computed(() => {
-  return (props.report.attachments || []).slice(0, 3);
-});
-
-const getFileType = (file: import('@/api/file').FileInfo): string => {
-  if (file.content_type) {
-    if (file.content_type.includes('pdf')) return 'PDF';
-    if (file.content_type.includes('zip') || file.content_type.includes('archive')) return 'Archive';
-    if (file.content_type.includes('markdown') || file.filename.endsWith('.md')) return 'Markdown';
-    if (file.content_type.includes('text')) return 'Text';
-    if (file.content_type.includes('json')) return 'JSON';
-    if (file.content_type.includes('image')) return 'Image';
-  }
-  const ext = file.filename.split('.').pop()?.toLowerCase() || '';
-  const typeMap: Record<string, string> = {
-    md: 'Markdown', txt: 'Text', pdf: 'PDF', json: 'JSON', csv: 'CSV',
-    zip: 'Archive', py: 'Python', js: 'JavaScript', ts: 'TypeScript',
-    html: 'HTML', css: 'CSS', png: 'Image', jpg: 'Image', svg: 'SVG',
-  };
-  return typeMap[ext] || 'File';
-};
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-};
-
-const handleFileClick = (file: import('@/api/file').FileInfo) => {
-  emit('openFile', file);
-};
 
 const getSuggestionIcon = (index: number) => {
   const icons = [Puzzle, MessageCircle, MessageCircle, Briefcase];
@@ -571,84 +504,6 @@ const _handleSaveToOneDriveWork = () => {
   bottom: 0;
   height: 100px;
   background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-menu-white) 100%);
-}
-
-/* ===== FILE ATTACHMENTS GRID ===== */
-.attachments-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--border-main);
-}
-
-.attachment-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px dashed var(--border-main);
-  background: var(--background-menu-white);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.attachment-card:hover {
-  border-color: var(--border-dark);
-  background: var(--fill-tsp-gray-main);
-}
-
-.attachment-icon {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.attachment-doc-icon {
-  width: 32px;
-  height: 32px;
-}
-
-.attachment-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.attachment-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.attachment-meta {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.attachment-view-all {
-  border-style: dashed;
-  justify-content: center;
-  gap: 8px;
-}
-
-.view-all-icon {
-  color: var(--icon-secondary);
-  flex-shrink: 0;
-}
-
-.view-all-text {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
 }
 
 /* ===== SUGGESTIONS ===== */

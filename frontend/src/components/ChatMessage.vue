@@ -300,6 +300,31 @@
       @open="handleReportOpen"
       @selectSuggestion="handleSelectSuggestion"
     />
+    <!-- File Attachments Grid (separate from report card) -->
+    <div v-if="reportData.attachments && reportData.attachments.length > 0" class="report-files-grid">
+      <div
+        v-for="file in reportData.attachments.slice(0, 3)"
+        :key="file.file_id"
+        class="report-file-card"
+        @click="handleReportFileOpen(file)"
+      >
+        <svg class="report-file-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z" fill="#4D81E8" />
+          <path d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z" fill="#9CC3F4" />
+          <path opacity="0.9" d="M10.1685 18.2363H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+          <path opacity="0.9" d="M10.1685 14.3472H16.9737" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+          <path opacity="0.9" d="M10.1685 21.8333H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+        </svg>
+        <div class="report-file-info">
+          <span class="report-file-name">{{ file.filename }}</span>
+          <span class="report-file-meta">{{ getFileTypeLabel(file) }} · {{ formatBytes(file.size) }}</span>
+        </div>
+      </div>
+      <button class="report-file-card report-file-view-all" @click="$emit('showAllFiles')">
+        <FolderOpen class="report-file-view-icon" :size="20" />
+        <span class="report-file-view-text">View all files in this task</span>
+      </button>
+    </div>
     <!-- Task Completed Footer - shown below everything -->
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
@@ -317,7 +342,7 @@ import { Message, MessageContent, AttachmentsContent, ReportContent, SkillDelive
 import { useAmbiguityParser } from '../composables/useAmbiguityParser';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
-import { CheckIcon, Copy, Check, XIcon } from 'lucide-vue-next';
+import { CheckIcon, Copy, Check, XIcon, FolderOpen } from 'lucide-vue-next';
 import { computed, ref, watch, onUnmounted } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
@@ -377,8 +402,20 @@ const handleReportFileOpen = (file: FileInfo) => {
   emit('reportFileOpen', file);
 };
 
-const _handleShowAllFiles = () => {
-  emit('showAllFiles');
+const getFileTypeLabel = (file: FileInfo): string => {
+  const ext = file.filename?.split('.').pop()?.toLowerCase() || '';
+  const map: Record<string, string> = {
+    md: 'Markdown', txt: 'Text', pdf: 'PDF', json: 'JSON', csv: 'CSV',
+    zip: 'Archive', py: 'Python', js: 'JavaScript', ts: 'TypeScript',
+    html: 'HTML', css: 'CSS', png: 'Image', jpg: 'Image', svg: 'SVG',
+  };
+  return map[ext] || 'File';
+};
+
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
 const handleReportRate = (rating: number, feedback?: string) => {
@@ -571,6 +608,77 @@ watch(
 </script>
 
 <style>
+/* ══════════════════════════════════════════════════
+   Report Files Grid (separate from report card)
+   ══════════════════════════════════════════════════ */
+.report-files-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+  max-width: 580px;
+}
+
+.report-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-main);
+  background: var(--background-menu-white);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.report-file-card:hover {
+  border-color: var(--border-dark);
+  background: var(--fill-tsp-gray-main);
+}
+
+.report-file-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.report-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.report-file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-file-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.report-file-view-all {
+  justify-content: center;
+  gap: 8px;
+}
+
+.report-file-view-icon {
+  color: var(--icon-secondary);
+  flex-shrink: 0;
+}
+
+.report-file-view-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* ══════════════════════════════════════════════════
    Chat message entry animation (compact, snappy)
    ══════════════════════════════════════════════════ */
