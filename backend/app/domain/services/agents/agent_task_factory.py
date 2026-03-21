@@ -392,8 +392,12 @@ class AgentTaskFactory:
                 ClassificationContext,
                 get_intent_classifier,
             )
+            from app.domain.services.agents.session_context_extractor import SessionContextExtractor
 
             classifier = get_intent_classifier()
+
+            # Extract session execution context for session-aware classification
+            exec_ctx = SessionContextExtractor.extract(session)
 
             # Build classification context from message and session
             context = ClassificationContext(
@@ -410,6 +414,11 @@ class AgentTaskFactory:
                 is_follow_up=bool(session.events),
                 urls=classifier.extract_urls(message),
                 mcp_tools=[],  # MCP tools could be added here if needed
+                session_mode=session.mode,
+                session_had_plan=exec_ctx.had_plan,
+                session_plan_title=exec_ctx.plan_title,
+                session_status=session.status,
+                session_completed_steps=exec_ctx.completed_steps,
             )
 
             # Classify with context

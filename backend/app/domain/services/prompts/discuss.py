@@ -75,6 +75,7 @@ def build_discuss_prompt(
     attachments: str = "",
     language: str = "English",
     context: str = "",
+    plan_summary: str = "",
 ) -> str:
     """
     Build discuss mode prompt.
@@ -84,6 +85,7 @@ def build_discuss_prompt(
         attachments: User attachments (comma-separated paths)
         language: Working language
         context: Retrieved conversation history and long-term memory context
+        plan_summary: Optional summary of a prior plan for follow-up context injection
 
     Returns:
         Formatted discuss prompt
@@ -91,9 +93,18 @@ def build_discuss_prompt(
     context_block = ""
     if context:
         context_block = f"<retrieved_context>\n{context}\n</retrieved_context>\n\n"
+    plan_block = ""
+    if plan_summary:
+        plan_block = (
+            "<prior_task_context>\n"
+            "The user previously asked you to work on a task. Here is the plan:\n"
+            f"{plan_summary}\n"
+            "Answer follow-up questions in the context of this prior task.\n"
+            "</prior_task_context>\n\n"
+        )
     return DISCUSS_PROMPT.format(
         message=message,
         attachments=attachments or "None",
         language=language,
-        context_block=context_block,
+        context_block=context_block + plan_block,
     )
