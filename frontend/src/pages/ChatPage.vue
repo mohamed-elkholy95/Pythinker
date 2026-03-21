@@ -4849,6 +4849,7 @@ const handleFileListShow = () => {
 
 .chat-bottom-dock {
   z-index: 20;
+  padding-top: 24px;
 }
 
 .chat-bottom-dock-fixed {
