@@ -507,12 +507,21 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 self._url_cache[url] = (time.time(), text)
 
                 # Wait for browser nav to complete (already running concurrently)
+                nav_succeeded = False
                 if nav_task:
                     try:
-                        await nav_task
+                        nav_succeeded = await nav_task
                     except Exception as nav_err:
-                        logger.debug(f"navigate_for_display task failed (non-critical): {nav_err}")
+                        logger.debug(f"navigate_for_display task failed: {nav_err}")
                     nav_task = None
+
+                # Retry display navigation once if background task failed — ensures
+                # the CDP screenshot matches what the agent reports it browsed
+                if not nav_succeeded and hasattr(self.browser, "navigate_for_display"):
+                    try:
+                        await self.browser.navigate_for_display(url)
+                    except Exception as retry_err:
+                        logger.debug(f"navigate_for_display retry failed (non-critical): {retry_err}")
 
                 return ToolResult(
                     success=True,

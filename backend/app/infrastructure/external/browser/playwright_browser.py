@@ -178,7 +178,9 @@ class PlaywrightBrowser:
         # Circuit breaker for navigate_for_display (live preview display)
         # Stops attempting live preview navigations after repeated failures (e.g., browser crash)
         self._display_failure_count: int = 0
-        self._display_failure_threshold: int = 2
+        self._display_failure_threshold: int = 5
+        self._display_last_failure_time: float = 0.0
+        self._display_circuit_reset_seconds: float = 60.0  # Auto-reset after 60s
 
         # Cancellation signal for background browsing (prevents race with foreground ops)
         self._background_browse_cancelled: bool = False
@@ -2826,9 +2828,15 @@ class PlaywrightBrowser:
             return False
 
         # Circuit breaker: stop attempting live preview display after repeated failures
+        # Auto-reset after _display_circuit_reset_seconds of inactivity
         if self._display_failure_count >= self._display_failure_threshold:
-            logger.debug("navigate_for_display: circuit breaker open, skipping live preview display")
-            return False
+            elapsed = time.time() - self._display_last_failure_time
+            if elapsed < self._display_circuit_reset_seconds:
+                logger.debug("navigate_for_display: circuit breaker open, skipping live preview display")
+                return False
+            # Auto-reset: enough time has passed, give it another chance
+            logger.info("navigate_for_display: circuit breaker auto-reset after %.0fs", elapsed)
+            self._display_failure_count = 0
 
         # Trylock: if browser is already navigating, skip live preview display
         if self._navigation_lock.locked():
@@ -2846,6 +2854,7 @@ class PlaywrightBrowser:
                 return True
         except Exception as e:
             self._display_failure_count += 1
+            self._display_last_failure_time = time.time()
             if self._is_crash_error(e):
                 logger.error(f"navigate_for_display: browser crash detected for {url}: {e}")
                 self._connection_healthy = False
