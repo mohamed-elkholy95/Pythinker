@@ -26,7 +26,6 @@ def _make_browser() -> PlaywrightBrowser:
         settings.browser_quick_health_check_enabled = True
         settings.browser_quick_health_check_timeout = 3.0
         settings.browser_blocked_types_set = None
-        settings.feature_dom_cursor_injection = False
         mock_settings.return_value = settings
         browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
     # Wire up a mock page

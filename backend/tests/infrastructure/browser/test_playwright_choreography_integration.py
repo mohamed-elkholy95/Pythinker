@@ -25,7 +25,6 @@ def _make_fake_settings(**overrides):
         "browser_cdp_keepalive_interval": 45.0,
         "browser_choreography_profile": "professional",
         "browser_choreography_enabled": True,
-        "feature_dom_cursor_injection": False,
     }
     defaults.update(overrides)
     settings = MagicMock()
