@@ -4836,10 +4836,10 @@ const handleFileListShow = () => {
 .chat-bottom-dock {
   padding-top: 100px;
   z-index: 20;
-  /* Gradient mask: transparent at top → solid background at bottom.
-     Covers the 100px padding-top so scrolling content fades out
-     before reaching the chatbox instead of showing through. */
-  background: linear-gradient(to bottom, transparent 0%, var(--background-gray-main) 60px);
+  /* Gradient mask spans exactly the 100px padding-top zone.
+     Becomes fully opaque at the top edge of the progress bar / chatbox
+     so no scrolling content bleeds through underneath. */
+  background: linear-gradient(to bottom, transparent 0%, var(--background-gray-main) 100px);
 }
 
 .chat-bottom-dock-fixed {
