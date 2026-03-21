@@ -1034,12 +1034,16 @@ const logChatSseDiagnostics = (message: string, details: Record<string, unknown>
 // Response lifecycle: derived from responsePhase (isLoading and isThinking now from useResponsePhase)
 // CRITICAL: Only show suggestions when session is COMPLETED (not on timeout/error)
 // Timeout = agent may still be working; Completed = agent finished successfully
-const canShowSuggestions = computed(() =>
-  isSettled.value &&
-  sessionStatus.value === SessionStatus.COMPLETED &&
-  suggestions.value.length > 0 &&
-  !isSummaryStreaming.value
-)
+// Use receivedDoneEvent OR isSettled — receivedDoneEvent is set synchronously after
+// cleanupStreamingState() in finalizeSession, so isSummaryStreaming is guaranteed false
+// at that point. This avoids a race where the 300ms completing→settled timer delays
+// suggestions even though the task is definitively done.
+const canShowSuggestions = computed(() => {
+  if (suggestions.value.length === 0) return false;
+  if (sessionStatus.value !== SessionStatus.COMPLETED) return false;
+  // Show once done event confirmed OR after full phase settle
+  return receivedDoneEvent.value || isSettled.value;
+})
 
 const hasEmbeddedCompletionFooter = computed(() => {
   for (let i = messages.value.length - 1; i >= 0; i -= 1) {
