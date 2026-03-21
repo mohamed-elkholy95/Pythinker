@@ -27,6 +27,8 @@ class TestSessionCancelAuthorization:
         from app.interfaces.api.session_routes import cancel_session
 
         agent_service = AsyncMock()
+        # request_cancellation is sync — use MagicMock to avoid unawaited coroutine
+        agent_service.request_cancellation = MagicMock()
         session_repo = AsyncMock()
         session_repo.get_by_id.return_value = session
         await cancel_session(
