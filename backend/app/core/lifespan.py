@@ -531,10 +531,24 @@ async def lifespan(app: FastAPI):
             logger.info("Knowledge base storage ready: %s", settings.knowledge_base_storage_dir)
 
         # Pre-load sandbox context with retry (sandbox may still be starting)
+        sandbox_reload_task = None
         try:
             from app.domain.services.prompts.sandbox_context import SandboxContextManager
 
             await SandboxContextManager.load_context_with_retry()
+
+            # Background task: reload sandbox context once sandbox is healthy
+            async def _reload_sandbox_context_on_ready():
+                """Background task: reload sandbox context once sandbox is healthy."""
+                for _ in range(10):
+                    await asyncio.sleep(6)
+                    result = await SandboxContextManager.load_context_with_retry()
+                    if result is not None:
+                        logger.info("Sandbox context loaded after delayed retry")
+                        return
+                logger.warning("Sandbox context never became available")
+
+            sandbox_reload_task = asyncio.create_task(_reload_sandbox_context_on_ready())
         except Exception as e:
             logger.warning(f"Sandbox context pre-load failed (non-critical): {e}")
 
@@ -759,6 +773,12 @@ async def lifespan(app: FastAPI):
                 event_archival_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await event_archival_task
+
+            # Cancel sandbox reload task
+            if sandbox_reload_task is not None:
+                sandbox_reload_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await sandbox_reload_task
 
             # Stop MongoDB profiler
             if mongo_profiler_task is not None:
