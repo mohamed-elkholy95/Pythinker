@@ -174,7 +174,7 @@ RUN mkdir -p /run/user/1000 && \
 
 
 # Copy from builder
-COPY --from=builder /opt/base-python-venv /opt/base-python-venv
+COPY --from=builder --chown=ubuntu:ubuntu /opt/base-python-venv /opt/base-python-venv
 COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
 COPY --from=builder /usr/local/nvm /usr/local/nvm
 COPY --from=builder /usr/lib/python3.11 /usr/lib/python3.11
