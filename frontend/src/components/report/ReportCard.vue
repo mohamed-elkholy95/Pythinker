@@ -101,37 +101,32 @@
       </Popover>
     </div>
 
-    <!-- Document Content Area with Left Border Accent -->
+    <!-- Metadata + Content Preview -->
     <div class="document-content">
-      <!-- Metadata -->
-      <div class="document-meta-block">
-        <div class="document-meta-rail"></div>
-        <div class="document-meta">
-          <div class="meta-item">
-            <span class="meta-label">Date:</span>
-            <span class="meta-value">{{ formatDateLong(report.lastModified) }}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Author:</span>
-            <span class="meta-value">{{ report.author || 'Pythinker' }}</span>
-          </div>
+      <!-- Date / Author -->
+      <div class="document-meta">
+        <div class="meta-line">
+          <span class="meta-label">Date:</span>
+          <span class="meta-value">{{ formatDateLong(report.lastModified) }}</span>
+        </div>
+        <div class="meta-line">
+          <span class="meta-label">Author:</span>
+          <span class="meta-value">{{ report.author || 'Pythinker' }}</span>
         </div>
       </div>
 
-      <!-- Content Preview -->
-      <div class="content-preview-shell">
-        <div class="content-preview-scale">
-          <TiptapReportEditor
-            v-if="report.content"
-            class="report-markdown-preview"
-            :content="processedContent"
-            :compact="true"
-            :hideMainTitleInCompact="false"
-            :sources="report.sources"
-          />
-        </div>
-        <div class="content-fade"></div>
+      <!-- Full-size content preview with fade -->
+      <div class="content-preview-direct">
+        <TiptapReportEditor
+          v-if="report.content"
+          class="report-markdown-preview"
+          :content="processedContent"
+          :compact="true"
+          :hideMainTitleInCompact="true"
+          :sources="report.sources"
+        />
       </div>
+      <div class="content-fade"></div>
     </div>
 
     <!-- Suggested Follow-ups Section -->
@@ -346,18 +341,18 @@ const _handleSaveToOneDriveWork = () => {
 /* ===== CARD CONTAINER ===== */
 .report-card {
   width: 100%;
-  max-width: 520px;
+  max-width: 580px;
   min-width: 0;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
   background: var(--background-menu-white);
-  border: 0.5px solid var(--border-dark);
+  border: 1px solid var(--border-main);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .report-card:hover {
-  box-shadow: 0 7px 16px 0 var(--shadow-S);
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.06);
 }
 
 /* ===== HEADER BAR ===== */
@@ -365,8 +360,8 @@ const _handleSaveToOneDriveWork = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 12px;
+  gap: 10px;
+  padding: 18px 20px;
   border-bottom: 1px solid var(--border-main);
   background: var(--background-menu-white);
 }
@@ -394,9 +389,9 @@ const _handleSaveToOneDriveWork = () => {
 }
 
 .header-title {
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -422,67 +417,41 @@ const _handleSaveToOneDriveWork = () => {
 
 /* ===== DOCUMENT CONTENT ===== */
 .document-content {
-  padding: 16px;
+  padding: 24px 28px 0;
   position: relative;
+  max-height: 340px;
+  overflow: hidden;
 }
 
-.document-meta-block {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.document-meta-rail {
-  width: 4px;
-  border-radius: 4px;
-  background: var(--icon-disable);
-  opacity: 0.85;
-  flex-shrink: 0;
-}
-
+/* ===== METADATA ===== */
 .document-meta {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 4px 0;
+  margin-bottom: 8px;
 }
 
-.meta-item {
+.meta-line {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .meta-label {
   font-weight: 700;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .meta-value {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
-/* ===== CONTENT PREVIEW ===== */
-.content-preview-shell {
-  position: relative;
-  width: 100%;
-  height: clamp(170px, 22vw, 260px);
-  padding: 2px 0 0;
+/* ===== CONTENT PREVIEW (direct, no scaling) ===== */
+.content-preview-direct {
   pointer-events: none;
   overflow: hidden;
-}
-
-.content-preview-scale {
-  transform: scale(0.72);
-  transform-origin: top left;
-  /* 1/0.72 = 138.889% fills container at scaled size. Use max-width to prevent
-     the pre-transform width from overflowing the parent's box. */
-  width: 138.889%;
-  max-width: 138.889%;
-  height: 138.889%;
 }
 
 .report-markdown-preview {
@@ -496,26 +465,29 @@ const _handleSaveToOneDriveWork = () => {
 
 .report-markdown-preview :deep(.prose-compact h1) {
   display: block;
-  font-size: 1.72em;
-  line-height: 1.3;
-  font-weight: 600;
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
-}
-
-.report-markdown-preview :deep(.prose-compact p) {
-  font-size: 0.98em;
-  line-height: 1.52;
-  color: var(--text-secondary);
-  margin-top: 0.3em;
+  font-size: 1.65em;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 0.6em;
   margin-bottom: 0.3em;
 }
 
+.report-markdown-preview :deep(.prose-compact p) {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
 .report-markdown-preview :deep(.prose-compact h2) {
-  font-size: 1.22em;
-  line-height: 1.3;
-  margin-top: 1.15em;
-  margin-bottom: 0.1em;
+  font-size: 1.35em;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1.2em;
+  margin-bottom: 0.2em;
 }
 
 .report-markdown-preview :deep(.prose-compact blockquote) {
@@ -530,8 +502,8 @@ const _handleSaveToOneDriveWork = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 96px;
-  background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-white-main) 100%);
+  height: 100px;
+  background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-menu-white) 100%);
 }
 
 /* ===== SUGGESTIONS ===== */
