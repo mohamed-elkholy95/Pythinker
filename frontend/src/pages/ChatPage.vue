@@ -7,6 +7,7 @@
   >
     <div ref="chatSplitRef" class="chat-split-shell">
       <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
+      <h1 class="sr-only">{{ title || 'Chat Session' }}</h1>
       <ConnectionStatusBanner
         :sessionId="sessionId"
         :retryAttempt="connectionBannerRetryAttempt"
@@ -24,7 +25,7 @@
           @click="toggleLeftPanel"
           aria-label="Open sidebar"
         >
-          <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" />
+          <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" style="aspect-ratio: 1 / 1;" />
         </button>
         <!-- Center: Model name as header title (Pythinker-style) -->
         <button
@@ -4061,16 +4062,16 @@ const restoreSession = async (
   } catch (error) {
     if (shouldAbortRestore('error')) return;
 
-    // Session deleted or cleaned up — redirect to history
-    const status = (error as any)?.response?.status;
+    // Session deleted or cleaned up — redirect to home
+    const status = (error as any)?.code ?? (error as any)?.response?.status;
     if (status === 404) {
-      console.warn('[RESTORE] Session not found, redirecting to history', { targetSessionId });
+      console.warn('[RESTORE] Session not found, redirecting to home', { targetSessionId });
       showErrorToast(t('Session not found'));
-      router.replace({ name: 'session-history' });
+      router.replace('/chat');
       return;
     }
 
-    console.error('[RESTORE] Failed to restore session', { targetSessionId, context, error });
+    console.error('[RESTORE] Failed to restore session', { targetSessionId, context, error: error instanceof Error ? error.message : JSON.stringify(error) });
     transitionTo('error');
     showErrorToast(t('Failed to restore session'));
   }
@@ -4532,6 +4533,19 @@ const handleFileListShow = () => {
 </script>
 
 <style scoped>
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 /* ===== CHAT + LIVE SPLIT LAYOUT ===== */
 .chat-split-shell {
   position: relative;
