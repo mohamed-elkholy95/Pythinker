@@ -56,9 +56,7 @@ class SessionContextExtractor:
                 had_plan = True
                 plan_title = getattr(event.plan, "title", None)
                 plan_steps = [
-                    s.description
-                    for s in (getattr(event.plan, "steps", None) or [])
-                    if hasattr(s, "description")
+                    s.description for s in (getattr(event.plan, "steps", None) or []) if hasattr(s, "description")
                 ]
             elif isinstance(event, StepEvent) and event.status == StepStatus.COMPLETED:
                 completed_steps += 1

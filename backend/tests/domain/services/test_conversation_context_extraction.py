@@ -1,21 +1,23 @@
-import pytest
 from unittest.mock import MagicMock
-from app.domain.services.conversation_context_service import ConversationContextService
+
+import pytest
+
+from app.domain.models.conversation_context import TurnEventType, TurnRole
 from app.domain.models.event import (
-    PlanEvent,
-    PlanStatus,
-    ThoughtEvent,
-    ThoughtStatus,
-    ReflectionEvent,
-    ReflectionStatus,
-    VerificationEvent,
-    VerificationStatus,
     ComprehensionEvent,
     ModeChangeEvent,
+    PlanEvent,
+    PlanStatus,
+    ReflectionEvent,
+    ReflectionStatus,
     TaskRecreationEvent,
+    ThoughtEvent,
+    ThoughtStatus,
+    VerificationEvent,
+    VerificationStatus,
 )
 from app.domain.models.plan import Plan, Step
-from app.domain.models.conversation_context import TurnEventType, TurnRole
+from app.domain.services.conversation_context_service import ConversationContextService
 
 
 @pytest.fixture

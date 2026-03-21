@@ -1,4 +1,4 @@
-from app.domain.models.conversation_context import TurnRole, TurnEventType
+from app.domain.models.conversation_context import TurnEventType, TurnRole
 
 
 def test_turn_role_has_plan_and_thought():

@@ -227,10 +227,7 @@ class IntentClassifier:
     def _is_continuation_phrase(self, message: str) -> bool:
         """Check if message is a continuation/approval phrase."""
         normalized = message.lower().strip()
-        return any(
-            re.match(p, normalized, re.IGNORECASE)
-            for p in self._CONTINUATION_PATTERNS
-        )
+        return any(re.match(p, normalized, re.IGNORECASE) for p in self._CONTINUATION_PATTERNS)
 
     def classify(self, message: str) -> tuple[str, AgentMode, float]:
         """Classify user intent and recommend agent mode.
@@ -361,11 +358,7 @@ class IntentClassifier:
 
         # Guard 2: Continuation phrases in planned session → stay AGENT
         # (checked before Guard 1 so continuation intent takes precedence)
-        if (
-            context.is_follow_up
-            and context.session_had_plan
-            and self._is_continuation_phrase(message)
-        ):
+        if context.is_follow_up and context.session_had_plan and self._is_continuation_phrase(message):
             reasons.append("Continuation phrase in planned session → AGENT")
             return ClassificationResult(
                 intent="continuation",
@@ -376,14 +369,9 @@ class IntentClassifier:
             )
 
         # Guard 1: Never downgrade AGENT→DISCUSS if session had a plan
-        if (
-            context.session_mode == AgentMode.AGENT
-            and mode == AgentMode.DISCUSS
-            and context.session_had_plan
-        ):
+        if context.session_mode == AgentMode.AGENT and mode == AgentMode.DISCUSS and context.session_had_plan:
             reasons.append(
-                f"BLOCKED: AGENT→DISCUSS downgrade prevented — "
-                f"session has plan '{context.session_plan_title}'"
+                f"BLOCKED: AGENT→DISCUSS downgrade prevented — session has plan '{context.session_plan_title}'"
             )
             return ClassificationResult(
                 intent="follow_up_to_planned_task",

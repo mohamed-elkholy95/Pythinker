@@ -62,7 +62,7 @@ class SandboxContextManager:
             if result is not None:
                 return result
             if attempt < cls._RETRY_ATTEMPTS - 1:
-                delay = cls._RETRY_BASE_DELAY * (2 ** attempt)
+                delay = cls._RETRY_BASE_DELAY * (2**attempt)
                 logger.info(
                     f"Sandbox context not ready, retrying in {delay}s (attempt {attempt + 1}/{cls._RETRY_ATTEMPTS})"
                 )

@@ -2060,9 +2060,7 @@ class PlanActFlow(BaseFlow):
                 idle_timeout=settings.effective_workflow_idle_timeout,
                 grace_period=settings.cancellation_grace_period_seconds,
             )
-            async for event in executor.execute(
-                self._run_with_trace(message, trace_ctx)
-            ):
+            async for event in executor.execute(self._run_with_trace(message, trace_ctx)):
                 yield event
 
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:

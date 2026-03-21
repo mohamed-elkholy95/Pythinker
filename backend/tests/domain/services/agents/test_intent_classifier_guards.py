@@ -1,8 +1,8 @@
+from app.domain.models.session import AgentMode
 from app.domain.services.agents.intent_classifier import (
     ClassificationContext,
     get_intent_classifier,
 )
-from app.domain.models.session import AgentMode
 
 
 def test_blocks_agent_to_discuss_when_session_has_plan():
@@ -19,12 +19,8 @@ def test_blocks_agent_to_discuss_when_session_has_plan():
         session_had_plan=True,
         session_plan_title="AI Agent Frameworks Research",
     )
-    result = classifier.classify_with_context(
-        "Can you expand on the comparison?", ctx
-    )
-    assert result.mode == AgentMode.AGENT, (
-        f"Expected AGENT but got {result.mode} — guard failed"
-    )
+    result = classifier.classify_with_context("Can you expand on the comparison?", ctx)
+    assert result.mode == AgentMode.AGENT, f"Expected AGENT but got {result.mode} — guard failed"
     assert "BLOCKED" in " ".join(result.reasons)
 
 

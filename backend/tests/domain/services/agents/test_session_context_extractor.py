@@ -4,7 +4,6 @@ from app.domain.models.event import PlanEvent, PlanStatus, StepEvent, StepStatus
 from app.domain.models.plan import Plan, Step
 from app.domain.services.agents.session_context_extractor import (
     SessionContextExtractor,
-    SessionExecutionContext,
 )
 
 
