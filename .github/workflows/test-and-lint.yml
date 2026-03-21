@@ -88,6 +88,13 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: ruff format --check .
 
+      - name: Dependency vulnerability scan (pip-audit)
+        if: needs.changes.outputs.backend == 'true'
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
       - name: Install dependencies (for Pyright)
         if: needs.changes.outputs.backend == 'true'
         run: |
