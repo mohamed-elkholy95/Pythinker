@@ -187,7 +187,10 @@ class AgentState(TypedDict):
     step_results: list[dict]
     final_report: str
 
-    # Safety controls
+    # Safety controls — iteration_count tracks total steps executed across
+    # all plan cycles (including replans). max_iterations caps total steps,
+    # not replan cycles. E.g., max_iterations=20 allows at most 20 step
+    # executions total, whether from one plan or multiple replans.
     iteration_count: int
     max_iterations: int
 ```
@@ -288,8 +291,9 @@ def mode_router(state: AgentState) -> Literal["agent", "discuss", "fast_search"]
 def step_router(state: AgentState) -> Literal["next_step", "verify", "max_iter"]:
     """Decide whether to execute next step, verify, or exit.
 
-    Also counts replan cycles: each plan+execute+verify cycle increments
-    iteration_count, preventing infinite replan loops.
+    iteration_count tracks total steps executed (across all plan cycles).
+    max_iterations caps total steps to prevent runaway execution —
+    whether from one plan with many steps or infinite replan loops.
     """
     if state["iteration_count"] >= state["max_iterations"]:
         return "max_iter"
@@ -638,9 +642,20 @@ def rotate_and_get_chat_model() -> ChatOpenAI:
     return _rotating_llm.rotate_key()
 ```
 
-**Key rotation integration**: The graph's error handling (in node try/except blocks or a
-LangGraph callback) catches HTTP 429/401, calls `rotate_and_get_chat_model()`, and retries.
-This preserves the multi-key failover pattern without the full `APIKeyPool` complexity.
+**Key rotation integration**: Since `create_react_agent(model=llm)` captures the model at
+build time, a rotated model won't automatically propagate into compiled subgraphs. Two options:
+
+1. **Rebuild on rotation** (simpler): The graph is not compiled once globally — it is built
+   per-session in `agent_service.py`. If a session hits 429 mid-execution, the error handler
+   rotates the key, and the next graph invocation (retry or new session) uses the new model.
+   Within a single graph run, the ReAct agent retries with the same key (LangChain's built-in
+   retry handles transient 429s with backoff).
+
+2. **Model proxy** (more complex, if needed): Wrap `ChatOpenAI` in a thin proxy that delegates
+   to `RotatingChatOpenAI.get_model()` on every call, so the underlying model swaps transparently.
+   This requires implementing `BaseChatModel` interface methods to proxy calls.
+
+Recommended: **Option 1** for initial migration. Option 2 if rotation frequency is high.
 
 ### 4.9 MongoDB Checkpointer
 
@@ -705,7 +720,7 @@ from app.domain.models.event import (
     BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanStatus,
     ProgressEvent, StepEvent, StepStatus, StreamEvent, ToolEvent, ToolStatus,
 )
-from app.domain.models.plan import Plan, Step
+from app.domain.models.plan import Plan, Step, StepType
 
 
 async def stream_graph_as_pythinker_events(
@@ -768,14 +783,14 @@ async def stream_graph_as_pythinker_events(
             elif kind == "on_chain_start" and name == "execute_step":
                 # Construct a minimal Step object for the frontend
                 yield StepEvent(
-                    step=Step(description=f"Executing step", type="execution"),
+                    step=Step(description="Executing step", step_type=StepType.EXECUTION),
                     status=StepStatus.STARTED,
                 )
 
             # --- Step end ---
             elif kind == "on_chain_end" and name == "execute_step":
                 yield StepEvent(
-                    step=Step(description="Step completed", type="execution"),
+                    step=Step(description="Step completed", step_type=StepType.EXECUTION),
                     status=StepStatus.COMPLETED,
                 )
 
@@ -821,8 +836,8 @@ elif kind == "on_chain_end" and name == "plan":
     output = data.get("output", {})
     plan_dict = output.get("plan")
     if plan_dict:
-        # Convert plain dict to Plan model for frontend compatibility
-        plan_model = Plan.from_dict(plan_dict)  # Add this factory method to Plan
+        # Convert plain dict to Plan Pydantic model for frontend compatibility
+        plan_model = Plan.model_validate(plan_dict)  # Pydantic v2 dict → model
         yield PlanEvent(plan=plan_model, status=PlanStatus.CREATED)
 ```
 
