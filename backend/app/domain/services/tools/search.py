@@ -546,7 +546,7 @@ class SearchTool(BaseTool):
             max_wide_queries_complex if score is not None and score >= 0.8 else max_wide_queries
         )
 
-    async def _schedule_background_preview(self, search_data: Any, count: int = 3) -> None:
+    async def _schedule_background_preview(self, search_data: Any, count: int | None = None) -> None:
         """Schedule at most one fire-and-forget preview task for top search URLs.
 
         This method centralizes task lifecycle management so concurrent calls to
@@ -554,6 +554,12 @@ class SearchTool(BaseTool):
         """
         if not self._browser or not search_data:
             return
+
+        # Resolve count from config if not explicitly provided
+        if count is None:
+            from app.core.config import get_settings as _get_settings
+
+            count = getattr(_get_settings(), "browser_background_preview_count", 5)
 
         if hasattr(self._browser, "allow_background_browsing"):
             self._browser.allow_background_browsing()
@@ -1049,16 +1055,20 @@ class SearchTool(BaseTool):
 
         return ToolResult(success=True, data=aggregated_data, message=message)
 
-    async def _browse_top_results(self, search_data: Any, count: int = 3) -> None:
+    async def _browse_top_results(self, search_data: Any, count: int = 5) -> None:
         """Open top search result URLs in the browser for live preview visibility.
 
         After API search returns results, navigates to the top URLs so the user
         can see browsing activity in the sandbox live preview. This runs as a
         fire-and-forget background task and does not block the search response.
 
+        The dwell time and scroll behavior are controlled by config:
+        - browser_background_preview_dwell (default 7s)
+        - browser_background_preview_scroll (default True)
+
         Args:
             search_data: SearchResults model or dict with results list
-            count: Number of top results to open (default 3)
+            count: Number of top results to open (default 5)
         """
         try:
             browser_type = type(self._browser)
@@ -1108,9 +1118,19 @@ class SearchTool(BaseTool):
                     )
                 return
 
+            # Load configurable preview settings
+            from app.core.config import get_settings as _get_preview_settings
+
+            _preview_cfg = _get_preview_settings()
+            preview_dwell = getattr(_preview_cfg, "browser_background_preview_dwell", 7.0)
+            preview_scroll = getattr(_preview_cfg, "browser_background_preview_scroll", True)
+
             logger.info(
-                "Browsing top %d search results for live preview visibility (%d already shown skipped)",
+                "Browsing top %d search results for live preview visibility "
+                "(dwell=%.1fs, scroll=%s, %d already shown skipped)",
                 len(candidate_urls),
+                preview_dwell,
+                preview_scroll,
                 skipped_already_previewed,
             )
             consecutive_failures = 0
@@ -1148,9 +1168,23 @@ class SearchTool(BaseTool):
                             consecutive_failures += 1
                             total_failures += 1
                     # Dwell only on successful navigation so failures do not stall
-                    # preview progression.
+                    # preview progression.  Scroll gently so user sees page content.
                     if navigation_succeeded:
-                        await asyncio.sleep(5.0)
+                        if preview_scroll and hasattr(self._browser, "gentle_scroll_for_preview"):
+                            # Scroll 2 viewport-heights over ~40% of dwell time,
+                            # then hold still for the remaining dwell.
+                            scroll_time = preview_dwell * 0.4
+                            hold_time = preview_dwell - scroll_time
+                            try:
+                                await self._browser.gentle_scroll_for_preview(
+                                    scroll_steps=2,
+                                    step_pause=scroll_time / 2,
+                                )
+                            except Exception:
+                                logger.debug("Background preview scroll failed (non-critical)")
+                            await asyncio.sleep(hold_time)
+                        else:
+                            await asyncio.sleep(preview_dwell)
                     elif consecutive_failures:
                         await asyncio.sleep(min(1.5, 0.5 * consecutive_failures))
                 except Exception as e:
@@ -1391,9 +1425,9 @@ class SearchTool(BaseTool):
         if result.success and result.data and self._scraper:
             enriched_count = await self._auto_enrich_results(result.data)
 
-        # Fire-and-forget: open top 3 results in browser for live preview visibility
+        # Fire-and-forget: open top results in browser for live preview visibility
         if result.success and self._browser and result.data:
-            await self._schedule_background_preview(result.data, count=3)
+            await self._schedule_background_preview(result.data)
 
         # Append contextual guidance based on enrichment status
         if result.success and result.data:
@@ -1672,9 +1706,9 @@ wide_research(
                 "Visit official pages to verify before making claims."
             )
 
-        # Fire-and-forget: open top 3 results in browser for live preview visibility
+        # Fire-and-forget: open top results in browser for live preview visibility
         if self._browser and search_data:
-            await self._schedule_background_preview(search_data, count=3)
+            await self._schedule_background_preview(search_data)
 
             # Append system note to guide LLM on browser navigation after background preview
             message += (

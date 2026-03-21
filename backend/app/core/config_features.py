@@ -561,6 +561,14 @@ class PromptOptimizationSettingsMixin:
         True  # sandbox-side only: configure via SCREENCAST_INCLUDE_CHROME_UI env on sandbox container
     )
 
+    # Background preview browsing (after search results)
+    # How many top URLs to visit in background after wide_research/info_search_web
+    browser_background_preview_count: int = 5
+    # Dwell time (seconds) on each page during background preview (user watches in screencast)
+    browser_background_preview_dwell: float = 7.0
+    # Auto-scroll during background preview so user sees page content
+    browser_background_preview_scroll: bool = True
+
     # Terminal Enhancement (live streaming, mastery prompts)
     terminal_live_streaming_enabled: bool = True
     terminal_mastery_prompt_enabled: bool = True
