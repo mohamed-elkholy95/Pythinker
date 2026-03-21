@@ -36,6 +36,12 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5174/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     develop:
       watch:
         - action: sync
@@ -95,7 +101,7 @@ services:
       minio:
         condition: service_healthy
       sandbox:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -156,7 +162,7 @@ services:
       minio:
         condition: service_healthy
       sandbox:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -197,6 +203,7 @@ services:
       args:
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
     hostname: sandbox
+    read_only: true
     security_opt:
       - no-new-privileges:true
       - seccomp=./sandbox/seccomp-sandbox.hardened.json
@@ -206,7 +213,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-      - SYS_ADMIN
+      - SYS_CHROOT
     volumes:
       - /app/__pycache__
       - /app/.venv
@@ -218,8 +225,9 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev
-      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /tmp:size=1G,nosuid,nodev
+      - /home/ubuntu:size=2G,nosuid,nodev,uid=1000,gid=1000
+      - /var:size=500M,nosuid,nodev
     ulimits:
       nofile:
         soft: 65536
@@ -310,7 +318,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand('ping').ok\" || exit 1"]
+      test: ["CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand({ping:1}).ok\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
