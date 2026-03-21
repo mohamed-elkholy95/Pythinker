@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -1328,8 +1329,99 @@ class BaseAgent:
 
         return self._truncate_text(serialized, max_chars)
 
+    @staticmethod
+    def _sanitize_search_result_html(result: ToolResult) -> ToolResult:
+        """Strip noisy HTML from search result content before serialization.
+
+        When search results contain raw HTML with tags like <script>, <nav>,
+        <footer>, <style> etc., and the content exceeds 2000 chars, strip those
+        tags to keep only meaningful text. This prevents prompt pollution and
+        reduces token waste.
+        """
+        if result is None or result.data is None:
+            return result
+
+        html_noise_tags = re.compile(
+            r"<(?:script|style|nav|footer|header|aside|iframe|noscript|svg|form)\b[^>]*>.*?</\1>",
+            re.DOTALL | re.IGNORECASE,
+        )
+        all_tags = re.compile(r"<[^>]+>")
+
+        def _clean_html_content(text: str) -> str:
+            """Strip HTML tags from text content if it appears to contain raw HTML."""
+            if not isinstance(text, str) or len(text) < 2000:
+                return text
+            # Only sanitize if it actually looks like HTML
+            if not re.search(r"<(?:script|nav|footer|style|div|span)\b", text, re.IGNORECASE):
+                return text
+            # Remove noise tags and their content first
+            cleaned = html_noise_tags.sub("", text)
+            # Strip remaining HTML tags
+            cleaned = all_tags.sub(" ", cleaned)
+            # Collapse whitespace
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            if not cleaned or len(cleaned) < 50:
+                return "[Page content was primarily HTML markup with no meaningful text]"
+            return cleaned
+
+        data = result.data
+        modified = False
+
+        # Handle dict-shaped data with "results" list (common search payload)
+        if isinstance(data, dict):
+            results_list = data.get("results")
+            if isinstance(results_list, list):
+                new_results = []
+                for item in results_list:
+                    if isinstance(item, dict):
+                        for key in ("snippet", "content", "text", "description"):
+                            if key in item and isinstance(item[key], str):
+                                cleaned = _clean_html_content(item[key])
+                                if cleaned != item[key]:
+                                    item = {**item, key: cleaned}
+                                    modified = True
+                        new_results.append(item)
+                    else:
+                        new_results.append(item)
+                if modified:
+                    return ToolResult(
+                        success=result.success,
+                        message=result.message,
+                        data={**data, "results": new_results},
+                    )
+
+        # Handle object-shaped data with .results attribute
+        if hasattr(data, "results") and not isinstance(data, dict):
+            for item in getattr(data, "results", []) or []:
+                for key in ("snippet", "content", "text", "description"):
+                    val = getattr(item, key, None)
+                    if isinstance(val, str):
+                        cleaned = _clean_html_content(val)
+                        if cleaned != val:
+                            try:
+                                setattr(item, key, cleaned)
+                                modified = True
+                            except (AttributeError, TypeError):
+                                pass
+
+        # Handle raw string message containing HTML
+        if result.message and isinstance(result.message, str) and len(result.message) > 2000:
+            cleaned_msg = _clean_html_content(result.message)
+            if cleaned_msg != result.message:
+                return ToolResult(
+                    success=result.success,
+                    message=cleaned_msg,
+                    data=result.data,
+                )
+
+        return result
+
     def _serialize_tool_result_for_memory(self, result: ToolResult, function_name: str = "") -> str:
         """Serialize tool results with size guardrails to avoid memory bloat."""
+        # P2-16: Sanitize raw HTML in search results before serialization
+        if function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH):
+            result = self._sanitize_search_result_html(result)
+
         raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
         if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
             return raw
