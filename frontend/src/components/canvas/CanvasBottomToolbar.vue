@@ -30,10 +30,9 @@
     <div class="canvas-bottom-toolbar__group">
       <button
         type="button"
-        class="canvas-bottom-toolbar__btn"
-        :class="{ 'is-active': activeTool === 'hand' }"
-        aria-label="Hand tool"
-        @click="emit('tool-change', 'hand')"
+        class="canvas-bottom-toolbar__btn canvas-bottom-toolbar__btn--disabled"
+        disabled
+        aria-label="Notes (coming soon)"
       >
         <FileText :size="18" />
         <ChevronDown :size="12" class="canvas-bottom-toolbar__chevron" />
@@ -115,6 +114,11 @@ const emit = defineEmits<{
 .canvas-bottom-toolbar__btn.is-active {
   background: var(--fill-tsp-gray-main);
   color: var(--text-primary);
+}
+
+.canvas-bottom-toolbar__btn--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .canvas-bottom-toolbar__chevron {

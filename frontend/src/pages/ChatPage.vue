@@ -393,7 +393,7 @@
 
 
           <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
-          <div v-if="showTaskProgressBar" class="relative mb-2">
+          <div v-if="showTaskProgressBar" class="relative [&:not(:empty)]:pb-2 bg-[var(--background-gray-main)] rounded-[22px_22px_0px_0px]">
             <!-- Scroll to bottom button - floating above collapsed bar -->
             <button
               v-if="!follow"
@@ -881,6 +881,7 @@ const canvasViewer = reactive({
   filename: '',
   width: 0,
   height: 0,
+  pngFileId: '',
 });
 
 // ── Composables: share popover + takeover CTA ──
@@ -3410,18 +3411,29 @@ const openCanvasViewer = (tool: ToolContent) => {
   const pngFileId = content.png_file_id;
   if (!pngFileId) return;
   canvasViewer.imageUrl = fileApi.getFileUrl(pngFileId);
+  canvasViewer.pngFileId = pngFileId;
   canvasViewer.filename = content.title ? `${String(content.title).replace(/\s+/g, '_')}.png` : 'chart.png';
   canvasViewer.width = content.width || 800;
   canvasViewer.height = content.height || 600;
   canvasViewer.visible = true;
 };
 
-const downloadCanvasImage = () => {
+const downloadCanvasImage = async () => {
   if (!canvasViewer.imageUrl) return;
-  const a = document.createElement('a');
-  a.href = canvasViewer.imageUrl;
-  a.download = canvasViewer.filename;
-  a.click();
+  try {
+    const response = await fetch(canvasViewer.imageUrl);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = canvasViewer.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('Download failed:', e);
+  }
 };
 
 // Handle report file open
@@ -4040,7 +4052,9 @@ const restoreSession = async (
     streamController.flushPendingEvents();
     if (shouldAbortRestore('after_history_replay')) return;
 
-    realTime.value = true;
+    // Only resume real-time if session is still active — completed/stopped
+    // sessions should keep realTime false so the live dot stays grey.
+    realTime.value = !isTerminalSessionStatus(sessionStatus.value);
     if (sessionStatus.value === SessionStatus.INITIALIZING) {
       await waitForSessionIfInitializing();
       if (shouldAbortRestore('after_wait_for_session_ready')) return;
@@ -4834,12 +4848,7 @@ const handleFileListShow = () => {
 }
 
 .chat-bottom-dock {
-  padding-top: 100px;
   z-index: 20;
-  /* Gradient mask spans exactly the 100px padding-top zone.
-     Becomes fully opaque at the top edge of the progress bar / chatbox
-     so no scrolling content bleeds through underneath. */
-  background: linear-gradient(to bottom, transparent 0%, var(--background-gray-main) 100px);
 }
 
 .chat-bottom-dock-fixed {
