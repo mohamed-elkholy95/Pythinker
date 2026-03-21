@@ -279,9 +279,9 @@ watch(
 }
 
 .terminal-surface {
-  width: 100%;
+  width: calc(100% - 24px);
   height: 100%;
-  padding: 0 12px;
+  margin-left: 16px;
   box-sizing: border-box;
   background: var(--terminal-tool-viewport-bg);
 }
@@ -305,6 +305,27 @@ watch(
 .terminal-shell :deep(.xterm-viewport) {
   overflow-y: auto !important;
   background: var(--terminal-tool-viewport-bg) !important;
+}
+
+/* Thin scrollbar — scoped styles with higher specificity */
+.terminal-shell :deep(.xterm-viewport)::-webkit-scrollbar {
+  width: 5px !important;
+}
+.terminal-shell :deep(.xterm-viewport)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.terminal-shell :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1) !important;
+  border-radius: 3px !important;
+}
+.terminal-shell:hover :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22) !important;
+}
+.terminal-shell.dark-mode :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+.terminal-shell.dark-mode:hover :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22) !important;
 }
 
 /* Selection styling (neutral — avoid navy/blue tint) */

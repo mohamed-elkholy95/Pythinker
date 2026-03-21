@@ -33,23 +33,23 @@
 
 /* ── Terminal scrollbar: hair-thin 4px, hugs right edge, visible only on hover ── */
 
-/* xterm viewport — thin Firefox scrollbar, invisible by default */
+/* xterm viewport — thin Firefox scrollbar, subtly visible */
 .terminal-tool-xterm-hover-scroll .xterm-viewport {
   overflow-y: auto !important;
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
 }
 .terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
-  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }
 .dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport,
 :root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport {
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
-/* WebKit: 4px track flush to right edge, transparent until hover */
+/* WebKit: 6px track with subtle thumb, more visible on hover */
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar {
-  width: 4px !important;
+  width: 6px !important;
   background: transparent !important;
 }
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-track {
@@ -57,16 +57,16 @@
   margin: 4px 0;
 }
 .terminal-tool-xterm-hover-scroll .xterm-viewport::-webkit-scrollbar-thumb {
-  background: transparent !important;
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08) !important;
+  border-radius: 3px;
   transition: background-color 0.2s ease;
 }
 .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15) !important;
+  background: rgba(0, 0, 0, 0.2) !important;
 }
 .dark .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb,
 :root[data-theme='dark'] .terminal-tool-xterm-hover-scroll:hover .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15) !important;
+  background: rgba(255, 255, 255, 0.2) !important;
 }
 
 /* Static shell output (Shiki HTML) — same thin hover scrollbar */
