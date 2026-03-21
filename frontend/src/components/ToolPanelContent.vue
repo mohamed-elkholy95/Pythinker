@@ -58,16 +58,6 @@
             <Loader2 v-if="takeoverLoading" class="w-5 h-5 animate-spin" />
             <TakeOverIcon v-else class="w-5 h-5" />
           </button>
-          <!-- Fullscreen: expand tool panel to full width (desktop only) -->
-          <button
-            v-if="!isMobilePanel"
-            class="panel-control-btn"
-            @click="toggleFullscreen"
-            aria-label="Toggle fullscreen"
-          >
-            <Minimize2 v-if="isFullscreen" class="w-5 h-5" />
-            <Maximize2 v-else class="w-5 h-5" />
-          </button>
           <!-- Close -->
           <button
             class="panel-control-btn"
@@ -547,7 +537,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Maximize2, Minimize2, MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
+import { MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -2002,13 +1992,6 @@ const hide = () => {
 // Mobile detection for split button visibility
 const isMobilePanel = ref(window.innerWidth < 1024)
 const onPanelResize = () => { isMobilePanel.value = window.innerWidth < 1024 }
-
-const isFullscreen = ref(false)
-
-const toggleFullscreen = () => {
-  isFullscreen.value = !isFullscreen.value
-  emit('requestWidth', isFullscreen.value ? -2 : 0)
-}
 
 const takeoverLoading = ref(false);
 
