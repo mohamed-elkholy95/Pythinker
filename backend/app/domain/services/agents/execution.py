@@ -63,6 +63,63 @@ from app.domain.utils.json_repair import parse_json_response
 
 _TOOL_MARKER_PATTERN = re.compile(r"^\[Attempted to call \w+ with ")
 
+# P1-10: Refusal phrases that indicate the LLM is declining to answer.
+# When these appear early in a response but the response continues for 500+
+# chars afterward, the trailing content may contain unverified "padding".
+_REFUSAL_PHRASES = [
+    "I don't have access",
+    "I cannot access",
+    "not publicly available",
+    "I cannot provide",
+    "I can't provide",
+    "I'm unable to provide",
+    "I am unable to provide",
+    "confidential information",
+    "I don't have real-time",
+    "I cannot verify",
+    "I can't verify",
+    "I don't have the ability",
+    "beyond my capabilities",
+    "I cannot browse",
+    "I can't browse",
+    "I do not have access",
+]
+
+_REFUSAL_PADDING_THRESHOLD = 500  # chars after refusal that trigger warning
+
+
+def _detect_refusal_padding(content: str) -> None:
+    """Log a warning if the response contains a refusal followed by substantial padding.
+
+    This is a lightweight detection mechanism (not a hard block). When an LLM
+    first refuses ("I don't have access to...") but then continues with 500+
+    characters, those trailing claims may be unverified hallucinations used to
+    fill space.
+    """
+    if not content or len(content) < _REFUSAL_PADDING_THRESHOLD:
+        return
+
+    content_lower = content.lower()
+    for phrase in _REFUSAL_PHRASES:
+        idx = content_lower.find(phrase.lower())
+        if idx == -1:
+            continue
+        # Only flag if the refusal appears in the first 40% of the response
+        # (a late mention is likely just referencing a limitation, not a refusal header)
+        if idx > len(content) * 0.4:
+            continue
+        chars_after_refusal = len(content) - (idx + len(phrase))
+        if chars_after_refusal > _REFUSAL_PADDING_THRESHOLD:
+            logger.warning(
+                "Refusal-padding detected: response contains '%s' at position %d "
+                "followed by %d chars of additional content. The trailing content "
+                "may contain unverified claims.",
+                phrase,
+                idx,
+                chars_after_refusal,
+            )
+            return  # Log once per response
+
 
 def _is_tool_marker_text(text: str) -> bool:
     """Detect tool-call marker text produced by message_normalizer.
@@ -521,6 +578,20 @@ class ExecutionAgent(BaseAgent):
 
         # Build execution prompt from assembled context (includes all appendages)
         base_prompt = build_execution_prompt_from_context(ctx)
+
+        # P1-11: Inject source citation instruction when search tools are available.
+        # This ensures the agent knows it must cite URLs from search results.
+        _has_search_tool = any(
+            getattr(t, "name", "") in ToolName._SEARCH or "search" in getattr(t, "name", "").lower() for t in self.tools
+        )
+        if _has_search_tool:
+            base_prompt += (
+                "\n\n<citation_policy>"
+                "When you use search tools and receive results with URLs, you MUST include "
+                "source URLs in your step result. Cite each source as [Title](URL) or as a "
+                "numbered reference. Never present search-derived information without attribution."
+                "</citation_policy>"
+            )
 
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():
@@ -1707,6 +1778,11 @@ class ExecutionAgent(BaseAgent):
                     logger.debug(f"Reward hacking detection failed: {e}")
 
             message_content = sanitize_report_output(message_content)
+
+            # P1-10: Refusal-padding detection — warn if the LLM refuses but then
+            # pads the response with potentially unverified claims.
+            _detect_refusal_padding(message_content)
+
             message_title = self._extract_title(message_content)
 
             yield StepEvent(
