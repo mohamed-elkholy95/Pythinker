@@ -74,8 +74,42 @@ class SandboxContextManager:
         return None
 
     @classmethod
+    def _try_load_from_http(cls) -> dict[str, Any] | None:
+        """Try loading context via HTTP from the sandbox API.
+
+        Uses a synchronous httpx.get() because _try_load_from_paths is a sync
+        classmethod.  httpx is already a project dependency.
+        """
+        import httpx
+
+        sandbox_url = os.environ.get("SANDBOX_API_URL", "http://sandbox:8080")
+        url = f"{sandbox_url}/sandbox-context"
+
+        try:
+            response = httpx.get(url, timeout=5.0)
+            if response.status_code != 200:
+                return None
+            context = response.json()
+            if "environment" not in context:
+                return None
+
+            cls._cache = context
+            cls._cache_timestamp = datetime.now(UTC)
+            cls._warned_no_context = False
+            logger.info("Loaded sandbox context via HTTP from %s", url)
+            return context
+        except Exception:
+            return None
+
+    @classmethod
     def _try_load_from_paths(cls) -> dict[str, Any] | None:
-        """Try loading context from known file paths."""
+        """Try loading context from HTTP endpoint first, then local file paths."""
+        # Try HTTP fetch from sandbox API (works cross-container)
+        http_result = cls._try_load_from_http()
+        if http_result is not None:
+            return http_result
+
+        # Fallback to local file paths (works when backend and sandbox share a filesystem)
         context_paths = [
             "/app/sandbox_context.json",  # Default sandbox location
             os.environ.get("SANDBOX_CONTEXT_JSON", ""),  # Environment override
