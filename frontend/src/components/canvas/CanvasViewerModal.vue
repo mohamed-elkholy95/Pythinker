@@ -4,6 +4,9 @@
       <div
         v-if="visible"
         class="canvas-viewer-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Canvas viewer"
         @wheel.prevent="handleWheel"
       >
         <!-- Top bar -->
@@ -37,7 +40,11 @@
         </div>
 
         <!-- Content area -->
-        <div class="canvas-viewer-modal__content">
+        <div
+          class="canvas-viewer-modal__content"
+          @click.self="selected = false"
+          @dblclick="handleDoubleClick"
+        >
           <div class="canvas-viewer-modal__centered">
             <CanvasImageActionBar
               @download="emit('download')"
@@ -50,6 +57,7 @@
               :height="height"
               :zoom="zoom"
               :selected="selected"
+              @click.stop
             />
           </div>
         </div>
@@ -92,7 +100,7 @@ const zoom = ref(0.72)
 const activeTool = ref<'select' | 'hand'>('select')
 const selected = ref(true)
 
-const ZOOM_STEP = 0.05
+const ZOOM_STEP = 0.10
 const ZOOM_MIN = 0.1
 const ZOOM_MAX = 5.0
 
@@ -113,8 +121,8 @@ function zoomReset(): void {
 }
 
 function computeFitZoom(): number {
-  const padX = 200
-  const padY = 200
+  const padX = 96
+  const padY = 180
   const availW = window.innerWidth - padX
   const availH = window.innerHeight - padY
   if (props.width <= 0 || props.height <= 0) return 0.72
@@ -148,8 +156,22 @@ function toggleFullscreen(): void {
   }
 }
 
+function handleDoubleClick(): void {
+  const fitZoom = computeFitZoom()
+  zoom.value = Math.abs(zoom.value - 1.0) < 0.05 ? fitZoom : 1.0
+}
+
 function handleKeydown(event: KeyboardEvent): void {
   if (!props.visible) return
+
+  const tag = (event.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || (event.target as HTMLElement)?.isContentEditable) return
+
+  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+    event.preventDefault()
+    emit('download')
+    return
+  }
 
   switch (event.key) {
     case 'Escape':
@@ -180,7 +202,11 @@ watch(
   () => props.visible,
   (isVisible) => {
     if (isVisible) {
+      document.body.style.overflow = 'hidden'
       zoom.value = computeFitZoom()
+      selected.value = true
+    } else {
+      document.body.style.overflow = ''
     }
   },
 )
@@ -191,6 +217,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeydown)
+  document.body.style.overflow = ''
 })
 </script>
 
@@ -198,7 +225,7 @@ onBeforeUnmount(() => {
 .canvas-viewer-modal {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: 50000;
   display: flex;
   flex-direction: column;
   background: #f5f5f5;

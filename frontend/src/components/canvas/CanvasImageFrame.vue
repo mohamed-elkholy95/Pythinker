@@ -1,5 +1,5 @@
 <template>
-  <div class="canvas-image-frame">
+  <div class="canvas-image-frame" :style="{ width: displayWidth }">
     <div class="canvas-image-frame__info-bar">
       <span class="canvas-image-frame__filename">{{ filename }}</span>
       <span class="canvas-image-frame__dimensions">{{ width }} &times; {{ height }}</span>
@@ -10,12 +10,17 @@
       :class="{ 'is-selected': selected }"
     >
       <img
+        v-if="!imageError"
         :src="imageUrl"
         :alt="filename"
         class="canvas-image-frame__image"
-        :style="imageStyle"
+        :style="{ width: displayWidth, height: displayHeight, transition: 'width 100ms ease, height 100ms ease' }"
         draggable="false"
+        @error="imageError = true"
       />
+      <div v-else class="canvas-image-frame__error">
+        <span>Failed to load image</span>
+      </div>
 
       <template v-if="selected">
         <span class="canvas-image-frame__handle is-top-left" />
@@ -28,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 interface Props {
   imageUrl: string
@@ -41,10 +46,10 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const imageStyle = computed(() => ({
-  transform: `scale(${props.zoom})`,
-  transformOrigin: 'center center',
-}))
+const imageError = ref(false)
+
+const displayWidth = computed(() => `${props.width * props.zoom}px`)
+const displayHeight = computed(() => `${props.height * props.zoom}px`)
 </script>
 
 <style scoped>
@@ -88,16 +93,26 @@ const imageStyle = computed(() => ({
 }
 
 .canvas-image-frame__container.is-selected {
-  border: 2px solid #3b82f6;
+  border: 2px solid var(--canvas-selection-color, #3b82f6);
   border-radius: var(--radius-lg);
 }
 
 .canvas-image-frame__image {
   display: block;
-  max-width: 100%;
-  height: auto;
   border-radius: var(--radius-lg);
   user-select: none;
+}
+
+.canvas-image-frame__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 200px;
+  background: var(--fill-tsp-gray-main);
+  border-radius: var(--radius-lg);
+  color: var(--text-tertiary);
+  font-size: 14px;
 }
 
 .canvas-image-frame__handle {
@@ -105,7 +120,7 @@ const imageStyle = computed(() => ({
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--canvas-selection-color, #3b82f6);
   border: 2px solid #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   z-index: 2;
