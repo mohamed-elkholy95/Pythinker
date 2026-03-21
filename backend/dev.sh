@@ -23,6 +23,9 @@ case "${reload_flag,,}" in
     ;;
 esac
 
-uvicorn_args+=(--timeout-graceful-shutdown "${timeout_graceful}")
+uvicorn_args+=(
+  --timeout-graceful-shutdown "${timeout_graceful}"
+  --no-server-header
+)
 
 exec uvicorn "${uvicorn_args[@]}"

@@ -140,6 +140,7 @@ class Settings(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        use_enum_values=True,
     )
 
     # --- Computed fields ---
