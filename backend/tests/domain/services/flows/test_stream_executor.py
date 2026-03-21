@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 
 from app.domain.models.event import (
@@ -9,8 +10,8 @@ from app.domain.models.event import (
     ToolEvent,
     ToolStatus,
 )
-from app.domain.utils.cancellation import CancellationToken
 from app.domain.services.flows.stream_executor import StreamExecutor
+from app.domain.utils.cancellation import CancellationToken
 
 
 async def _events_gen(*events: BaseEvent):
@@ -22,13 +23,14 @@ async def _events_gen(*events: BaseEvent):
 async def test_streams_events_from_inner():
     token = CancellationToken(session_id="s1")
     executor = StreamExecutor(
-        cancel_token=token, session_id="s1", agent_id="a1",
-        wall_clock_timeout=60, idle_timeout=10,
+        cancel_token=token,
+        session_id="s1",
+        agent_id="a1",
+        wall_clock_timeout=60,
+        idle_timeout=10,
     )
     done = DoneEvent()
-    collected = []
-    async for event in executor.execute(_events_gen(done)):
-        collected.append(event)
+    collected = [event async for event in executor.execute(_events_gen(done))]
     assert len(collected) == 1
     assert isinstance(collected[0], DoneEvent)
 
@@ -37,8 +39,11 @@ async def test_streams_events_from_inner():
 async def test_idle_timeout_emits_error_and_done():
     token = CancellationToken(session_id="s2")
     executor = StreamExecutor(
-        cancel_token=token, session_id="s2", agent_id="a2",
-        wall_clock_timeout=60, idle_timeout=1,
+        cancel_token=token,
+        session_id="s2",
+        agent_id="a2",
+        wall_clock_timeout=60,
+        idle_timeout=1,
     )
 
     async def _stalling_gen():
@@ -46,9 +51,7 @@ async def test_idle_timeout_emits_error_and_done():
         await asyncio.sleep(5)
         yield DoneEvent()
 
-    collected = []
-    async for event in executor.execute(_stalling_gen()):
-        collected.append(event)
+    collected = [event async for event in executor.execute(_stalling_gen())]
 
     assert len(collected) == 3
     assert isinstance(collected[1], ErrorEvent)
@@ -62,8 +65,12 @@ async def test_cancellation_raises_cancelled_error():
     event.set()  # Pre-cancelled
     token = CancellationToken(event=event, session_id="s3")
     executor = StreamExecutor(
-        cancel_token=token, session_id="s3", agent_id="a3",
-        wall_clock_timeout=60, idle_timeout=10, grace_period=0,
+        cancel_token=token,
+        session_id="s3",
+        agent_id="a3",
+        wall_clock_timeout=60,
+        idle_timeout=10,
+        grace_period=0,
     )
 
     with pytest.raises(asyncio.CancelledError):
@@ -76,8 +83,12 @@ async def test_grace_period_allows_reconnection():
     event = asyncio.Event()
     token = CancellationToken(event=event, session_id="s4")
     executor = StreamExecutor(
-        cancel_token=token, session_id="s4", agent_id="a4",
-        wall_clock_timeout=60, idle_timeout=30, grace_period=2,
+        cancel_token=token,
+        session_id="s4",
+        agent_id="a4",
+        wall_clock_timeout=60,
+        idle_timeout=30,
+        grace_period=2,
     )
 
     tool_calling = ToolEvent(
@@ -104,9 +115,7 @@ async def test_grace_period_allows_reconnection():
         yield tool_called
         yield DoneEvent()
 
-    collected = []
-    async for ev in executor.execute(_tool_gen()):
-        collected.append(ev)
+    collected = [ev async for ev in executor.execute(_tool_gen())]
 
     types = [type(e).__name__ for e in collected]
     assert "DoneEvent" in types, f"Expected completion but got: {types}"
