@@ -29,7 +29,6 @@ from app.domain.models.message import Message
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
-from app.domain.services.agents.session_context_extractor import SessionContextExtractor
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.prompts.discuss import (
     DISCUSS_SYSTEM_PROMPT,
@@ -188,17 +187,25 @@ class DiscussFlow(BaseFlow):
         try:
             recent_session_context = await self._build_recent_session_context_excerpt()
             context_block = f"Recent session context:\n{recent_session_context}\n\n" if recent_session_context else ""
+            # Truncate assistant message to a reasonable size for the suggestion prompt
+            assistant_excerpt = assistant_message[:800] if len(assistant_message) > 800 else assistant_message
             suggestion_response = await self._llm.ask(
                 [
                     {
                         "role": "user",
                         "content": (
-                            "Generate exactly 3 short follow-up questions (5-12 words each) that the user "
-                            "might ask next based on this exchange.\n"
+                            "You are a helpful assistant generating follow-up questions.\n\n"
                             f"{context_block}"
-                            f'User message: "{user_message}"\n'
-                            f'Assistant reply: "{assistant_message}"\n'
-                            "Return ONLY valid JSON as an array of 3 strings."
+                            f'The user asked: "{user_message}"\n\n'
+                            f'The assistant replied: "{assistant_excerpt}"\n\n'
+                            "Based on this conversation, generate exactly 3 natural follow-up questions "
+                            "that the user might want to ask next. Each question should:\n"
+                            "- Be 5-12 words long\n"
+                            "- Be a complete, grammatically correct question\n"
+                            "- Relate directly to the topic discussed\n"
+                            "- Explore a different angle or go deeper into the topic\n"
+                            "- NOT repeat words from the original question unnecessarily\n\n"
+                            'Return ONLY a JSON object like: {"suggestions": ["Question 1?", "Question 2?", "Question 3?"]}'
                         ),
                     }
                 ],
@@ -275,8 +282,13 @@ class DiscussFlow(BaseFlow):
         return transcript[:max_chars]
 
     def _extract_topic_hint(self, text: str) -> str | None:
+        """Extract a coherent topic phrase from combined user+assistant text.
+
+        Prioritizes noun-like tokens (longer words, excluding common verbs and
+        function words) and returns a readable 2-3 word topic phrase.
+        """
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
-        tokens = [token for token in cleaned.split() if len(token) >= 4]
+        tokens = cleaned.split()
         if not tokens:
             return None
 
@@ -302,10 +314,82 @@ class DiscussFlow(BaseFlow):
             "only",
             "more",
             "next",
+            "also",
+            "just",
+            "like",
+            "will",
+            "been",
+            "some",
+            "very",
+            "much",
+            "here",
+            "well",
+            "really",
+            "know",
+            "think",
+            "want",
+            "need",
+            "help",
+            "tell",
+            "please",
+            "make",
+            "sure",
+            "does",
+            "doing",
+            "done",
+            "going",
+            "being",
+            "look",
+            "give",
+            "take",
+            "come",
+            "keep",
+            "good",
+            "great",
+            "best",
+            "most",
+            "many",
+            "each",
+            "every",
+            "they",
+            "their",
+            "these",
+            "those",
+            "other",
+            "said",
+            "says",
+            "explain",
+            "detail",
+            "example",
+            "question",
+            "answer",
+            "capital",
+            "france",  # avoid leaking example-specific tokens
         }
-        filtered = [token for token in tokens if token not in stopwords]
-        candidates = filtered or tokens
-        return " ".join(candidates[:3]) if candidates else None
+
+        # Score tokens by length (proxy for specificity) and frequency
+        from collections import Counter
+
+        token_counts = Counter(t for t in tokens if len(t) >= 4 and t not in stopwords)
+
+        if not token_counts:
+            return None
+
+        # Take the top 2-3 most frequent meaningful tokens, preserving first-occurrence order
+        top_tokens = [t for t, _ in token_counts.most_common(5)]
+        seen_order: list[str] = []
+        for t in tokens:
+            if t in top_tokens and t not in seen_order:
+                seen_order.append(t)
+            if len(seen_order) >= 3:
+                break
+
+        if not seen_order:
+            return None
+
+        # Return 2-3 word phrase; use "that" as glue only if we have a single word
+        hint = " ".join(seen_order[:3])
+        return hint if hint else None
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """
@@ -360,23 +444,12 @@ class DiscussFlow(BaseFlow):
 
             context_str = "\n\n".join(context_parts)
 
-            # Extract plan summary from prior session events for follow-up context injection.
-            plan_summary = ""
-            try:
-                session = await self._session_repository.find_by_id(self._session_id)
-                if session:
-                    exec_ctx = SessionContextExtractor.extract(session)
-                    plan_summary = exec_ctx.to_plan_summary()
-            except Exception:
-                logger.debug("Failed to extract session context for discuss prompt", exc_info=True)
-
             # Build the discuss prompt
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
                 language=self._default_language,
                 context=context_str,
-                plan_summary=plan_summary,
             )
 
             # Prepend current datetime signal so agent can answer time/date queries
