@@ -29,6 +29,7 @@ from app.domain.models.message import Message
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
+from app.domain.services.agents.session_context_extractor import SessionContextExtractor
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.prompts.discuss import (
     DISCUSS_SYSTEM_PROMPT,
@@ -359,14 +360,23 @@ class DiscussFlow(BaseFlow):
 
             context_str = "\n\n".join(context_parts)
 
+            # Extract plan summary from prior session events for follow-up context injection.
+            plan_summary = ""
+            try:
+                session = await self._session_repository.find_by_id(self._session_id)
+                if session:
+                    exec_ctx = SessionContextExtractor.extract(session)
+                    plan_summary = exec_ctx.to_plan_summary()
+            except Exception:
+                logger.debug("Failed to extract session context for discuss prompt", exc_info=True)
+
             # Build the discuss prompt
-            # TODO(task-11): pass plan_summary=exec_ctx.to_plan_summary() once DiscussFlow
-            # receives the session object (currently only session_id is available here).
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
                 language=self._default_language,
                 context=context_str,
+                plan_summary=plan_summary,
             )
 
             # Prepend current datetime signal so agent can answer time/date queries
