@@ -1342,7 +1342,7 @@ class BaseAgent:
             return result
 
         html_noise_tags = re.compile(
-            r"<(?:script|style|nav|footer|header|aside|iframe|noscript|svg|form)\b[^>]*>.*?</\1>",
+            r"<(script|style|nav|footer|header|aside|iframe|noscript|svg|form)\b[^>]*>.*?</\1>",
             re.DOTALL | re.IGNORECASE,
         )
         all_tags = re.compile(r"<[^>]+>")
