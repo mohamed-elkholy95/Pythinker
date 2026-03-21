@@ -217,6 +217,7 @@ services:
     volumes:
       - /app/__pycache__
       - /app/.venv
+      - /opt/base-python-venv
     ports:
       - "127.0.0.1:8083:8080"
       - "127.0.0.1:8082:8082"
