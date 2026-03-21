@@ -585,6 +585,7 @@ class PlanningPhase(str, Enum):
     WAITING = "waiting"  # Long-running execution wait beacon (non-transport heartbeat)
     VERIFYING = "verifying"  # Plan verification in progress
     EXECUTING_SETUP = "executing_setup"  # Preparing to execute (between verification and first tool)
+    TOOL_EXECUTING = "tool_executing"  # Tool execution in progress (heartbeat during long tool runs)
 
 
 class ProgressEvent(BaseEvent):
