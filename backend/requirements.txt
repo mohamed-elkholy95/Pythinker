@@ -24,6 +24,10 @@ python-dotenv>=1.0.0
 sse-starlette>=2.1.0
 httpx>=0.28.1
 
+# HTTP and encoding dependencies with pinned versions for E2E reliability
+urllib3>=2.0,<2.6
+charset-normalizer>=3.0,<3.4
+
 # Utilities (let browser-use control rich and markdownify)
 tenacity>=8.2.0
 rich>=14.0.0

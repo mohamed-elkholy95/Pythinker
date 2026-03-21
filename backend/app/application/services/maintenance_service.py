@@ -474,6 +474,113 @@ class MaintenanceService:
 
         return stats
 
+    async def cleanup_empty_cancelled_sessions(
+        self,
+        age_threshold_hours: int = 24,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Clean up empty cancelled sessions with no content or history.
+
+        Removes sessions where ALL of these are true:
+        - title is None
+        - status == "cancelled"
+        - latest_message is None
+        - created_at is older than age_threshold_hours
+
+        Args:
+            age_threshold_hours: Consider sessions stale if created before this threshold.
+            dry_run: If True, only reports what would be cleaned without making changes.
+
+        Returns:
+            Dict with cleanup statistics and details
+        """
+        sessions_collection = self._db.sessions
+
+        stats = {
+            "dry_run": dry_run,
+            "age_threshold_hours": age_threshold_hours,
+            "sessions_scanned": 0,
+            "sessions_deleted": 0,
+            "deleted_sessions": [],
+            "errors": [],
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        try:
+            # Calculate age cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(hours=age_threshold_hours)
+
+            # Query for sessions matching all deletion criteria
+            query = {
+                "title": None,
+                "status": SessionStatus.CANCELLED.value,
+                "latest_message": None,
+                "created_at": {"$lt": cutoff_time},
+            }
+
+            cursor = sessions_collection.find(
+                query,
+                {
+                    "_id": 1,
+                    "title": 1,
+                    "status": 1,
+                    "latest_message": 1,
+                    "created_at": 1,
+                },
+            )
+
+            sessions_to_delete = []
+            async for session in cursor:
+                stats["sessions_scanned"] += 1
+                session_id_str = str(session["_id"])
+                created_at = session.get("created_at")
+
+                session_info = {
+                    "session_id": session_id_str,
+                    "title": session.get("title"),
+                    "status": session.get("status"),
+                    "latest_message": session.get("latest_message"),
+                    "created_at": created_at.isoformat() if created_at else None,
+                }
+                stats["deleted_sessions"].append(session_info)
+                sessions_to_delete.append(session["_id"])
+
+            stats["sessions_deleted"] = len(sessions_to_delete)
+
+            if not dry_run and sessions_to_delete:
+                try:
+                    result = await sessions_collection.delete_many({"_id": {"$in": sessions_to_delete}})
+                    logger.info(
+                        f"Deleted {result.deleted_count} empty cancelled sessions "
+                        f"(age threshold: {age_threshold_hours}h)"
+                    )
+                except Exception as e:
+                    error_msg = f"Failed to delete empty cancelled sessions: {e}"
+                    logger.error(error_msg)
+                    stats["errors"].append(error_msg)
+
+            # Summary logging
+            if dry_run:
+                logger.info(
+                    "[DRY RUN] Would delete %d empty cancelled sessions (age threshold: %dh)",
+                    stats["sessions_deleted"],
+                    age_threshold_hours,
+                )
+            else:
+                logger.info(
+                    "Deleted %d empty cancelled sessions (age threshold: %dh)",
+                    stats["sessions_deleted"],
+                    age_threshold_hours,
+                )
+
+        except Exception as e:
+            error_msg = f"Empty cancelled session cleanup failed: {e}"
+            logger.exception(error_msg)
+            stats["errors"].append(error_msg)
+
+        return stats
+
     async def cleanup_old_screenshots(self, ttl_days: int = 30) -> dict[str, Any]:
         """Delete screenshots (metadata + MinIO objects) older than ttl_days.
 
