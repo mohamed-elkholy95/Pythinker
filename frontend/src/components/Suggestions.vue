@@ -7,7 +7,12 @@
       v-for="(suggestion, index) in suggestions"
       :key="index"
       class="suggestion-item"
+      role="button"
+      tabindex="0"
+      :aria-label="suggestion"
       @click="$emit('select', suggestion)"
+      @keydown.enter="$emit('select', suggestion)"
+      @keydown.space.prevent="$emit('select', suggestion)"
     >
       <div class="suggestion-content">
         <component
