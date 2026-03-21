@@ -360,6 +360,8 @@ class DiscussFlow(BaseFlow):
             context_str = "\n\n".join(context_parts)
 
             # Build the discuss prompt
+            # TODO(task-11): pass plan_summary=exec_ctx.to_plan_summary() once DiscussFlow
+            # receives the session object (currently only session_id is available here).
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
