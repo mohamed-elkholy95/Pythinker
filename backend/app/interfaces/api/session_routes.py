@@ -1220,6 +1220,11 @@ async def chat(
         reconnect_first_non_heartbeat_seconds: float | None = None
         disconnect_event = asyncio.Event()
         cancel_token = CancellationToken(event=disconnect_event, session_id=session_id)
+        # TODO(reconnect): When a client reconnects to an already-running session, clear the
+        # disconnect_event on the existing cancel_token so StreamExecutor's grace period can
+        # detect the reconnection and abort cancellation. This requires a session-level
+        # cancel_token registry (session_id → CancellationToken) shared between SSE connections.
+        # Wire through AgentService or a dedicated SessionRegistry to avoid direct state mutation here.
         guard = StreamGuard(
             session_id=session_id,
             endpoint="chat",
