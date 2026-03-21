@@ -164,9 +164,6 @@ class PlaywrightBrowser:
         self._heavy_page_warned_urls: set[str] = set()
         # Keeps strong references to fire-and-forget background tasks (satisfies RUF006).
         self._background_tasks: set[asyncio.Task] = set()
-        # Cache the feature flag once at init — avoids repeated get_settings() in hot paths.
-        self._dom_cursor_enabled: bool = getattr(self.settings, "feature_dom_cursor_injection", False)
-
         # Extraction cache for performance (prevents duplicate extractions)
         self._extraction_cache: dict[str, Any] = {
             "url": None,
@@ -847,23 +844,6 @@ class PlaywrightBrowser:
         await context.route("**/*", route_handler)
         logger.debug(f"Network route interception configured (resource blocking: {self.blocked_types})")
 
-    async def _show_cursor_click(self, x: float, y: float) -> None:
-        """Show cursor animation at the specified coordinates.
-
-        Args:
-            x: X coordinate
-            y: Y coordinate
-        """
-        if not self.page or not self._dom_cursor_enabled:
-            return
-
-        try:
-            await self.page.evaluate(f"window.__animateAgentClick && window.__animateAgentClick({x}, {y})")
-            # Brief pause to let animation be visible
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            logger.debug(f"Could not show cursor animation: {e}")
-
     async def _setup_dialog_handlers(self, page: Page) -> None:
         """Set up automatic dialog/popup handlers for the page.
 
@@ -941,11 +921,9 @@ class PlaywrightBrowser:
                             scrollbar-gutter: auto !important;
                         }
                         /* Hide native cursor from CDP screencast —
-                           agent actions shown via Konva overlay cursor.
-                           Transparent 1x1 GIF as custom cursor prevents
-                           X11 fallback to crosshair. */
+                           agent actions shown via DOM cursor + Konva overlay. */
                         *, *::before, *::after {
-                            cursor: url('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7') 0 0, auto !important;
+                            cursor: none !important;
                         }
                     `;
 
@@ -963,109 +941,6 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.debug(f"Failed to inject overlay scrollbar CSS: {e}")
 
-    async def _inject_cursor_indicator(self) -> None:
-        """Inject visual cursor indicator for agent actions.
-
-        Shows a visible cursor/pointer that follows agent clicks,
-        giving users visual feedback that the agent is working.
-        """
-        if not self.page or not self._dom_cursor_enabled:
-            return
-
-        try:
-            await self.page.add_init_script("""
-                (function() {
-                    // Create cursor element
-                    const cursor = document.createElement('div');
-                    cursor.id = 'agent-cursor';
-                    cursor.style.cssText = `
-                        position: fixed;
-                        width: 20px;
-                        height: 20px;
-                        border: 3px solid #7c3aed;
-                        border-radius: 50%;
-                        pointer-events: none;
-                        z-index: 999999;
-                        transition: all 0.15s ease-out;
-                        display: none;
-                        box-shadow: 0 0 10px rgba(124, 58, 237, 0.5);
-                    `;
-
-                    // Create click ripple effect
-                    const ripple = document.createElement('div');
-                    ripple.id = 'agent-cursor-ripple';
-                    ripple.style.cssText = `
-                        position: fixed;
-                        width: 40px;
-                        height: 40px;
-                        border: 2px solid #7c3aed;
-                        border-radius: 50%;
-                        pointer-events: none;
-                        z-index: 999998;
-                        opacity: 0;
-                        transform: scale(0);
-                    `;
-
-                    document.addEventListener('DOMContentLoaded', () => {
-                        document.body.appendChild(cursor);
-                        document.body.appendChild(ripple);
-                    });
-
-                    // Also append immediately if DOM is ready
-                    if (document.body) {
-                        document.body.appendChild(cursor);
-                        document.body.appendChild(ripple);
-                    }
-
-                    // Global function to show cursor at position
-                    window.__showAgentCursor = function(x, y) {
-                        const c = document.getElementById('agent-cursor');
-                        if (c) {
-                            c.style.left = (x - 10) + 'px';
-                            c.style.top = (y - 10) + 'px';
-                            c.style.display = 'block';
-                        }
-                    };
-
-                    // Global function to animate click
-                    window.__animateAgentClick = function(x, y) {
-                        const c = document.getElementById('agent-cursor');
-                        const r = document.getElementById('agent-cursor-ripple');
-
-                        if (c) {
-                            c.style.left = (x - 10) + 'px';
-                            c.style.top = (y - 10) + 'px';
-                            c.style.display = 'block';
-                            c.style.transform = 'scale(0.8)';
-                            setTimeout(() => { c.style.transform = 'scale(1)'; }, 100);
-                        }
-
-                        if (r) {
-                            r.style.left = (x - 20) + 'px';
-                            r.style.top = (y - 20) + 'px';
-                            r.style.opacity = '1';
-                            r.style.transform = 'scale(1)';
-                            r.style.transition = 'none';
-
-                            setTimeout(() => {
-                                r.style.transition = 'all 0.4s ease-out';
-                                r.style.opacity = '0';
-                                r.style.transform = 'scale(2)';
-                            }, 10);
-                        }
-                    };
-
-                    // Global function to hide cursor
-                    window.__hideAgentCursor = function() {
-                        const c = document.getElementById('agent-cursor');
-                        if (c) c.style.display = 'none';
-                    };
-                })();
-            """)
-            logger.debug("Cursor indicator script injected")
-        except Exception as e:
-            logger.debug(f"Failed to inject cursor indicator: {e}")
-
     async def _inject_anti_detection_scripts(self) -> None:
         """Inject scripts to evade bot detection.
 
@@ -1074,9 +949,6 @@ class PlaywrightBrowser:
         """
         if not self.page:
             return
-
-        # First inject cursor indicator
-        await self._inject_cursor_indicator()
 
         # Inject overlay scrollbar CSS to prevent width cutoff
         await self._inject_overlay_scrollbar_css()
@@ -3046,9 +2918,6 @@ class PlaywrightBrowser:
                 # Smooth cursor movement to click target
                 await self.page.mouse.move(coordinate_x, coordinate_y, steps=click_params["cursor_steps"])
 
-                # Show cursor animation at coordinates
-                await self._show_cursor_click(coordinate_x, coordinate_y)
-
                 # Hover pause (element hover state visible in screencast)
                 hover_pause = click_params["hover_pause"]
                 if hover_pause > 0:
@@ -3122,9 +2991,6 @@ class PlaywrightBrowser:
                 # Move cursor smoothly to click target (visible in screencast)
                 if element_center_x > 0 and element_center_y > 0:
                     await self.page.mouse.move(element_center_x, element_center_y, steps=click_params["cursor_steps"])
-                    # Show DOM cursor overlay for visual feedback
-                    await self._show_cursor_click(element_center_x, element_center_y)
-
                 # Hover pause (element hover state visible in screencast)
                 hover_pause = click_params["hover_pause"]
                 if hover_pause > 0:
@@ -3187,8 +3053,6 @@ class PlaywrightBrowser:
             # Get choreographed typing delay (Agent UX v2)
             typing_delay = self._choreographer.get_type_delay_ms()
             if coordinate_x is not None and coordinate_y is not None:
-                # Show cursor animation at coordinates
-                await self._show_cursor_click(coordinate_x, coordinate_y)
                 await self.page.mouse.click(coordinate_x, coordinate_y)
                 resolved_coords = {"resolved_x": coordinate_x, "resolved_y": coordinate_y}
                 if clear_first:
@@ -3224,9 +3088,8 @@ class PlaywrightBrowser:
                         center_x = box["x"] + box["width"] / 2
                         center_y = box["y"] + box["height"] / 2
                         resolved_coords = {"resolved_x": center_x, "resolved_y": center_y}
-                        await self._show_cursor_click(center_x, center_y)
                 except (PlaywrightError, PlaywrightTimeoutError, OSError):
-                    logger.debug("Failed to show cursor click animation for input", exc_info=True)
+                    logger.debug("Failed to get element bounding box for input", exc_info=True)
 
                 # Try fill() first (fastest and most reliable for input fields)
                 try:
