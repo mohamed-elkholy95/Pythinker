@@ -13,4 +13,5 @@ exec uvicorn app.main:app \
   --limit-max-requests "${UVICORN_MAX_REQUESTS:-10000}" \
   --proxy-headers \
   --forwarded-allow-ips='*' \
-  --log-level "$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')"
+  --log-level "$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')" \
+  --no-server-header
