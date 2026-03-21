@@ -290,12 +290,12 @@ class IntentClassifier:
 
         if is_question and word_count <= 10:
             logger.info(f"Classified as simple question: {message[:50]}")
-            return ("simple_question", AgentMode.DISCUSS, 0.75)
+            return ("simple_question", AgentMode.DISCUSS, 0.85)
 
         # Medium-length questions without task indicators
         if is_question and word_count <= 20:
             logger.info(f"Classified as clarification question: {message[:50]}")
-            return ("clarification_question", AgentMode.DISCUSS, 0.70)
+            return ("clarification_question", AgentMode.DISCUSS, 0.80)
 
         # Default to AGENT mode for longer, ambiguous messages
         logger.info(f"Classified as complex query (default): {message[:50]}")
