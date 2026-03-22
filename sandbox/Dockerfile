@@ -76,9 +76,14 @@ RUN python3 -m venv /opt/base-python-venv && \
         uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \
     fi && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
+    # Force-install standalone jaraco.context and wheel into the venv so Trivy sees the fixed versions
+    uv pip install --python /opt/base-python-venv/bin/python --no-cache \
+        "jaraco.context>=6.1.0" "wheel>=0.46.2" && \
     # Remove ensurepip bundled wheels (contain old pip/setuptools/wheel that Trivy flags)
     rm -rf /usr/lib/python3.11/ensurepip/_bundled/ && \
-    # Remove system-level dist-packages that may contain old versions
+    # Remove ALL system-level dist-info that Trivy scans (covers both dist-packages paths)
+    find /usr/lib/python3* -path '*/jaraco*context*' -exec rm -rf {} + 2>/dev/null; \
+    find /usr/lib/python3* -path '*/wheel*' -name '*.dist-info' -exec rm -rf {} + 2>/dev/null; \
     rm -rf /usr/lib/python3/dist-packages/wheel* /usr/lib/python3/dist-packages/setuptools* \
            /usr/lib/python3/dist-packages/jaraco* /usr/lib/python3/dist-packages/pkg_resources* && \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)

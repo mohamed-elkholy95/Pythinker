@@ -113,6 +113,7 @@ jobs:
           exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          trivyignores: "${{ matrix.image.context }}/.trivyignore"
 
       - name: Run Trivy (SARIF output)
         if: steps.build.outcome == 'success'
