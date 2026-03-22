@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    browser,
     shell,
     supervisor,
     file,
@@ -28,3 +29,4 @@ api_router.include_router(screenshot.router, prefix="/screenshot", tags=["screen
 api_router.include_router(screencast.router, prefix="/screencast", tags=["screencast"])
 api_router.include_router(input.router, prefix="/input", tags=["input"])
 api_router.include_router(navigation.router, prefix="/navigation", tags=["navigation"])
+api_router.include_router(browser.router, prefix="/browser", tags=["browser"])
