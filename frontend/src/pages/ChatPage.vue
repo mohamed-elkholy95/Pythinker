@@ -2131,6 +2131,7 @@ const activePlanningCardState = computed<ActivePlanningCardState | null>(() =>
 
 const showPlanningCard = computed(() =>
   !hasVisibleExecutionStep.value &&
+  !showTaskProgressBar.value &&
   shouldShowPlanningCard({
     isChatMode: isChatMode.value,
     showSessionWarmupMessage: showSessionWarmupMessage.value,
