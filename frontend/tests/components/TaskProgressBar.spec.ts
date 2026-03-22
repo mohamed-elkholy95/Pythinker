@@ -270,8 +270,8 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    // Collapsed view shows a running dot for active steps
-    expect(wrapper.find('.collapsed-running-dot').exists()).toBe(true)
+    // Collapsed view shows an activity indicator for active steps
+    expect(wrapper.find('.collapsed-thinking-indicator').exists()).toBe(true)
   })
 
   it('should display timer in expanded view starting at 0:00', async () => {
