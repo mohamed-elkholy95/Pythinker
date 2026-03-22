@@ -184,10 +184,10 @@ const avatarLetter = computed(() => {
 
 // User menu state
 const showUserMenu = ref(false);
-const userMenuTimeout = ref<number | null>(null);
+const userMenuTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 let chatPreloadPromise: Promise<unknown> | null = null;
 let chatPreloadIdleHandle: number | null = null;
-let chatPreloadTimeoutHandle: number | null = null;
+let chatPreloadTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
 const preloadChatRoute = () => {
   if (chatPreloadPromise) return chatPreloadPromise;
@@ -215,7 +215,9 @@ const scheduleChatRoutePreload = () => {
     return;
   }
 
-  chatPreloadTimeoutHandle = window.setTimeout(runPreload, 300);
+  if (typeof window !== 'undefined') {
+    chatPreloadTimeoutHandle = globalThis.setTimeout(runPreload, 300);
+  }
 };
 
 
@@ -231,7 +233,7 @@ const handleUserMenuEnter = () => {
 
 // Hide user menu with delay
 const handleUserMenuLeave = () => {
-  userMenuTimeout.value = setTimeout(() => {
+  userMenuTimeout.value = globalThis.setTimeout(() => {
     showUserMenu.value = false;
   }, 200); // 200ms delay to allow moving to menu
 };

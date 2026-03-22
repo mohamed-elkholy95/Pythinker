@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   BarChart2, Check, CheckSquare, Chrome, Code, Cpu, Database, Eye, FileEdit,
   FileText, GitBranch, Globe, Layers3, Lightbulb, Minus, MousePointer, Pause, Play,
-  Plus, Route, Search, Terminal, Wrench, Workflow, X, type LucideComponent,
+  Plus, Route, Search, Terminal, Wrench, Workflow, X, type LucideIcon,
   // canvas & message
   Brush, ImagePlus, Layers, LayoutTemplate, Maximize2, Trash2, Wand2,
   MessageCircle, MessageSquarePlus, BellRing,
@@ -22,6 +22,7 @@ type NodeStatus =
   | 'skipped'
   | 'calling'
   | 'called'
+  | 'interrupted'
   | null;
 
 interface TreeNode {
@@ -892,7 +893,7 @@ const statusClass = (status: NodeStatus) => {
 const formatMetadataKey = (key: string): string =>
   key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-const getToolIcon = (fn: string): LucideComponent => {
+const getToolIcon = (fn: string): LucideIcon => {
   const name = fn.toLowerCase();
 
   // ── Canvas tool family (canvas.py) ─────────────────────────────────────
@@ -1003,7 +1004,7 @@ const getNodeIconColor = (node: TreeNode): string => {
   return '#a8a29e';
 };
 
-const getNodeIcon = (node: TreeNode): LucideComponent => {
+const getNodeIcon = (node: TreeNode): LucideIcon => {
   if (node.kind === 'tool') {
     // Use metadata.function first; fall back to node label (e.g. "message", "canvas")
     const fn = String(node.metadata.function || node.label || node.metadata.tool_call_id || '');

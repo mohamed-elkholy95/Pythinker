@@ -89,7 +89,7 @@
       <div v-else-if="error" class="canvas-live-error">
         <AlertCircle :size="24" class="text-[var(--text-tertiary)]" />
         <span class="text-sm text-[var(--text-tertiary)]">{{ error }}</span>
-        <button class="canvas-retry-btn" @click="refresh">Retry</button>
+        <button class="canvas-retry-btn" @click="() => refresh()">Retry</button>
       </div>
       <CanvasStage
         v-else-if="project && activePage"

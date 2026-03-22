@@ -3,7 +3,7 @@
     class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
     <div class="flex-1 flex items-center justify-center">
       <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
-        {{ isCreating ? 'Creating Chart' : chartContent.content?.title || 'Chart' }}
+        {{ isCreating ? 'Creating Chart' : chartPayload?.title || 'Chart' }}
       </div>
     </div>
   </div>
@@ -36,11 +36,11 @@
         <div class="flex items-center gap-1.5">
           <BarChart3 :size="13" class="text-[var(--text-brand)]" />
           <span class="text-xs font-medium text-[var(--text-primary)] truncate">
-            {{ chartContent.content?.title }}
+            {{ chartPayload?.title }}
           </span>
         </div>
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--background-gray-light)] text-[var(--text-tertiary)] whitespace-nowrap">
-          {{ formatChartType(chartContent.content?.chart_type) }}
+          {{ formatChartType(chartPayload?.chart_type) }}
         </span>
       </div>
 
@@ -48,39 +48,39 @@
       <div
         v-if="pngUrl"
         class="chart-preview-container rounded-md overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-2 hover:border-[var(--border-brand)] transition-colors cursor-pointer"
-        :class="{ 'cursor-not-allowed opacity-70': !chartContent.content?.html_file_id }"
+        :class="{ 'cursor-not-allowed opacity-70': !chartPayload?.html_file_id }"
         role="button"
-        :tabindex="chartContent.content?.html_file_id ? 0 : -1"
-        :aria-label="chartContent.content?.html_file_id ? `Open interactive chart: ${chartContent.content?.title}` : 'Chart preview'"
+        :tabindex="chartPayload?.html_file_id ? 0 : -1"
+        :aria-label="chartPayload?.html_file_id ? `Open interactive chart: ${chartPayload?.title}` : 'Chart preview'"
         @click="openInteractive"
         @keydown.enter="openInteractive"
         @keydown.space.prevent="openInteractive"
       >
-        <img :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" />
+        <img :src="pngUrl" :alt="chartPayload?.title || 'Chart'" class="w-full h-auto object-contain" />
       </div>
       <div v-else class="chart-preview-container rounded-md overflow-hidden border border-[var(--border-main)] bg-[var(--background-gray-light)] p-6 flex items-center justify-center mb-2">
         <div class="text-[var(--text-tertiary)] text-xs">Loading...</div>
       </div>
 
       <!-- Chart metadata -->
-      <div v-if="chartContent.content?.data_points || chartContent.content?.series_count"
+      <div v-if="chartPayload?.data_points || chartPayload?.series_count"
         class="flex gap-3 text-[10px] text-[var(--text-tertiary)] mb-2">
-        <div v-if="chartContent.content?.data_points">
-          <span class="font-medium">Data:</span> {{ chartContent.content.data_points }}
+        <div v-if="chartPayload?.data_points">
+          <span class="font-medium">Data:</span> {{ chartPayload?.data_points }}
         </div>
-        <div v-if="chartContent.content?.series_count">
-          <span class="font-medium">Series:</span> {{ chartContent.content.series_count }}
+        <div v-if="chartPayload?.series_count">
+          <span class="font-medium">Series:</span> {{ chartPayload?.series_count }}
         </div>
       </div>
 
       <!-- Actions -->
       <div class="flex flex-col gap-1.5">
-        <button v-if="chartContent.content?.html_file_id" @click="openInteractive"
+        <button v-if="chartPayload?.html_file_id" @click="openInteractive"
           class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors">
           <ExternalLink :size="12" />
           <span>Open Interactive</span>
         </button>
-        <button v-if="chartContent.content?.png_file_id" @click="downloadPng"
+        <button v-if="chartPayload?.png_file_id" @click="downloadPng"
           class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
           <Download :size="12" />
           <span>Download PNG</span>
@@ -91,7 +91,8 @@
 </template>
 
 <script setup lang="ts">
-import { ToolContent } from '@/types/message';
+import type { ToolContent } from '@/types/message';
+import type { ChartToolContent } from '@/types/toolContent';
 import { computed } from 'vue';
 import { BarChart3, ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
@@ -102,6 +103,9 @@ const props = defineProps<{
   live: boolean;
 }>();
 
+/** Typed accessor for the chart payload inside ToolContent. */
+const chartPayload = computed(() => props.chartContent?.content as ChartToolContent | undefined);
+
 // Detect if chart is being created
 const isCreating = computed(() => {
   return props.chartContent?.status === 'calling';
@@ -109,7 +113,7 @@ const isCreating = computed(() => {
 
 // Get PNG preview URL
 const pngUrl = computed(() => {
-  const pngFileId = props.chartContent?.content?.png_file_id;
+  const pngFileId = chartPayload.value?.png_file_id;
   if (!pngFileId) return null;
   return fileApi.getFileUrl(pngFileId);
 });
@@ -125,7 +129,7 @@ const formatChartType = (type: string | undefined) => {
 
 // Open interactive HTML chart in new tab
 const openInteractive = () => {
-  const htmlFileId = props.chartContent?.content?.html_file_id;
+  const htmlFileId = chartPayload.value?.html_file_id;
   if (!htmlFileId) {
     console.warn('No interactive chart available');
     return;
@@ -135,11 +139,17 @@ const openInteractive = () => {
 };
 
 // Download PNG file
-const downloadPng = () => {
-  const pngFileId = props.chartContent?.content?.png_file_id;
-  const filename = props.chartContent?.content?.png_filename || 'chart.png';
+const downloadPng = async () => {
+  const pngFileId = chartPayload.value?.png_file_id;
+  const filename = chartPayload.value?.png_filename || 'chart.png';
   if (pngFileId) {
-    fileApi.downloadFile(pngFileId, filename);
+    const blob = await fileApi.downloadFile(pngFileId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 };
 </script>

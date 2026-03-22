@@ -60,7 +60,7 @@
             </button>
           </div>
           <span class="text-xs px-2 py-0.5 rounded bg-[var(--background-gray-light)] text-[var(--text-tertiary)]">
-            {{ formatChartType(chartContent.content?.chart_type) }}
+            {{ formatChartType(chartPayload?.chart_type) }}
           </span>
         </div>
       </div>
@@ -82,7 +82,7 @@
 
       <!-- Static PNG preview -->
       <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
-        <img v-if="pngUrl && !pngLoadError" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" @click="emit('open-canvas')" @error="onPngError" />
+        <img v-if="pngUrl && !pngLoadError" :src="pngUrl" :alt="chartPayload?.title || 'Chart'" class="w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" @click="emit('open-canvas')" @error="onPngError" />
         <div v-else class="p-8 flex flex-col items-center justify-center gap-2 bg-[var(--background-gray-light)]">
           <div class="text-[var(--text-tertiary)] text-sm text-center">
             <template v-if="chartError">
@@ -93,7 +93,7 @@
               <button v-if="canShowInteractive" @click="activeViewMode = 'interactive'" class="text-blue-500 hover:text-blue-600 underline">interactive view</button>
               <span v-else>regenerating the chart</span>
             </template>
-            <template v-else-if="chartContent.status === 'called' && !chartContent.content?.png_file_id">
+            <template v-else-if="chartContent.status === 'called' && !chartPayload?.png_file_id">
               Chart output missing — please regenerate the chart
             </template>
             <template v-else>
@@ -104,13 +104,13 @@
       </div>
 
       <!-- Chart metadata -->
-      <div v-if="chartContent.content?.data_points || chartContent.content?.series_count"
+      <div v-if="chartPayload?.data_points || chartPayload?.series_count"
         class="flex gap-4 text-xs text-[var(--text-tertiary)] mb-4">
-        <div v-if="chartContent.content?.data_points">
-          <span class="font-medium">Data points:</span> {{ chartContent.content.data_points }}
+        <div v-if="chartPayload?.data_points">
+          <span class="font-medium">Data points:</span> {{ chartPayload?.data_points }}
         </div>
-        <div v-if="chartContent.content?.series_count">
-          <span class="font-medium">Series:</span> {{ chartContent.content.series_count }}
+        <div v-if="chartPayload?.series_count">
+          <span class="font-medium">Series:</span> {{ chartPayload?.series_count }}
         </div>
         <div v-if="htmlFileSize">
           <span class="font-medium">HTML size:</span> {{ htmlFileSize }}
@@ -119,12 +119,12 @@
 
       <!-- Actions -->
       <div class="flex gap-2">
-        <button v-if="chartContent.content?.html_file_id" @click="openInteractive"
+        <button v-if="chartPayload?.html_file_id" @click="openInteractive"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors">
           <ExternalLink :size="14" />
           <span>Open in New Tab</span>
         </button>
-        <button v-if="chartContent.content?.png_file_id" @click="downloadPng"
+        <button v-if="chartPayload?.png_file_id" @click="downloadPng"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
           <Download :size="14" />
           <span>Download PNG</span>
@@ -135,7 +135,8 @@
 </template>
 
 <script setup lang="ts">
-import { ToolContent } from '@/types/message';
+import type { ToolContent } from '@/types/message';
+import type { ChartToolContent } from '@/types/toolContent';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
@@ -159,7 +160,8 @@ const loadPlotly = async (): Promise<PlotlyApi> => {
   }
 
   plotlyLoadPromise = import('plotly.js-dist-min').then((module) => {
-    const resolved = (module as { default?: PlotlyApi } & PlotlyApi).default ?? (module as PlotlyApi);
+    const resolvedModule = module as unknown as { default?: PlotlyApi } & PlotlyApi;
+    const resolved = resolvedModule.default ?? resolvedModule;
     plotlyModule = resolved;
     return resolved;
   });
@@ -182,8 +184,11 @@ const emit = defineEmits<{
 
 const showHeaderControls = computed(() => props.showHeaderControls === true);
 
+/** Typed accessor for the chart payload inside ToolContent. */
+const chartPayload = computed(() => props.chartContent?.content as ChartToolContent | undefined);
+
 const displayTitle = computed(() => {
-  const rawTitle = props.chartContent?.content?.title;
+  const rawTitle = chartPayload.value?.title;
   if (typeof rawTitle !== 'string') return '';
   const trimmed = rawTitle.trim();
   if (!trimmed || trimmed.toLowerCase() === 'chart') return '';
@@ -231,19 +236,19 @@ const isCreating = computed(() => {
 
 // Can show interactive chart (HTML available)
 const canShowInteractive = computed(() => {
-  return !!props.chartContent?.content?.html_file_id;
+  return !!chartPayload.value?.html_file_id;
 });
 
 // Get PNG preview URL
 const pngUrl = computed(() => {
-  const pngFileId = props.chartContent?.content?.png_file_id;
+  const pngFileId = chartPayload.value?.png_file_id;
   if (!pngFileId) return null;
   return fileApi.getFileUrl(pngFileId);
 });
 
 // Backend sync error (propagated from ChartToolContent.error)
 const chartError = computed(() => {
-  return props.chartContent?.content?.error || null;
+  return chartPayload.value?.error || null;
 });
 
 // PNG load error handler
@@ -253,7 +258,7 @@ const onPngError = () => {
 
 // Format HTML file size
 const htmlFileSize = computed(() => {
-  const size = props.chartContent?.content?.html_size;
+  const size = chartPayload.value?.html_size;
   if (!size) return null;
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -313,7 +318,7 @@ const loadPlotlyDataFromHtml = async (htmlFileId: string, signal: AbortSignal): 
 
 // Load Plotly data from JSON contract first, then HTML fallback
 const loadPlotlyData = async () => {
-  const htmlFileId = props.chartContent?.content?.html_file_id;
+  const htmlFileId = chartPayload.value?.html_file_id;
   if (!htmlFileId) return;
 
   // Cancel any in-flight fetch to prevent race conditions
@@ -399,7 +404,7 @@ const renderPlotlyChart = async () => {
 
 // Open interactive HTML chart in new tab
 const openInteractive = () => {
-  const htmlFileId = props.chartContent?.content?.html_file_id;
+  const htmlFileId = chartPayload.value?.html_file_id;
   if (htmlFileId) {
     const url = fileApi.getFileUrl(htmlFileId);
     window.open(url, '_blank');
@@ -407,11 +412,17 @@ const openInteractive = () => {
 };
 
 // Download PNG file
-const downloadPng = () => {
-  const pngFileId = props.chartContent?.content?.png_file_id;
-  const filename = props.chartContent?.content?.png_filename || 'chart.png';
+const downloadPng = async () => {
+  const pngFileId = chartPayload.value?.png_file_id;
+  const filename = chartPayload.value?.png_filename || 'chart.png';
   if (pngFileId) {
-    fileApi.downloadFile(pngFileId, filename);
+    const blob = await fileApi.downloadFile(pngFileId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 };
 
@@ -423,7 +434,7 @@ onMounted(() => {
 });
 
 watch(
-  () => props.chartContent?.content?.html_file_id,
+  () => chartPayload.value?.html_file_id,
   () => {
     if (canShowInteractive.value && activeViewMode.value === 'interactive') {
       plotlyReady.value = false;
@@ -434,7 +445,7 @@ watch(
 );
 
 // Reset PNG error when png_file_id changes (e.g., chart regenerated)
-watch(() => props.chartContent?.content?.png_file_id, () => {
+watch(() => chartPayload.value?.png_file_id, () => {
   pngLoadError.value = false;
 });
 

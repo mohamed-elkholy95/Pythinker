@@ -39,6 +39,7 @@ const chartError = ref<string | null>(null);
 const svgContent = ref('');
 const isLoading = ref(false);
 const chartEl = ref<HTMLElement | null>(null);
+defineExpose({ chartEl })
 
 let _idCounter = 0;
 

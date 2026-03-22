@@ -56,7 +56,8 @@ const iconComponent = computed(() => {
     'shield-check': ShieldCheckIcon,
     send: SendIcon,
   }
-  return map[props.phase.icon] || TargetIcon
+  const phaseIcon = props.phase.icon ?? 'target'
+  return map[phaseIcon] || TargetIcon
 })
 
 // Color classes based on phase color
@@ -99,7 +100,8 @@ const colorClasses = computed(() => {
       iconBg: 'bg-emerald-500/15',
     },
   }
-  return map[props.phase.color] || map.blue
+  const phaseColor = props.phase.color ?? 'blue'
+  return map[phaseColor] || map.blue
 })
 
 const handleToolClick = (tool: ToolContent) => {

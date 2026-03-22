@@ -187,7 +187,7 @@ const transformerConfig = computed(() => ({
     'middle-left', 'middle-right',
     'bottom-left', 'bottom-center', 'bottom-right',
   ],
-  boundBoxFunc: (oldBox: Konva.Box, newBox: Konva.Box) => {
+  boundBoxFunc: (oldBox: { width: number; height: number }, newBox: { width: number; height: number }) => {
     if (newBox.width < 5 || newBox.height < 5) return oldBox
     return newBox
   },

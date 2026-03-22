@@ -489,7 +489,8 @@ const filePath = computed(() => formattedToolPreview.value.filePath)
 const searchResults = computed(() => formattedToolPreview.value.searchResults)
 const searchQuery = computed(() => formattedToolPreview.value.searchQuery)
 
-const _streamingPresentation = useStreamingPresentationState({
+// Streaming presentation state (side-effect: registers reactive watchers)
+useStreamingPresentationState({
   isInitializing: computed(() => !!props.isInitializing),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
   summaryStreamText: computed(() => props.summaryStreamText || ''),

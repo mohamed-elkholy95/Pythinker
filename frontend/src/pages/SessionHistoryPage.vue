@@ -79,7 +79,7 @@
     </header>
 
     <!-- Content -->
-    <main class="library-content" ref="contentRef">
+    <main class="library-content">
       <!-- Loading -->
       <div v-if="isLoading" class="library-loading">
         <div v-for="i in 3" :key="i" class="skeleton-section">
@@ -249,7 +249,6 @@ const {
 const searchFocused = ref(false)
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
-const contentRef = ref<HTMLElement | null>(null)
 const expandedGroups = ref(new Set<string>())
 const activeMenu = ref<string | null>(null)
 

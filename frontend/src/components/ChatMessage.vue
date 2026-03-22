@@ -385,6 +385,7 @@ const props = defineProps<{
   /** True when the session is a fast search task (not deep research). Controls inline search results. */
   isFastSearchSession?: boolean;
   activeReasoningState?: ReasoningStage;
+  isLoading?: boolean;
   /** Live streaming thinking text from the agent */
   thinkingText?: string;
 }>();
@@ -483,19 +484,6 @@ const reportData = computed<ReportData>(() => {
     attachments: content.attachments,
     sources: content.sources,
   };
-});
-
-// Filter out the report's own .md file from the attachment grid — it duplicates
-// the report card content (created by _ensure_report_file on the backend).
-const _reportSupplementaryAttachments = computed(() => {
-  const atts = reportData.value.attachments;
-  if (!atts || atts.length === 0) return [];
-  const reportId = reportData.value.id;
-  return atts.filter((file) => {
-    const fname = file.filename || file.file_path?.split('/').pop() || '';
-    // Pattern: report-{uuid}.md — exact match for the auto-generated report file
-    return !fname.startsWith(`report-${reportId}`) || !fname.endsWith('.md');
-  });
 });
 
 // Control step expand/collapse state

@@ -194,8 +194,8 @@ const languageOptions: LanguageOption[] = [
   { value: 'en', label: t('English'), flag: '🇺🇸' },
 ]
 
-const onLanguageChange = (value: string) => {
-  if (value && typeof value === 'string') {
+const onLanguageChange = (value: unknown) => {
+  if (typeof value === 'string' && value) {
     const locale = value as Locale
     setLocale(locale)
   }

@@ -371,6 +371,7 @@ const router = useRouter()
 const localSettings = ref<UserSettings>({
   llm_provider: 'openai',
   model_name: 'gpt-4',
+  api_base: '',
   temperature: 0.7,
   max_tokens: 8000,
   search_provider: 'bing',

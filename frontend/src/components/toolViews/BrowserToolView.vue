@@ -389,7 +389,9 @@ watch(livePreviewRef, () => {
 
 // Screenshot handling
 watch(() => props.toolContent?.content?.screenshot, (screenshot) => {
-  if (screenshot) imageUrl.value = screenshot;
+  if (typeof screenshot === 'string' && screenshot) {
+    imageUrl.value = screenshot;
+  }
 }, { immediate: true });
 
 // Take over

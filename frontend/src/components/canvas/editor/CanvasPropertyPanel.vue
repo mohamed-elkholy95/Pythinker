@@ -163,7 +163,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CanvasElement } from '@/types/canvas'
+import type { CanvasElement, Fill, TextStyle } from '@/types/canvas'
 
 const props = defineProps<{
   element: CanvasElement | null
@@ -173,17 +173,28 @@ const emit = defineEmits<{
   (e: 'property-change', elementId: string, updates: Partial<CanvasElement>): void
 }>()
 
+const DEFAULT_TEXT_STYLE: TextStyle = {
+  font_family: 'Arial',
+  font_size: 16,
+  font_weight: 'normal',
+  font_style: 'normal',
+  text_align: 'left',
+  vertical_align: 'top',
+  line_height: 1.2,
+  letter_spacing: 0,
+  text_decoration: 'none',
+}
+
 const fillColor = computed(() => {
   if (!props.element?.fill) return 'transparent'
-  const fill = props.element.fill as Record<string, unknown>
+  const fill = props.element.fill as Fill
   if (fill.type === 'solid' && typeof fill.color === 'string') return fill.color
   return 'transparent'
 })
 
 const fontSize = computed(() => {
   if (!props.element?.text_style) return 16
-  const style = props.element.text_style as Record<string, unknown>
-  return (style.font_size as number) || 16
+  return props.element.text_style.font_size || 16
 })
 
 function emitUpdate(key: string, value: unknown) {
@@ -200,7 +211,7 @@ function handleFillChange(color: string) {
 
 function handleFontSizeChange(size: number) {
   if (!props.element) return
-  const existing = (props.element.text_style ?? {}) as Record<string, unknown>
+  const existing = props.element.text_style ?? DEFAULT_TEXT_STYLE
   emit('property-change', props.element.id, {
     text_style: { ...existing, font_size: Math.max(1, size) },
   })

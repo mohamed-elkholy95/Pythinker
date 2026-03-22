@@ -141,7 +141,6 @@ onMounted(async () => {
     cursorStyle: 'block',
     theme: isDarkMode.value ? darkTheme : lightTheme,
     scrollOnUserInput: true,
-    overviewRulerLanes: 0,
     cols: 80,
     rows: 24,
   });

@@ -7,7 +7,6 @@
   -->
   <TerminalLiveView
     v-if="live && terminalLiveEnabled"
-    ref="terminalLiveRef"
     :session-id="sessionId"
     :shell-session-id="shellSessionId ?? ''"
     :command="currentCommand"
@@ -46,6 +45,7 @@ import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
 import type { ConsoleRecord } from '@/types/response';
+import type { ShellToolContent } from '@/types/toolContent';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import TerminalLiveView from './TerminalLiveView.vue';
@@ -67,6 +67,7 @@ const props = defineProps<{
 // Terminal live view feature flag (controlled by backend; enabled by default)
 const terminalLiveEnabled = ref(true);
 const terminalLiveRef = ref<InstanceType<typeof TerminalLiveView>>();
+const shellPayload = computed(() => props.toolContent.content as ShellToolContent | undefined);
 
 // Extract the command from tool args for the terminal prompt
 const currentCommand = computed(() => {
@@ -75,6 +76,7 @@ const currentCommand = computed(() => {
 });
 
 defineExpose({
+  terminalLiveRef,
   loadContent: () => {
     loadShellContent();
   }
@@ -143,7 +145,10 @@ const updateShellContent = async (console: ConsoleRecord[] | undefined) => {
 // Function to load Shell session content
 const loadShellContent = async () => {
   if (!props.live) {
-    updateShellContent(props.toolContent.content?.console);
+    const console = shellPayload.value?.console;
+    if (Array.isArray(console)) {
+      void updateShellContent(console);
+    }
     return;
   }
 
@@ -174,7 +179,7 @@ const startAutoRefresh = () => {
   }
 
   if (props.live && shellSessionId.value && !document.hidden) {
-    refreshTimer.value = setInterval(() => {
+    refreshTimer.value = window.setInterval(() => {
       if (!document.hidden) {
         loadShellContent();
       }

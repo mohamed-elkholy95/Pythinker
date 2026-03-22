@@ -11,13 +11,13 @@
   >
     <template #default="{ colors }">
       <!-- Background layer (cached for performance) -->
-      <v-layer ref="backgroundLayerRef" :config="{ listening: false }">
+      <v-layer :config="{ listening: false }">
         <!-- Track background -->
         <v-rect :config="trackConfig" />
       </v-layer>
 
       <!-- Markers layer -->
-      <v-layer ref="markersLayerRef">
+      <v-layer>
         <TimelineMarkerNode
           v-for="marker in konvaTimeline.markers.value"
           :key="marker.id"
@@ -29,7 +29,7 @@
       </v-layer>
 
       <!-- Scrubber layer (on top) -->
-      <v-layer ref="scrubberLayerRef">
+      <v-layer>
         <TimelineScrubber
           :x="konvaTimeline.scrubberX.value"
           :dimensions="konvaTimeline.dimensions.value"
@@ -81,9 +81,6 @@ const emit = defineEmits<{
 
 // Refs
 const canvasRef = ref<InstanceType<typeof KonvaCanvas> | null>(null)
-const backgroundLayerRef = ref(null)
-const markersLayerRef = ref(null)
-const scrubberLayerRef = ref(null)
 
 // Reactive ref from prop (stays in sync automatically)
 const eventsRef = toRef(props, 'events')

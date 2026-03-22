@@ -27,7 +27,7 @@ export interface PlanningCardVisibilityArgs {
   isToolPanelOpen: boolean
   isTaskCompleted: boolean
   responsePhase: 'streaming' | 'timed_out'
-  sessionResearchMode: 'deep_research' | 'fast_search' | null
+  sessionResearchMode: 'deep_research' | 'fast_search' | 'deal_finding' | null
   hasActivePlanningCard: boolean
   hasPlanningHandoff: boolean
   planStepCount: number

@@ -1,6 +1,5 @@
 <template>
   <div
-    ref="controlsRef"
     class="timeline-controls"
     tabindex="0"
     @keydown="handleKeydown"
@@ -86,7 +85,6 @@ const emit = defineEmits<{
   seekByProgress: [progress: number]
 }>()
 
-const controlsRef = ref<HTMLElement | null>(null)
 const scrubberRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
 

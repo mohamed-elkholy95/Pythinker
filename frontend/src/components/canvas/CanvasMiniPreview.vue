@@ -7,7 +7,9 @@
     <div class="preview-body">
       <div class="preview-info">
         <span class="preview-operation">{{ operationLabel }}</span>
-        <span v-if="elementCount > 0" class="preview-count">{{ elementCount }} element{{ elementCount !== 1 ? 's' : '' }}</span>
+        <span v-if="(elementCount ?? 0) > 0" class="preview-count">
+          {{ elementCount ?? 0 }} element{{ (elementCount ?? 0) !== 1 ? 's' : '' }}
+        </span>
       </div>
       <router-link
         v-if="projectId"
