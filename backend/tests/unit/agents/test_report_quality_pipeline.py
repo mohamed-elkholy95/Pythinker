@@ -735,11 +735,13 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
-        """Critical hallucination ratio blocks delivery even when all steps completed.
+    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
+        """Critical hallucination ratio is downgraded to warning when all steps completed.
 
-        hallucination_ratio_critical is non-downgradable — it must block delivery
-        alongside other structural failures (truncation, citation integrity).
+        hallucination_ratio_critical is soft-non-downgradable — it blocks delivery
+        only when steps are incomplete. When all steps completed, the report file
+        is already saved so blocking the summary just frustrates the user.
+        A reliability disclaimer is appended instead.
         """
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -777,7 +779,42 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        # hallucination_ratio_critical is non-downgradable — delivery is blocked
+        # hallucination_ratio_critical is downgraded when all steps completed —
+        # the report is delivered with a disclaimer instead of being blocked
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert any(isinstance(event, ReportEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_summarize_hallucination_ratio_critical_blocks_when_steps_incomplete(self):
+        """Critical hallucination ratio blocks delivery when steps are NOT all completed."""
+        from app.domain.models.event import ErrorEvent, ReportEvent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        raw_report = "# Final Report\n\n## Final Result\nTrending repositories were analyzed and summarized.\n\n"
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(False, ["hallucination_ratio_critical"]))
+        agent._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        async def summary_stream(*_args, **_kwargs):
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield raw_report
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=False)]
+
+        # hallucination_ratio_critical blocks when steps incomplete
         assert any(isinstance(event, ErrorEvent) for event in events)
         assert not any(isinstance(event, ReportEvent) for event in events)
 
