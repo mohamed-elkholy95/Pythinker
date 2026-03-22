@@ -31,13 +31,7 @@ class MongoProjectRepository:
         query_args = [ProjectDocument.user_id == user_id]
         if status is not None:
             query_args.append(ProjectDocument.status == status.value)
-        documents = (
-            await ProjectDocument.find(*query_args)
-            .sort("-updated_at")
-            .skip(offset)
-            .limit(limit)
-            .to_list()
-        )
+        documents = await ProjectDocument.find(*query_args).sort("-updated_at").skip(offset).limit(limit).to_list()
         return [doc.to_domain() for doc in documents]
 
     async def update(self, project: Project) -> Project | None:
