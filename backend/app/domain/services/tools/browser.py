@@ -260,6 +260,42 @@ class BrowserTool(BaseTool):
         query = urlencode(filtered_query, doseq=True)
         return urlunsplit((scheme, netloc, path, query, ""))
 
+    def _suggest_alternative_urls(self, blocked_normalized_url: str, limit: int = 5) -> list[str]:
+        """Suggest unvisited URLs from the URL cache (populated by search results).
+
+        When the agent gets blocked on a URL it already visited, this method
+        returns concrete alternative URLs it can navigate to instead, reducing
+        the chance of a stuck loop.
+        """
+        alternatives: list[str] = []
+        visited_normalized = set(self._url_visit_counts.keys())
+        # _url_cache is populated by observe() with URLs the agent has fetched;
+        # _url_visit_counts keys are URLs the agent has navigated to.
+        # Suggest URLs from visit history that are on different domains.
+        blocked_parsed = urlsplit(blocked_normalized_url)
+        blocked_domain = (blocked_parsed.hostname or "").lower()
+
+        for raw_url in self._url_visit_counts:
+            if raw_url == blocked_normalized_url:
+                continue
+            parsed = urlsplit(raw_url)
+            domain = (parsed.hostname or "").lower()
+            if domain and domain != blocked_domain:
+                alternatives.append(raw_url)
+            if len(alternatives) >= limit:
+                break
+
+        # Also check URL cache for urls fetched via observe() but not via navigate()
+        for cached_url in self._url_cache:
+            norm = self._normalize_url_for_visit_tracking(cached_url)
+            if norm in visited_normalized or norm == blocked_normalized_url:
+                continue
+            alternatives.append(cached_url)
+            if len(alternatives) >= limit:
+                break
+
+        return alternatives[:limit]
+
     def _extract_focused_content(self, text: str, focus: str | None, max_length: int = 50000) -> str:
         """Extract content relevant to the focus area.
 
@@ -378,14 +414,21 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
 
         if visit_count >= 3:
             logger.warning(f"URL visited {visit_count} times, returning short rejection: {url[:80]}")
+            _alt_urls = self._suggest_alternative_urls(normalized_url, limit=5)
+            _alt_section = ""
+            if _alt_urls:
+                _alt_section = "\n\nAlternative URLs from search results you haven't visited:\n" + "\n".join(
+                    f"  - {u}" for u in _alt_urls
+                )
             return ToolResult(
-                success=True,
+                success=False,
                 message=(
-                    f"This URL has already been visited {visit_count} times this session. "
+                    f"BLOCKED: This URL has already been visited {visit_count} times this session. "
                     "Content is identical to previous visits. "
-                    "Please proceed with different URLs or complete the current step with the information you have."
+                    "Do NOT retry — use a different URL or complete the step with information you already have."
+                    f"{_alt_section}"
                 ),
-                data={"url": url, "visit_count": visit_count, "access_status": "repeated"},
+                data={"url": url, "visit_count": visit_count, "blocked": True},
             )
 
         # Check URL content cache
@@ -630,14 +673,23 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
 
         if nav_visit_count >= 1:
             logger.warning(f"browser_navigate: URL visited {nav_visit_count} times, returning rejection: {url[:80]}")
+            # Build list of alternative URLs from search results not yet visited
+            _alt_urls = self._suggest_alternative_urls(nav_normalized_url, limit=5)
+            _alt_section = ""
+            if _alt_urls:
+                _alt_section = "\n\nAlternative URLs from search results you haven't visited:\n" + "\n".join(
+                    f"  - {u}" for u in _alt_urls
+                )
             return ToolResult(
-                success=True,
+                success=False,
                 message=(
-                    "This URL was already visited this session. "
-                    "The page content has not changed since the last visit. "
-                    "Use the information already extracted. Do NOT navigate here again."
+                    f"BLOCKED: This URL was already visited {nav_visit_count} time(s) this session. "
+                    "The page content has not changed. "
+                    "Use the information already extracted from previous visits. "
+                    "Do NOT retry this URL — navigate to a DIFFERENT URL or use a different tool."
+                    f"{_alt_section}"
                 ),
-                data={"url": url, "visit_count": nav_visit_count},
+                data={"url": url, "visit_count": nav_visit_count, "blocked": True},
             )
 
         # Navigate to URL

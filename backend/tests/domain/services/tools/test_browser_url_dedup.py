@@ -20,7 +20,8 @@ async def test_browser_navigate_treats_tracking_variants_as_repeat() -> None:
     second = await tool.browser_navigate("https://example.com/deals?utm_medium=email")
 
     assert first.success is True
-    assert second.success is True
+    # Tracking-variant is rejected as a repeat visit (success=False with explanation)
+    assert second.success is False
     assert "already visited" in (second.message or "").lower()
     assert mock_browser.navigate.await_count == 1
 
@@ -57,7 +58,8 @@ async def test_browser_navigate_treats_http_https_as_same_page() -> None:
     second = await tool.browser_navigate("https://example.com/deals")
 
     assert first.success is True
-    assert second.success is True
+    # Scheme-variant is rejected as a repeat visit (success=False with explanation)
+    assert second.success is False
     assert "already visited" in (second.message or "").lower()
     assert mock_browser.navigate.await_count == 1
 
@@ -76,7 +78,8 @@ async def test_browser_navigate_treats_default_ports_as_same_page() -> None:
     second = await tool.browser_navigate("https://example.com:443/deals")
 
     assert first.success is True
-    assert second.success is True
+    # Port-variant is rejected as a repeat visit (success=False with explanation)
+    assert second.success is False
     assert "already visited" in (second.message or "").lower()
     assert mock_browser.navigate.await_count == 1
 
