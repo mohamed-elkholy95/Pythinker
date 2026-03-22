@@ -5,13 +5,6 @@ alwaysApply: true
 
 # Pythinker Core Rules
 
-## Ownership
-- `AGENTS.md` is repo law.
-- `instructions.md` defines engineering behavior.
-- `skills/` contains workflow guidance.
-- `.codex/` is the primary repo-local harness layer.
-- `.cursor/rules/` is a downstream adapter and should not drift from the Codex-first contract.
-
 ## Before Writing Any Code
 - **Search first**: Use codebase search to find existing components, composables, services, utilities before creating new ones.
 - **No duplication**: Never create a file, class, or utility that already exists or can be extended.

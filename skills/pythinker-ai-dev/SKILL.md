@@ -5,22 +5,12 @@ description: Clean-code and clean-architecture execution guide for the Pythinker
 
 # Pythinker AI Dev
 
-Use this skill as the top-level entry point for engineering work in Pythinker. It defines the shared architectural guardrails and points to the smaller Codex-first workflow skills that should handle most task-specific behavior.
-
-## Use These Workflow Skills First
-
-- `pythinker-codebase-onboarding` for session-start repo mapping
-- `pythinker-search-first` before creating files or abstractions
-- `pythinker-plan-execute` for multi-step work
-- `pythinker-review` for bug/risk/regression-focused review
-- `pythinker-verification` before completion claims
-- `pythinker-context-budget` for long-session compaction discipline
+Use this skill to execute engineering work in Pythinker with strong architectural discipline and minimal ambiguity.
 
 ## Quick Start Workflow
 
 1. Read `instructions.md` and `AGENTS.md` in the repository root before edits.
-2. Use the smaller workflow skills above when their triggers apply.
-3. Surface assumptions before non-trivial implementation using this exact format:
+2. Surface assumptions before non-trivial implementation using this exact format:
 
 ```text
 ASSUMPTIONS I'M MAKING:
@@ -29,11 +19,11 @@ ASSUMPTIONS I'M MAKING:
 -> Correct me now or I'll proceed with these.
 ```
 
-4. Reuse existing modules before creating new ones.
-5. Keep dependency direction inward only: Domain -> Application -> Infrastructure -> Interfaces.
-6. Keep business logic out of routers, controllers, and UI components.
-7. Validate implementation details against Context7 docs before finalizing.
-8. Run relevant checks before handoff.
+3. Reuse existing modules before creating new ones.
+4. Keep dependency direction inward only: Domain -> Application -> Infrastructure -> Interfaces.
+5. Keep business logic out of routers, controllers, and UI components.
+6. Validate implementation details against Context7 docs before finalizing.
+7. Run relevant checks before handoff.
 
 ## Architecture Guardrails
 
