@@ -27,7 +27,7 @@
               <span v-else class="result-icon-fallback">{{ getIconLetter(result) }}</span>
             </div>
             <div class="result-body">
-              <h3 class="result-title">{{ result.title }}</h3>
+              <div class="result-title">{{ result.title }}</div>
               <p v-if="result.snippet" class="result-snippet">{{ formatSnippet(result.snippet) }}</p>
             </div>
           </div>
@@ -66,7 +66,7 @@
             <span v-else class="result-icon-fallback">{{ getIconLetter(result) }}</span>
           </div>
           <div class="result-body">
-            <h3 class="result-title">{{ result.title }}</h3>
+            <div class="result-title">{{ result.title }}</div>
             <p v-if="result.snippet" class="result-snippet">{{ formatSnippet(result.snippet) }}</p>
           </div>
         </div>
@@ -214,7 +214,7 @@ function handleResultClick(result: SearchResult) {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 18px 24px;
+  padding: 16px 24px;
   cursor: pointer;
   border-bottom: 1px solid var(--border-light);
   transition: background-color 0.15s ease;
@@ -230,27 +230,27 @@ function handleResultClick(result: SearchResult) {
 
 /* ── Favicon Icon ── */
 .result-icon-wrapper {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
   border-radius: 50%;
   background: var(--fill-tsp-white-dark);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  margin-top: 2px;
+  margin-top: 1px;
   flex-shrink: 0;
 }
 
 .result-favicon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   object-fit: contain;
 }
 
 .result-icon-fallback {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-secondary);
   line-height: 1;
@@ -264,19 +264,21 @@ function handleResultClick(result: SearchResult) {
 
 .result-title {
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 650;
-  line-height: 1.35;
-  letter-spacing: -0.01em;
-  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .result-snippet {
-  color: var(--text-tertiary);
-  font-size: 14px;
+  color: #9a9a9a;
+  font-size: 13px;
   font-weight: 400;
-  line-height: 1.55;
-  margin: 4px 0 0;
+  line-height: 1.5;
+  margin: 2px 0 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -292,15 +294,15 @@ function handleResultClick(result: SearchResult) {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 18px 24px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-light);
   animation: skeleton-fade 1.2s ease-in-out infinite alternate;
 }
 
 .skeleton-icon {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
   border-radius: 50%;
   background: var(--fill-tsp-gray-main);
 }
