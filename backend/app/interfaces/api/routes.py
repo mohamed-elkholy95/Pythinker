@@ -6,6 +6,7 @@ from . import (
     canvas_routes,
     channel_link_routes,
     connectors_routes,
+    project_routes,
     file_routes,
     health_routes,
     knowledge_base_routes,
@@ -41,6 +42,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(skills_routes.router)
     api_router.include_router(canvas_routes.router)
     api_router.include_router(connectors_routes.router)
+    api_router.include_router(project_routes.router)
     api_router.include_router(usage_routes.router)
     api_router.include_router(monitoring_routes.router)
     api_router.include_router(rating_routes.router)
