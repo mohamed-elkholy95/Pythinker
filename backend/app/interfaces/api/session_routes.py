@@ -17,6 +17,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
+from app.application.services.file_service import FileService
 from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
 from app.core import prometheus_metrics as pm
@@ -374,6 +375,7 @@ async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    file_service: FileService = Depends(get_file_service),
     sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
 ) -> APIResponse[CreateSessionResponse]:
     # Pass the idempotency key (if any) to the application service.
@@ -395,7 +397,7 @@ async def create_session(
     if request.project_id:
         from app.application.services.project_service import get_project_service
 
-        project_service = get_project_service()
+        project_service = get_project_service(file_service_factory=lambda: file_service)
 
         # Resolve full project context (instructions, files, skills)
         project_context = await project_service.get_project_context(request.project_id, current_user.id)

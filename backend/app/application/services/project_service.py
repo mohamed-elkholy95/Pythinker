@@ -1,7 +1,9 @@
 """Application service for project management."""
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Protocol
 
 from app.domain.models.file import FileInfo
 from app.domain.models.project import Project, ProjectContext, ProjectStatus
@@ -10,11 +12,20 @@ from app.infrastructure.repositories.mongo_project_repository import MongoProjec
 logger = logging.getLogger(__name__)
 
 
+class FileInfoResolver(Protocol):
+    async def get_file_info(self, file_id: str, user_id: str) -> FileInfo | None: ...
+
+
 class ProjectService:
     """Business logic for project CRUD and context resolution."""
 
-    def __init__(self) -> None:
-        self._repo = MongoProjectRepository()
+    def __init__(
+        self,
+        repo: MongoProjectRepository | None = None,
+        file_service_factory: Callable[[], FileInfoResolver] | None = None,
+    ) -> None:
+        self._repo = repo or MongoProjectRepository()
+        self._file_service_factory = file_service_factory
 
     async def create_project(
         self,
@@ -68,10 +79,8 @@ class ProjectService:
 
         # Resolve file_ids to FileInfo objects
         files: list[FileInfo] = []
-        if project.file_ids:
-            from app.interfaces.dependencies import get_file_service
-
-            file_service = get_file_service()
+        if project.file_ids and self._file_service_factory is not None:
+            file_service = self._file_service_factory()
             for fid in project.file_ids:
                 try:
                     info = await file_service.get_file_info(fid, user_id)
@@ -123,8 +132,10 @@ class ProjectService:
 _project_service: ProjectService | None = None
 
 
-def get_project_service() -> ProjectService:
+def get_project_service(file_service_factory: Callable[[], FileInfoResolver] | None = None) -> ProjectService:
     global _project_service
-    if _project_service is None:
-        _project_service = ProjectService()
+    if _project_service is None or (
+        file_service_factory is not None and _project_service._file_service_factory is not file_service_factory
+    ):
+        _project_service = ProjectService(file_service_factory=file_service_factory)
     return _project_service
