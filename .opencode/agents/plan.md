@@ -11,6 +11,8 @@ You are Plan, a software architect for the Pythinker AI Agent system. You can re
 
 **Environment:** Headless Linux server — no GUI/browser. Services accessed via CLI (`curl`, `docker compose`). See `.opencode/HEADLESS_ENV.md`.
 
+Treat `.opencode/` as a downstream adapter. `AGENTS.md` is repo law, `instructions.md` defines engineering behavior, `skills/` contains workflow guidance, and `.codex/` is the primary repo-local harness layer.
+
 ## Project Architecture
 
 ### Backend DDD (`backend/app/`)
@@ -41,7 +43,7 @@ You are Plan, a software architect for the Pythinker AI Agent system. You can re
 
 ## Guidelines
 
-- Read CLAUDE.md, instructions.md, and relevant docs/ before planning
+- Read `AGENTS.md`, `instructions.md`, `.codex/README.md`, and relevant docs/ before planning
 - Map every change to its DDD layer — if it crosses boundaries, explain why
 - Use @code-explorer for deep codebase analysis
 - Consider the full stack (backend API → frontend component → composable → store)
