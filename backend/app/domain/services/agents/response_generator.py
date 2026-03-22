@@ -66,6 +66,9 @@ _BOILERPLATE_ARTIFACT_REFS_RE = re.compile(
     r"(?:-\s*No (?:file )?artifacts? (?:were |was )[^\n]*\n*)+",
 )
 _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+# Matches internal context-compression placeholders like "[Previously called file_write]"
+# that leak when orphaned tool_calls are converted to text during token trimming.
+_ORPHANED_TOOL_PLACEHOLDER_RE = re.compile(r"\[Previously called \w+\]")
 _REPORT_H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _VERIFICATION_TAG_RE = re.compile(r"\[(?:unverified|verified|not verified)[^\]]*\]?", re.IGNORECASE)
 
@@ -767,6 +770,10 @@ class ResponseGenerator:
         cleaned = _TOOL_CALL_RE.sub("", content)
         cleaned = _FUNCTION_CALL_RE.sub("", cleaned)
 
+        # Strip orphaned tool-call conversion placeholders (e.g. "[Previously called file_write]")
+        # that leak from context compression into LLM output.
+        cleaned = _ORPHANED_TOOL_PLACEHOLDER_RE.sub("", cleaned)
+
         cleaned = _BOILERPLATE_FINAL_RESULT_RE.sub("", cleaned)
         cleaned = _BOILERPLATE_ARTIFACT_REFS_RE.sub("", cleaned)
 
@@ -953,7 +960,8 @@ class ResponseGenerator:
             if not content or len(content) < 50:
                 continue
             cleaned = _TOOL_CALL_RE.sub("", content)
-            cleaned = _FUNCTION_CALL_RE.sub("", cleaned).strip()
+            cleaned = _FUNCTION_CALL_RE.sub("", cleaned)
+            cleaned = self._PREVIOUSLY_CALLED_RE.sub("", cleaned).strip()
             if len(cleaned) >= 50:
                 logger.info(
                     "Extracted fallback summary from conversation memory (%d chars)",
@@ -1164,6 +1172,11 @@ class ResponseGenerator:
 
         raise TypeError("Unsupported suggestion payload type")
 
+    # Regex to strip "[Previously called <tool_name>]" markers injected by
+    # message_normalizer when converting orphaned tool_calls to plain text.
+    # These are internal plumbing and must never leak into user-visible context.
+    _PREVIOUSLY_CALLED_RE = re.compile(r"\[Previously called \w+\]\s*")
+
     def _build_recent_memory_context_excerpt(self, max_messages: int = 6, max_chars: int = 900) -> str:
         """Build a short user/assistant transcript excerpt from in-memory session messages."""
         if not self._memory:
@@ -1192,6 +1205,12 @@ class ResponseGenerator:
             else:
                 text = str(raw_content).strip() if raw_content is not None else ""
 
+            if not text:
+                continue
+
+            # Sanitize internal normalizer markers that should never appear
+            # in user-visible context (e.g., "[Previously called file_write]").
+            text = self._PREVIOUSLY_CALLED_RE.sub("", text).strip()
             if not text:
                 continue
 
