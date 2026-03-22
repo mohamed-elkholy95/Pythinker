@@ -226,6 +226,11 @@ let frameWatchdogInterval: number | null = null
 // Page Visibility API — pause reconnects when tab is hidden
 let isTabVisible = true
 
+// Debounce timer for sessionId-triggered reconnects — prevents rapid
+// disconnect/reconnect churn when sessions change in quick succession.
+let _initDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const INIT_DEBOUNCE_MS = 300
+
 // Fetch screencast URL (proxied through backend) and connect
 async function initConnection(): Promise<void> {
   if (!props.enabled || !props.sessionId) {
@@ -606,7 +611,7 @@ watch(
   }
 )
 
-// Watch sessionId prop
+// Watch sessionId prop — debounced to prevent churn from rapid session switches
 watch(
   () => props.sessionId,
   () => {
@@ -620,9 +625,13 @@ watch(
 
     if (props.enabled) {
       disconnect()
-      nextTick(() => {
+      // Debounce the reconnect so rapid sessionId changes (e.g. session churn)
+      // coalesce into a single connection attempt.
+      if (_initDebounceTimer) clearTimeout(_initDebounceTimer)
+      _initDebounceTimer = setTimeout(() => {
+        _initDebounceTimer = null
         initConnection()
-      })
+      }, INIT_DEBOUNCE_MS)
     }
   }
 )
@@ -647,6 +656,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (_initDebounceTimer) {
+    clearTimeout(_initDebounceTimer)
+    _initDebounceTimer = null
+  }
   if (overlayResizeObserver) {
     overlayResizeObserver.disconnect()
     overlayResizeObserver = null
