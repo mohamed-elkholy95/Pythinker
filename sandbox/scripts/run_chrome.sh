@@ -48,6 +48,7 @@ CHROME_FLAGS=(
     --disable-setuid-sandbox
     --window-size=1280,1024
     --start-maximized
+    --disable-gpu
     --disable-gpu-sandbox
     --disable-gpu-compositing
     --disable-vulkan
