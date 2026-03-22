@@ -76,6 +76,11 @@ RUN python3 -m venv /opt/base-python-venv && \
         uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \
     fi && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
+    # Remove ensurepip bundled wheels (contain old pip/setuptools/wheel that Trivy flags)
+    rm -rf /usr/lib/python3.11/ensurepip/_bundled/ && \
+    # Remove system-level dist-packages that may contain old versions
+    rm -rf /usr/lib/python3/dist-packages/wheel* /usr/lib/python3/dist-packages/setuptools* \
+           /usr/lib/python3/dist-packages/jaraco* /usr/lib/python3/dist-packages/pkg_resources* && \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)
 
 # Node CLI tools used by sandbox code-dev/test endpoints

@@ -1,0 +1,4 @@
+# gh CLI bundles google.golang.org/grpc v1.79.2; fix requires v1.79.3
+# gh 2.88.1 is the latest release as of 2026-03-22 — no upstream fix available yet
+# Tracked: https://github.com/cli/cli/issues (gRPC authorization bypass via missing leading slash in :path)
+CVE-2026-33186
