@@ -43,7 +43,7 @@ describe('LiveMiniPreview', () => {
     expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
   })
 
-  it('renders final replay screenshot when session is complete', () => {
+  it('renders LiveViewer when session is complete without report text', () => {
     const wrapper = shallowMount(LiveMiniPreview, {
       props: {
         sessionId: 'session-1',
@@ -54,11 +54,11 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.final-screenshot-image').exists()).toBe(true)
-    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
+    // Without report text, LiveViewer shows the final screenshot
+    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(true)
   })
 
-  it('renders completed placeholder when replay screenshot is unavailable', () => {
+  it('renders fallback when session is complete without replay or report', () => {
     const wrapper = shallowMount(LiveMiniPreview, {
       props: {
         sessionId: 'session-1',
@@ -68,8 +68,8 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.final-screenshot-placeholder').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Session Complete')
+    // Falls through to LiveViewer (which handles no-screenshot internally)
+    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(true)
   })
 
   it('does not show initializing dots when session is complete', () => {
@@ -82,7 +82,7 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.init-loading-dots').exists()).toBe(false)
+    expect(wrapper.find('.init-label').exists()).toBe(false)
   })
 
   it('prioritizes summary streaming view over terminal preview and live preview', () => {
@@ -99,9 +99,10 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    // Should use direct-content panel (dc-panel), not scaled viewport
+    expect(wrapper.find('.dc-panel').exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
-    expect(wrapper.text()).toContain('Writing report...')
+    expect(wrapper.text()).toContain('Writing report')
   })
 
   it('shows report-complete summary view when summary text is buffered after stream end', () => {
@@ -114,7 +115,7 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.find('.dc-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('Report complete')
   })
 
@@ -132,8 +133,9 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
-    expect(wrapper.find('.final-screenshot-image').exists()).toBe(false)
+    // Report text wins — shows dc-panel instead of LiveViewer
+    expect(wrapper.find('.dc-panel').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
     expect(wrapper.text()).toContain('Report complete')
   })
 
@@ -149,8 +151,8 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Creating plan...')
+    expect(wrapper.find('.dc-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Creating plan')
   })
 
   it('shows "Plan ready" when isPlanStreaming=false with plan text', () => {
@@ -163,7 +165,7 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.find('.dc-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('Plan ready')
   })
 
@@ -179,7 +181,7 @@ describe('LiveMiniPreview', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Writing report...')
+    expect(wrapper.text()).toContain('Writing report')
     expect(wrapper.text()).not.toContain('Plan ready')
   })
 })
