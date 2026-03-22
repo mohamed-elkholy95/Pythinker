@@ -56,6 +56,17 @@ class Project(BaseModel):
         return v
 
 
+def _format_file_size(size_bytes: int | None) -> str:
+    """Format bytes to human-readable string."""
+    if size_bytes is None:
+        return "unknown"
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(size_bytes) < 1024:
+            return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
 class ProjectContext(BaseModel):
     """Resolved project context for agent session injection."""
 
@@ -63,3 +74,28 @@ class ProjectContext(BaseModel):
     files: list[FileInfo] = Field(default_factory=list)
     connector_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
+
+    def file_manifest_text(self) -> str:
+        """Format file list for system prompt injection."""
+        if not self.files:
+            return ""
+        lines = ["[PROJECT FILES — These files are available in /home/user/uploads/]"]
+        for f in self.files:
+            size_str = _format_file_size(f.size) if f.size else "unknown size"
+            lines.append(f"- {f.filename} ({size_str})")
+        lines.append("[END PROJECT FILES]")
+        return "\n".join(lines)
+
+    def instructions_text(self) -> str:
+        """Format instructions for system prompt injection."""
+        if not self.instructions:
+            return ""
+        return (
+            "[PROJECT INSTRUCTIONS — Follow these instructions for all responses in this project.]\n"
+            f"{self.instructions}\n"
+            "[END PROJECT INSTRUCTIONS]"
+        )
+
+    def has_context(self) -> bool:
+        """Return True if any project context is set."""
+        return bool(self.instructions or self.files or self.skill_ids)
