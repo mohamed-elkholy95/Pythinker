@@ -111,6 +111,7 @@ class ProjectService:
                 "session_id": doc.session_id,
                 "title": doc.title,
                 "status": doc.status,
+                "latest_message": getattr(doc, "latest_message", None),
                 "created_at": doc.created_at.isoformat() if doc.created_at else None,
                 "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
             }

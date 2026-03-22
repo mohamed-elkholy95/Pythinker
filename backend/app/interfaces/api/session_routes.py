@@ -324,12 +324,20 @@ def _filter_sessions_for_listing(
     status: SessionStatus | None = None,
     limit: int = 200,
 ) -> list[Session]:
-    """Apply source/query/status filters to session lists."""
+    """Apply source/query/status filters to session lists.
+
+    Sessions that belong to a project (project_id is set) are excluded
+    from the global listing — they should only appear inside their project.
+    """
     normalized_source = source.strip().lower() if source else None
     normalized_query = query_text.strip().lower() if query_text else None
 
     filtered: list[Session] = []
     for session in sessions:
+        # Exclude project-scoped sessions from the global sidebar
+        if session.project_id:
+            continue
+
         if normalized_source and str(getattr(session, "source", "web")).lower() != normalized_source:
             continue
 
