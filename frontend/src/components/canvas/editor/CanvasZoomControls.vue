@@ -1,17 +1,17 @@
 <template>
   <div class="zoom-controls">
-    <button class="zoom-btn" title="Zoom Out" @click="emit('zoom-out')">
+    <button class="zoom-btn" aria-label="Zoom Out" @click="emit('zoom-out')">
       <Minus :size="16" />
     </button>
     <span class="zoom-label">{{ zoomPercent }}%</span>
-    <button class="zoom-btn" title="Zoom In" @click="emit('zoom-in')">
+    <button class="zoom-btn" aria-label="Zoom In" @click="emit('zoom-in')">
       <Plus :size="16" />
     </button>
     <div class="zoom-divider" />
-    <button class="zoom-btn" title="Fit to Screen" @click="emit('fit')">
+    <button class="zoom-btn" aria-label="Fit to Screen" @click="emit('fit')">
       <Maximize2 :size="16" />
     </button>
-    <button class="zoom-btn" title="Reset to 100%" @click="emit('reset')">
+    <button class="zoom-btn" aria-label="Reset to 100%" @click="emit('reset')">
       <RotateCcw :size="14" />
     </button>
   </div>

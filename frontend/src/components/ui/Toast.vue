@@ -2,7 +2,7 @@
   <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="">
     <span 
       aria-hidden="true" 
-      tabindex="0"
+      tabindex="-1"
       style="position: fixed; border: 0px; width: 1px; height: 1px; padding: 0px; margin: -1px; overflow: hidden; clip: rect(0px, 0px, 0px, 0px); white-space: nowrap; overflow-wrap: normal;"
     ></span>
     <ol 
@@ -38,7 +38,7 @@
     </ol>
     <span 
       aria-hidden="true" 
-      tabindex="0"
+      tabindex="-1"
       style="position: fixed; border: 0px; width: 1px; height: 1px; padding: 0px; margin: -1px; overflow: hidden; clip: rect(0px, 0px, 0px, 0px); white-space: nowrap; overflow-wrap: normal;"
     ></span>
   </div>
