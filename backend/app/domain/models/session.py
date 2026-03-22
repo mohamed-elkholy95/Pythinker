@@ -8,6 +8,7 @@ from app.domain.models.event import AgentEvent, PlanEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.plan import Plan
+from app.domain.models.project import ProjectContext
 
 
 class SessionStatus(str, Enum):
@@ -140,6 +141,7 @@ class Session(BaseModel):
     # Workspace metadata (sanitized)
     project_name: str | None = None
     project_id: str | None = None  # Link to parent project
+    project_context: ProjectContext | None = None  # Resolved project context
     project_path: str | None = None
     template_id: str | None = None
     template_used: str | None = None
