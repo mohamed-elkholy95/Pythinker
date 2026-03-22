@@ -5051,4 +5051,17 @@ const handleFileListShow = () => {
   }
 }
 
+/* ===== MOBILE REFINEMENTS ===== */
+@media (max-width: 479px) {
+  .chat-header {
+    padding-inline-start: 6px;
+    padding-inline-end: 6px;
+    gap: 4px;
+  }
+  .chat-view-toggle-btn {
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+}
+
 </style>
