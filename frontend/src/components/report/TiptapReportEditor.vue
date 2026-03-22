@@ -987,6 +987,12 @@ defineExpose({
   display: none; /* Hide h1 in compact mode - shown separately */
 }
 
+:deep(.prose-compact h1),
+:deep(.prose-compact h2),
+:deep(.prose-compact h3) {
+  font-family: var(--font-sans) !important;
+}
+
 :deep(.prose-compact h2) {
   font-size: 1rem;
   font-weight: 600;

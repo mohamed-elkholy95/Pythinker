@@ -101,32 +101,22 @@
       </Popover>
     </div>
 
-    <!-- Metadata + Content Preview -->
-    <div class="document-content">
-      <!-- Date / Author -->
-      <div class="document-meta">
-        <div class="meta-line">
-          <span class="meta-label">Date:</span>
-          <span class="meta-value">{{ formatDateLong(report.lastModified) }}</span>
-        </div>
-        <div class="meta-line">
-          <span class="meta-label">Author:</span>
-          <span class="meta-value">{{ report.author || 'Pythinker' }}</span>
-        </div>
-      </div>
-
-      <!-- Full-size content preview with fade -->
-      <div class="content-preview-direct">
+    <!-- Scaled Content Preview (Manus-style 16:9 aspect with 0.75 scale) -->
+    <div class="size-full relative aspect-[16/9] px-[16px] py-[8px] pointer-events-none">
+      <div class="scale-[0.75] origin-top-left w-[133.33%] h-[133.33%]">
         <TiptapReportEditor
           v-if="report.content"
           class="report-markdown-preview"
           :content="processedContent"
           :compact="true"
-          :hideMainTitleInCompact="true"
+          :hideMainTitleInCompact="false"
           :sources="report.sources"
         />
       </div>
-      <div class="content-fade"></div>
+      <div
+        class="pointer-events-none absolute left-0 right-0 bottom-0 h-[118px]"
+        style="background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-menu-white) 100%)"
+      ></div>
     </div>
 
     <!-- Suggested Follow-ups Section -->
@@ -250,7 +240,7 @@ const processedContent = computed(() => {
   return normalized.slice(0, cutAt);
 });
 
-const formatDateLong = (timestamp: number | string | undefined) => {
+const _formatDateLong = (timestamp: number | string | undefined) => {
   if (timestamp == null) return 'Unknown';
   // Handle ISO string timestamps from backend
   const ms = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
@@ -343,11 +333,11 @@ const _handleSaveToOneDriveWork = () => {
   width: 100%;
   max-width: 568px;
   min-width: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
   background: var(--background-menu-white);
-  border: 1px solid var(--border-main);
+  border: 0.5px solid var(--border-dark);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -359,11 +349,9 @@ const _handleSaveToOneDriveWork = () => {
 .report-header-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 18px 20px;
+  gap: 8px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--border-main);
-  background: var(--background-menu-white);
 }
 
 .header-left {
@@ -389,13 +377,15 @@ const _handleSaveToOneDriveWork = () => {
 }
 
 .header-title {
-  font-size: 15px;
-  line-height: 22px;
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
 }
 
 .report-menu-btn {
@@ -415,101 +405,47 @@ const _handleSaveToOneDriveWork = () => {
   color: var(--text-primary);
 }
 
-/* ===== DOCUMENT CONTENT ===== */
-.document-content {
-  padding: 24px 28px 0;
-  position: relative;
-  max-height: 340px;
-  overflow: hidden;
-}
-
-/* ===== METADATA ===== */
-.document-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.meta-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.meta-label {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.meta-value {
-  color: var(--text-secondary);
-}
-
-/* ===== CONTENT PREVIEW (direct, no scaling) ===== */
-.content-preview-direct {
-  pointer-events: none;
-  overflow: hidden;
-}
-
+/* ===== CONTENT PREVIEW (scaled 0.75, inline Tailwind handles layout) ===== */
 .report-markdown-preview {
   width: 100%;
-  height: 100%;
+  font-family: var(--font-sans);
 }
 
 .report-markdown-preview :deep(.prose-compact) {
   color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 .report-markdown-preview :deep(.prose-compact h1),
 .report-markdown-preview :deep(.prose-compact h2),
 .report-markdown-preview :deep(.prose-compact h3) {
   font-family: var(--font-sans);
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .report-markdown-preview :deep(.prose-compact h1) {
-  display: block;
-  font-size: 1.65em;
-  line-height: 1.35;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-top: 0.6em;
-  margin-bottom: 0.3em;
-}
-
-.report-markdown-preview :deep(.prose-compact p) {
-  font-size: 15px;
-  line-height: 1.65;
-  color: var(--text-secondary);
-  margin-top: 0.35em;
-  margin-bottom: 0.35em;
+  font-size: 1.875em;
+  margin-top: 2em;
+  margin-bottom: 4px;
 }
 
 .report-markdown-preview :deep(.prose-compact h2) {
-  font-size: 1.35em;
-  line-height: 1.35;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-top: 1.2em;
-  margin-bottom: 0.2em;
+  font-size: 1.5em;
+  margin-top: 1.4em;
+  margin-bottom: 1px;
+}
+
+.report-markdown-preview :deep(.prose-compact p) {
+  margin-top: 1px;
+  margin-bottom: 1px;
 }
 
 .report-markdown-preview :deep(.prose-compact blockquote) {
   border-left: none;
   margin-left: 0;
   padding-left: 0;
-}
-
-.content-fade {
-  pointer-events: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 100px;
-  background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-menu-white) 100%);
 }
 
 /* ===== SUGGESTIONS ===== */
