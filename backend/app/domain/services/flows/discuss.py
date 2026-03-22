@@ -389,7 +389,7 @@ class DiscussFlow(BaseFlow):
 
         # Return 2-3 word phrase; use "that" as glue only if we have a single word
         hint = " ".join(seen_order[:3])
-        return hint if hint else None
+        return hint or None
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """
