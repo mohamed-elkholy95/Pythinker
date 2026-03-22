@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _DISPLAY = ":99"
 _CAPTURE_TIMEOUT = 5.0  # seconds per xwd capture
+_XDOTOOL_SYNC_TIMEOUT = 2.0  # seconds for XSync drain
 
 
 @dataclass
@@ -150,6 +151,32 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
             proc.kill()
             await proc.wait()
         return None
+
+
+async def drain_x11_event_queue() -> None:
+    """Drain queued X11 events to prevent event leak accumulation.
+
+    When screencast sessions are rapidly cycled (teardown → reconnect), X11
+    events queue up with no consumer between sessions.  Running ``xdpyinfo``
+    forces a round-trip ``XSync`` that flushes the event queue, preventing the
+    ``event leak: N queued`` warnings from x11vnc and reducing memory pressure.
+    """
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "xdpyinfo", "-display", _DISPLAY,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=_XDOTOOL_SYNC_TIMEOUT)
+        logger.debug("X11 event queue drained via xdpyinfo sync")
+    except asyncio.TimeoutError:
+        logger.debug("X11 event drain timed out — skipping")
+        if proc is not None:
+            proc.kill()
+            await proc.wait()
+    except Exception as e:
+        logger.debug("X11 event drain failed (non-critical): %s", e)
 
 
 def is_x11_available() -> bool:
