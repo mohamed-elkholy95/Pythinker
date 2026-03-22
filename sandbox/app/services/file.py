@@ -246,7 +246,7 @@ class FileService:
                     bytes_written = await asyncio.to_thread(write_temp_file)
 
                     # Use sudo to write temporary file content to target file
-                    command = f"sudo bash -c 'cat {temp_file} {mode} {shlex.quote(str(file))}'"
+                    command = f"sudo bash -c 'cat {shlex.quote(temp_file)} {mode} {shlex.quote(str(file))}'"
                     process = await asyncio.create_subprocess_shell(
                         command,
                         stdout=asyncio.subprocess.PIPE,
