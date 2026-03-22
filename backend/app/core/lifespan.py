@@ -29,6 +29,7 @@ from app.infrastructure.models.documents import (
     UsageDocument,
     UserDocument,
 )
+from app.infrastructure.models.project_documents import ProjectDocument
 from app.infrastructure.models.prompt_optimization_documents import (
     OptimizationRunDocument,
     PromptProfileDocument,
@@ -52,6 +53,7 @@ BEANIE_DOCUMENT_MODELS = [
     CanvasVersionDocument,
     ConnectorDocument,
     OptimizationRunDocument,
+    ProjectDocument,
     PromptProfileDocument,
     RatingDocument,
     ScreenshotDocument,
