@@ -4,8 +4,11 @@
     :class="sizeClass"
     @click="emit('click')"
   >
-    <!-- Scaled-down viewport: renders at 355x284 full size, CSS-transformed to fit -->
-    <div class="mini-viewport">
+    <!-- ============================================================
+         Scaled viewport — only for browser screencast / live views
+         Renders at 355x284 then CSS-scaled to fit container
+         ============================================================ -->
+    <div v-if="useScaledViewport" class="mini-viewport">
 
       <!-- Initializing state -->
       <div v-if="isInitializing" class="vp-centered">
@@ -32,51 +35,8 @@
         :is-active="isActive"
       />
 
-      <!-- Summary / report preview -->
-      <div v-else-if="isSummaryPhase" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">{{ streamingPresentation.headline.value }}</span>
-        </div>
-        <div class="vp-body">
-          <div v-if="reportPreviewText" class="vp-md-text">
-            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
-          </div>
-          <div v-else class="vp-skeleton-lines">
-            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
-        </div>
-        <div v-if="isSummaryStreaming" class="activity-dot"></div>
-      </div>
-
-      <!-- Planning preview -->
-      <div v-else-if="isPlanningPhase" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">{{ streamingPresentation.headline.value }}</span>
-        </div>
-        <div class="vp-body">
-          <div v-if="props.planPresentationText" class="vp-md-text">
-            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
-          </div>
-          <div v-else class="vp-skeleton-lines">
-            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
-        </div>
-        <div v-if="isPlanStreaming" class="activity-dot"></div>
-      </div>
-
-      <!-- Terminal view -->
-      <div v-else-if="currentViewType === 'terminal' && contentPreview" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">{{ terminalTitle }}</span>
-        </div>
-        <div class="vp-body vp-body-terminal">
-          <pre class="vp-terminal-text" v-html="styledTerminalContent"></pre>
-        </div>
-        <div v-if="isActive" class="activity-dot"></div>
-      </div>
-
       <!-- Terminal running without content — live preview -->
-      <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="vp-live">
+      <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled && !contentPreview" class="vp-live">
         <LiveViewer
           :session-id="sessionId"
           :enabled="enabled"
@@ -84,83 +44,6 @@
           :compact-loading="true"
           :show-controls="false"
         />
-      </div>
-
-      <!-- Search results -->
-      <div v-else-if="currentViewType === 'search'" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">{{ truncate(searchQuery || 'Search', 30) }}</span>
-        </div>
-        <div class="vp-body vp-body-search">
-          <div v-if="searchResults.length > 0" class="search-results-list">
-            <div v-for="(result, idx) in searchResults.slice(0, 5)" :key="idx" class="search-result-row">
-              <img
-                v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
-                :src="getFavicon(result.url ?? result.link ?? '')"
-                alt=""
-                class="sr-favicon"
-                @error="onFaviconError(result.url ?? result.link ?? '')"
-              />
-              <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
-              <div class="sr-text">
-                <span class="sr-title">{{ truncate(result.title || result.name || 'Result', 50) }}</span>
-                <span v-if="result.snippet" class="sr-snippet">{{ truncate(result.snippet, 80) }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="isActive" class="vp-centered-small">
-            <div class="loading-dots">
-              <span class="dot"></span>
-              <span class="dot"></span>
-              <span class="dot"></span>
-            </div>
-            <span class="loading-label">Searching...</span>
-          </div>
-          <div v-else class="vp-centered-small">
-            <Search :size="20" class="empty-icon" />
-            <span class="empty-label">No results</span>
-          </div>
-        </div>
-        <div v-if="isActive" class="activity-dot"></div>
-      </div>
-
-      <!-- Editor view -->
-      <div v-else-if="currentViewType === 'editor' && contentPreview" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">{{ fileName }}</span>
-        </div>
-        <div class="vp-body vp-body-code">
-          <pre class="vp-code-text">{{ contentPreview }}</pre>
-        </div>
-        <div v-if="isActive" class="activity-dot"></div>
-      </div>
-
-      <!-- Chart view -->
-      <div v-else-if="currentViewType === 'chart'" class="vp-panel">
-        <div class="vp-header">
-          <BarChart3 :size="14" class="vp-header-icon" />
-          <span class="vp-header-title">{{ chartTitle }}</span>
-        </div>
-        <div class="vp-body vp-body-chart">
-          <img
-            v-if="chartPngUrl"
-            :src="chartPngUrl"
-            alt="Chart"
-            class="chart-image"
-          />
-          <div v-else-if="isActive" class="vp-centered-small">
-            <div class="chart-bars">
-              <div class="bar bar-1"></div>
-              <div class="bar bar-2"></div>
-              <div class="bar bar-3"></div>
-            </div>
-            <span class="loading-label">Generating...</span>
-          </div>
-          <div v-else class="vp-centered-small">
-            <BarChart3 :size="24" class="empty-icon" />
-          </div>
-        </div>
-        <div v-if="isActive" class="activity-dot"></div>
       </div>
 
       <!-- Live preview (active or completed session without report) -->
@@ -177,21 +60,156 @@
         />
       </div>
 
-      <!-- Session complete with report text -->
-      <div v-else-if="shouldShowFinalScreenshot && reportPreviewText" class="vp-panel">
-        <div class="vp-header">
-          <span class="vp-header-title">Report</span>
+      <!-- Fallback inside scaled viewport (shouldn't normally appear) -->
+      <div v-else class="vp-centered">
+        <component :is="toolIcon" :size="32" class="fallback-icon" />
+        <span class="fallback-label">{{ toolLabel }}</span>
+        <div v-if="isActive" class="activity-dot activity-dot-abs"></div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================
+         Direct-render panels — text content at actual container size
+         No scale transform, proper mini typography
+         ============================================================ -->
+    <div v-else class="dc-wrapper">
+
+      <!-- Summary / report preview -->
+      <div v-if="isSummaryPhase" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">{{ streamingPresentation.headline.value }}</span>
         </div>
-        <div class="vp-body">
-          <div class="vp-md-text">
-            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+        <div class="dc-body">
+          <div v-if="reportPreviewText" class="dc-md-text">
+            <div class="dc-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="dc-skeleton-lines">
+            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
+          </div>
+        </div>
+        <div v-if="isSummaryStreaming" class="activity-dot"></div>
+      </div>
+
+      <!-- Planning preview -->
+      <div v-else-if="isPlanningPhase" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">{{ streamingPresentation.headline.value }}</span>
+        </div>
+        <div class="dc-body">
+          <div v-if="props.planPresentationText" class="dc-md-text">
+            <div class="dc-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="dc-skeleton-lines">
+            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
+          </div>
+        </div>
+        <div v-if="isPlanStreaming" class="activity-dot"></div>
+      </div>
+
+      <!-- Terminal view -->
+      <div v-else-if="currentViewType === 'terminal' && contentPreview" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">{{ terminalTitle }}</span>
+        </div>
+        <div class="dc-body dc-body-terminal">
+          <pre class="dc-terminal-text" v-html="styledTerminalContent"></pre>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Search results -->
+      <div v-else-if="currentViewType === 'search'" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">{{ truncate(searchQuery || 'Search', 30) }}</span>
+        </div>
+        <div class="dc-body dc-body-search">
+          <div v-if="searchResults.length > 0" class="search-results-list">
+            <div v-for="(result, idx) in searchResults.slice(0, 4)" :key="idx" class="search-result-row">
+              <img
+                v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
+                :src="getFavicon(result.url ?? result.link ?? '')"
+                alt=""
+                class="sr-favicon"
+                @error="onFaviconError(result.url ?? result.link ?? '')"
+              />
+              <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
+              <div class="sr-text">
+                <span class="sr-title">{{ truncate(result.title || result.name || 'Result', 40) }}</span>
+                <span v-if="result.snippet" class="sr-snippet">{{ truncate(result.snippet, 60) }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="isActive" class="dc-centered">
+            <div class="loading-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <span class="loading-label">Searching...</span>
+          </div>
+          <div v-else class="dc-centered">
+            <Search :size="16" class="empty-icon" />
+            <span class="empty-label">No results</span>
+          </div>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Editor view -->
+      <div v-else-if="currentViewType === 'editor' && contentPreview" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">{{ fileName }}</span>
+        </div>
+        <div class="dc-body dc-body-code">
+          <pre class="dc-code-text">{{ contentPreview }}</pre>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Chart view -->
+      <div v-else-if="currentViewType === 'chart'" class="dc-panel">
+        <div class="dc-header">
+          <BarChart3 :size="11" class="dc-header-icon" />
+          <span class="dc-header-title">{{ chartTitle }}</span>
+        </div>
+        <div class="dc-body dc-body-chart">
+          <img
+            v-if="chartPngUrl"
+            :src="chartPngUrl"
+            alt="Chart"
+            class="chart-image"
+          />
+          <div v-else-if="isActive" class="dc-centered">
+            <div class="chart-bars">
+              <div class="bar bar-1"></div>
+              <div class="bar bar-2"></div>
+              <div class="bar bar-3"></div>
+            </div>
+            <span class="loading-label">Generating...</span>
+          </div>
+          <div v-else class="dc-centered">
+            <BarChart3 :size="20" class="empty-icon" />
+          </div>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Session complete with report text -->
+      <div v-else-if="shouldShowFinalScreenshot && reportPreviewText" class="dc-panel">
+        <div class="dc-header">
+          <span class="dc-header-title">Report</span>
+        </div>
+        <div class="dc-body">
+          <div class="dc-md-text">
+            <div class="dc-mini-md" v-html="renderedMiniMarkdown"></div>
           </div>
         </div>
       </div>
 
       <!-- Generic tool indicator (fallback) -->
-      <div v-else class="vp-centered">
-        <component :is="toolIcon" :size="32" class="fallback-icon" />
+      <div v-else class="dc-centered dc-centered-full">
+        <component :is="toolIcon" :size="24" class="fallback-icon" />
         <span class="fallback-label">{{ toolLabel }}</span>
         <div v-if="showInitializingDots" class="loading-dots" aria-hidden="true">
           <span class="dot"></span>
@@ -656,18 +674,46 @@ const sizeClass = computed(() => {
     default: return 'size-md';
   }
 });
+
+/**
+ * Determines whether to use the scale-transformed viewport (for browser/live
+ * views) or direct-render panels (for text content like reports, terminal, code).
+ *
+ * The scaled viewport renders at 355x284 then CSS-scales down — ideal for
+ * browser screenshots. Text content renders directly at container size for
+ * crisp, readable typography.
+ */
+const useScaledViewport = computed(() => {
+  // Init state uses scaled viewport for the monitor animation
+  if (props.isInitializing) return true;
+
+  // Wide research has its own scaled mini component
+  if (isWideResearch.value && wideResearchState.value) return true;
+
+  // Terminal running without content — needs live browser view
+  if (currentViewType.value === 'terminal' && props.isActive && props.sessionId && props.enabled && !props.contentPreview) {
+    return true;
+  }
+
+  // Live preview (browser screencast)
+  if (shouldShowLivePreview.value) return true;
+
+  // Everything else (reports, plans, terminal text, search, editor, chart,
+  // fallback) renders directly at container size
+  return false;
+});
 </script>
 
 <style scoped>
 /* ===== Outer Card Container ===== */
 .live-mini-preview {
   position: relative;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--bolt-elements-bg-depth-1);
   border: 1px solid var(--bolt-elements-borderColor);
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   max-width: 100%;
 }
@@ -677,14 +723,14 @@ const sizeClass = computed(() => {
 }
 
 /* Size variants (outer container dimensions) */
-.size-sm { width: 200px; height: 140px; }
-.size-md { width: 272px; height: 190px; }
-.size-lg { width: 320px; height: 224px; }
+.size-sm { width: 240px; height: 170px; }
+.size-md { width: 340px; height: 240px; }
+.size-lg { width: 400px; height: 280px; }
 
 @media (max-width: 640px) {
-  .size-sm { width: 140px; height: 98px; }
-  .size-md { width: 200px; height: 140px; }
-  .size-lg { width: 256px; height: 180px; }
+  .size-sm { width: 180px; height: 128px; }
+  .size-md { width: 260px; height: 184px; }
+  .size-lg { width: 320px; height: 226px; }
 }
 
 /* ===== Scale-Transform Viewport ===== */
@@ -703,18 +749,27 @@ const sizeClass = computed(() => {
 }
 
 /* Non-uniform scale: scaleX = width/355, scaleY = height/284 */
-.size-sm .mini-viewport { transform: scale(0.563, 0.493); }
-.size-md .mini-viewport { transform: scale(0.766, 0.669); }
-.size-lg .mini-viewport { transform: scale(0.901, 0.789); }
+.size-sm .mini-viewport { transform: scale(0.676, 0.599); }
+.size-md .mini-viewport { transform: scale(0.958, 0.845); }
+.size-lg .mini-viewport { transform: scale(1.127, 0.986); }
 
 @media (max-width: 640px) {
-  .size-sm .mini-viewport { transform: scale(0.394, 0.345); }
-  .size-md .mini-viewport { transform: scale(0.563, 0.493); }
-  .size-lg .mini-viewport { transform: scale(0.721, 0.634); }
+  .size-sm .mini-viewport { transform: scale(0.507, 0.451); }
+  .size-md .mini-viewport { transform: scale(0.732, 0.648); }
+  .size-lg .mini-viewport { transform: scale(0.901, 0.796); }
 }
 
-/* ===== Panel Layout (header + body) ===== */
-.vp-panel {
+/* ===== Direct-Content Wrapper (text panels, no scaling) ===== */
+.dc-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== Direct-Content Panel Layout ===== */
+.dc-panel {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -722,45 +777,76 @@ const sizeClass = computed(() => {
   position: relative;
 }
 
-.vp-header {
-  height: 36px;
+.dc-header {
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 12px;
+  gap: 4px;
+  padding: 0 8px;
   background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  position: relative;
 }
 
-.vp-header-title {
-  max-width: 280px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--bolt-elements-textSecondary);
+/* Subtle accent top border — mirrors main tool panel header */
+.dc-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--bolt-elements-item-contentAccent, #22c55e);
+  border-radius: 10px 10px 0 0;
+  opacity: 0.7;
+}
+
+.dc-header-title {
+  max-width: 95%;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--bolt-elements-textPrimary);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.1px;
 }
 
-.vp-header-icon {
+.dc-header-icon {
   flex-shrink: 0;
-  color: var(--bolt-elements-textSecondary);
+  color: var(--bolt-elements-textTertiary);
 }
 
-.vp-body {
+.dc-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 12px 16px;
+  margin: 4px;
+  padding: 6px 8px;
+  background: var(--bolt-elements-bg-depth-2);
+  border-radius: 5px;
+}
+
+.dc-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 6px;
+}
+
+.dc-centered-full {
+  width: 100%;
+  height: 100%;
 }
 
 /* ===== Search Results ===== */
-.vp-body-search {
-  padding: 0;
+.dc-body-search {
+  padding: 4px 0;
 }
 
 .search-results-list {
@@ -771,10 +857,14 @@ const sizeClass = computed(() => {
 .search-result-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   overflow: hidden;
+}
+
+:global(.dark) .search-result-row {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
 .search-result-row:last-child {
@@ -782,19 +872,19 @@ const sizeClass = computed(() => {
 }
 
 .sr-favicon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
   border-radius: 50%;
   border: 1px solid var(--bolt-elements-borderColor);
 }
 
 .sr-favicon-fallback {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
   border-radius: 50%;
   border: 1px solid var(--bolt-elements-borderColor);
   background: var(--bolt-elements-bg-depth-2);
@@ -816,36 +906,35 @@ const sizeClass = computed(() => {
 }
 
 .sr-title {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--bolt-elements-textPrimary);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.3;
 }
 
 .sr-snippet {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--bolt-elements-textTertiary);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.35;
-  margin-top: 2px;
+  line-height: 1.3;
+  margin-top: 1px;
 }
 
 /* ===== Terminal ===== */
-.vp-body-terminal {
-  background: var(--bolt-elements-bg-depth-2);
-  padding: 10px 12px;
+.dc-body-terminal {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
 }
 
-.vp-terminal-text {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 11px;
+.dc-terminal-text {
+  font-family: inherit;
+  font-size: 9.5px;
   line-height: 1.45;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
@@ -853,20 +942,19 @@ const sizeClass = computed(() => {
   word-break: break-all;
 }
 
-.vp-terminal-text :deep(.shell-prompt) {
+.dc-terminal-text :deep(.shell-prompt) {
   color: #16a34a;
   font-weight: 500;
 }
 
 /* ===== Code / Editor ===== */
-.vp-body-code {
-  background: var(--bolt-elements-bg-depth-2);
-  padding: 10px 12px;
+.dc-body-code {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
 }
 
-.vp-code-text {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 11px;
+.dc-code-text {
+  font-family: inherit;
+  font-size: 9.5px;
   line-height: 1.45;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
@@ -875,7 +963,7 @@ const sizeClass = computed(() => {
 }
 
 /* ===== Chart ===== */
-.vp-body-chart {
+.dc-body-chart {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -917,7 +1005,7 @@ const sizeClass = computed(() => {
   height: 100%;
 }
 
-/* ===== Centered Content (init, fallback) ===== */
+/* ===== Centered Content (init, fallback — inside scaled viewport) ===== */
 .vp-centered {
   width: 100%;
   height: 100%;
@@ -929,168 +1017,159 @@ const sizeClass = computed(() => {
   background: var(--bolt-elements-bg-depth-1);
 }
 
-.vp-centered-small {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 8px;
-}
-
-/* ===== Markdown Report ===== */
-.vp-md-text {
+/* ===== Direct-Content Markdown Report ===== */
+.dc-md-text {
   flex: 1;
   overflow: hidden;
   position: relative;
 }
 
-.vp-md-text::after {
+.dc-md-text::after {
   content: '';
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 30px;
-  background: linear-gradient(to bottom, transparent, var(--bolt-elements-bg-depth-1));
+  height: 16px;
+  background: linear-gradient(to bottom, transparent, var(--bolt-elements-bg-depth-2));
   pointer-events: none;
 }
 
-.report-mini-md {
+.dc-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 8.5px;
+  line-height: 1.4;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
 }
 
-.report-mini-md .mini-h1 {
-  font-size: 16px;
+.dc-mini-md .mini-h1 {
+  font-size: 10px;
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
-  margin: 6px 0 4px;
-  line-height: 1.25;
+  margin: 0 0 2px;
+  line-height: 1.2;
   border-bottom: 1px solid var(--bolt-elements-borderColor);
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 
-.report-mini-md .mini-h2 {
-  font-size: 15px;
+.dc-mini-md .mini-h2 {
+  font-size: 9.5px;
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
-  margin: 4px 0 2px;
-  line-height: 1.3;
+  margin: 2px 0 1px;
+  line-height: 1.25;
 }
 
-.report-mini-md .mini-h3 {
-  font-size: 14px;
+.dc-mini-md .mini-h3 {
+  font-size: 9px;
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
-  margin: 4px 0 2px;
-  line-height: 1.35;
+  margin: 2px 0 1px;
+  line-height: 1.25;
 }
 
-.report-mini-md .mini-p {
+.dc-mini-md .mini-p {
   margin: 0;
   word-break: break-word;
 }
 
-.report-mini-md .mini-li {
-  padding-left: 12px;
+.dc-mini-md .mini-li {
+  padding-left: 7px;
   position: relative;
   margin: 0;
 }
 
-.report-mini-md .mini-li::before {
+.dc-mini-md .mini-li::before {
   content: '\2022';
   position: absolute;
-  left: 2px;
+  left: 0;
   color: var(--bolt-elements-textTertiary);
-  font-size: 12px;
+  font-size: 8px;
 }
 
-.report-mini-md .mini-li-num::before {
+.dc-mini-md .mini-li-num::before {
   content: '\2013';
 }
 
-.report-mini-md .mini-spacer {
-  height: 4px;
+.dc-mini-md .mini-spacer {
+  height: 1px;
 }
 
-.report-mini-md .mini-hr {
+.dc-mini-md .mini-hr {
   border: none;
   height: 1px;
   background: var(--bolt-elements-borderColor);
-  margin: 4px 0;
+  margin: 1px 0;
 }
 
-.report-mini-md .mini-code-block {
+.dc-mini-md .mini-code-block {
   background: #24292e;
-  border-radius: 6px;
-  padding: 6px 8px;
-  margin: 4px 0;
+  border-radius: 3px;
+  padding: 3px 5px;
+  margin: 1px 0;
   position: relative;
   overflow: hidden;
 }
 
-:global(.dark) .report-mini-md .mini-code-block {
+:global(.dark) .dc-mini-md .mini-code-block {
   background: #161b22;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.report-mini-md .mini-code-block pre {
+.dc-mini-md .mini-code-block pre {
   margin: 0;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 7px;
+  line-height: 1.3;
   color: #e1e4e8;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.report-mini-md .mini-code-lang {
+.dc-mini-md .mini-code-lang {
   position: absolute;
-  top: 3px;
-  right: 6px;
-  font-size: 9px;
+  top: 2px;
+  right: 4px;
+  font-size: 6px;
   font-weight: 600;
   color: #6a737d;
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
-.report-mini-md .mini-inline-code {
+.dc-mini-md .mini-inline-code {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 12px;
+  font-size: 7.5px;
   background: rgba(175, 184, 193, 0.15);
-  border-radius: 3px;
-  padding: 1px 4px;
+  border-radius: 2px;
+  padding: 0 2px;
 }
 
-:global(.dark) .report-mini-md .mini-inline-code {
+:global(.dark) .dc-mini-md .mini-inline-code {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.report-mini-md strong {
+.dc-mini-md strong {
   font-weight: 650;
 }
 
-.report-mini-md em {
+.dc-mini-md em {
   font-style: italic;
   opacity: 0.85;
 }
 
 /* ===== Skeleton Lines ===== */
-.vp-skeleton-lines {
+.dc-skeleton-lines {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .skeleton-line {
-  height: 6px;
-  border-radius: 3px;
+  height: 5px;
+  border-radius: 2px;
   background: var(--bolt-elements-borderColor);
   animation: line-appear 0.6s ease-out both;
 }
@@ -1123,7 +1202,7 @@ const sizeClass = computed(() => {
 }
 
 .loading-label {
-  font-size: 13px;
+  font-size: 10px;
   color: var(--bolt-elements-textSecondary);
 }
 
@@ -1133,7 +1212,7 @@ const sizeClass = computed(() => {
 }
 
 .empty-label {
-  font-size: 13px;
+  font-size: 10px;
   color: var(--bolt-elements-textTertiary);
 }
 
@@ -1143,11 +1222,11 @@ const sizeClass = computed(() => {
 }
 
 .fallback-label {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--bolt-elements-textSecondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
 }
 
 /* ===== Activity Dot ===== */

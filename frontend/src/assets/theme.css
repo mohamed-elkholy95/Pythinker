@@ -1,7 +1,7 @@
 :root,
 :root[data-theme="light"] {
-  --font-sans: "Instrument Sans", "SF Pro Text", "Segoe UI", sans-serif;
-  --font-display: "Instrument Serif", "Iowan Old Style", "Times New Roman",
+  --font-sans: "Libre Baskerville", "Instrument Sans", "SF Pro Text", "Segoe UI", sans-serif;
+  --font-display: "Libre Baskerville", "Iowan Old Style", "Times New Roman",
     serif;
   --font-normal: 400;
   --font-medium: 500;

@@ -14,7 +14,7 @@
       y="24"
       text-anchor="start"
       fill="var(--logo-color)"
-      font-family="'Instrument Sans', var(--font-sans)"
+      font-family="'Libre Baskerville', var(--font-display)"
       font-size="28"
       letter-spacing="-0.045em"
       text-rendering="geometricPrecision"

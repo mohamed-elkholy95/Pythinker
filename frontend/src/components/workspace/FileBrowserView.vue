@@ -220,7 +220,7 @@ watch(() => props.sessionId, () => {
   flex-direction: column;
   height: 100%;
   background: var(--background-white-main, #ffffff);
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .browser-header {

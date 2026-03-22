@@ -51,7 +51,7 @@ const buildConfig = (): MermaidConfig => ({
   startOnLoad: false,
   securityLevel: 'strict',
   theme: isDarkMode() ? 'dark' : 'default',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  fontFamily: '"Libre Baskerville", "Instrument Sans", "SF Pro Text", "Segoe UI", sans-serif',
   fontSize: 14,
   logLevel: 'error',
   flowchart: { curve: 'basis', padding: 16, useMaxWidth: true },

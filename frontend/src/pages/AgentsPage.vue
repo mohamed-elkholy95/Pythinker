@@ -338,7 +338,7 @@ onMounted(async () => {
   margin: 0;
   text-align: center;
   font-size: clamp(34px, 4vw, 50px);
-  font-family: "Georgia", "Times New Roman", serif;
+  font-family: var(--font-display);
   line-height: 1.08;
   color: #1f2a37;
   letter-spacing: -0.02em;
@@ -468,7 +468,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 26px;
   line-height: 1.18;
-  font-family: "Georgia", "Times New Roman", serif;
+  font-family: var(--font-display);
   color: #1f2a37;
   letter-spacing: -0.01em;
 }
@@ -538,7 +538,7 @@ onMounted(async () => {
 .agents-linked h1 {
   margin: 0;
   font-size: clamp(28px, 3vw, 40px);
-  font-family: "Georgia", "Times New Roman", serif;
+  font-family: var(--font-display);
   color: #111827;
 }
 
