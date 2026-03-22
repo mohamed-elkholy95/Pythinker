@@ -118,26 +118,31 @@
               <Plus :size="14" />
             </button>
           </button>
-          <div v-show="projectsExpanded" class="nav-section-collapsible">
-            <button
-              v-for="proj in projects.slice(0, 8)"
-              :key="proj.id"
-              class="nav-item nav-item-compact"
-              :class="{ 'nav-item-active': route.params.projectId === proj.id }"
-              type="button"
-              @click="router.push(`/chat/projects/${proj.id}`)"
-            >
-              <Folder class="nav-icon" :size="14" />
-              <span class="truncate">{{ proj.name }}</span>
-            </button>
-            <button
-              v-if="projects.length > 8"
-              class="nav-item nav-item-view-all"
-              type="button"
-              @click="router.push('/chat/projects')"
-            >
-              <span class="text-xs text-[var(--text-tertiary)]">{{ t('View all') }}</span>
-            </button>
+          <div
+            class="nav-section-collapsible"
+            :class="{ 'nav-section-collapsible-open': projectsExpanded }"
+          >
+            <div class="nav-section-collapsible-inner">
+              <button
+                v-for="proj in projects.slice(0, 8)"
+                :key="proj.id"
+                class="nav-item nav-item-compact"
+                :class="{ 'nav-item-active': route.params.projectId === proj.id }"
+                type="button"
+                @click="router.push(`/chat/projects/${proj.id}`)"
+              >
+                <Folder class="nav-icon" :size="14" />
+                <span class="truncate">{{ proj.name }}</span>
+              </button>
+              <button
+                v-if="projects.length > 8"
+                class="nav-item nav-item-view-all"
+                type="button"
+                @click="router.push('/chat/projects')"
+              >
+                <span class="text-xs text-[var(--text-tertiary)]">{{ t('View all') }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -780,7 +785,7 @@ watch(() => route.path, async (newPath, oldPath) => {
 
 .nav-section-chevron {
   color: var(--text-tertiary);
-  transition: transform 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
 }
 
@@ -821,6 +826,20 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 .nav-section-collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease;
+  opacity: 0;
+}
+
+.nav-section-collapsible-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.nav-section-collapsible-inner {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 1px;
