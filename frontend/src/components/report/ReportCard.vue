@@ -194,29 +194,7 @@ const getSuggestionIcon = (index: number) => {
 const processedContent = computed(() => {
   if (!normalizedReportContent.value) return '';
 
-  const lines = normalizedReportContent.value.split('\n');
-  const cleaned: string[] = [];
-  let index = 0;
-  let scanned = 0;
-
-  while (index < lines.length && lines[index].trim() === '') index += 1;
-
-  for (; index < lines.length; index += 1) {
-    const raw = lines[index];
-    const line = raw.trim();
-    const isMetaLine = /^(?:[-*]\s*)?(?:\*\*)?(date|author)(?:\*\*)?\s*:/i.test(line);
-
-    // Strip top metadata lines (Date/Author) in any order.
-    if (scanned < 8 && isMetaLine) {
-      scanned += 1;
-      continue;
-    }
-
-    cleaned.push(raw);
-    scanned += 1;
-  }
-
-  const normalized = cleaned.join('\n').replace(/^\n+/, '').trim();
+  const normalized = normalizedReportContent.value.replace(/^\n+/, '').trim();
   if (normalized.length <= 1900) return normalized;
 
   // Find a safe cut point at a paragraph/section boundary to avoid
