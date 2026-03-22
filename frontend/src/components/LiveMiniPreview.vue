@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="containerRef"
     class="live-mini-preview"
     :class="sizeClass"
     @click="emit('click')"
@@ -8,7 +9,7 @@
          Scaled viewport — only for browser screencast / live views
          Renders at 355x284 then CSS-scaled to fit container
          ============================================================ -->
-    <div v-if="useScaledViewport" class="mini-viewport">
+    <div v-if="useScaledViewport" class="mini-viewport" :style="viewportTransformStyle">
 
       <!-- Initializing state -->
       <div v-if="isInitializing" class="vp-centered">
@@ -156,12 +157,17 @@
         <div v-if="isActive" class="activity-dot"></div>
       </div>
 
-      <!-- Editor view -->
+      <!-- Editor view — markdown files get rich rendering, others get code view -->
       <div v-else-if="currentViewType === 'editor' && contentPreview" class="dc-panel">
         <div class="dc-header">
           <span class="dc-header-title">{{ fileName }}</span>
         </div>
-        <div class="dc-body dc-body-code">
+        <div v-if="isMarkdownFile" class="dc-body">
+          <div class="dc-md-text">
+            <div class="dc-mini-md" v-html="renderedEditorMarkdown"></div>
+          </div>
+        </div>
+        <div v-else class="dc-body dc-body-code">
           <pre class="dc-code-text">{{ contentPreview }}</pre>
         </div>
         <div v-if="isActive" class="activity-dot"></div>
@@ -229,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, toRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
@@ -419,12 +425,19 @@ const reportPreviewText = computed(() => {
   return '';
 });
 
+/** Inline markdown: bold, italic, inline code */
+function inlineFormat(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, '<code class="mini-inline-code">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
 /**
  * Lightweight markdown → HTML for mini preview.
  * Renders headings, code blocks, bold, italic, lists, and horizontal rules.
  */
-const renderedMiniMarkdown = computed(() => {
-  const raw = isPlanningPhase.value ? (props.planPresentationText || '') : reportPreviewText.value;
+function renderMarkdownToMiniHtml(raw: string): string {
   if (!raw) return '';
 
   const escaped = raw
@@ -507,15 +520,23 @@ const renderedMiniMarkdown = computed(() => {
   }
 
   return html.join('');
+}
+
+const renderedMiniMarkdown = computed(() => {
+  const raw = isPlanningPhase.value ? (props.planPresentationText || '') : reportPreviewText.value;
+  return renderMarkdownToMiniHtml(raw);
 });
 
-/** Inline markdown: bold, italic, inline code */
-function inlineFormat(text: string): string {
-  return text
-    .replace(/`([^`]+)`/g, '<code class="mini-inline-code">$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
-}
+/** Detect markdown files for rich rendering in editor view */
+const isMarkdownFile = computed(() => {
+  const path = (props.filePath || '').toLowerCase();
+  return path.endsWith('.md') || path.endsWith('.mdx') || path.endsWith('.markdown');
+});
+
+const renderedEditorMarkdown = computed(() => {
+  if (!isMarkdownFile.value || !props.contentPreview) return '';
+  return renderMarkdownToMiniHtml(props.contentPreview);
+});
 
 // Track whether the live preview has been shown at least once this session to prevent
 // flicker when tool context briefly becomes empty between tool calls.
@@ -675,6 +696,43 @@ const sizeClass = computed(() => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Dynamic viewport scaling — ResizeObserver tracks actual container dimensions
+// so the 355x284 viewport scales correctly at ANY size, including when the
+// parent overrides dimensions (e.g., floating thumbnail at 100x68).
+// ---------------------------------------------------------------------------
+const containerRef = ref<HTMLElement | null>(null);
+const containerWidth = ref(340);
+const containerHeight = ref(240);
+
+let resizeObserver: ResizeObserver | null = null;
+
+onMounted(() => {
+  if (!containerRef.value) return;
+  // Use clientWidth/clientHeight (content + padding, excludes border) to match
+  // the coordinate space of position:absolute children inside the element.
+  containerWidth.value = containerRef.value.clientWidth || 340;
+  containerHeight.value = containerRef.value.clientHeight || 240;
+
+  resizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (entry) {
+      // contentRect matches clientWidth/clientHeight — excludes border
+      containerWidth.value = entry.contentRect.width;
+      containerHeight.value = entry.contentRect.height;
+    }
+  });
+  resizeObserver.observe(containerRef.value);
+});
+
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+});
+
+const viewportTransformStyle = computed(() => ({
+  transform: `scale(${containerWidth.value / 355}, ${containerHeight.value / 284})`,
+}));
+
 /**
  * Determines whether to use the scale-transformed viewport (for browser/live
  * views) or direct-render panels (for text content like reports, terminal, code).
@@ -715,22 +773,26 @@ const useScaledViewport = computed(() => {
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
-  max-width: 100%;
+  /* Fill parent width, derive height from aspect-ratio.
+     When a parent sets both width+height (e.g. floating thumbnail),
+     the explicit height overrides auto and aspect-ratio is ignored. */
+  width: 100%;
+  height: auto;
 }
 
 .live-mini-preview:hover {
   transform: scale(1.03);
 }
 
-/* Size variants (outer container dimensions) */
-.size-sm { width: 240px; height: 170px; }
-.size-md { width: 340px; height: 240px; }
-.size-lg { width: 400px; height: 280px; }
+/* Size variants — max-width caps growth, aspect-ratio gives intrinsic height */
+.size-sm { max-width: 240px; aspect-ratio: 240 / 170; }
+.size-md { max-width: 340px; aspect-ratio: 340 / 240; }
+.size-lg { max-width: 400px; aspect-ratio: 400 / 280; }
 
 @media (max-width: 640px) {
-  .size-sm { width: 180px; height: 128px; }
-  .size-md { width: 260px; height: 184px; }
-  .size-lg { width: 320px; height: 226px; }
+  .size-sm { max-width: 180px; aspect-ratio: 180 / 128; }
+  .size-md { max-width: 260px; aspect-ratio: 260 / 184; }
+  .size-lg { max-width: 320px; aspect-ratio: 320 / 226; }
 }
 
 /* ===== Scale-Transform Viewport ===== */
@@ -746,17 +808,7 @@ const useScaledViewport = computed(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--bolt-elements-bg-depth-1);
-}
-
-/* Non-uniform scale: scaleX = width/355, scaleY = height/284 */
-.size-sm .mini-viewport { transform: scale(0.676, 0.599); }
-.size-md .mini-viewport { transform: scale(0.958, 0.845); }
-.size-lg .mini-viewport { transform: scale(1.127, 0.986); }
-
-@media (max-width: 640px) {
-  .size-sm .mini-viewport { transform: scale(0.507, 0.451); }
-  .size-md .mini-viewport { transform: scale(0.732, 0.648); }
-  .size-lg .mini-viewport { transform: scale(0.901, 0.796); }
+  /* transform is set dynamically via :style binding (ResizeObserver) */
 }
 
 /* ===== Direct-Content Wrapper (text panels, no scaling) ===== */
@@ -766,6 +818,8 @@ const useScaledViewport = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container-type: size;
+  container-name: dc;
 }
 
 /* ===== Direct-Content Panel Layout ===== */
@@ -778,12 +832,12 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-header {
-  height: 24px;
+  height: clamp(14px, 10cqh, 24px);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: clamp(2px, 1.2cqw, 4px);
+  padding: 0 clamp(4px, 2.4cqw, 8px);
   background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
@@ -805,7 +859,7 @@ const useScaledViewport = computed(() => {
 
 .dc-header-title {
   max-width: 95%;
-  font-size: 10px;
+  font-size: clamp(6px, 2.9cqw, 11px);
   font-weight: 600;
   color: var(--bolt-elements-textPrimary);
   text-align: center;
@@ -824,10 +878,10 @@ const useScaledViewport = computed(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin: 4px;
-  padding: 6px 8px;
+  margin: clamp(2px, 1.2cqw, 5px);
+  padding: clamp(3px, 1.8cqw, 7px) clamp(4px, 2.4cqw, 9px);
   background: var(--bolt-elements-bg-depth-2);
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 .dc-centered {
@@ -857,8 +911,8 @@ const useScaledViewport = computed(() => {
 .search-result-row {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  padding: 5px 8px;
+  gap: clamp(3px, 1.8cqw, 6px);
+  padding: clamp(2px, 1.5cqw, 5px) clamp(4px, 2.4cqw, 8px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }
@@ -872,8 +926,8 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-favicon {
-  width: 14px;
-  height: 14px;
+  width: clamp(8px, 4.1cqw, 16px);
+  height: clamp(8px, 4.1cqw, 16px);
   flex-shrink: 0;
   margin-top: 1px;
   border-radius: 50%;
@@ -881,15 +935,15 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-favicon-fallback {
-  width: 14px;
-  height: 14px;
+  width: clamp(8px, 4.1cqw, 16px);
+  height: clamp(8px, 4.1cqw, 16px);
   flex-shrink: 0;
   margin-top: 1px;
   border-radius: 50%;
   border: 1px solid var(--bolt-elements-borderColor);
   background: var(--bolt-elements-bg-depth-2);
   color: var(--bolt-elements-textTertiary);
-  font-size: 10px;
+  font-size: clamp(6px, 2.9cqw, 11px);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -906,24 +960,24 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-title {
-  font-size: 11px;
+  font-size: clamp(7px, 3.2cqw, 12px);
   font-weight: 500;
   color: var(--bolt-elements-textPrimary);
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .sr-snippet {
-  font-size: 10px;
+  font-size: clamp(6px, 2.9cqw, 11px);
   color: var(--bolt-elements-textTertiary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.3;
+  line-height: 1.25;
   margin-top: 1px;
 }
 
@@ -934,8 +988,8 @@ const useScaledViewport = computed(() => {
 
 .dc-terminal-text {
   font-family: inherit;
-  font-size: 9.5px;
-  line-height: 1.45;
+  font-size: clamp(6px, 2.8cqw, 10px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -954,8 +1008,8 @@ const useScaledViewport = computed(() => {
 
 .dc-code-text {
   font-family: inherit;
-  font-size: 9.5px;
-  line-height: 1.45;
+  font-size: clamp(6px, 2.8cqw, 10px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1001,6 +1055,7 @@ const useScaledViewport = computed(() => {
 
 /* ===== Live Preview ===== */
 .vp-live {
+  position: relative;
   width: 100%;
   height: 100%;
 }
@@ -1037,15 +1092,15 @@ const useScaledViewport = computed(() => {
 
 .dc-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 8.5px;
-  line-height: 1.4;
+  font-size: clamp(5.5px, 2.5cqw, 9px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
 }
 
 .dc-mini-md .mini-h1 {
-  font-size: 10px;
+  font-size: clamp(7px, 2.9cqw, 11px);
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
   margin: 0 0 2px;
@@ -1055,7 +1110,7 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-mini-md .mini-h2 {
-  font-size: 9.5px;
+  font-size: clamp(6.5px, 2.8cqw, 10px);
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
   margin: 2px 0 1px;
@@ -1063,7 +1118,7 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-mini-md .mini-h3 {
-  font-size: 9px;
+  font-size: clamp(6px, 2.6cqw, 10px);
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
   margin: 2px 0 1px;
@@ -1086,7 +1141,7 @@ const useScaledViewport = computed(() => {
   position: absolute;
   left: 0;
   color: var(--bolt-elements-textTertiary);
-  font-size: 8px;
+  font-size: clamp(5px, 2.4cqw, 9px);
 }
 
 .dc-mini-md .mini-li-num::before {
@@ -1121,8 +1176,8 @@ const useScaledViewport = computed(() => {
 .dc-mini-md .mini-code-block pre {
   margin: 0;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 7px;
-  line-height: 1.3;
+  font-size: clamp(5px, 2.1cqw, 8px);
+  line-height: 1.25;
   color: #e1e4e8;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1132,16 +1187,16 @@ const useScaledViewport = computed(() => {
   position: absolute;
   top: 2px;
   right: 4px;
-  font-size: 6px;
+  font-size: clamp(4px, 1.8cqw, 7px);
   font-weight: 600;
   color: #6a737d;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
 .dc-mini-md .mini-inline-code {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 7.5px;
+  font-size: clamp(5px, 2.2cqw, 8px);
   background: rgba(175, 184, 193, 0.15);
   border-radius: 2px;
   padding: 0 2px;
@@ -1182,12 +1237,12 @@ const useScaledViewport = computed(() => {
 /* ===== Loading Dots ===== */
 .loading-dots {
   display: flex;
-  gap: 5px;
+  gap: clamp(3px, 1.5cqw, 5px);
 }
 
 .loading-dots .dot {
-  width: 6px;
-  height: 6px;
+  width: clamp(3px, 1.8cqw, 6px);
+  height: clamp(3px, 1.8cqw, 6px);
   border-radius: 50%;
   background: var(--bolt-elements-textSecondary);
   animation: bounce 1.4s infinite ease-in-out both;
@@ -1202,7 +1257,7 @@ const useScaledViewport = computed(() => {
 }
 
 .loading-label {
-  font-size: 10px;
+  font-size: clamp(7px, 2.9cqw, 11px);
   color: var(--bolt-elements-textSecondary);
 }
 
@@ -1212,7 +1267,7 @@ const useScaledViewport = computed(() => {
 }
 
 .empty-label {
-  font-size: 10px;
+  font-size: clamp(7px, 2.9cqw, 11px);
   color: var(--bolt-elements-textTertiary);
 }
 
@@ -1222,7 +1277,7 @@ const useScaledViewport = computed(() => {
 }
 
 .fallback-label {
-  font-size: 11px;
+  font-size: clamp(7px, 3.2cqw, 12px);
   font-weight: 500;
   color: var(--bolt-elements-textSecondary);
   text-transform: uppercase;
