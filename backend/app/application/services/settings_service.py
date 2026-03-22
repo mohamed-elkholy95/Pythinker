@@ -170,7 +170,11 @@ class SettingsService:
                 actual_api_base = getattr(llm, "_api_base", actual_api_base)
         except Exception:
             logger.debug("Could not read live LLM config, using env var defaults")
-        return {"model_name": actual_model, "api_base": actual_api_base}
+        return {
+            "model_name": actual_model,
+            "api_base": actual_api_base,
+            "model_display_name": config.model_display_name,
+        }
 
 
 @lru_cache
