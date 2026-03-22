@@ -2,10 +2,27 @@
 
 import pytest
 
+# Env vars in local .env that override defaults under test.
+# Map each to its code-level default so os.environ takes precedence over .env.
+_CHANNEL_ENV_DEFAULTS = {
+    "CHANNEL_GATEWAY_ENABLED": "false",
+    "TELEGRAM_BOT_TOKEN": "",
+    "TELEGRAM_REQUIRE_LINKED_ACCOUNT": "false",
+    "TELEGRAM_PDF_FORCE_LONG_TEXT": "false",
+    "TELEGRAM_PDF_MESSAGE_MIN_CHARS": "3500",
+    "TELEGRAM_PDF_REPORT_MIN_CHARS": "2000",
+}
+
 
 @pytest.fixture()
-def settings():
-    """Get a fresh Settings instance (bypasses lru_cache)."""
+def settings(monkeypatch):
+    """Get a fresh Settings with channel fields forced to their code-level defaults.
+
+    Pydantic-settings precedence: env vars > .env file > field defaults.
+    We set env vars to the expected defaults so the local .env doesn't interfere.
+    """
+    for var, default in _CHANNEL_ENV_DEFAULTS.items():
+        monkeypatch.setenv(var, default)
     from app.core.config import Settings
 
     return Settings()
