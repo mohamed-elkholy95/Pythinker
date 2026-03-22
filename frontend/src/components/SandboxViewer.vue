@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
