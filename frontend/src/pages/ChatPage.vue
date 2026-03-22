@@ -2459,7 +2459,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     const incoming = (messageData.content || '').trim();
     if (incoming.includes(agentModeOriginalPrompt.value)) {
       agentModeOriginalPrompt.value = null;
-      console.debug('Suppressed agent-mode guided prompt echo');
       return;
     }
     agentModeOriginalPrompt.value = null;
@@ -2488,7 +2487,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
       if (messages.value[i].type === 'assistant') {
         const lastAssistantContent = messages.value[i].content as MessageContent;
         if (lastAssistantContent.content === messageData.content) {
-          console.debug('Skipping duplicate assistant message:', messageData.content?.slice(0, 50));
           return;
         }
         break; // Only check the most recent assistant message
@@ -3548,8 +3546,6 @@ const finalizeSession = (
     return;
   }
 
-  console.log('[FINALIZE]', reason, 'sessionId:', sessionId.value, 'status:', status);
-
   normalizeTransientTools({
     messages: messages.value,
     toolTimeline: toolTimeline.value,
@@ -3715,28 +3711,14 @@ const eventRegistry = createEventHandlerRegistry({
   flow_transition: (data) => handleFlowTransitionEvent(data),
   verification: (data) => handleVerificationEvent(data),
   reflection: (data) => handleReflectionEvent(data),
-  eval_metrics: (data) => {
-    const metrics = data as import('../types/event').EvalMetricsEventData
-    console.debug('[EvalMetrics]', metrics.passed ? 'PASSED' : 'WARN', `hallucination=${metrics.hallucination_score}`)
-  },
-  partial_result: (data) => {
+  eval_metrics: () => { /* metrics logged via sseDiagnostics if needed */ },
+  partial_result: () => {
     // TODO: Wire into PartialResults.vue component when created (incomplete feature from March 2026 sprint).
-    // Backend emits headline + sources_count per step — currently logged only, not displayed.
-    const pr = data as import('../types/event').PartialResultEventData
-    console.debug('[PartialResult]', `step=${pr.step_index}`, pr.step_title, pr.headline)
   },
-  attachments: (_data) => {
-    console.debug('[Attachments] received standalone attachments event')
-  },
-  wide_research: (data) => {
-    console.debug('[WideResearch]', (data as import('../types/event').WideResearchEventData).status)
-  },
-  deep_research: (data) => {
-    console.debug('[DeepResearch]', (data as import('../types/event').DeepResearchEventData).status)
-  },
-  skill: (data) => {
-    console.debug('[Skill]', data)
-  },
+  attachments: () => { /* standalone attachments event — no UI handler yet */ },
+  wide_research: () => { /* handled by research workflow composable */ },
+  deep_research: () => { /* handled by research workflow composable */ },
+  skill: () => { /* skill events — no UI handler yet */ },
 })
 
 // Process a single event (extracted from handleEvent for batching)
@@ -3744,7 +3726,6 @@ const processEvent = (event: AgentSSEEvent) => {
   // Deduplicate events based on event_id to prevent duplicate messages
   const eventId = event.data?.event_id;
   if (streamController.isDuplicateEvent(eventId)) {
-    console.debug('Skipping duplicate event:', eventId);
     logChatSseDiagnostics('event:duplicate_skipped', {
       event: event.event,
       eventId,
@@ -3790,10 +3771,9 @@ const processEvent = (event: AgentSSEEvent) => {
   let handled = false;
   try {
     handled = dispatchEvent(eventRegistry, event.event, event.data)
-  } catch (err) {
+  } catch {
     // Swallow stale-context errors silently — the new module will re-register
-    // handlers on next HMR cycle. Log at debug level for development visibility.
-    console.debug('[SSE] Event handler error (likely HMR stale context):', event.event, err);
+    // handlers on next HMR cycle.
     return;
   }
   if (!handled) {
@@ -3872,7 +3852,6 @@ const chat = async (
   // Prevent duplicate message submission within 2 seconds
   const now = Date.now();
   if (normalizedMessage && normalizedMessage === lastSentMessage && now - lastSentTime < 2000) {
-    console.debug('Preventing duplicate message submission');
     return;
   }
   if (normalizedMessage) {
@@ -4039,9 +4018,8 @@ const chat = async (
 
 let restoreEpoch = 0;
 
-const invalidateRestoreEpoch = (reason: string) => {
+const invalidateRestoreEpoch = (_reason: string) => {
   restoreEpoch += 1;
-  console.log('[RESTORE] Invalidate restore epoch', restoreEpoch, 'reason:', reason);
 };
 
 type RestoreContext = 'mount' | 'route_update' | 'session_create';
@@ -4056,7 +4034,7 @@ const restoreSession = async (
   }
 
   const epoch = ++restoreEpoch;
-  const shouldAbortRestore = (checkpoint: string): boolean => {
+  const shouldAbortRestore = (_checkpoint: string): boolean => {
     const reason = getRestoreAbortReason({
       epoch,
       activeEpoch: restoreEpoch,
@@ -4064,15 +4042,6 @@ const restoreSession = async (
       currentSessionId: sessionId.value,
     });
     if (!reason) return false;
-    console.log('[RESTORE] Stale epoch detected, aborting', {
-      checkpoint,
-      reason,
-      context,
-      targetSessionId,
-      epoch,
-      activeEpoch: restoreEpoch,
-      currentSessionId: sessionId.value,
-    });
     return true;
   };
 
@@ -4084,7 +4053,6 @@ const restoreSession = async (
     if (shouldAbortRestore('after_get_persisted_event_id')) return;
     if (savedEventId) {
       lastEventId.value = savedEventId;
-      console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
     }
 
     const session = await agentApi.getSession(targetSessionId);
@@ -4097,8 +4065,6 @@ const restoreSession = async (
     if (session.title?.trim()) {
       title.value = session.title;
     }
-    console.log('[RESTORE] Session:', targetSessionId, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
-
     // Initialize share mode based on session state
     initShareFromSession(!!session.is_shared);
     realTime.value = false;
@@ -4135,7 +4101,6 @@ const restoreSession = async (
       const freshStatus = await agentApi.getSessionStatus(targetSessionId);
       if (shouldAbortRestore('after_status_recheck')) return;
       if (freshStatus && isTerminalSessionStatus(freshStatus.status as SessionStatus)) {
-        console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
         finalizeSession('reconcile', freshStatus.status as SessionStatus);
         return;
       }
@@ -4160,11 +4125,9 @@ const restoreSession = async (
         }
 
         if (isStale) {
-          console.log('[RESTORE] Stop flag is stale (>60s or old format), removing and resuming');
           sessionStorage.removeItem(stoppedKey);
           // Fall through to auto-resume below
         } else {
-          console.log('[RESTORE] Session was recently stopped, not auto-resuming');
           sessionStorage.removeItem(stoppedKey);
           return;
         }
@@ -4173,7 +4136,6 @@ const restoreSession = async (
       if (shouldAbortRestore('before_auto_resume')) return;
 
       // No stop flag - safe to auto-resume
-      console.log('[RESTORE] No stop flag, auto-resuming session');
       await chat('', [], { skipOptimistic: true });
       if (shouldAbortRestore('after_auto_resume')) return;
     } else if (isTerminalSessionStatus(sessionStatus.value)) {
@@ -4335,7 +4297,6 @@ watch(documentVisibility, async (newVisibility) => {
     const status = await agentApi.getSessionStatus(activeSessionId);
     if (sessionId.value !== activeSessionId) return;
     if (status.status !== sessionStatus.value) {
-      console.log('[VISIBILITY] Session status changed while away:', sessionStatus.value, '->', status.status);
       const nextStatus = status.status as SessionStatus;
       if (isTerminalSessionStatus(nextStatus)) {
         finalizeSession('visibility', nextStatus);
@@ -4349,7 +4310,6 @@ watch(documentVisibility, async (newVisibility) => {
       return;
     }
     // Other transient errors — session may still exist
-    console.log('[VISIBILITY] Session status check failed, session may no longer exist');
   }
 });
 
