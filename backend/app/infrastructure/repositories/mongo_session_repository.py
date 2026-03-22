@@ -41,6 +41,8 @@ ALLOWED_SESSION_UPDATE_FIELDS: frozenset[str] = frozenset(
         "budget_paused",
         # Multi-task
         "multi_task_challenge",
+        # Project linking
+        "project_id",
         # Session state
         "title",
         "status",
