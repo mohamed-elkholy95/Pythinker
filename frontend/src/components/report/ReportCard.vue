@@ -109,7 +109,7 @@
           class="report-markdown-preview"
           :content="processedContent"
           :compact="true"
-          :hideMainTitleInCompact="false"
+          :hideMainTitleInCompact="true"
           :sources="report.sources"
         />
       </div>
