@@ -182,9 +182,7 @@ class MongoSessionRepository(SessionRepository):
                 f["session_id"] = session_id
                 f["session_title"] = session_title
                 f["session_created_at"] = created_at.isoformat() if created_at else None
-                f["session_latest_at"] = (
-                    int(latest_at.timestamp()) if latest_at else None
-                )
+                f["session_latest_at"] = int(latest_at.timestamp()) if latest_at else None
                 results.append(f)
         return results
 
