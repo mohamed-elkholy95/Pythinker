@@ -52,7 +52,6 @@
         :enabled="enabled"
         :show-stats="showStats"
         :show-agent-actions="showAgentActions"
-        :show-agent-cursor="showAgentCursor"
         :hide-local-cursor="viewOnly"
         @frame-received="onFrameReceived"
       />
@@ -155,7 +154,6 @@ const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
 const showAgentActions = computed(() => !props.viewOnly)
-const showAgentCursor = computed(() => !props.viewOnly)
 const showBrowserInteractionOverlay = computed(() => !props.viewOnly)
 const liveStreamCursorStyle = computed(() => (
   props.viewOnly
@@ -703,7 +701,7 @@ onBeforeUnmount(() => {
  */
 function processToolEvent(event: ToolEventData): void {
   try {
-    if (showAgentActions.value || showAgentCursor.value) {
+    if (showAgentActions.value) {
       liveStageRef.value?.processToolEvent(event)
     }
     if (showBrowserInteractionOverlay.value) {
