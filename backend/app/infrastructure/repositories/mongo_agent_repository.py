@@ -51,8 +51,11 @@ class WriteCoalescer:
         # Execute all writes
         for key, (agent_id, name, memory) in batch.items():
             try:
+                # model_dump() excludes MemoryConfig (exclude=True) which is a
+                # plain dataclass that beanie's BSON encoder cannot serialize.
+                memory_dict = memory.model_dump() if hasattr(memory, "model_dump") else memory
                 await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
-                    {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
+                    {"$set": {f"memories.{name}": memory_dict, "updated_at": datetime.now(UTC)}}
                 )
             except (ConnectionFailure, OperationFailure) as e:
                 logger.warning("Coalesced write failed for %s: %s", key, e)
@@ -121,8 +124,9 @@ class MongoAgentRepository(AgentRepository):
 
     async def add_memory(self, agent_id: str, name: str, memory: Memory) -> None:
         """Add or update a memory for an agent"""
+        memory_dict = memory.model_dump() if hasattr(memory, "model_dump") else memory
         result = await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
-            {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
+            {"$set": {f"memories.{name}": memory_dict, "updated_at": datetime.now(UTC)}}
         )
         if not result:
             raise AgentNotFoundException(agent_id)
@@ -141,8 +145,9 @@ class MongoAgentRepository(AgentRepository):
             await get_write_coalescer().schedule_write(agent_id, name, memory)
         else:
             # Direct write
+            memory_dict = memory.model_dump() if hasattr(memory, "model_dump") else memory
             result = await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
-                {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
+                {"$set": {f"memories.{name}": memory_dict, "updated_at": datetime.now(UTC)}}
             )
             if not result:
                 raise AgentNotFoundException(agent_id)
