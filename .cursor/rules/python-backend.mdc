@@ -1,0 +1,63 @@
+---
+description: FastAPI + Pydantic v2 + DDD backend rules for the pythinker conda env
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Python Backend Standards
+
+## Environment
+- Always `conda activate pythinker` before running tests or tools.
+- Lint: `ruff check . && ruff format --check .` before every commit.
+- Tests: `pytest tests/` (or `pytest -p no:cov -o addopts= tests/test_file.py` for single file).
+
+## Pydantic v2
+```python
+# ✅ Validators must be @classmethod
+@field_validator("field_name")
+@classmethod
+def validate_field(cls, v: str) -> str: ...
+
+# ✅ Use @computed_field for derived properties
+@computed_field
+@property
+def derived(self) -> str: ...
+
+# ✅ model_validator
+@model_validator(mode="after")
+def validate_model(self) -> "MyModel": ...
+```
+
+## FastAPI
+- Use `lifespan` context manager (not deprecated `on_event`).
+- Return typed Pydantic response models — no raw dicts.
+- Route logic delegates to application layer services — no business logic in routes.
+
+## HTTP Clients
+```python
+# ❌ Never
+client = httpx.AsyncClient()
+
+# ✅ Always
+from app.infrastructure.http.client_pool import HTTPClientPool
+pool = HTTPClientPool.get_instance()
+```
+
+## API Key Pools
+```python
+# ✅ For external APIs (search, LLM, embeddings)
+from app.infrastructure.api_keys import APIKeyPool
+pool = APIKeyPool(keys=[...], strategy=RotationStrategy.FAILOVER)
+key = await pool.get_healthy_key_or_wait()
+```
+
+## Error Handling
+```python
+# ✅ Always log type + repr — never str() alone (can be empty)
+logger.error(f"{type(e).__name__}: {repr(e)}")
+```
+
+## Naming
+- Functions/methods: `snake_case`
+- Classes: `PascalCase`
+- Abstract interfaces: `Abstract` prefix or Protocol class
