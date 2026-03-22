@@ -69,7 +69,7 @@
               {{
                 project.instructions
                   ? truncateText(project.instructions, 80)
-                  : 'Add instructions to tailor Pythinker\'s responses'
+                  : "Add instructions to tailor Pythinker's responses"
               }}
             </p>
             <button
@@ -104,7 +104,7 @@
               <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
             </div>
             <p class="sidebar-section-desc">
-              Upload files to share context across all tasks in this project
+              Start by attaching files to your project.
             </p>
             <button
               class="sidebar-upload-btn"
@@ -131,7 +131,7 @@
               <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
             </div>
             <p class="sidebar-section-desc">
-              Add skills to extend Pythinker's capabilities for this project
+              Add skills to enhance Pythinker's know-how.
             </p>
             <button
               class="sidebar-add-btn"
@@ -596,8 +596,6 @@ async function handleSaveInstructions(instructions: string) {
   justify-content: center;
   gap: 12px;
   padding: 48px 24px;
-  border-radius: 12px;
-  border: 1px dashed var(--border-main);
   color: var(--text-tertiary);
   font-size: 14px;
 }
