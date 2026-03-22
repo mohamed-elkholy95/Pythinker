@@ -80,12 +80,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             ]
         else:
             # Development: Relaxed CSP for local development
+            # No unsafe-eval or unsafe-inline in default-src/script-src to maintain XSS protection.
+            # unsafe-inline kept only for style-src (Vite injects inline styles during dev).
             csp_directives = [
-                "default-src 'self' 'unsafe-inline' 'unsafe-eval'",
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                "default-src 'self'",
+                "script-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data: https: http:",
                 "connect-src 'self' ws: wss: http: https:",  # Allow WebSocket for hot reload
+                "font-src 'self' data:",
             ]
 
         headers["Content-Security-Policy"] = "; ".join(csp_directives)
@@ -162,9 +165,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Relax CSP for API documentation endpoints
         if path in self.RELAXED_CSP_PATHS:
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "default-src 'self'; "
                 "img-src 'self' data: https:; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;"
             )
 
@@ -180,6 +183,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Public cache for static assets (health checks, public endpoints)
         elif path in {"/health", "/health/live", "/health/ready"}:
             response.headers["Cache-Control"] = "public, max-age=60"
+
+        # Ensure HTML responses include charset=utf-8 (Lighthouse best practice)
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type and "charset" not in content_type:
+            response.headers["content-type"] = content_type + "; charset=utf-8"
 
         return response
 
