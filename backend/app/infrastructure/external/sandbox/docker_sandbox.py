@@ -493,6 +493,9 @@ class DockerSandbox(Sandbox):
                     "dbus",
                     # gh_auth_setup is a one-shot that exits after configuring git.
                     "gh_auth_setup",
+                    # hide_x11_cursor is a one-shot that hides the X11 cursor
+                    # via XFIXES extension and exits immediately.
+                    "hide_x11_cursor",
                     # code_server is optional (disabled by default); enters
                     # FATAL when ENABLE_CODE_SERVER is unset/false.
                     "code_server",
