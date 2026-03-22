@@ -297,8 +297,6 @@ async function handleFileUpload(event: Event) {
       const uploaded = await uploadFile(file)
       newFileIds.push(uploaded.file_id)
       fileNameMap.value[uploaded.file_id] = uploaded.filename
-      // Also add to attachments for session creation
-      attachments.value.push(uploaded)
     } catch (err) {
       console.error('File upload failed:', err)
     }
