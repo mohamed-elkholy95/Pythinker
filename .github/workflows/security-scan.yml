@@ -123,6 +123,7 @@ jobs:
           output: "trivy-${{ matrix.image.name }}.sarif"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          trivyignores: "${{ matrix.image.context }}/.trivyignore"
 
       - name: Upload Trivy SARIF to GitHub Security
         if: steps.build.outcome == 'success' && hashFiles(format('trivy-{0}.sarif', matrix.image.name)) != ''
