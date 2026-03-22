@@ -1612,6 +1612,9 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "deal_scraper":
                     # Content already populated by base.py:_create_tool_event()
                     logger.debug("Agent %s: deal_scraper tool content from base.py", self._agent_id)
+                elif event.tool_name == "skill_invoke":
+                    # Skill invocation — content handled by skill_invoke tool
+                    logger.debug("Agent %s: skill_invoke tool event processed", self._agent_id)
                 else:
                     logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
 
