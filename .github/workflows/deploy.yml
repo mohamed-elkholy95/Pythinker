@@ -45,10 +45,10 @@ jobs:
       deploy_config: ${{ steps.filter.outputs.deploy_config }}
       any_app: ${{ steps.check.outputs.any_app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -99,7 +99,7 @@ jobs:
 
       - name: Checkout code
         if: matrix.changed == 'true' || inputs.force_build_all == true
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         if: matrix.changed == 'true' || inputs.force_build_all == true
@@ -116,7 +116,7 @@ jobs:
       - name: Extract metadata
         if: matrix.changed == 'true' || inputs.force_build_all == true
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}/pythinker-${{ matrix.component }}
           tags: |
@@ -130,7 +130,7 @@ jobs:
 
       - name: Build and push
         if: matrix.changed == 'true' || inputs.force_build_all == true
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./${{ matrix.component }}
           file: ./${{ matrix.component }}/Dockerfile

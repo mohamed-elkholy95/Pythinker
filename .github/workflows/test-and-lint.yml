@@ -37,7 +37,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -64,11 +64,11 @@ jobs:
 
       - name: Checkout code
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -148,11 +148,11 @@ jobs:
 
       - name: Checkout code
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -219,11 +219,11 @@ jobs:
 
       - name: Checkout code
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         if: needs.changes.outputs.backend == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -269,7 +269,7 @@ jobs:
 
       - name: Checkout code
         if: needs.changes.outputs.frontend == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Bun
         if: needs.changes.outputs.frontend == 'true'
