@@ -140,7 +140,6 @@ class TestEmbeddingMultiKey:
             redis_client=redis_client,
         )
 
-        # Mock HTTPClientPool.get_client to return a mock client
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -156,6 +155,9 @@ class TestEmbeddingMultiKey:
             "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
             return_value=mock_http_client,
         )
+        # Bypass Redis cache to prevent cross-test pollution
+        mocker.patch.object(client, "_get_cached", new=AsyncMock(return_value={}))
+        mocker.patch.object(client, "_set_cached", new=AsyncMock())
 
         result = await client.embed_batch(["text1", "text2"])
 
@@ -172,7 +174,6 @@ class TestEmbeddingMultiKey:
             redis_client=redis_client,
         )
 
-        # First call returns 429, second succeeds
         mock_response_429 = MagicMock()
         mock_response_429.status_code = 429
         mock_response_429.headers = {"x-ratelimit-reset": "1234567890"}
@@ -188,8 +189,19 @@ class TestEmbeddingMultiKey:
             "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
             return_value=mock_http_client,
         )
+        # Bypass Redis cache and key pool wait to prevent cross-test pollution and hangs
+        mocker.patch.object(client, "_get_cached", new=AsyncMock(return_value={}))
+        mocker.patch.object(client, "_set_cached", new=AsyncMock())
+        call_count = 0
 
-        result = await client.embed_batch(["test"])
+        async def rotating_get_api_key():
+            nonlocal call_count
+            call_count += 1
+            return "key2" if call_count > 1 else "key1"
+
+        mocker.patch.object(client, "get_api_key", new=rotating_get_api_key)
+
+        result = await client.embed_batch(["rotation-test-429"])
 
         assert len(result) == 1
         assert mock_http_client.post.call_count == 2  # Rotated to second key
@@ -203,7 +215,6 @@ class TestEmbeddingMultiKey:
             redis_client=redis_client,
         )
 
-        # First call returns 401, second succeeds
         mock_response_401 = MagicMock()
         mock_response_401.status_code = 401
         mock_response_401.headers = {}
@@ -219,8 +230,19 @@ class TestEmbeddingMultiKey:
             "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
             return_value=mock_http_client,
         )
+        # Bypass Redis cache and key pool wait to prevent cross-test pollution and hangs
+        mocker.patch.object(client, "_get_cached", new=AsyncMock(return_value={}))
+        mocker.patch.object(client, "_set_cached", new=AsyncMock())
+        call_count = 0
 
-        result = await client.embed_batch(["test"])
+        async def rotating_get_api_key():
+            nonlocal call_count
+            call_count += 1
+            return "key2" if call_count > 1 else "key1"
+
+        mocker.patch.object(client, "get_api_key", new=rotating_get_api_key)
+
+        result = await client.embed_batch(["rotation-test-401"])
 
         assert len(result) == 1
         assert mock_http_client.post.call_count == 2
@@ -300,6 +322,9 @@ class TestEmbeddingMultiKey:
         )
         # Ensure key pool returns a key (may be exhausted from prior retry test)
         mocker.patch.object(client, "get_api_key", new=AsyncMock(return_value="key1"))
+        # Bypass Redis cache
+        mocker.patch.object(client, "_get_cached", new=AsyncMock(return_value={}))
+        mocker.patch.object(client, "_set_cached", new=AsyncMock())
 
         long_text = "a" * 10000
         await client.embed_batch([long_text])
@@ -336,6 +361,9 @@ class TestEmbeddingMultiKey:
         )
         # Ensure key pool returns a key (may be exhausted from prior retry test)
         mocker.patch.object(client, "get_api_key", new=AsyncMock(return_value="key1"))
+        # Bypass Redis cache to prevent cross-test pollution
+        mocker.patch.object(client, "_get_cached", new=AsyncMock(return_value={}))
+        mocker.patch.object(client, "_set_cached", new=AsyncMock())
 
         result = await client.embed_batch(["text0", "text1", "text2"])
 
