@@ -17,7 +17,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, Session
+from app.domain.models.session import AgentMode, SandboxLifecycleMode, Session
 from app.domain.models.source_citation import SourceCitation
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
@@ -89,8 +89,9 @@ class AgentTaskFactory:
         from app.core.config import get_settings
 
         settings = get_settings()
-        sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
-        ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
+        _slm_raw = getattr(settings, "sandbox_lifecycle_mode", "static")
+        sandbox_lifecycle_mode = SandboxLifecycleMode(_slm_raw) if isinstance(_slm_raw, str) else _slm_raw
+        ephemeral_lifecycle = sandbox_lifecycle_mode == SandboxLifecycleMode.EPHEMERAL
         uses_static_sandboxes = bool(
             getattr(
                 settings,
