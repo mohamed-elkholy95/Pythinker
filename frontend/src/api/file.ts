@@ -15,7 +15,23 @@ export interface FileInfo {
   file_url?: string;
 }
 
+/** File with session context, returned by the library endpoint. */
+export interface LibraryFileItem extends FileInfo {
+  session_id: string;
+  session_title: string;
+  session_created_at: string | null;
+  session_latest_at: number | null;
+}
+
 const encodeFileId = (fileId: string): string => encodeURIComponent(fileId);
+
+/**
+ * Get all files across all user sessions (Library view).
+ */
+export async function getAllLibraryFiles(): Promise<LibraryFileItem[]> {
+  const response = await apiClient.get<ApiResponse<LibraryFileItem[]>>('/sessions/all-files');
+  return response.data.data ?? [];
+}
 
 
 
