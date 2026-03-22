@@ -145,6 +145,72 @@ class LLMGroundingVerifier:
             {"role": "user", "content": user_message},
         ]
 
+    @staticmethod
+    def _is_self_referential_claim(claim_text: str) -> bool:
+        """Detect claims about the agent's own actions rather than external facts.
+
+        Self-referential claims like "I compiled a 3,196-word report" or
+        "The report includes citations from 10 sources" are meta-statements
+        about the agent's output, not factual claims that can be grounded
+        against source context. Scoring them as "unsupported" inflates the
+        hallucination score with false positives.
+        """
+        if not claim_text:
+            return False
+        lower = claim_text.lower()
+        # Agent self-reference patterns (first-person actions)
+        _self_action_prefixes = (
+            "i have ",
+            "i've ",
+            "i compiled",
+            "i created",
+            "i wrote",
+            "i generated",
+            "i produced",
+            "i prepared",
+            "i delivered",
+            "i completed",
+            "i analyzed",
+            "i researched",
+            "i included",
+            "i provided",
+            "i summarized",
+            "i found",
+        )
+        if any(lower.startswith(p) for p in _self_action_prefixes):
+            return True
+        # Meta-statements about "the report" / "this report" as subject
+        _meta_subjects = (
+            "the report ",
+            "this report ",
+            "the analysis ",
+            "this analysis ",
+            "the document ",
+            "the comparison ",
+            "the summary ",
+        )
+        _meta_verbs = (
+            "includes",
+            "contains",
+            "covers",
+            "provides",
+            "presents",
+            "compares",
+            "was compiled",
+            "was created",
+            "was generated",
+            "has been",
+            "is a ",
+            "is based",
+        )
+        for subj in _meta_subjects:
+            if lower.startswith(subj):
+                rest = lower[len(subj) :]
+                if any(rest.startswith(v) for v in _meta_verbs):
+                    return True
+        # "compiled a X-word report" anywhere
+        return bool("compiled" in lower and "report" in lower)
+
     def _parse_verdict(self, llm_content: str) -> VerificationResult:
         """Parse the LLM's JSON verdict into a VerificationResult."""
         try:
@@ -165,6 +231,7 @@ class LLMGroundingVerifier:
             flagged: list[FlaggedClaim] = []
             total = 0
             unsupported = 0
+            self_referential_skipped = 0
 
             for claim in claims_raw:
                 if not isinstance(claim, dict):
@@ -173,6 +240,12 @@ class LLMGroundingVerifier:
                 verdict = claim.get("verdict", "unverifiable").lower()
                 if verdict not in ("supported", "unsupported", "unverifiable"):
                     verdict = "unverifiable"
+
+                # Skip self-referential claims — they are meta-statements about
+                # the agent's own output, not verifiable external facts.
+                if self._is_self_referential_claim(claim_text):
+                    self_referential_skipped += 1
+                    continue
 
                 total += 1
                 if verdict == "unsupported":
@@ -184,6 +257,12 @@ class LLMGroundingVerifier:
                             source_snippet=claim.get("source_snippet"),
                         )
                     )
+
+            if self_referential_skipped > 0:
+                logger.info(
+                    "LLM grounding: skipped %d self-referential claim(s)",
+                    self_referential_skipped,
+                )
 
             if total == 0:
                 return VerificationResult(hallucination_score=0.0, skipped=True, skip_reason="No claims extracted")
