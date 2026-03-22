@@ -2125,14 +2125,15 @@ class ExecutionAgent(BaseAgent):
         """Allow downgrade only for non-critical integrity failures.
 
         When all plan steps completed, minor structural gaps can still be
-        downgraded so users receive their completed work.  Only structural
-        failures (truncation, broken citations) remain non-downgradable.
-        Hallucination issues get disclaimer treatment — completed research
-        should ALWAYS reach the user rather than being silently discarded.
+        downgraded so users receive their completed work.  Structural
+        failures (truncation, broken citations) and critical hallucination
+        ratios remain non-downgradable — the rewrite step in
+        OutputVerifier handles remediation before this gate is reached.
         """
         non_downgradable_tokens = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
+            "hallucination_ratio_critical",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()
