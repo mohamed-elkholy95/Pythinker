@@ -5,12 +5,12 @@
         <div class="search-modal" @click.stop>
           <!-- Search header -->
           <div class="search-modal-header">
-            <Search :size="18" class="search-modal-icon" />
+            <Search :size="22" class="search-modal-icon" />
             <input
               ref="searchInputRef"
               v-model="searchQuery"
               type="text"
-              :placeholder="t('Search chats...')"
+              :placeholder="t('Search tasks...')"
               class="search-modal-input"
               @keydown.escape="close"
               @keydown.down.prevent="focusNext"
@@ -28,15 +28,17 @@
 
           <!-- Results list -->
           <div class="search-modal-body minimal-scrollbar">
-            <!-- New chat action -->
+            <!-- New task action -->
             <button
               class="search-modal-item search-modal-action"
               :class="{ 'search-modal-item-focused': focusedIndex === 0 }"
               @click="handleNewChat"
               @mouseenter="focusedIndex = 0"
             >
-              <SquarePen :size="16" class="search-modal-item-icon" />
-              <span>{{ t('New Task') }}</span>
+              <div class="search-modal-icon-circle search-modal-icon-circle--new">
+                <Plus :size="20" :stroke-width="2.5" />
+              </div>
+              <span class="search-modal-action-label">{{ t('New task') }}</span>
             </button>
 
             <!-- Grouped sessions -->
@@ -51,7 +53,8 @@
                   @click="handleSelectSession(session)"
                   @mouseenter="focusedIndex = getGlobalIndex(group, sIdx)"
                 >
-                  <div class="search-modal-item-icon-wrapper">
+                  <!-- Icon -->
+                  <div class="search-modal-icon-circle">
                     <template v-if="isRunning(session)">
                       <svg class="search-modal-spinner" viewBox="0 0 24 24" fill="none">
                         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.2" />
@@ -59,17 +62,25 @@
                       </svg>
                     </template>
                     <template v-else>
-                      <MessageSquare :size="16" class="search-modal-item-icon" />
+                      <TaskIcon :title="getDisplayTitle(session)" :session-id="session.session_id" />
                     </template>
                   </div>
-                  <span class="search-modal-item-title">{{ getDisplayTitle(session) }}</span>
+
+                  <!-- Title + description -->
+                  <div class="search-modal-item-content">
+                    <span class="search-modal-item-title">{{ getDisplayTitle(session) }}</span>
+                    <span v-if="getDescription(session)" class="search-modal-item-desc">{{ getDescription(session) }}</span>
+                  </div>
+
+                  <!-- Relative date -->
+                  <span class="search-modal-item-date">{{ formatRelativeDay(session.latest_message_at) }}</span>
                 </button>
               </template>
             </template>
 
             <!-- No results -->
             <div v-else-if="searchQuery.trim()" class="search-modal-empty">
-              {{ t('No matching chats') }}
+              {{ t('No matching tasks') }}
             </div>
           </div>
         </div>
@@ -82,10 +93,11 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Search, X, SquarePen, MessageSquare } from 'lucide-vue-next'
+import { Search, X, Plus } from 'lucide-vue-next'
 import { useSessionListFeed } from '@/composables/useSessionListFeed'
 import type { ListSessionItem } from '@/types/response'
 import { SessionStatus } from '@/types/response'
+import TaskIcon from '@/components/icons/TaskIcon.vue'
 
 const props = defineProps<{
   open: boolean
@@ -126,6 +138,32 @@ function getDisplayTitle(session: ListSessionItem): string {
   return t('New Chat')
 }
 
+function getDescription(session: ListSessionItem): string {
+  if (!session.latest_message?.trim()) return ''
+  const msg = session.latest_message.trim()
+  return msg.length > 90 ? msg.substring(0, 90) + '...' : msg
+}
+
+function formatRelativeDay(ts: number | null): string {
+  if (!ts) return ''
+  const date = new Date(ts * 1000)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const sessionDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const diffDays = Math.floor((today.getTime() - sessionDay.getTime()) / 86400000)
+
+  if (diffDays === 0) {
+    // Today — show time
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  }
+  if (diffDays < 7) {
+    // Within the last week — show day name
+    return date.toLocaleDateString(undefined, { weekday: 'long' })
+  }
+  // Older — show short date
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 function isRunning(session: ListSessionItem): boolean {
   return session.status === SessionStatus.RUNNING || session.status === SessionStatus.PENDING
 }
@@ -157,8 +195,8 @@ const groupedSessions = computed(() => {
   const groups: { label: string; sessions: ListSessionItem[] }[] = [
     { label: 'Today', sessions: [] },
     { label: 'Yesterday', sessions: [] },
-    { label: 'Previous 7 Days', sessions: [] },
-    { label: 'Previous 30 Days', sessions: [] },
+    { label: 'Last 7 days', sessions: [] },
+    { label: 'Last 30 days', sessions: [] },
     { label: 'Older', sessions: [] },
   ]
 
@@ -258,8 +296,8 @@ function handleSelectSession(session: ListSessionItem) {
 
 .search-modal {
   width: 100%;
-  max-width: 620px;
-  max-height: min(70vh, 560px);
+  max-width: 640px;
+  max-height: min(70vh, 580px);
   display: flex;
   flex-direction: column;
   background: var(--background-white-main);
@@ -276,8 +314,8 @@ function handleSelectSession(session: ListSessionItem) {
 .search-modal-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 14px;
+  padding: 18px 24px;
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
@@ -290,11 +328,11 @@ function handleSelectSession(session: ListSessionItem) {
 .search-modal-input {
   flex: 1;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--text-primary);
   font-weight: 400;
 }
@@ -327,27 +365,45 @@ function handleSelectSession(session: ListSessionItem) {
 .search-modal-body {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 8px 14px 14px;
 }
 
 /* ─── Group label ────────────────────────── */
 .search-modal-group-label {
-  padding: 12px 12px 4px;
-  font-size: 12px;
+  padding: 16px 10px 6px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-tertiary);
   user-select: none;
+}
+
+/* ─── Circular icon ──────────────────────── */
+.search-modal-icon-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  background: var(--fill-tsp-gray-main, #f0ede8);
+  color: var(--icon-secondary);
+  flex-shrink: 0;
+}
+
+.search-modal-icon-circle--new {
+  background: var(--fill-tsp-gray-main, #f0ede8);
+  color: var(--text-primary);
 }
 
 /* ─── Items ──────────────────────────────── */
 .search-modal-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 14px;
+  padding: 10px 10px;
+  border-radius: 12px;
   color: var(--text-primary);
   cursor: pointer;
   transition: background 0.1s ease;
@@ -362,34 +418,56 @@ function handleSelectSession(session: ListSessionItem) {
 }
 
 .search-modal-action {
-  font-weight: 500;
+  margin-bottom: 2px;
 }
 
-.search-modal-item-icon {
-  flex-shrink: 0;
-  color: var(--icon-secondary);
+.search-modal-action-label {
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.search-modal-item-icon-wrapper {
+/* ─── Item content (title + desc) ────────── */
+.search-modal-item-content {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .search-modal-item-title {
-  flex: 1;
-  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.search-modal-item-desc {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+}
+
+/* ─── Date label ─────────────────────────── */
+.search-modal-item-date {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  padding-left: 12px;
 }
 
 .search-modal-spinner {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   color: var(--bolt-elements-item-contentAccent, #3b82f6);
   animation: spin 1.2s linear infinite;
 }
@@ -443,6 +521,10 @@ function handleSelectSession(session: ListSessionItem) {
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
+:global(.dark) .search-modal-icon-circle {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* ─── Responsive ─────────────────────────── */
 @media (max-width: 639px) {
   .search-modal-backdrop {
@@ -453,6 +535,10 @@ function handleSelectSession(session: ListSessionItem) {
   .search-modal {
     max-height: 80vh;
     border-radius: 14px;
+  }
+
+  .search-modal-item-date {
+    display: none;
   }
 }
 </style>
