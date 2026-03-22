@@ -232,6 +232,10 @@ let frameWatchdogInterval: number | null = null
 // Page Visibility API — pause reconnects when tab is hidden
 let isTabVisible = true
 
+// Connection guard — prevents concurrent initConnection() calls from
+// racing and opening duplicate WebSocket connections to the sandbox.
+let _isConnecting = false
+
 // Debounce timer for sessionId-triggered reconnects — prevents rapid
 // disconnect/reconnect churn when sessions change in quick succession.
 let _initDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -242,6 +246,14 @@ async function initConnection(): Promise<void> {
   if (!props.enabled || !props.sessionId) {
     return
   }
+
+  // Guard against concurrent calls — if a previous initConnection() is still
+  // fetching the signed URL or connecting, skip this call to prevent opening
+  // duplicate WebSocket connections to the sandbox (which causes preemption).
+  if (_isConnecting) {
+    return
+  }
+  _isConnecting = true
 
   isLoading.value = true
   statusText.value = 'Connecting...'
@@ -256,6 +268,8 @@ async function initConnection(): Promise<void> {
     }
   } catch (e) {
     handleError(`Failed to initialize: ${formatError(e)}`)
+  } finally {
+    _isConnecting = false
   }
 }
 
@@ -405,6 +419,16 @@ function disconnect(): void {
     clearTimeout(reconnectTimeout)
     reconnectTimeout = null
   }
+
+  // Clear the init debounce timer to prevent a pending initConnection()
+  // from firing after disconnect and opening a stale connection.
+  if (_initDebounceTimer) {
+    clearTimeout(_initDebounceTimer)
+    _initDebounceTimer = null
+  }
+
+  // Reset connection guard so the next intentional initConnection() proceeds
+  _isConnecting = false
 
   stopFrameWatchdog()
 
