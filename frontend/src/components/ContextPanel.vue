@@ -146,7 +146,7 @@ defineEmits<{
 const { availableSkills } = useSkills();
 
 const getSkillName = (id: string) => {
-  const matching = availableSkills.value.find((s: any) => s.id === id);
+  const matching = availableSkills.value.find((s) => s.id === id);
   return matching ? matching.name : id;
 };
 </script>

@@ -495,7 +495,7 @@ const restoreSession = async () => {
     }
     realTime.value = true;
   } catch (error) {
-    const status = (error as any)?.response?.status;
+    const status = (error as Record<string, Record<string, unknown>>)?.response?.status;
     if (status === 404) {
       showErrorToast(t('Shared session not found or expired'));
       router.push('/');

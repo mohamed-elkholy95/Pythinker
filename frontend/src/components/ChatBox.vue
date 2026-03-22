@@ -90,7 +90,7 @@ const thinkingMode = ref<ThinkingMode>('auto');
 const sessionSkillChips = computed(() => {
   return sessionSkillIds.value
     .map((id: string) => {
-      const skill = availableSkills.value.find((s: any) => s.id === id);
+      const skill = availableSkills.value.find((s) => s.id === id);
       return skill ? { id: skill.id, name: skill.name } : { id, name: id };
     });
 });

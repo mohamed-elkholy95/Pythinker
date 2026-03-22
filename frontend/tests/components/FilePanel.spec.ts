@@ -10,7 +10,7 @@ import FilePanel from '@/components/FilePanel.vue'
 
 // Mock useFilePanel composable
 const mockIsShow = ref(false)
-const mockFileInfo = ref<any>(null)
+const mockFileInfo = ref<Record<string, unknown> | null>(null)
 const mockVisible = ref(true)
 const mockShowFilePanel = vi.fn()
 const mockHideFilePanel = vi.fn()

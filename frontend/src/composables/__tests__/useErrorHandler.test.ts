@@ -245,7 +245,7 @@ describe('useErrorHandler', () => {
         function: 'navigate',
         args: {},
         status: 'called',
-        content: 'Error message string' as any,
+        content: 'Error message string' as unknown as undefined,
         timestamp: Date.now(),
       };
 

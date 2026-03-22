@@ -4163,7 +4163,7 @@ const restoreSession = async (
     if (shouldAbortRestore('error')) return;
 
     // Session deleted or cleaned up — redirect to home
-    const status = (error as any)?.code ?? (error as any)?.response?.status;
+    const status = (error as Record<string, unknown>)?.code ?? (error as Record<string, Record<string, unknown>>)?.response?.status;
     if (status === 404) {
       console.warn('[RESTORE] Session not found, redirecting to home', { targetSessionId });
       showErrorToast(t('Session not found'));
