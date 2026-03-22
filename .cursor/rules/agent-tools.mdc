@@ -1,0 +1,48 @@
+---
+description: MCP tool usage, Context7 validation, and code navigation rules for the agent
+alwaysApply: true
+---
+
+# Agent Tool Usage Rules
+
+## Context7 MCP — Always Validate
+Before implementing anything involving an external library (FastAPI, Pydantic, Vue, Docker, etc.):
+1. `resolve-library-id` → get library ID
+2. `query-docs` → fetch authoritative docs
+3. Validate your implementation matches the fetched docs
+
+## Code Navigation — LSP First
+```
+LSP (pyright/volar/vtsls) → grep/glob → Read+scan
+```
+- Use LSP symbol search before grep/glob/bash for finding definitions.
+- Only fall back to grep for non-code text search or regex patterns.
+
+## NPX — Use Wrapper
+```bash
+# ✅ Always
+/home/mac/.claude/bin/nvm-npx -y <package>
+
+# ❌ Never
+npx <package>
+node /hardcoded/path
+```
+
+## Docker Compose (Dev)
+```bash
+# Start with live file watch (recommended)
+./dev.sh watch
+
+# Follow logs
+./dev.sh logs -f backend
+```
+
+## Port Reference
+| Service | Port |
+|---------|------|
+| Frontend | 5174 |
+| Backend | 8000 |
+| Sandbox API | 8083 |
+| MongoDB | 27017 |
+| Redis | 6379 |
+| Qdrant | 6333 |

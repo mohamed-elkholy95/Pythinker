@@ -1451,4 +1451,28 @@ const useScaledViewport = computed(() => {
 .expand-icon {
   color: white;
 }
+
+/* ===== MOBILE OVERRIDES ===== */
+@media (max-width: 639px) {
+  .live-mini-preview.size-lg {
+    max-width: 100%;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+  }
+  .live-mini-preview {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .live-mini-preview:active {
+    transform: scale(0.98);
+    transition: transform 0.1s ease;
+  }
+  .dc-header-title {
+    font-size: 11px;
+  }
+  .dc-md-text {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+}
 </style>

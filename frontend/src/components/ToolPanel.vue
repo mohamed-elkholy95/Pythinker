@@ -3,7 +3,7 @@
     ref="toolPanelRef"
     v-if="visible"
     :class="{
-      'h-full w-full top-0 ltr:right-0 rtl:left-0 z-50 fixed sm:sticky sm:top-0 sm:right-0 sm:h-[100vh] sm:ml-3 sm:py-3 sm:mr-4': isShow,
+      'h-full w-full top-0 ltr:right-0 rtl:left-0 z-50 fixed sm:sticky sm:top-0 sm:right-0 sm:h-[100vh] sm:ml-3 sm:py-3 sm:mr-4 max-sm:pb-[env(safe-area-inset-bottom)]': isShow,
       'h-full overflow-hidden': !isShow
     }"
     :style="{ 'width': isShow ? panelWidth : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
