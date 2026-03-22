@@ -5,7 +5,7 @@
       <span class="phase-current">{{ currentLabel }}</span>
     </div>
 
-    <div class="phase-track" :aria-label="`Current phase: ${currentLabel}`">
+    <div class="phase-track" role="progressbar" :aria-label="`Current phase: ${currentLabel}`" :aria-valuenow="currentIndex" :aria-valuemin="0" :aria-valuemax="phaseSteps.length - 1">
       <div
         v-for="(step, index) in phaseSteps"
         :key="step.key"
@@ -149,7 +149,7 @@ const stepClass = (index: number) => ({
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   min-width: 0;
 }
 
