@@ -170,10 +170,21 @@ function getStepNumberClass(status: string): string {
       </div>
     </div>
 
-    <!-- Streaming indicator -->
+    <!-- Streaming indicator with bouncing dots -->
     <div v-if="isStreaming && parsedSteps.length === 0" class="plan-streaming">
-      <Loader2 :size="14" class="animate-spin text-blue-400" />
-      <span>Creating plan...</span>
+      <div class="plan-streaming-content">
+        <h2 class="plan-streaming-title">
+          Planning<span class="bouncing-dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
+        </h2>
+        <p class="plan-streaming-subtitle">Analyzing your request</p>
+        <div class="plan-streaming-loader">
+          <div class="plan-dot-group">
+            <span class="plan-bounce-dot" style="animation-delay: 0s"></span>
+            <span class="plan-bounce-dot" style="animation-delay: 0.15s"></span>
+            <span class="plan-bounce-dot" style="animation-delay: 0.3s"></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -291,9 +302,64 @@ function getStepNumberClass(status: string): string {
 .plan-streaming {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.plan-streaming-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-streaming-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.bouncing-dots .dot {
+  display: inline-block;
+  animation: dot-bounce 1.4s ease-in-out infinite;
+}
+.bouncing-dots .dot:nth-child(1) { animation-delay: 0s; }
+.bouncing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+.bouncing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+.plan-streaming-subtitle {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.plan-streaming-loader {
+  margin-top: 16px;
+}
+
+.plan-dot-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.plan-bounce-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: plan-dot-bounce 1.2s ease-in-out infinite;
+}
+
+@keyframes plan-dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
 }
 </style>
