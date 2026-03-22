@@ -150,6 +150,7 @@ describe('LeftPanel channel source filtering', () => {
     getSessionsSSEMock.mockResolvedValue(() => {})
     getServerConfigMock.mockResolvedValue({
       model_name: 'gpt-5',
+      model_display_name: '',
       api_base: 'https://api.openai.com/v1',
       temperature: 0.2,
       max_tokens: 4096,

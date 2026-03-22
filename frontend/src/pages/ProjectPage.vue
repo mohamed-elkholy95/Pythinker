@@ -83,16 +83,24 @@
         </div>
         <!-- Session list -->
         <div v-if="projectSessions.length > 0" class="project-session-list">
-          <button
+          <div
             v-for="s in projectSessions"
             :key="s.session_id"
-            class="project-session-item"
+            class="project-session-item group"
             @click="router.push(`/chat/${s.session_id}`)"
           >
             <MessageSquareDashed :size="16" class="text-[var(--text-tertiary)] shrink-0" />
-            <span class="project-session-title">{{ s.title || 'Untitled task' }}</span>
+            <span class="project-session-title">{{ sessionDisplayTitle(s) }}</span>
             <span class="project-session-status" :class="`status-${s.status}`">{{ s.status }}</span>
-          </button>
+            <button
+              type="button"
+              class="session-menu-btn"
+              @click.stop="handleSessionMenu($event, s)"
+              aria-label="Task options"
+            >
+              <Ellipsis :size="14" />
+            </button>
+          </div>
         </div>
         <div v-else class="tasks-empty">
           <MessageSquareDashed :size="32" class="text-[var(--text-tertiary)]" />
@@ -130,6 +138,7 @@ import { useSettingsDialog } from '@/composables/useSettingsDialog'
 import { getServerConfig } from '@/api/settings'
 import { uploadFile, getFileInfo } from '@/api/file'
 import { listProjectSessions, type ProjectSession } from '@/api/projects'
+import { deleteSession, renameSession } from '@/api/agent'
 import type { FileInfo } from '@/api/file'
 import type { ThinkingMode, ResearchMode } from '@/api/agent'
 import ChatBox from '@/components/ChatBox.vue'
@@ -142,12 +151,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { useContextMenu, createMenuItem, createDangerMenuItem } from '@/composables/useContextMenu'
+import { useDialog } from '@/composables/useDialog'
+import { showSuccessToast, showErrorToast } from '@/utils/toast'
 import {
   ChevronRight,
   Ellipsis,
   Pencil,
   FileEdit,
   Trash2,
+  Trash,
   MessageSquareDashed,
 } from 'lucide-vue-next'
 
@@ -184,7 +197,7 @@ async function loadProjectSessions() {
 onMounted(async () => {
   try {
     const config = await getServerConfig()
-    activeModelName.value = config.model_name || 'Pythinker'
+    activeModelName.value = config.model_display_name?.trim() || config.model_name || 'Pythinker'
   } catch {
     activeModelName.value = 'Pythinker'
   }
@@ -318,6 +331,72 @@ async function handleSaveInstructions(instructions: string) {
   await updateProject({ instructions })
   showInstructionsModal.value = false
 }
+
+// ── Task context menu (same pattern as SessionItem) ──
+
+const { showContextMenu } = useContextMenu()
+const { showConfirmDialog, showPromptDialog } = useDialog()
+
+function sessionDisplayTitle(s: ProjectSession): string {
+  if (s.title) return s.title
+  if (s.latest_message) {
+    const msg = s.latest_message.trim()
+    return msg.length > 40 ? msg.substring(0, 40) + '...' : msg
+  }
+  return 'Untitled task'
+}
+
+function handleSessionMenu(event: MouseEvent, s: ProjectSession) {
+  const target = event.currentTarget as HTMLElement
+
+  const menuItems = [
+    createMenuItem('rename', 'Rename', { icon: Pencil }),
+    createDangerMenuItem('delete', 'Delete', { icon: Trash }),
+  ]
+
+  showContextMenu(s.session_id, target, menuItems, (itemKey: string) => {
+    if (itemKey === 'rename') {
+      showPromptDialog({
+        title: 'Rename Task',
+        placeholder: 'Enter new name',
+        defaultValue: sessionDisplayTitle(s),
+        confirmText: 'Rename',
+        cancelText: 'Cancel',
+        onConfirm: async (newTitle: string) => {
+          if (newTitle.trim()) {
+            try {
+              await renameSession(s.session_id, newTitle.trim())
+              s.title = newTitle.trim()
+              showSuccessToast('Renamed successfully')
+            } catch {
+              showErrorToast('Failed to rename task')
+            }
+          }
+        },
+      })
+    } else if (itemKey === 'delete') {
+      showConfirmDialog({
+        title: 'Are you sure you want to delete this task?',
+        content: 'The chat history of this task cannot be recovered after deletion.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        confirmType: 'danger',
+        onConfirm: () => {
+          deleteSession(s.session_id)
+            .then(() => {
+              projectSessions.value = projectSessions.value.filter(
+                (session) => session.session_id !== s.session_id,
+              )
+              showSuccessToast('Deleted successfully')
+            })
+            .catch(() => {
+              showErrorToast('Failed to delete task')
+            })
+        },
+      })
+    }
+  })
+}
 </script>
 
 <style scoped>
@@ -340,20 +419,20 @@ async function handleSaveInstructions(instructions: string) {
 .model-name-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 14px;
+  gap: 6px;
+  padding: 4px 2px;
+  font-size: 18px;
   font-weight: 500;
-  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  color: #374151;
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
 }
 
 .model-name-btn:hover {
-  background: var(--fill-tsp-gray-main);
+  opacity: 0.6;
 }
 
 .menu-dots-btn {
@@ -511,6 +590,30 @@ async function handleSaveInstructions(instructions: string) {
 
 .project-session-item:hover {
   background: var(--fill-tsp-gray-main);
+}
+
+.session-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--icon-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.group:hover .session-menu-btn {
+  opacity: 1;
+}
+
+.session-menu-btn:hover {
+  background: var(--fill-tsp-gray-dark);
 }
 
 .project-session-title {

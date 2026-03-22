@@ -6,28 +6,12 @@
       <div class="active-config-info">
         <span class="active-config-label">Active Model</span>
         <span class="active-config-value">
-          {{ serverConfig.model_name || 'Loading...' }}
-          <span class="active-config-sep">&middot;</span>
-          <span class="active-config-endpoint">{{ displayApiBase }}</span>
+          {{ displayModelName || 'Loading...' }}
         </span>
       </div>
     </div>
 
-    <!-- Env Notice -->
-    <div class="env-notice">
-      <div class="env-notice-icon">
-        <Lock class="w-4 h-4" />
-      </div>
-      <div class="env-notice-content">
-        <span class="env-notice-title">Server-managed configuration</span>
-        <span class="env-notice-text">
-          AI model settings are controlled by the <code>.env</code> file on the server.
-          To change the model or parameters, update the environment variables and restart the backend.
-        </span>
-      </div>
-    </div>
-
-    <!-- Provider & Model Section -->
+    <!-- Model & Parameters Section -->
     <div class="section-card">
       <div class="section-header">
         <div class="section-icon">
@@ -35,21 +19,7 @@
         </div>
         <div class="section-info">
           <h4 class="section-title">AI Configuration</h4>
-          <p class="section-desc">Current AI provider and model for conversations</p>
-        </div>
-      </div>
-
-      <!-- LLM Provider -->
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <Server class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          <div class="setting-text">
-            <span class="setting-label">{{ t('LLM Provider') }}</span>
-            <span class="setting-hint">Active AI service</span>
-          </div>
-        </div>
-        <div class="readonly-value">
-          {{ activeProviderName }}
+          <p class="section-desc">Current model and response behavior settings</p>
         </div>
       </div>
 
@@ -63,34 +33,7 @@
           </div>
         </div>
         <div class="readonly-value">
-          {{ serverConfig.model_name || 'Not configured' }}
-        </div>
-      </div>
-
-      <!-- API Endpoint -->
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <Link class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          <div class="setting-text">
-            <span class="setting-label">API Endpoint</span>
-            <span class="setting-hint">Server-configured endpoint</span>
-          </div>
-        </div>
-        <div class="endpoint-badge">
-          <code class="endpoint-url">{{ displayApiBase }}</code>
-        </div>
-      </div>
-    </div>
-
-    <!-- Parameters Section -->
-    <div class="section-card">
-      <div class="section-header">
-        <div class="section-icon section-icon-secondary">
-          <SlidersHorizontal class="w-5 h-5" />
-        </div>
-        <div class="section-info">
-          <h4 class="section-title">Model Parameters</h4>
-          <p class="section-desc">Current AI response behavior settings</p>
+          {{ displayModelName || 'Not configured' }}
         </div>
       </div>
 
@@ -132,21 +75,17 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Sparkles,
-  Server,
   Cpu,
-  Link,
-  Lock,
-  SlidersHorizontal,
   Thermometer,
   Hash,
 } from 'lucide-vue-next'
-import { getProviders, getServerConfig, type ProvidersInfo, type ServerConfig, type LLMProviderInfo } from '@/api/settings'
+import { getServerConfig, type ServerConfig } from '@/api/settings'
 
 const { t } = useI18n()
 
-// Server config — the actual running state (source of truth from .env)
 const serverConfig = ref<ServerConfig>({
   model_name: '',
+  model_display_name: '',
   api_base: '',
   temperature: 0.6,
   max_tokens: 8192,
@@ -156,70 +95,13 @@ const serverConfig = ref<ServerConfig>({
   configured_search_keys: [],
 })
 
-// Providers info (for display names)
-const providers = ref<ProvidersInfo>({
-  llm_providers: [],
-  search_providers: [],
+const displayModelName = computed(() => {
+  return serverConfig.value.model_display_name?.trim() || serverConfig.value.model_name || ''
 })
 
-// Display-friendly API base
-const displayApiBase = computed(() => {
-  const base = serverConfig.value.api_base || ''
-  return base.replace(/^https?:\/\//, '') || 'Not configured'
-})
-
-// Resolve provider display name from server config
-const activeProviderName = computed(() => {
-  const detected = detectProviderFromServerConfig(serverConfig.value, providers.value.llm_providers)
-  if (detected) {
-    const provider = providers.value.llm_providers.find(p => p.id === detected.providerId)
-    return provider?.name || detected.providerId
-  }
-  return serverConfig.value.llm_provider || 'Auto'
-})
-
-/**
- * Detect the correct provider ID from server config.
- * Matches api_base against known providers, falling back to model name prefix matching.
- */
-function detectProviderFromServerConfig(
-  srvConfig: ServerConfig,
-  providerList: LLMProviderInfo[],
-): { providerId: string; apiBase: string } | null {
-  if (!srvConfig.model_name) return null
-
-  for (const p of providerList) {
-    if (p.api_base && srvConfig.api_base) {
-      try {
-        const providerHost = new URL(p.api_base).hostname
-        if (srvConfig.api_base.includes(providerHost)) {
-          return { providerId: p.id, apiBase: p.api_base }
-        }
-      } catch {
-        // Invalid URL, skip
-      }
-    }
-  }
-
-  const modelLower = srvConfig.model_name.toLowerCase()
-  for (const p of providerList) {
-    if (p.models.some(m => m.toLowerCase() === modelLower)) {
-      return { providerId: p.id, apiBase: p.api_base || srvConfig.api_base }
-    }
-  }
-
-  return null
-}
-
-// Load server config + providers on mount (read-only, no saves)
 onMounted(async () => {
   try {
-    const [providersInfo, srvConfig] = await Promise.all([
-      getProviders(),
-      getServerConfig(),
-    ])
-    providers.value = providersInfo
-    serverConfig.value = srvConfig
+    serverConfig.value = await getServerConfig()
   } catch {
     // Settings load failed - using defaults
   }
@@ -292,19 +174,7 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
-.active-config-sep {
-  margin: 0 4px;
-  color: var(--text-tertiary);
-}
-
-.active-config-endpoint {
-  font-weight: 400;
-  color: var(--text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-}
-
-/* ── Section Cards ──────────────────────────────────────────── */
+/* ── Section Card ──────────────────────────────────────────── */
 .section-card {
   background: var(--fill-tsp-white-main);
   border: 1px solid var(--border-light);
@@ -331,11 +201,6 @@ onMounted(async () => {
   border-radius: 10px;
   color: var(--text-brand);
   flex-shrink: 0;
-}
-
-.section-icon-secondary {
-  background: rgba(168, 85, 247, 0.1);
-  color: #a855f7;
 }
 
 .section-info {
@@ -366,21 +231,6 @@ onMounted(async () => {
 
 .setting-row:not(:last-child) {
   border-bottom: 1px solid var(--border-light);
-}
-
-.setting-block {
-  padding: 12px 0;
-}
-
-.setting-block:not(:last-child) {
-  border-bottom: 1px solid var(--border-light);
-}
-
-.setting-row-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
 }
 
 .setting-label-group {
@@ -416,52 +266,6 @@ onMounted(async () => {
   border-radius: 6px;
 }
 
-/* ── Env Notice ────────────────────────────────────────────── */
-.env-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
-  background: rgba(100, 116, 139, 0.06);
-  border: 1px solid rgba(100, 116, 139, 0.15);
-  border-radius: 12px;
-}
-
-.env-notice-icon {
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.env-notice-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.env-notice-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.env-notice-text {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.5;
-}
-
-.env-notice-text code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  background: var(--fill-tsp-white-dark);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-weight: 600;
-}
-
 /* ── Read-only Value Display ───────────────────────────────── */
 .readonly-value {
   font-size: 14px;
@@ -475,27 +279,6 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* ── Endpoint Badge ─────────────────────────────────────────── */
-.endpoint-badge {
-  display: flex;
-  align-items: center;
-  max-width: 260px;
-}
-
-.endpoint-url {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-  background: var(--fill-tsp-white-dark);
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-light);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
 }
 
 /* ── Value Label (unit/descriptor inside badge) ────────────── */

@@ -4250,9 +4250,11 @@ onMounted(async () => {
     getServerConfig(),
     getSettings(),
   ])
+  const srvCfg = serverConfigResult.status === 'fulfilled' ? serverConfigResult.value : null;
   activeHeaderModelName.value = resolveInitialHeaderModelName(
-    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
+    srvCfg?.model_name ?? '',
     userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
+    srvCfg?.model_display_name,
   )
 
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
@@ -4706,14 +4708,12 @@ const handleFileListShow = () => {
   background-color: var(--background-gray-main);
 }
 
-/* Pythinker-style centered model title */
+/* Manus-style model title */
 .header-model-title {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 32px;
-  padding: 0 4px;
-  border-radius: 6px;
+  gap: 6px;
+  padding: 4px 2px;
   background: transparent;
   color: var(--text-primary);
   transition: opacity 0.15s ease;
@@ -4723,27 +4723,29 @@ const handleFileListShow = () => {
 }
 
 .header-model-title:hover {
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .header-model-title-label {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 500;
   white-space: nowrap;
   letter-spacing: -0.01em;
+  color: #374151;
 }
 
 @media (max-width: 639px) {
   .header-model-title-label {
-    font-size: 14px;
+    font-size: 16px;
   }
 }
 
 .header-model-title-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  color: var(--text-tertiary);
+  color: #9ca3af;
+  margin-top: 1px;
 }
 
 .chat-header-leading {
