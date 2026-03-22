@@ -87,6 +87,8 @@ CHROME_FLAGS=(
     --disable-sync
     --disable-translate
     --metrics-recording-only
+    --renderer-process-limit=1
+    --disable-software-rasterizer
     --mute-audio
     --no-pings
     --password-store=basic
@@ -127,13 +129,14 @@ _pin_chrome_window() {
         return 1
     fi
 
-    # Continuous pin loop
+    # Continuous pin loop — 10s interval is sufficient for window drift correction.
+    # Reduced from 2s to cut xdotool wake-ups and associated X11 round-trips.
     while true; do
         for wid in $(DISPLAY=:99 xdotool search --class chromium 2>/dev/null); do
             DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
             DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
         done
-        sleep 2
+        sleep 10
     done
 }
 _pin_chrome_window &
