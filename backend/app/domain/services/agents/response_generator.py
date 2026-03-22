@@ -544,11 +544,15 @@ class ResponseGenerator:
         if additional_issues:
             issues.extend(additional_issues)
 
-        # Promote skipped-no-grounding to a non-critical issue for report content
-        # so the gate reports "yellow" (unverified) instead of a false "green".
+        # Keep skipped-no-grounding as a warning (yellow) for report content.
+        # Skipped verification (no sources available) is NOT the same as failed
+        # verification — promoting it to a blocking issue caused a ~66% false
+        # positive block rate because most task types don't collect external
+        # sources.  The warning still ensures the gate doesn't report a false
+        # "green" while avoiding a false "red".
         if "hallucination_verification_skipped_no_grounding_context" in warnings and self.is_report_structure(content):
             warnings.remove("hallucination_verification_skipped_no_grounding_context")
-            issues.append("hallucination_verification_ungrounded")
+            warnings.append("hallucination_verification_ungrounded")
 
         is_telegram_final_delivery = (delivery_channel or "").strip().lower() == "telegram"
         if is_telegram_final_delivery and self.is_report_structure(content):

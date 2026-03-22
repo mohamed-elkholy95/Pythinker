@@ -261,11 +261,11 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_ratio_above_block_threshold_uses_critical_path(self):
-        """Ratios above the 40% critical threshold must block delivery."""
+        """Ratios above the 50% critical threshold must block delivery."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 45% is above the 40% block threshold → critical path
-        grounding_result = _make_grounding_result(score=0.45, claim_count=3)
+        # 55% is above the 50% block threshold → critical path
+        grounding_result = _make_grounding_result(score=0.55, claim_count=3)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
 
@@ -280,10 +280,10 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_ratio_between_warn_and_block_is_moderate(self):
-        """Ratios between 15-40% get disclaimer treatment, not blocking."""
+        """Ratios between 15-50% get disclaimer treatment, not blocking."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 25% is above warn (15%) but below block (40%) → moderate
+        # 25% is above warn (15%) but below block (50%) → moderate
         grounding_result = _make_grounding_result(score=0.25, claim_count=1)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
@@ -300,10 +300,10 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_block_uses_critical_path(self):
-        """Ratio > 40% triggers blocking — likely genuine hallucination."""
+        """Ratio > 50% triggers blocking — likely genuine hallucination."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        grounding_result = _make_grounding_result(score=0.50, claim_count=5)
+        grounding_result = _make_grounding_result(score=0.55, claim_count=5)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
 
