@@ -460,7 +460,7 @@ class OutputVerifier:
                 messages=[{"role": "user", "content": rewrite_prompt}],
                 temperature=0.2,
             )
-            rewritten = (result.content or "").strip()
+            rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
             # Sanity: rewritten text must be substantial (>30% of original)
             if len(rewritten) > len(content) * 0.3:
                 return rewritten
