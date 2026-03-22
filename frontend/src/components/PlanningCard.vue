@@ -85,21 +85,21 @@ const badge = computed(() => {
 
 <style scoped>
 .planning-card {
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  padding: 8px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--background-menu-white, #fff);
+  box-shadow: 0px 0px 1px 0px rgba(0, 0, 0, 0.05), 0px 8px 32px 0px rgba(0, 0, 0, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-wrap {
@@ -116,13 +116,13 @@ const badge = computed(() => {
 .status-title {
   margin: 0;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary, #0f172a);
   line-height: 1.2;
 }
 
 .status-phase {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   font-size: 11px;
   color: var(--text-secondary, #64748b);
   line-height: 1.2;
@@ -137,9 +137,12 @@ const badge = computed(() => {
 
 .thinking-message {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary, #334155);
-  line-height: 1.35;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-footer {
@@ -150,7 +153,7 @@ const badge = computed(() => {
 
 .progress-track {
   position: relative;
-  height: 4px;
+  height: 3px;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.35);
   overflow: hidden;
@@ -170,9 +173,9 @@ const badge = computed(() => {
 }
 
 .complexity-badge {
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.03em;
 }
@@ -195,8 +198,8 @@ const badge = computed(() => {
 :deep(.dark) .planning-card,
 .dark .planning-card {
   border-color: rgba(148, 163, 184, 0.24);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.86) 100%);
-  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45);
+  background: var(--background-menu-dark, rgba(15, 23, 42, 0.78));
+  box-shadow: 0px 0px 1px 0px rgba(0, 0, 0, 0.15), 0px 8px 32px 0px rgba(2, 6, 23, 0.3);
 }
 
 :deep(.dark) .status-title,
