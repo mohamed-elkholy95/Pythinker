@@ -844,19 +844,6 @@ const useScaledViewport = computed(() => {
   position: relative;
 }
 
-/* Subtle accent top border — mirrors main tool panel header */
-.dc-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--bolt-elements-item-contentAccent, #22c55e);
-  border-radius: 10px 10px 0 0;
-  opacity: 0.7;
-}
-
 .dc-header-title {
   max-width: 95%;
   font-size: clamp(6px, 2.9cqw, 11px);
