@@ -170,10 +170,11 @@ const searchResults = computed((): SearchResultItem[] => {
   }));
 });
 
-const searchQuery = computed(() => {
+const searchQuery = computed((): string => {
   const sc = searchToolContent.value;
   if (sc?.query) return String(sc.query);
-  return props.tool.args?.query ?? props.tool.args?.q ?? '';
+  const fallbackQuery = props.tool.args?.query ?? props.tool.args?.q;
+  return typeof fallbackQuery === 'string' ? fallbackQuery : '';
 });
 
 // Reset favicon error when tool changes

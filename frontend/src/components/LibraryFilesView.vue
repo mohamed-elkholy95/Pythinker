@@ -4,7 +4,7 @@
     <div class="files-toolbar">
       <div class="toolbar-left">
         <!-- Category dropdown -->
-        <div class="category-dropdown" ref="dropdownRef">
+        <div class="category-dropdown">
           <button class="category-btn" @click="dropdownOpen = !dropdownOpen">
             <SlidersHorizontal :size="14" />
             {{ categoryLabels[category] }}
@@ -170,7 +170,6 @@ const {
 
 const searchFocused = ref(false)
 const dropdownOpen = ref(false)
-const dropdownRef = ref<HTMLElement | null>(null)
 const expandedGroups = ref(new Set<string>())
 
 const categoryLabels: Record<FileCategory, string> = {

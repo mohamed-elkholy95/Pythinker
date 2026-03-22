@@ -17,7 +17,6 @@ const emit = defineEmits<{
   error: [message: string]
 }>()
 
-const iframeRef = ref<HTMLIFrameElement | null>(null)
 const status = ref<'loading' | 'connected' | 'error'>('loading')
 
 const iframeSrc = computed(() => {
@@ -72,7 +71,6 @@ onBeforeUnmount(() => {
 
     <iframe
       v-if="enabled && iframeSrc"
-      ref="iframeRef"
       :src="iframeSrc"
       class="w-full h-full border-0"
       allow="clipboard-read; clipboard-write"

@@ -31,9 +31,9 @@
     <!-- Children (if folder and expanded) -->
     <template v-if="isFolder && isExpanded">
       <SkillFileTreeNode
-        v-for="(childItem, childKey) in item"
+        v-for="[childKey, childItem] in folderEntries"
         :key="childKey"
-        :name="String(childKey)"
+        :name="childKey"
         :item="childItem"
         :depth="depth + 1"
         :selected-path="selectedPath"
@@ -69,6 +69,11 @@ const emit = defineEmits<{
 }>()
 
 const isExpanded = ref(props.depth < 2) // Auto-expand first 2 levels
+
+const folderEntries = computed<[string, SkillPackageFileTree | { type: 'file'; path: string; size: number }][]>(() => {
+  if (!isFolder.value) return []
+  return Object.entries(props.item as SkillPackageFileTree)
+})
 
 const isFolder = computed(() => {
   if (!props.item || typeof props.item !== 'object') return false

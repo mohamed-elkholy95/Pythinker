@@ -8,8 +8,8 @@ export interface Skill {
   category: string;
   source: 'official' | 'community' | 'custom';
   icon: string;
-  required_tools: string[];
-  optional_tools: string[];
+  required_tools: readonly string[];
+  optional_tools: readonly string[];
   is_premium: boolean;
   default_enabled: boolean;
   version: string;
@@ -22,9 +22,9 @@ export interface Skill {
   system_prompt_addition?: string | null;
   // Claude-style configuration fields
   invocation_type?: 'user' | 'ai' | 'both';
-  allowed_tools?: string[] | null;
+  allowed_tools?: readonly string[] | null;
   supports_dynamic_context?: boolean;
-  trigger_patterns?: string[];
+  trigger_patterns?: readonly string[];
 }
 
 export interface UserSkill {

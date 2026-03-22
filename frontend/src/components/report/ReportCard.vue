@@ -291,25 +291,7 @@ const handleDownloadDocx = () => {
   emit('download', props.report, 'docx');
 };
 
-const _handleConvertToGoogleDocs = () => {
-  showMenu.value = false;
-  emit('saveToCloud', props.report, 'google-docs');
-};
-
-const _handleSaveToGoogleDrive = () => {
-  showMenu.value = false;
-  emit('saveToCloud', props.report, 'google-drive');
-};
-
-const _handleSaveToOneDrivePersonal = () => {
-  showMenu.value = false;
-  emit('saveToCloud', props.report, 'onedrive-personal');
-};
-
-const _handleSaveToOneDriveWork = () => {
-  showMenu.value = false;
-  emit('saveToCloud', props.report, 'onedrive-work');
-};
+// Cloud save handlers reserved for future integration (Google Docs, Google Drive, OneDrive)
 </script>
 
 <style scoped>

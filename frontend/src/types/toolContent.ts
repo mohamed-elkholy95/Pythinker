@@ -171,6 +171,8 @@ export interface ChartToolContent extends ToolContentBase {
   html_size?: number;
   data_points?: number;
   series_count?: number;
+  width?: number;
+  height?: number;
   execution_time_ms?: number | null;
   error?: string | null;
 }

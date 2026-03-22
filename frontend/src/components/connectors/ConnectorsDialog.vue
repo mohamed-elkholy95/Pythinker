@@ -28,7 +28,6 @@
           <div v-if="activeTab === 'apps'" class="connectors-search">
             <Search :size="14" class="connectors-search-icon" />
             <input
-              ref="searchInputRef"
               v-model="searchQuery"
               type="text"
               class="connectors-search-input"
@@ -189,7 +188,6 @@ const tabs = [
 
 const activeTab = ref<'apps' | 'custom-api' | 'custom-mcp'>('apps');
 const searchQuery = ref('');
-const searchInputRef = ref<HTMLInputElement>();
 const mutatingId = ref<string | null>(null);
 const setupConnector = ref<CatalogConnector | null>(null);
 const setupFormRef = ref<InstanceType<typeof AppSetupForm> | null>(null);

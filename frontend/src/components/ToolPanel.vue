@@ -9,7 +9,6 @@
     :style="{ 'width': isShow ? panelWidth : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
       <ToolPanelContent
-        ref="toolPanelContentRef"
         v-if="isShow && toolContent"
         :embedded="false"
         :sessionId="sessionId"
@@ -96,7 +95,6 @@ const isShow = ref(false)
 const live = ref(false)
 const toolContent = ref<ToolContent>()
 const visible = ref(true)
-const toolPanelContentRef = ref<InstanceType<typeof ToolPanelContent> | null>(null)
 
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void
@@ -199,6 +197,6 @@ defineExpose({
   showToolPanel,
   hideToolPanel,
   clearContent,
-  isShow
+  isShow,
 })
 </script>

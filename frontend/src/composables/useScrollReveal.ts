@@ -1,4 +1,4 @@
-import { onUnmounted } from 'vue'
+import { onUnmounted, type ComponentPublicInstance } from 'vue'
 
 interface ScrollRevealOptions {
   /** Intersection threshold (0.0–1.0). Default: 0.15 */
@@ -48,16 +48,17 @@ export function useScrollReveal(options: ScrollRevealOptions = {}) {
   }
 
   /** Bind as a template ref callback: `:ref="revealRef"` */
-  const revealRef = (el: Element | null) => {
-    if (!el || !(el instanceof Element)) return
+  const revealRef = (el: Element | ComponentPublicInstance | null) => {
+    const target = el instanceof Element ? el : el?.$el
+    if (!target || !(target instanceof Element)) return
 
     if (prefersReducedMotion) {
-      el.classList.add('revealed')
+      target.classList.add('revealed')
       return
     }
 
-    elements.add(el)
-    observer?.observe(el)
+    elements.add(target)
+    observer?.observe(target)
   }
 
   onUnmounted(() => {

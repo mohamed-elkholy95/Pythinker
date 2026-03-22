@@ -12,7 +12,7 @@ export interface CredentialField {
 }
 
 export interface McpTemplate {
-  credential_fields: CredentialField[];
+  credential_fields: readonly CredentialField[];
 }
 
 export interface CatalogConnector {
@@ -39,7 +39,7 @@ export interface CustomApiConfigResponse {
 export interface CustomMcpConfigResponse {
   transport: string;
   command: string | null;
-  args: string[];
+  args: readonly string[];
   url: string | null;
   headers: Record<string, string>;
   env: Record<string, string>;

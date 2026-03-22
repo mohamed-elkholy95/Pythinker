@@ -157,6 +157,10 @@ export interface StepEventData extends BaseEventData {
   description: string
   phase_id?: string | null  // Parent phase ID; when set, step is in plan-act flow (hide fast-search UI)
   step_type?: string | null
+  // Plan presentation metadata (optional, populated by backend planning flow)
+  action_verb?: string
+  expected_output?: string
+  tool_hint?: string
 }
 
 export interface MessageEventData extends BaseEventData {
@@ -197,6 +201,9 @@ export interface TitleEventData extends BaseEventData {
 
 export interface PlanEventData extends BaseEventData {
   steps: StepEventData[];
+  // Plan-level metadata (optional, populated by backend planning flow)
+  title?: string;
+  goal?: string;
 }
 
 export interface ModeChangeEventData extends BaseEventData {

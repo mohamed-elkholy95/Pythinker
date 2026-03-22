@@ -17,7 +17,7 @@
         @refresh="handleRetryConnection"
         @dismiss="dismissConnectionBanner"
       />
-      <div ref="_observerRef"
+      <div
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 sm:gap-2 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)] overflow-x-hidden">
         <!-- Mobile sidebar toggle -->
         <button
@@ -580,6 +580,7 @@ import * as agentApi from '../api/agent';
 import type { ThinkingMode } from '../api/agent';
 import type { SSECallbacks, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent, ThoughtContent } from '../types/message';
+import type { ChartToolContent } from '@/types/toolContent';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
   StepEventData,
@@ -1145,7 +1146,6 @@ const handleRequestWidth = (signal: number) => {
   }
 }
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
-const _observerRef = ref<HTMLDivElement>();
 const chatSplitRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
 const _chatBottomDockRef = ref<HTMLDivElement>();
@@ -3483,7 +3483,7 @@ const closeFilePreview = () => {
 
 // ── Canvas Viewer handlers ──
 const openCanvasViewer = (tool: ToolContent) => {
-  const content = tool?.content;
+  const content = tool?.content as ChartToolContent | undefined;
   if (!content) return;
   const pngFileId = content.png_file_id;
   if (!pngFileId) return;
@@ -3732,7 +3732,6 @@ const eventRegistry = createEventHandlerRegistry({
   attachments: () => { /* standalone attachments event — no UI handler yet */ },
   wide_research: () => { /* handled by research workflow composable */ },
   deep_research: () => { /* handled by research workflow composable */ },
-  skill: () => { /* skill events — no UI handler yet */ },
 })
 
 // Process a single event (extracted from handleEvent for batching)
@@ -4630,7 +4629,7 @@ streamController.setupReconnectCoordinator({
   pollFallbackStatus: pollSessionStatusFallback,
   maxAutoRetries: 4,
   autoRetryDelaysMs: AUTO_RETRY_DELAYS_MS,
-  fallbackPollIntervalMs: FALLBACK_STATUS_POLL_INTERVAL_MS,
+  fallbackPollInitialIntervalMs: FALLBACK_STATUS_POLL_INTERVAL_MS,
   fallbackPollMaxAttempts: FALLBACK_STATUS_POLL_MAX_ATTEMPTS,
 })
 

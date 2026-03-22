@@ -364,7 +364,7 @@
                   :function-name="toolContent?.function"
                   :args="toolContent?.args"
                   :status="toolStatus"
-                  :result="toolContent?.content?.result"
+                  :result="genericToolResult"
                   :content="toolContent?.content"
                   :is-executing="false"
                 />
@@ -465,7 +465,7 @@
                   :function-name="toolContent?.function"
                   :args="toolContent?.args"
                   :status="toolStatus"
-                  :result="toolContent?.content?.result"
+                  :result="genericToolResult"
                   :content="toolContent?.content"
                   :is-executing="isActiveOperation"
                 />
@@ -511,7 +511,7 @@
                   :function-name="toolContent?.function"
                   :args="toolContent?.args"
                   :status="toolStatus"
-                  :result="toolContent?.content?.result"
+                  :result="genericToolResult"
                   :content="toolContent?.content"
                   :is-executing="isActiveOperation"
                 />
@@ -621,7 +621,7 @@ const WideResearchOverlay = defineAsyncComponent(lazyRetry(() => import('@/compo
 const ScreenshotReplayViewer = defineAsyncComponent(lazyRetry(() => import('@/components/ScreenshotReplayViewer.vue')));
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { useElapsedTimer } from '@/composables/useElapsedTimer';
-import { useConnectionStore } from '@/stores/connectionStore';
+// connectionStore import removed (unused after computeds cleanup)
 import { normalizeSearchResults } from '@/utils/searchResults';
 import { isCanvasDomainTool } from '@/utils/viewRouting';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
@@ -674,8 +674,6 @@ const props = defineProps<{
 
 // ── Elapsed timer + connection status for header ──────────────────
 const headerTimer = useElapsedTimer()
-const connectionStore = useConnectionStore()
-
 // Start/stop timer based on loading state
 watch(() => props.isLoading, (loading) => {
   if (loading) {
@@ -685,26 +683,7 @@ watch(() => props.isLoading, (loading) => {
   }
 }, { immediate: true })
 
-/** Step progress derived from plan prop. */
-const _stepInfo = computed(() => {
-  if (!props.plan?.steps?.length) return null
-  const steps = props.plan.steps
-  const runningIdx = steps.findIndex(s => s.status === 'running')
-  const current = runningIdx >= 0
-    ? runningIdx + 1
-    : steps.filter(s => s.status === 'completed').length
-  return { current, total: steps.length }
-})
-
-/** Connection status dot color/pulse for header. */
-const _connectionDot = computed(() => {
-  const p = connectionStore.phase
-  if (p === 'streaming') return { color: 'bg-emerald-500', pulse: false, label: '' }
-  if (p === 'degraded') return { color: 'bg-amber-400', pulse: true, label: 'Slow' }
-  if (p === 'reconnecting') return { color: 'bg-amber-400', pulse: true, label: '' }
-  if (p === 'error') return { color: 'bg-red-500', pulse: false, label: '' }
-  return null // idle/settled → hidden
-})
+// Step progress + connection dot computeds removed (unused in template).
 
 // Computed for TaskProgressBar current tool
 const currentToolForProgress = computed(() => {
@@ -935,6 +914,16 @@ const isHtmlFile = computed(() => {
 });
 const editorViewMode = ref<'code' | 'preview'>('preview');
 
+/** Generic tool result for GenericContentView :result prop. */
+const genericToolResult = computed(() => {
+  const r = props.toolContent?.content?.result;
+  if (r === undefined || r === null) return r as undefined | null;
+  if (typeof r === 'string') return r;
+  if (Array.isArray(r)) return r as unknown[];
+  if (typeof r === 'object') return r as Record<string, unknown>;
+  return null;
+});
+
 const chartPayload = computed(() => {
   return (props.toolContent?.content || {}) as Record<string, unknown>;
 });
@@ -1057,24 +1046,7 @@ const showLiveViewSkeleton = computed(() => {
   return !noSkeleton.has(currentViewType.value ?? '');
 });
 
-// Tool execution progress badge (from ToolProgressEvent)
-const _shellProgress = computed(() => {
-  if (!isActiveOperation.value) return '';
-  const tc = props.toolContent;
-  if (!tc?.elapsed_ms) return '';
-  const seconds = Math.round(tc.elapsed_ms / 1000);
-  const pct = tc.progress_percent;
-  const step = tc.current_step;
-  // Rich progress: show step description when available (deal_scraper, etc.)
-  if (step) {
-    return pct && pct > 0 ? `${step} (${pct}%, ${seconds}s)` : `${step} (${seconds}s)`;
-  }
-  // Fallback: generic progress for shell/other tools
-  if (pct !== undefined && pct > 0) {
-    return `Running ${seconds}s (${pct}%)`;
-  }
-  return `Running ${seconds}s`;
-});
+// Shell progress computed removed (unused in template).
 
 // File operations
 const isFileWriting = computed(() => {
@@ -1470,7 +1442,7 @@ const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'ge
   return 'generic';
 });
 
-const terminalContent = computed(() => {
+const terminalContent = computed((): string => {
   // Shell/Code executor output
   if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
     if (shellOutput.value) return shellOutput.value;
@@ -1535,14 +1507,14 @@ const terminalContent = computed(() => {
   // File content
   if (toolName.value === 'file') {
     if (isFileWriting.value) {
-      return props.toolContent?.args?.content || props.toolContent?.content?.content || '';
+      return (props.toolContent?.args?.content as string) || (props.toolContent?.content?.content as string) || '';
     }
-    return props.toolContent?.content?.content || '';
+    return (props.toolContent?.content?.content as string) || '';
   }
 
   // Browser content
   if (toolName.value === 'browser' || toolName.value === 'browser_agent') {
-    return props.toolContent?.content?.content || '';
+    return (props.toolContent?.content?.content as string) || '';
   }
 
   // Generic
@@ -1591,7 +1563,7 @@ const loadShellContent = async () => {
   }
 
   try {
-    const response = await viewShellSession(props.sessionId, shellSessionId);
+    const response = await viewShellSession(props.sessionId, String(shellSessionId));
     if (response?.console) {
       shellOutput.value = formatShellOutput(response.console);
     }
@@ -1610,7 +1582,7 @@ const startAutoRefresh = () => {
     return;
   }
   if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute')) {
-    refreshTimer.value = setInterval(loadShellContent, 5000);
+    refreshTimer.value = window.setInterval(loadShellContent, 5000);
   }
 };
 
@@ -1963,9 +1935,9 @@ const searchResults = computed(() => searchResultsNormalized.value.results);
 
 const searchResultsExplicit = computed(() => searchResultsNormalized.value.explicit);
 
-const searchQuery = computed(() => {
+const searchQuery = computed((): string => {
   const args = props.toolContent?.args || {};
-  return (
+  return String(
     args.query ||
     args.topic ||
     args.url ||
@@ -1998,7 +1970,7 @@ const isDealSearching = computed(() => {
 const dealCheckpointData = computed(() => {
   const raw = props.toolContent?.checkpoint_data;
   if (!raw || typeof raw !== 'object') return null;
-  return raw as import('@/types/toolContent').DealProgressData;
+  return raw as unknown as import('@/types/toolContent').DealProgressData;
 });
 
 const dealActiveStores = computed((): string[] => {

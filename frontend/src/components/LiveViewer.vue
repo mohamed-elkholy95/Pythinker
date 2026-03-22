@@ -62,6 +62,7 @@ import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import { useContentConfig } from '@/composables/useContentConfig'
 import type { ToolEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
+import type { SearchResultItem } from '@/types/search'
 
 const props = withDefaults(
   defineProps<{
@@ -91,7 +92,7 @@ const props = withDefaults(
     /** File path for editor */
     editorFilePath?: string
     /** Search results */
-    searchResults?: Array<{ title?: string; name?: string; url?: string; link?: string; snippet?: string }>
+    searchResults?: SearchResultItem[]
     /** Search query */
     searchQuery?: string
   }>(),

@@ -1,5 +1,5 @@
 <template>
-  <div ref="containerRef" class="vnc-viewer">
+  <div class="vnc-viewer">
     <!-- Connecting overlay -->
     <Transition name="vnc-fade">
       <div v-if="isConnecting" class="vnc-overlay">
@@ -69,7 +69,6 @@ const emit = defineEmits<{
   disconnected: [reason?: string]
 }>()
 
-const containerRef = ref<HTMLElement | null>(null)
 const vncContainerRef = ref<HTMLElement | null>(null)
 
 const vncCursorStyle = { cursor: getApplePointerCursorCss() }
