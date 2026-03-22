@@ -39,7 +39,6 @@ const KonvaLiveStageStub = defineComponent({
     enabled: { type: Boolean, required: true },
     showStats: { type: Boolean, default: false },
     showAgentActions: { type: Boolean, default: true },
-    showAgentCursor: { type: Boolean, default: true },
     hideLocalCursor: { type: Boolean, default: false },
   },
   setup(_props, { expose }) {
@@ -53,7 +52,7 @@ const KonvaLiveStageStub = defineComponent({
     })
     return {}
   },
-  template: '<div class="konva-live-stage-stub"></div>',
+  template: '<div class="konva-live-stage-stub" v-bind="$attrs"></div>',
 })
 
 describe('SandboxViewer', () => {
@@ -82,8 +81,8 @@ describe('SandboxViewer', () => {
 
     const liveStage = wrapper.getComponent(KonvaLiveStageStub)
     expect(liveStage.props('showAgentActions')).toBe(false)
-    expect(liveStage.props('showAgentCursor')).toBe(false)
     expect(liveStage.props('hideLocalCursor')).toBe(true)
+    expect(liveStage.attributes('show-agent-cursor')).toBeUndefined()
 
     expect(wrapper.findComponent({ name: 'BrowserInteractionOverlay' }).exists()).toBe(false)
   })

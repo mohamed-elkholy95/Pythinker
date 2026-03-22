@@ -10,9 +10,9 @@ Do not maintain a second copy under `sandbox/` — a full upstream `apple_cursor
 
 ## What you see in the UI
 
-Live browser view uses **CDP `Page.startScreencast`**, which streams the Chrome window (often without a crisp hardware pointer in the JPEG). Pythinker draws a **separate agent cursor** on top (Konva overlay) driven by browser tool events (`useAgentCursor` + `agentCursorAssets.ts`).
+Live browser view uses **CDP `Page.startScreencast`**, which streams the Chrome window. Pythinker no longer draws a separate moving agent cursor on top during autonomous browsing.
 
-That overlay is **not** the X11 cursor inside the container; it is a second layer aligned to sandbox coordinates (1280×1024).
+Passive autonomous browsing hides the local viewer cursor and avoids browser-side cursor overlays. Manual takeover still uses the normal pointer cursor presented by the viewer/runtime.
 
 ## Why the cursor looked green and blue
 
@@ -36,4 +36,4 @@ To install a **macOS-style X cursor theme** built from the same SVGs:
 
 ## Coordinate accuracy
 
-Overlay position comes from tool args (`x` / `y` or `coordinate_x` / `coordinate_y`). If the pointer looks offset after fixing colors, tune `CURSOR_HOTSPOT_X` / `CURSOR_HOTSPOT_Y` and `CURSOR_RENDER_SIZE` in `useAgentCursor.ts` for the scaled 256×256 artwork.
+The CSS pointer hotspot used by the viewer is defined in `frontend/src/utils/appleCursorStyle.ts`. If the takeover pointer looks offset, tune the hotspot constants there for the scaled artwork.

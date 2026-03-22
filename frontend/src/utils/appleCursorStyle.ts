@@ -1,6 +1,6 @@
 /**
- * macOS-style pointer for CSS `cursor` (VNC takeover + live stream hover).
- * Hotspot matches useAgentCursor.ts (24px render, left_ptr artwork).
+ * macOS-style pointer for CSS `cursor` (takeover + live stream hover).
+ * Hotspot matches the 24px `left_ptr.svg` artwork used in the cursor bundle.
  */
 import { getCursorAssetForAction } from '@/utils/agentCursorAssets'
 
