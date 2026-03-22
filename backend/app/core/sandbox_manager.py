@@ -442,8 +442,13 @@ class ManagedSandbox:
             use_taskgroup = settings.feature_taskgroup_enabled
 
             # Run all health checks in parallel for faster response
+            chrome_on_demand = getattr(settings, "chrome_on_demand", False)
             api_task = asyncio.create_task(self._check_api_health())
-            browser_task = asyncio.create_task(self._check_browser_health())
+            browser_task = asyncio.create_task(
+                self._check_browser_health_on_demand()
+                if chrome_on_demand
+                else self._check_browser_health()
+            )
             health_tasks: list[asyncio.Task[Any]] = [api_task, browser_task]
 
             # Wait for all checks with individual exception handling
@@ -494,6 +499,23 @@ class ManagedSandbox:
         )
         response = await client.get("/json/version")
         return response.status_code == 200
+
+    @sandbox_retry
+    async def _check_browser_health_on_demand(self) -> bool:
+        """Check browser health in on-demand mode.
+
+        Uses the sandbox's ``/health`` endpoint which reports
+        ``cdp="on_demand_stopped"`` when Chrome is intentionally stopped.
+        This is considered healthy — only actual failures are unhealthy.
+        """
+        response = await self.api_client.get("/health", timeout=2.0)
+        if response.status_code != 200:
+            return False
+        data = response.json()
+        checks = data.get("checks", {})
+        cdp_status = checks.get("cdp")
+        # "on_demand_stopped" or True are both healthy
+        return cdp_status is True or cdp_status == "on_demand_stopped"
 
     async def _restart_services(self) -> bool:
         """Restart sandbox services"""
