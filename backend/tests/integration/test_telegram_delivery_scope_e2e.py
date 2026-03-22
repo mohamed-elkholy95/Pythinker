@@ -126,18 +126,22 @@ async def test_reused_telegram_session_excludes_stale_artifacts_from_delivery(
     )
 
     runner._set_delivery_scope("run-2", "/workspace/test-session/runs/run-2")
+    # Two-step sandbox exec: first call checks directory exists, second runs find
     mock_sandbox.exec_command = AsyncMock(
-        return_value=ToolResult(
-            success=True,
-            data={
-                "output": (
-                    "/workspace/test-session/runs/run-1/report-old.md\n"
-                    "/workspace/test-session/runs/run-2/report-current.md\n"
-                )
-            },
-        )
+        side_effect=[
+            ToolResult(success=True, data={"output": "exists"}),
+            ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/runs/run-1/report-old.md\n"
+                        "/workspace/test-session/runs/run-2/report-current.md\n"
+                    )
+                },
+            ),
+        ]
     )
-    mock_session_repository.find_by_id = AsyncMock(return_value=SimpleNamespace(files=[]))
+    mock_session_repository.find_by_id_with_files = AsyncMock(return_value=SimpleNamespace(files=[]))
 
     swept_files = await runner._sweep_workspace_files()
     assert [file_info.filename for file_info in swept_files] == ["report-current.md"]
