@@ -2761,8 +2761,24 @@ class BaseAgent:
                 continue
 
             if is_truncated and message.get("content"):
-                # Text-only truncation: return partial answer with note
-                logger.warning("Final answer may be truncated (finish_reason=length)")
+                # Text-only truncation: request continuation instead of returning partial answer
+                self._recent_truncation_count += 1
+                if self._recent_truncation_count <= 2:
+                    logger.warning(
+                        "LLM response truncated (text-only, consecutive: %d) — requesting continuation",
+                        self._recent_truncation_count,
+                    )
+                    await self._add_to_memory(
+                        [
+                            {"role": "assistant", "content": message["content"]},
+                            {
+                                "role": "user",
+                                "content": "Your previous response was cut off. Please continue from where you stopped.",
+                            },
+                        ]
+                    )
+                    continue
+                logger.warning("Final answer truncated after %d continuation attempts", self._recent_truncation_count)
                 message["content"] = message["content"] + "\n\n[Note: Response may be incomplete due to length limits]"
 
             filtered_message = {}
