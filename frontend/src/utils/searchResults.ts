@@ -22,7 +22,7 @@ const RESULT_KEYS = [
   'coupons'
 ] as const;
 
-function pickFirstString(source: any, keys: string[]): string {
+function pickFirstString(source: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     const value = source?.[key];
     if (typeof value === 'string' && value.trim()) return value;
@@ -30,44 +30,47 @@ function pickFirstString(source: any, keys: string[]): string {
   return '';
 }
 
-function normalizeItem(item: any): NormalizedSearchResult | null {
+function normalizeItem(item: unknown): NormalizedSearchResult | null {
   if (!item) return null;
 
   if (typeof item === 'string') {
     return { title: item.trim(), link: '', snippet: '' };
   }
 
-  const source = item.document || item._source || item.resource || item;
+  if (typeof item !== 'object' || item === null) return null;
+
+  const record = item as Record<string, unknown>;
+  const source = (record.document || record._source || record.resource || record) as Record<string, unknown>;
 
   const title =
     pickFirstString(source, ['title', 'name', 'headline']) ||
-    pickFirstString(item, ['title', 'name']) ||
+    pickFirstString(record, ['title', 'name']) ||
     'Untitled result';
 
   const link =
     pickFirstString(source, ['link', 'url', 'href', 'source', 'website']) ||
-    pickFirstString(item, ['link', 'url', 'href', 'source']) ||
+    pickFirstString(record, ['link', 'url', 'href', 'source']) ||
     '';
 
   const snippet =
     pickFirstString(source, ['snippet', 'description', 'summary', 'text', 'content', 'body', 'excerpt']) ||
-    pickFirstString(item, ['snippet', 'description', 'summary', 'text', 'content']) ||
+    pickFirstString(record, ['snippet', 'description', 'summary', 'text', 'content']) ||
     '';
 
   return { title, link, snippet };
 }
 
-function isSearchResultsPayload(payload: any): payload is SearchResultsPayload {
-  return !!payload && typeof payload === 'object' && Array.isArray(payload.results) && typeof payload.query === 'string';
+function isSearchResultsPayload(payload: unknown): payload is SearchResultsPayload {
+  return !!payload && typeof payload === 'object' && Array.isArray((payload as Record<string, unknown>).results) && typeof (payload as Record<string, unknown>).query === 'string';
 }
 
-function hasArrayProperty(payload: any, key: string): boolean {
+function hasArrayProperty(payload: unknown, key: string): boolean {
   if (!payload || typeof payload !== 'object') return false;
-  return key in payload && Array.isArray((payload as any)[key]);
+  return key in payload && Array.isArray((payload as Record<string, unknown>)[key]);
 }
 
 function findArray(payload: SearchResultsEnvelope | SearchResultsPayload | unknown): {
-  items: any[];
+  items: unknown[];
   explicit: boolean;
 } {
   if (!payload) return { items: [], explicit: false };
@@ -79,12 +82,12 @@ function findArray(payload: SearchResultsEnvelope | SearchResultsPayload | unkno
 
   for (const key of RESULT_KEYS) {
     if (hasArrayProperty(payload, key)) {
-      return { items: (payload as any)[key], explicit: true };
+      return { items: (payload as Record<string, unknown>)[key] as unknown[], explicit: true };
     }
 
-    const value = (payload as any)[key];
-    if (value && Array.isArray(value.results)) return { items: value.results, explicit: true };
-    if (value && Array.isArray(value.items)) return { items: value.items, explicit: true };
+    const value = (payload as Record<string, unknown>)[key] as Record<string, unknown> | undefined;
+    if (value && Array.isArray(value.results)) return { items: value.results as unknown[], explicit: true };
+    if (value && Array.isArray(value.items)) return { items: value.items as unknown[], explicit: true };
   }
 
   if (payload && typeof payload === 'object') {

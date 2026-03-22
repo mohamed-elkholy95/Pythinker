@@ -93,7 +93,7 @@ export function useLibraryFiles() {
         (f) =>
           f.filename.toLowerCase().includes(q) ||
           f.session_title?.toLowerCase().includes(q) ||
-          f.metadata?.title?.toLowerCase().includes(q),
+          (typeof f.metadata?.title === 'string' && f.metadata.title.toLowerCase().includes(q)),
       )
     }
 
