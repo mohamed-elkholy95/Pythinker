@@ -3289,7 +3289,16 @@ const handleReportEvent = (reportData: ReportEventData) => {
   // Track anchor event ID for follow-up suggestions
   followUpAnchorEventId.value = reportData.event_id;
 
-  const normalizedReportContent = collapseDuplicateReportBlocks(reportData.content);
+  // Strip internal context-compression placeholders that may leak from backend
+  const placeholderStripped = (reportData.content || '').replace(
+    /\[Previously called \w+\]/g,
+    '',
+  ).trim();
+  const normalizedReportContent = collapseDuplicateReportBlocks(placeholderStripped);
+  if (!normalizedReportContent) {
+    console.warn('[ChatPage] Report content was only placeholder text — skipping');
+    return;
+  }
   finalReportText.value = normalizedReportContent;
   const sections = extractSectionsFromMarkdown(normalizedReportContent);
   const epochSec = toEpochSeconds(reportData.timestamp) ?? Math.floor(Date.now() / 1000);
