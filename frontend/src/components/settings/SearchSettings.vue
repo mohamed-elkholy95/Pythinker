@@ -81,6 +81,7 @@ import {
 // ── State (read-only from server) ────────────────────────────────────
 const serverConfig = ref<ServerConfig>({
   model_name: '',
+  model_display_name: '',
   api_base: '',
   temperature: 0.6,
   max_tokens: 8192,

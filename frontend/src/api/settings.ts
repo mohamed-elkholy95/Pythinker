@@ -82,6 +82,7 @@ export async function getProviders(): Promise<ProvidersInfo> {
  */
 export interface ServerConfig {
   model_name: string
+  model_display_name: string
   api_base: string
   temperature: number
   max_tokens: number
