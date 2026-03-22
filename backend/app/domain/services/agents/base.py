@@ -2404,13 +2404,14 @@ class BaseAgent:
 
         final_content = message.get("content")
         if not final_content:
-            # Salvage: If the pre-enforcement response was substantial prose
-            # (e.g. a report the LLM wrote as raw markdown instead of JSON),
-            # wrap it in a success JSON rather than discarding it.
+            # Salvage: If the pre-enforcement response was prose (e.g. a report
+            # the LLM wrote as raw text instead of JSON), wrap it in success JSON.
+            # Threshold lowered to 50 chars — some models (GLM) produce short but
+            # valid prose that was previously discarded.
             _stripped = _final_text.lstrip()
             if (
                 _final_text
-                and len(_final_text) > 200
+                and len(_final_text) > 50
                 and not _stripped.startswith("{")
                 and not _stripped.startswith("[")
             ):
@@ -2429,20 +2430,59 @@ class BaseAgent:
                     }
                 )
             else:
-                logger.warning("Agent produced empty final message — yielding fallback")
-                fallback_error = (
-                    "Step time limit exceeded. No result produced."
-                    if wall_clock_exceeded
-                    else "I was unable to produce a complete response. Please try again or rephrase your request."
-                )
-                final_content = json.dumps(
-                    {
-                        "success": False,
-                        "result": None,
-                        "attachments": [],
-                        "error": fallback_error,
-                    }
-                )
+                # Last resort: explicitly ask the LLM to summarize what it accomplished
+                # during the tool loop. This recovers content when the LLM's final
+                # response was tool-calls-only with no text.
+                if not wall_clock_exceeded:
+                    logger.info("Attempting summarization recovery for empty final message")
+                    # Model-agnostic prompt: accept plain text OR JSON to maximize
+                    # compatibility with models that struggle with JSON formatting.
+                    recovery_message = await self.ask_with_messages(
+                        [
+                            {
+                                "role": "user",
+                                "content": (
+                                    "You completed tool calls but did not provide a text response. "
+                                    "Briefly summarize what you accomplished and found during this step."
+                                ),
+                            }
+                        ],
+                    )
+                    recovery_content = (recovery_message.get("content") or "").strip()
+                    if recovery_content and len(recovery_content) > 10:
+                        # Accept any non-trivial response — wrap as JSON if needed
+                        try:
+                            json.loads(recovery_content)
+                            logger.info(
+                                "Summarization recovery succeeded as JSON (%d chars)",
+                                len(recovery_content),
+                            )
+                            final_content = recovery_content
+                        except (ValueError, TypeError):
+                            logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
+                            final_content = json.dumps(
+                                {
+                                    "success": True,
+                                    "result": recovery_content[:500],
+                                    "attachments": [],
+                                }
+                            )
+
+                if not final_content:
+                    logger.warning("Agent produced empty final message — yielding fallback")
+                    fallback_error = (
+                        "Step time limit exceeded. No result produced."
+                        if wall_clock_exceeded
+                        else "I was unable to produce a complete response. Please try again or rephrase your request."
+                    )
+                    final_content = json.dumps(
+                        {
+                            "success": False,
+                            "result": None,
+                            "attachments": [],
+                            "error": fallback_error,
+                        }
+                    )
         yield MessageEvent(message=final_content)
 
         # Cleanup background tasks on normal exit (e.g. background memory saves)
