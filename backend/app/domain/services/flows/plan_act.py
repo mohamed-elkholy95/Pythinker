@@ -104,7 +104,7 @@ from app.domain.services.agents.error_integration import (
     AgentHealthLevel,
     ErrorIntegrationBridge,
 )
-from app.domain.services.agents.guardrails import InputGuardrails, OutputGuardrails
+from app.domain.services.agents.guardrails import InputAnalysisResult, InputGuardrails, InputRiskLevel, OutputGuardrails
 
 # Import memory management for Phase 3 proactive compaction
 from app.domain.services.agents.memory_manager import (
@@ -1761,8 +1761,12 @@ class PlanActFlow(BaseFlow):
         *,
         verbosity_preference: str = "adaptive",
         quality_floor_enforced: bool = True,
-    ) -> tuple[TaskAssessment, ResponsePolicy]:
-        """Evaluate adaptive response policy for the current user message."""
+    ) -> tuple[TaskAssessment, ResponsePolicy, InputAnalysisResult]:
+        """Evaluate adaptive response policy for the current user message.
+
+        Returns the guardrail analysis result alongside the assessment and policy
+        so the caller can enforce input safety gates (e.g. block prompt injection).
+        """
         guardrail_result = self._input_guardrails.analyze(message_text)
         assessment = self._response_policy_engine.assess_task(
             task_description=message_text,
@@ -1781,7 +1785,7 @@ class PlanActFlow(BaseFlow):
 
         metrics = get_metrics()
         metrics.record_counter("response_policy_mode_total", labels={"mode": policy.mode.value})
-        return assessment, policy
+        return assessment, policy, guardrail_result
 
     def _should_pause_for_clarification(
         self,
@@ -2314,7 +2318,7 @@ class PlanActFlow(BaseFlow):
                 search_engine=self._search_engine,
             )
             intent, params = fast_path_router.classify(message.message)
-            logger.info(f"Fast path classification: intent={intent.value}, params={params}")
+            logger.debug(f"Fast path classification: intent={intent.value}, params={params}")
 
             # Determine if fast path can be used based on intent
             use_fast_path = False
@@ -2444,13 +2448,33 @@ class PlanActFlow(BaseFlow):
             except Exception as e:
                 logger.debug("Could not load user settings for response policy: %s", e)
 
-        task_assessment, response_policy = self._evaluate_response_policy_for_message(
+        task_assessment, response_policy, guardrail_result = self._evaluate_response_policy_for_message(
             message.message,
             verbosity_preference=verbosity_preference,
             quality_floor_enforced=quality_floor_enforced,
         )
         flags = self._resolve_feature_flags()
         shadow_mode = flags.get("adaptive_verbosity_shadow", False)
+
+        # ── Input safety gate: block execution when guardrails detect high risk ──
+        if not guardrail_result.should_proceed:
+            issue_types = [i.issue_type.value for i in guardrail_result.issues]
+            logger.warning(
+                "Input guardrails blocked execution: risk_level=%s issues=%s session=%s",
+                guardrail_result.risk_level.value,
+                issue_types,
+                self._session_id,
+            )
+            get_metrics().record_counter(
+                "input_guardrails_blocked_total",
+                labels={"risk_level": guardrail_result.risk_level.value},
+            )
+            yield MessageEvent(
+                message="I'm unable to process this request as it was flagged by our safety system. "
+                "Please rephrase your question or try a different request.",
+            )
+            self._transition_to(AgentStatus.IDLE, reason="input guardrails blocked")
+            return
 
         logger.info(
             "Response policy: mode=%s complexity=%.2f risk=%.2f ambiguity=%.2f confidence=%.2f shadow=%s",
