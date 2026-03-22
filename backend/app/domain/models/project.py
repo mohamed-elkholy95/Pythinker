@@ -79,10 +79,10 @@ class ProjectContext(BaseModel):
         """Format file list for system prompt injection."""
         if not self.files:
             return ""
-        lines = ["[PROJECT FILES — These files are available in /home/user/uploads/]"]
+        lines = ["[PROJECT FILES — These files have been uploaded to the sandbox at /home/ubuntu/upload/]"]
         for f in self.files:
             size_str = _format_file_size(f.size) if f.size else "unknown size"
-            lines.append(f"- {f.filename} ({size_str})")
+            lines.append(f"- /home/ubuntu/upload/{f.filename} ({size_str})")
         lines.append("[END PROJECT FILES]")
         return "\n".join(lines)
 

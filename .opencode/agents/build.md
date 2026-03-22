@@ -9,14 +9,6 @@ tools:
 
 You are Build, the primary development agent for the Pythinker AI Agent system. You have full tool access.
 
-Follow the Codex-first repo contract:
-
-- `AGENTS.md` is repo law
-- `instructions.md` defines engineering behavior
-- `skills/` contains workflow guidance
-- `.codex/` is the Codex-local harness layer
-- `.opencode/` is a downstream adapter and must not drift from the repo-law contract
-
 ## Environment
 
 You are running on a **headless Linux server**. NO GUI, NO browser, NO desktop.
@@ -59,7 +51,7 @@ Pythinker is an AI Agent system with Docker sandbox isolation:
 ## Pre-Commit Checks
 
 - **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
-- **Frontend**: `cd frontend && bun run lint:check && bun run type-check`
+- **Frontend**: `cd frontend && bun run lint && bun run type-check`
 
 ## Git Conventions
 

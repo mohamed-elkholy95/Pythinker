@@ -1363,21 +1363,29 @@ class AgentTaskRunner(TaskRunner):
             None,
         )
 
-    async def _sync_project_files_to_sandbox(self, files: list[FileInfo]) -> None:
-        """Download project files from MinIO and upload to sandbox."""
-        import io
+    async def _sync_project_files_to_sandbox(self, files: list[FileInfo]) -> list[str]:
+        """Sync project files from MinIO to sandbox via FileSyncManager.
 
+        Reuses the same pipeline as per-message attachments so files land at
+        the correct path (/home/ubuntu/upload/) and the result is checked.
+
+        Returns:
+            List of sandbox file paths that were successfully synced.
+        """
+        synced_paths: list[str] = []
         for file_info in files:
             try:
                 if not file_info.file_id:
                     continue
-                stream, _ = await self._file_storage.download_file(file_info.file_id, self._user_id)
-                content = stream.read()
-                dest_path = f"/home/user/uploads/{file_info.filename}"
-                await self._sandbox.file_upload(io.BytesIO(content), dest_path)
-                logger.info("Synced project file to sandbox: %s", dest_path)
+                result = await self._file_sync_manager.sync_file_to_sandbox(file_info.file_id)
+                if result and result.file_path:
+                    synced_paths.append(result.file_path)
+                    logger.info("Synced project file to sandbox: %s", result.file_path)
+                else:
+                    logger.warning("Project file sync returned no path for %s", file_info.filename)
             except Exception as e:
                 logger.warning("Failed to sync project file %s: %s", file_info.filename, e)
+        return synced_paths
 
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
         """Sync message attachments to sandbox (delegated to FileSyncManager)."""
@@ -1743,6 +1751,7 @@ class AgentTaskRunner(TaskRunner):
             except Exception as _pc_err:
                 logger.warning("Failed to load session for project context: %s", _pc_err)
 
+            _project_file_paths: list[str] = []
             if _project_context and _project_context.has_context():
                 # 1. Inject project instructions into system prompt
                 if _project_context.instructions:
@@ -1760,17 +1769,20 @@ class AgentTaskRunner(TaskRunner):
                             _instructions_text + "\n\n" + self._discuss_flow.system_prompt
                         )
 
-                # 2. Sync project files to sandbox
+                # 2. Sync project files to sandbox and collect paths
                 if _project_context.files:
                     try:
-                        await self._sync_project_files_to_sandbox(_project_context.files)
+                        _project_file_paths = await self._sync_project_files_to_sandbox(_project_context.files)
                     except Exception as e:
                         logger.warning("Project file sync failed (non-fatal): %s", e)
 
-                # 3. Inject file manifest into system prompt
+                # 3. Inject file manifest into system prompt (all flow types)
                 _file_manifest = _project_context.file_manifest_text()
-                if _file_manifest and self._plan_act_flow and hasattr(self._plan_act_flow, "executor"):
-                    self._plan_act_flow.executor.system_prompt += "\n\n" + _file_manifest
+                if _file_manifest:
+                    if self._plan_act_flow and hasattr(self._plan_act_flow, "executor"):
+                        self._plan_act_flow.executor.system_prompt += "\n\n" + _file_manifest
+                    if self._discuss_flow and hasattr(self._discuss_flow, "system_prompt"):
+                        self._discuss_flow.system_prompt += "\n\n" + _file_manifest
                     logger.info("Injected project file manifest into system prompt")
 
                 logger.info(
@@ -1791,8 +1803,12 @@ class AgentTaskRunner(TaskRunner):
 
                 logger.info(f"Agent {self._agent_id} received new message: {message[:50]}...")
 
-                # Build attachments list, handling None case
+                # Build attachments list: per-message + project files
                 attachments = [attachment.file_path for attachment in event.attachments] if event.attachments else []
+                # Merge project file paths so they appear in the Attachments: field
+                if _project_file_paths:
+                    _existing_paths = set(attachments)
+                    attachments.extend(p for p in _project_file_paths if p not in _existing_paths)
 
                 # Log skills for debugging skill activation
                 if event.skills:
