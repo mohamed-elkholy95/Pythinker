@@ -65,6 +65,17 @@ class SandboxAuthMiddleware:
                 token = qs.get("secret", [""])[0]
 
             if token != self._secret:
+                # Log the source IP and path for diagnostics. Requests from the
+                # Docker gateway IP (e.g. 172.x.x.1 / 192.168.x.1) typically come
+                # from host-side tools hitting the exposed sandbox port without auth.
+                client = scope.get("client")
+                client_ip = client[0] if client else "unknown"
+                logger.warning(
+                    "Sandbox auth rejected: %s %s from %s (missing or invalid secret)",
+                    scope_type.upper(),
+                    path,
+                    client_ip,
+                )
                 if scope_type == "http":
                     response = JSONResponse(
                         status_code=403,
