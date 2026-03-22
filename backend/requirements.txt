@@ -25,7 +25,8 @@ sse-starlette>=2.1.0
 httpx>=0.28.1
 
 # HTTP and encoding dependencies with pinned versions for E2E reliability
-urllib3>=2.0,<2.6
+# >=2.6.3 fixes CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 (decompression bomb + unbounded chain)
+urllib3>=2.6.3
 charset-normalizer>=3.0,<3.4
 
 # Utilities (let browser-use control rich and markdownify)
