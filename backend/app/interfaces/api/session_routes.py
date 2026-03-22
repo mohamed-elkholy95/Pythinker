@@ -521,6 +521,20 @@ async def get_active_session(
     )
 
 
+@router.get("/all-files", response_model=APIResponse[list[dict]])
+async def get_all_user_files(
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[list[dict]]:
+    """Get all files across all user sessions with session context.
+
+    Returns a flat list of file objects, each enriched with session_id,
+    session_title, and session_latest_at for grouping in the Library UI.
+    """
+    files = await agent_service.get_all_user_files(current_user.id)
+    return APIResponse.success(files)
+
+
 @router.delete("/{session_id}", response_model=APIResponse[DeleteSessionResponse | None])
 async def delete_session(
     session_id: str,

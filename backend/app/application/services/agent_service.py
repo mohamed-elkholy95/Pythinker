@@ -1696,6 +1696,10 @@ class AgentService:
             raise NotFoundError("Session not found")
         return session.files
 
+    async def get_all_user_files(self, user_id: str) -> list[dict]:
+        """Get all files across all sessions for a user, with session context."""
+        return await self._session_repository.find_user_files(user_id)
+
     async def get_shared_session_files(self, session_id: str) -> list[FileInfo]:
         """Get files for a shared session"""
         logger.info(f"Getting files for shared session {session_id}")
