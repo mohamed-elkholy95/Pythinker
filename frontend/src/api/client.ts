@@ -949,7 +949,10 @@ export const createSSEConnection = async <T = unknown>(
             const sseId = event.id;
 
             // Prefer the SSE transport-level id (Redis stream format "12345-0")
-            // over the JSON payload's event_id (UUID format)
+            // over the JSON payload's event_id (UUID format).
+            // For dedup we use whichever ID is available; for the resume cursor
+            // (Last-Event-ID) we ONLY store Redis stream IDs so the backend can
+            // read directly from that position without a format mismatch.
             const eventId = sseId || payloadEventId;
             if (eventId) {
               const isUniqueEvent = trackEventId(eventId);
@@ -962,7 +965,12 @@ export const createSSEConnection = async <T = unknown>(
                 });
                 return;
               }
-              lastReceivedEventId = eventId;
+              // Only use Redis stream IDs (format: "digits-digits") as the resume
+              // cursor.  UUID/synthetic IDs cause a format mismatch on the backend
+              // which disables skip mode and forces full event replay on reconnect.
+              if (sseId && /^\d+-\d+$/.test(sseId)) {
+                lastReceivedEventId = sseId;
+              }
             }
 
             if (isTerminalStreamEvent(event.event)) {
