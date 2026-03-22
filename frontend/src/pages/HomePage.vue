@@ -139,7 +139,7 @@ const attachments = ref<FileInfo[]>([]);
 const pendingSkillId = ref<string | null>(null);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
-const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel();
+const { toggleLeftPanel } = useLeftPanel();
 const { openSettingsDialog } = useSettingsDialog();
 const activeModelName = ref('');
 
