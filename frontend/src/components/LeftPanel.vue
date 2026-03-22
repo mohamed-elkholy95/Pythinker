@@ -103,9 +103,28 @@
         </div>
         <div class="nav-section">
           <div class="nav-section-title">{{ t('Projects') }}</div>
-          <button class="nav-item nav-item-muted" type="button" disabled aria-disabled="true" title="Coming soon" @click.stop.prevent>
+          <button class="nav-item" type="button" @click="showCreateProjectModal = true">
             <FolderPlus class="nav-icon" />
             <span>{{ t('New project') }}</span>
+          </button>
+          <button
+            v-for="proj in projects.slice(0, 5)"
+            :key="proj.id"
+            class="nav-item"
+            :class="{ 'nav-item-active': route.params.projectId === proj.id }"
+            type="button"
+            @click="router.push(`/chat/projects/${proj.id}`)"
+          >
+            <Folder class="nav-icon" :size="16" />
+            <span class="truncate">{{ proj.name }}</span>
+          </button>
+          <button
+            v-if="projects.length > 5"
+            class="nav-item nav-item-view-all"
+            type="button"
+            @click="router.push('/chat/projects')"
+          >
+            <span class="text-xs text-[var(--text-tertiary)]">{{ t('View all') }}</span>
           </button>
         </div>
       </div>
@@ -196,15 +215,21 @@
 
     <!-- Search Modal -->
     <SearchModal v-model:open="showSearchModal" />
+    <CreateProjectModal
+      v-model:open="showCreateProjectModal"
+      @created="(proj) => { addProject(proj); router.push(`/chat/projects/${proj.id}`) }"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Radar } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, Folder, SquarePen, Radar } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from './icons/PythinkerLogoTextIcon.vue';
 import SessionItem from './SessionItem.vue';
 import SearchModal from './SearchModal.vue';
+import CreateProjectModal from './project/CreateProjectModal.vue'
 import { useLeftPanel } from '../composables/useLeftPanel';
+import { useProjectList } from '../composables/useProjectList'
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { stopSession } from '../api/agent';
@@ -234,6 +259,8 @@ const channelFilter = ref<SessionChannelFilter>('all')
 
 // Search modal state
 const showSearchModal = ref(false)
+const showCreateProjectModal = ref(false)
+const { projects, addProject } = useProjectList()
 
 interface SessionTitleHintDetail {
   sessionId: string
@@ -896,5 +923,13 @@ watch(() => route.path, async (newPath, oldPath) => {
   color: #d7deea;
 }
 
+.nav-item-view-all {
+  justify-content: center;
+  height: 28px;
+  opacity: 0.7;
+}
+.nav-item-view-all:hover {
+  opacity: 1;
+}
 
 </style>
