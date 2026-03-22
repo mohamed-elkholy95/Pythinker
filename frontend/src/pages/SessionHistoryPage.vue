@@ -8,13 +8,27 @@
             <ArrowLeft :size="18" />
           </button>
           <div class="header-title-group">
-            <h1>Session History</h1>
-            <span v-if="!isLoading" class="session-count">
-              {{ filteredSessions.length }} {{ filteredSessions.length === 1 ? 'session' : 'sessions' }}
-            </span>
+            <h1>Library</h1>
+          </div>
+          <!-- Tab switcher -->
+          <div class="tab-switcher">
+            <button
+              class="tab-btn"
+              :class="{ active: activeTab === 'sessions' }"
+              @click="activeTab = 'sessions'"
+            >
+              Sessions
+            </button>
+            <button
+              class="tab-btn"
+              :class="{ active: activeTab === 'files' }"
+              @click="activeTab = 'files'"
+            >
+              Files
+            </button>
           </div>
         </div>
-        <div class="header-right">
+        <div v-if="activeTab === 'sessions'" class="header-right">
           <div class="search-box" :class="{ focused: isSearchFocused }">
             <Search :size="15" class="search-icon" />
             <input
@@ -55,8 +69,13 @@
       </div>
     </header>
 
-    <!-- Session list -->
-    <div class="session-list">
+    <!-- Files tab -->
+    <div v-if="activeTab === 'files'" class="tab-content">
+      <LibraryFilesView />
+    </div>
+
+    <!-- Sessions tab -->
+    <div v-else class="session-list">
       <!-- Loading state -->
       <div v-if="isLoading" class="loading-state">
         <div class="loading-skeleton" v-for="i in 5" :key="i">
@@ -190,6 +209,7 @@ import { useSessionListFeed } from '@/composables/useSessionListFeed'
 import type { ListSessionItem } from '@/types/response'
 import { SessionStatus } from '@/types/response'
 import TaskIcon from '@/components/icons/TaskIcon.vue'
+import LibraryFilesView from '@/components/LibraryFilesView.vue'
 import { copyToClipboard } from '@/utils/dom'
 
 type SessionItem = ListSessionItem
@@ -202,6 +222,7 @@ const MS_PER_WEEK = 7 * MS_PER_DAY
 const router = useRouter()
 
 // State
+const activeTab = ref<'sessions' | 'files'>('sessions')
 const { sessions, isLoading } = useSessionListFeed({ initialFetch: true })
 const searchQuery = ref('')
 const statusFilter = ref('')
@@ -368,6 +389,53 @@ function formatDate(timestamp: number | null): string {
   align-items: center;
   gap: 14px;
   flex-shrink: 0;
+}
+
+/* ─── Tab switcher ─────────────────────── */
+.tab-switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--fill-tsp-gray-main, #f0f0f0);
+  border-radius: 8px;
+  padding: 2px;
+  margin-left: 8px;
+}
+
+:global(.dark) .tab-switcher {
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.tab-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn.active {
+  background: var(--background-menu-white, #fff);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:global(.dark) .tab-btn.active {
+  background: var(--bolt-elements-bg-depth-1);
+}
+
+.tab-btn:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+/* ─── Tab content ─────────────────────── */
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 28px 28px;
 }
 
 .btn-back {
