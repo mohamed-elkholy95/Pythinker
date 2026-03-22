@@ -423,6 +423,7 @@ def _make_execution_agent_for_summarize():
     agent._user_request = "What are the top AI trends?"
     agent._research_depth = "STANDARD"
     agent._pre_trim_report_cache = None
+    agent._file_write_report_cache = None
     agent._collected_sources = False
     agent._response_policy = None
     agent._delivery_channel = None
