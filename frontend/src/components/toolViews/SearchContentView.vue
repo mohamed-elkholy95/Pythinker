@@ -37,10 +37,10 @@
       <!-- Skeleton loading when no results yet -->
       <div v-else class="search-skeleton">
         <div v-for="i in 5" :key="i" class="skeleton-item" :style="{ animationDelay: `${i * 0.1}s` }">
-          <div class="skeleton-icon"></div>
+          <div class="skeleton-icon" />
           <div class="skeleton-lines">
-            <div class="skeleton-line skeleton-title"></div>
-            <div class="skeleton-line skeleton-snippet"></div>
+            <div class="skeleton-line skeleton-title" />
+            <div class="skeleton-line skeleton-snippet" />
           </div>
         </div>
       </div>
@@ -72,7 +72,7 @@
         </div>
 
         <div v-if="showEmptyState" class="search-empty-state">
-          <Search :size="32" class="search-empty-icon" />
+          <Search :size="28" class="search-empty-icon" />
           <p class="search-empty-text">No results found</p>
           <p v-if="query" class="search-empty-query">for "{{ query }}"</p>
         </div>
@@ -154,9 +154,17 @@ function getIconLetter(result: SearchResult): string {
 
 function formatSnippet(snippet: string): string {
   if (!snippet) return '';
-  const cleaned = snippet.replace(/\s+/g, ' ').trim();
-  if (cleaned.length > 180) {
-    return cleaned.slice(0, 180).trim() + ' ...';
+  // Strip markdown artifacts: headings, bold, italic, links, list markers
+  let cleaned = snippet
+    .replace(/^#{1,6}\s+/gm, '')        // Markdown headings
+    .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1') // Bold/italic
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Links [text](url)
+    .replace(/^[\s]*[-*+]\s+/gm, '')    // List markers
+    .replace(/`([^`]+)`/g, '$1')         // Inline code
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length > 200) {
+    cleaned = cleaned.slice(0, 200).trim() + '...';
   }
   return cleaned;
 }
@@ -190,10 +198,9 @@ function handleResultClick(result: SearchResult) {
   flex-direction: column;
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
 }
 
-/* Result slide-in transition */
+/* ── Result slide-in transition ── */
 .result-slide-enter-active {
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -202,49 +209,54 @@ function handleResultClick(result: SearchResult) {
   transform: translateY(6px);
 }
 
-/* ── Individual Result Item (Pythinker-style) ── */
+/* ── Individual Result Item ── */
 .search-result-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 18px 24px;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  border-bottom: 1px solid var(--border-light);
+  transition: background-color 0.15s ease;
+}
+
+.search-result-item:last-of-type {
+  border-bottom: none;
 }
 
 .search-result-item:hover {
   background-color: var(--fill-tsp-gray-main);
 }
 
-/* ── Circular Favicon ── */
+/* ── Favicon Icon ── */
 .result-icon-wrapper {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
   border-radius: 50%;
-  background: var(--fill-tsp-gray-main);
+  background: var(--fill-tsp-white-dark);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  margin-top: 1px;
+  margin-top: 2px;
   flex-shrink: 0;
 }
 
 .result-favicon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
 }
 
 .result-icon-fallback {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
+  font-weight: 700;
+  color: var(--text-secondary);
   line-height: 1;
 }
 
-/* ── Result Body (title + snippet) ── */
+/* ── Result Body ── */
 .result-body {
   flex: 1;
   min-width: 0;
@@ -252,10 +264,9 @@ function handleResultClick(result: SearchResult) {
 
 .result-title {
   color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
   letter-spacing: -0.01em;
   margin: 0;
 }
@@ -264,7 +275,7 @@ function handleResultClick(result: SearchResult) {
   color: var(--text-tertiary);
   font-size: 14px;
   font-weight: 400;
-  line-height: 1.5;
+  line-height: 1.55;
   margin: 4px 0 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -274,7 +285,6 @@ function handleResultClick(result: SearchResult) {
 
 /* ── Skeleton ── */
 .search-skeleton {
-  padding: 4px 0;
   flex: 1;
 }
 
@@ -282,14 +292,15 @@ function handleResultClick(result: SearchResult) {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-light);
   animation: skeleton-fade 1.2s ease-in-out infinite alternate;
 }
 
 .skeleton-icon {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
   border-radius: 50%;
   background: var(--fill-tsp-gray-main);
 }
@@ -298,7 +309,7 @@ function handleResultClick(result: SearchResult) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding-top: 2px;
 }
 
@@ -308,8 +319,8 @@ function handleResultClick(result: SearchResult) {
   background: var(--fill-tsp-gray-main);
 }
 
-.skeleton-title { width: 60%; }
-.skeleton-snippet { width: 85%; }
+.skeleton-title { width: 55%; height: 14px; }
+.skeleton-snippet { width: 80%; }
 
 @keyframes skeleton-fade {
   0% { opacity: 0.35; }
