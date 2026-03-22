@@ -348,6 +348,17 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   background: var(--background-gray-main, var(--background-main));
+  --library-surface-bg: var(--background-menu-white);
+  --library-surface-hover: var(--fill-tsp-white-main);
+  --library-surface-muted: var(--fill-tsp-gray-main);
+  --library-border: var(--border-main);
+  --library-border-soft: var(--border-light);
+  --library-border-hover: var(--border-hover);
+  --library-accent: var(--text-brand);
+  --library-warning: var(--function-warning);
+  --library-warning-soft: var(--function-warning-tsp);
+  --library-shadow: var(--shadow-S);
+  --library-shadow-soft: var(--shadow-XS);
 }
 
 /* ════════════════════════════════════════════
@@ -373,7 +384,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-bottom: 1px solid var(--library-border-soft);
 }
 
 .toolbar-left,
@@ -388,9 +399,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--library-border);
   border-radius: 8px;
-  background: var(--background-menu-white, #fff);
+  background: var(--library-surface-bg);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
@@ -405,14 +416,14 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn:hover {
-  border-color: rgba(0, 0, 0, 0.2);
+  border-color: var(--library-border-hover);
   color: var(--text-primary);
 }
 
 .toolbar-btn.is-active {
-  border-color: #ca8a04;
-  color: #ca8a04;
-  background: rgba(234, 179, 8, 0.06);
+  border-color: var(--library-warning);
+  color: var(--library-warning);
+  background: var(--library-warning-soft);
 }
 
 .chevron {
@@ -431,10 +442,10 @@ onBeforeUnmount(() => {
   z-index: 50;
   min-width: 170px;
   padding: 4px;
-  background: var(--background-menu-white, #fff);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  background: var(--library-surface-bg);
+  border: 1px solid var(--library-border);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 30px var(--library-shadow);
 }
 
 :global(.dark) .dropdown-menu {
@@ -458,12 +469,12 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-item:hover {
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-hover);
 }
 
 .dropdown-item.active {
   font-weight: 600;
-  color: var(--accent-color, #2563eb);
+  color: var(--library-accent);
 }
 
 /* ── Search ── */
@@ -473,9 +484,9 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 7px 12px;
   min-width: 180px;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--library-border);
   border-radius: 8px;
-  background: var(--background-menu-white, #fff);
+  background: var(--library-surface-bg);
   transition: border-color 0.15s ease;
 }
 
@@ -485,7 +496,7 @@ onBeforeUnmount(() => {
 }
 
 .search-field.focused {
-  border-color: var(--accent-color, #2563eb);
+  border-color: var(--library-accent);
 }
 
 .search-icon {
@@ -515,7 +526,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--library-surface-hover);
   color: var(--text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
@@ -524,7 +535,7 @@ onBeforeUnmount(() => {
 /* ── View toggle ── */
 .view-toggle {
   display: flex;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--library-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -541,7 +552,7 @@ onBeforeUnmount(() => {
   height: 32px;
   padding: 0;
   border: none;
-  background: var(--background-menu-white, #fff);
+  background: var(--library-surface-bg);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: all 0.1s ease;
@@ -552,12 +563,12 @@ onBeforeUnmount(() => {
 }
 
 .view-toggle button:first-child {
-  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-right: 1px solid var(--library-border-soft);
 }
 
 .view-toggle button.active {
   color: var(--text-primary);
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-muted);
 }
 
 /* ════════════════════════════════════════════
@@ -572,7 +583,7 @@ onBeforeUnmount(() => {
 /* ── File sections ── */
 .file-section {
   padding: 24px 0;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--library-border-soft);
 }
 
 .file-section:last-child {
@@ -597,7 +608,7 @@ onBeforeUnmount(() => {
 }
 
 .section-title:hover {
-  color: var(--accent-color, #2563eb);
+  color: var(--library-accent);
 }
 
 .section-date {
@@ -615,8 +626,8 @@ onBeforeUnmount(() => {
 
 .file-card {
   position: relative;
-  background: var(--background-menu-white, #fff);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--library-surface-bg);
+  border: 1px solid var(--library-border);
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -629,8 +640,8 @@ onBeforeUnmount(() => {
 }
 
 .file-card:hover {
-  border-color: rgba(0, 0, 0, 0.16);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border-color: var(--library-border-hover);
+  box-shadow: 0 2px 12px var(--library-shadow-soft);
 }
 
 .card-top {
@@ -676,12 +687,12 @@ onBeforeUnmount(() => {
 }
 
 .card-star.favorited {
-  color: #eab308;
+  color: var(--library-warning);
 }
 
 .card-menu:hover,
 .card-star:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--library-surface-hover);
 }
 
 .card-body {
@@ -689,7 +700,7 @@ onBeforeUnmount(() => {
   margin: 0 8px 8px;
   border-radius: 8px;
   overflow: hidden;
-  background: var(--fill-tsp-gray-main, #f7f7f7);
+  background: var(--library-surface-muted);
 }
 
 :global(.dark) .card-body {
@@ -726,10 +737,10 @@ onBeforeUnmount(() => {
   z-index: 30;
   min-width: 150px;
   padding: 4px;
-  background: var(--background-menu-white, #fff);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--library-surface-bg);
+  border: 1px solid var(--library-border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px var(--library-shadow);
 }
 
 :global(.dark) .card-action-menu {
@@ -752,7 +763,7 @@ onBeforeUnmount(() => {
 }
 
 .card-action-menu button:hover {
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-hover);
 }
 
 /* ── List ── */
@@ -773,7 +784,7 @@ onBeforeUnmount(() => {
 }
 
 .file-row:hover {
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.03));
+  background: var(--library-surface-hover);
 }
 
 .row-name {
@@ -811,12 +822,12 @@ onBeforeUnmount(() => {
 }
 
 .row-star.favorited {
-  color: #eab308;
+  color: var(--library-warning);
 }
 
 .row-star:hover,
 .row-menu:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--library-surface-hover);
 }
 
 .row-action-menu {
@@ -826,10 +837,10 @@ onBeforeUnmount(() => {
   z-index: 30;
   min-width: 150px;
   padding: 4px;
-  background: var(--background-menu-white, #fff);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--library-surface-bg);
+  border: 1px solid var(--library-border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px var(--library-shadow);
 }
 
 :global(.dark) .row-action-menu {
@@ -852,7 +863,7 @@ onBeforeUnmount(() => {
 }
 
 .row-action-menu button:hover {
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-hover);
 }
 
 /* ── More button ── */
@@ -885,7 +896,7 @@ onBeforeUnmount(() => {
   width: 220px;
   height: 15px;
   border-radius: 4px;
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.06));
+  background: var(--library-surface-muted);
   margin-bottom: 14px;
   animation: pulse 1.4s ease-in-out infinite;
 }
@@ -899,7 +910,7 @@ onBeforeUnmount(() => {
 .skeleton-row {
   height: 44px;
   border-radius: 8px;
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-hover);
   animation: pulse 1.4s ease-in-out infinite;
 }
 
@@ -923,7 +934,7 @@ onBeforeUnmount(() => {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: var(--library-surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
