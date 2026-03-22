@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import secrets
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.core.config import get_settings
 from app.core.lifespan import get_health_state, lifespan
@@ -20,6 +22,59 @@ logger = get_logger(__name__)
 
 # Load configuration
 settings = get_settings()
+
+# HTTP Basic Auth for root /metrics endpoint (mirrors /api/v1/metrics auth)
+_metrics_http_basic = HTTPBasic(auto_error=False)
+_metrics_security_dep = Security(_metrics_http_basic)
+
+
+def _verify_root_metrics_auth(
+    credentials: HTTPBasicCredentials | None,
+) -> None:
+    """Verify HTTP Basic Auth for the root /metrics endpoint.
+
+    Mirrors the auth logic in metrics_routes._verify_metrics_basic_auth.
+    When METRICS_PASSWORD is not configured, access is allowed without auth
+    (development convenience). When configured, valid credentials are required.
+    """
+    if not settings.metrics_password:
+        return
+
+    if not credentials:
+        logger.warning("[SECURITY] Root /metrics accessed without credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    correct_username = secrets.compare_digest(
+        credentials.username.encode("utf-8"),
+        settings.metrics_username.encode("utf-8"),
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password.encode("utf-8"),
+        settings.metrics_password.encode("utf-8"),
+    )
+
+    if not (correct_username and correct_password):
+        logger.warning(
+            "[SECURITY] Failed root /metrics auth attempt from user: %s",
+            credentials.username,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+# Log warning at startup if metrics are unprotected
+if not settings.metrics_password:
+    logger.warning(
+        "[SECURITY] METRICS_PASSWORD not set — /metrics endpoint is unauthenticated. "
+        "Set METRICS_PASSWORD in .env to enforce HTTP Basic Auth."
+    )
 
 app = FastAPI(
     title="Pythinker AI Agent",
@@ -122,12 +177,17 @@ async def liveness_check():
 
 
 @app.get("/metrics", tags=["Metrics"], include_in_schema=False)
-async def root_metrics():
-    """Prometheus scrape endpoint at root path (no auth — for internal network only).
+async def root_metrics(
+    credentials: HTTPBasicCredentials | None = _metrics_security_dep,
+):
+    """Prometheus scrape endpoint at root path with optional HTTP Basic Auth.
 
-    Standard Prometheus convention is GET /metrics. The authenticated endpoint
-    at /api/v1/metrics remains available for external access.
+    Standard Prometheus convention is GET /metrics. When METRICS_PASSWORD is
+    configured, HTTP Basic Auth is enforced (same as /api/v1/metrics).
+    The authenticated endpoint at /api/v1/metrics remains available as well.
     """
+    _verify_root_metrics_auth(credentials)
+
     from fastapi.responses import PlainTextResponse
 
     from app.core.prometheus_metrics import format_prometheus
