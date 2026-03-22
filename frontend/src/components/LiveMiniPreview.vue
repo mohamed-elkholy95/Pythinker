@@ -839,12 +839,12 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-header {
-  height: clamp(14px, 10cqh, 24px);
+  height: clamp(10px, 10cqh, 24px);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(2px, 1.2cqw, 4px);
-  padding: 0 clamp(4px, 2.4cqw, 8px);
+  gap: clamp(1px, 1cqw, 4px);
+  padding: 0 clamp(2px, 2cqw, 8px);
   background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
@@ -853,7 +853,7 @@ const useScaledViewport = computed(() => {
 
 .dc-header-title {
   max-width: 95%;
-  font-size: clamp(6px, 2.9cqw, 11px);
+  font-size: clamp(4.5px, 2.6cqw, 11px);
   font-weight: 600;
   color: var(--bolt-elements-textPrimary);
   text-align: center;
@@ -872,8 +872,8 @@ const useScaledViewport = computed(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin: clamp(2px, 1.2cqw, 5px);
-  padding: clamp(3px, 1.8cqw, 7px) clamp(4px, 2.4cqw, 9px);
+  margin: clamp(1px, 0.8cqw, 5px);
+  padding: clamp(1px, 1.2cqw, 7px) clamp(2px, 1.8cqw, 9px);
   background: var(--bolt-elements-bg-depth-2);
   border-radius: 4px;
 }
@@ -969,24 +969,24 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-title {
-  font-size: clamp(6px, 2.8cqw, 10px);
+  font-size: clamp(4px, 2.4cqw, 10px);
   font-weight: 600;
   color: var(--text-primary, var(--bolt-elements-textPrimary));
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.3;
+  line-height: 1.2;
 }
 
 .sr-snippet {
-  font-size: clamp(5px, 2.3cqw, 9px);
+  font-size: clamp(3.5px, 2cqw, 9px);
   color: var(--text-tertiary, #9a9a9a);
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 /* ===== Terminal ===== */
@@ -996,8 +996,8 @@ const useScaledViewport = computed(() => {
 
 .dc-terminal-text {
   font-family: inherit;
-  font-size: clamp(6px, 2.8cqw, 10px);
-  line-height: 1.35;
+  font-size: clamp(4px, 2.4cqw, 10px);
+  line-height: 1.3;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1016,8 +1016,8 @@ const useScaledViewport = computed(() => {
 
 .dc-code-text {
   font-family: inherit;
-  font-size: clamp(6px, 2.8cqw, 10px);
-  line-height: 1.35;
+  font-size: clamp(4px, 2.4cqw, 10px);
+  line-height: 1.3;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1100,37 +1100,37 @@ const useScaledViewport = computed(() => {
 
 .dc-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: clamp(5.5px, 2.5cqw, 9px);
-  line-height: 1.35;
+  font-size: clamp(4px, 2.2cqw, 9px);
+  line-height: 1.3;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
 }
 
 .dc-mini-md .mini-h1 {
-  font-size: clamp(7px, 2.9cqw, 11px);
+  font-size: clamp(5px, 2.6cqw, 11px);
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
-  margin: 0 0 2px;
-  line-height: 1.2;
+  margin: 0 0 1px;
+  line-height: 1.15;
   border-bottom: 1px solid var(--bolt-elements-borderColor);
-  padding-bottom: 2px;
+  padding-bottom: 1px;
 }
 
 .dc-mini-md .mini-h2 {
-  font-size: clamp(6.5px, 2.8cqw, 10px);
+  font-size: clamp(4.5px, 2.4cqw, 10px);
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
-  margin: 2px 0 1px;
-  line-height: 1.25;
+  margin: 1px 0 1px;
+  line-height: 1.2;
 }
 
 .dc-mini-md .mini-h3 {
-  font-size: clamp(6px, 2.6cqw, 10px);
+  font-size: clamp(4.5px, 2.3cqw, 10px);
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
-  margin: 2px 0 1px;
-  line-height: 1.25;
+  margin: 1px 0 1px;
+  line-height: 1.2;
 }
 
 .dc-mini-md .mini-p {
@@ -1467,12 +1467,7 @@ const useScaledViewport = computed(() => {
     transform: scale(0.98);
     transition: transform 0.1s ease;
   }
-  .dc-header-title {
-    font-size: 11px;
-  }
-  .dc-md-text {
-    font-size: 11px;
-    line-height: 1.4;
-  }
+  /* Let container-query cqw values handle font scaling at any size —
+     no fixed font-size overrides that break tiny thumbnails */
 }
 </style>
