@@ -72,6 +72,7 @@ export interface CreateSessionOptions {
   require_fresh_sandbox?: boolean;
   sandbox_wait_seconds?: number;
   research_mode?: ResearchMode;
+  project_id?: string;
 }
 
 /**

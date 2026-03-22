@@ -1213,6 +1213,7 @@ interface PendingSessionCreateState {
   skills?: string[];
   files?: FileInfo[];
   thinking_mode?: ThinkingMode;
+  project_id?: string;
 }
 
 interface SessionTitleHintDetail {
@@ -1439,6 +1440,7 @@ const initializePendingSession = async () => {
   const pendingThinkingMode: ThinkingMode = pendingState.thinking_mode || 'auto';
   const mode = pendingState.mode === 'discuss' ? 'discuss' : 'agent';
   const researchMode = pendingState.research_mode || 'deep_research';
+  const pendingProjectId = pendingState.project_id || undefined;
 
   // Track chat mode to suppress planning UI — persist to sessionStorage
   if (pendingState.chat_mode) {
@@ -1454,7 +1456,7 @@ const initializePendingSession = async () => {
 
   try {
     const idempotencyKey = crypto.randomUUID();
-    const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0, idempotencyKey });
+    const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0, idempotencyKey, project_id: pendingProjectId });
     sessionResearchMode.value = researchMode;
     sessionSource.value = 'web';
     sessionId.value = session.session_id;
