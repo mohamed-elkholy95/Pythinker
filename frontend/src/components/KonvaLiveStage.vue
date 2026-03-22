@@ -499,9 +499,12 @@ function stopStats(): void {
 
 function updateContainerSize(): void {
   if (!containerRef.value) return
-  const rect = containerRef.value.getBoundingClientRect()
-  const w = Math.floor(rect.width)
-  const h = Math.floor(rect.height)
+  // Use offsetWidth/offsetHeight instead of getBoundingClientRect() because
+  // offset dimensions return the CSS layout size BEFORE ancestor transforms.
+  // getBoundingClientRect() returns post-transform visual size, which causes
+  // double-scaling when inside a CSS-transformed parent (e.g. mini preview).
+  const w = containerRef.value.offsetWidth
+  const h = containerRef.value.offsetHeight
   if (w !== containerWidth.value || h !== containerHeight.value) {
     containerWidth.value = w
     containerHeight.value = h

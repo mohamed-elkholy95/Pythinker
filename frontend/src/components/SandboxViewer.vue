@@ -185,13 +185,16 @@ const overlayScaleX = ref(1)
 const overlayScaleY = ref(1)
 let overlayResizeObserver: ResizeObserver | null = null
 
-/** Compute overlay scale from the actual rendered container size */
+/** Compute overlay scale from the actual rendered container size.
+ *  Uses offsetWidth/offsetHeight to get layout dimensions before ancestor
+ *  CSS transforms (avoids double-scaling inside mini preview). */
 function updateOverlayScale() {
   if (!viewerContentRef.value) return
-  const rect = viewerContentRef.value.getBoundingClientRect()
-  if (rect.width > 0 && rect.height > 0) {
-    overlayScaleX.value = rect.width / SANDBOX_WIDTH
-    overlayScaleY.value = rect.height / SANDBOX_HEIGHT
+  const w = viewerContentRef.value.offsetWidth
+  const h = viewerContentRef.value.offsetHeight
+  if (w > 0 && h > 0) {
+    overlayScaleX.value = w / SANDBOX_WIDTH
+    overlayScaleY.value = h / SANDBOX_HEIGHT
   }
 }
 
