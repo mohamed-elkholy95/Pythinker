@@ -311,6 +311,10 @@ services:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
     mem_limit: 512m
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
