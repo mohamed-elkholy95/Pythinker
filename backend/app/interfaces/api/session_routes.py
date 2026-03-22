@@ -383,6 +383,17 @@ async def create_session(
         idempotency_key=idempotency_key or None,
     )
 
+    # Link session to project and increment session count
+    if request.project_id:
+        from app.application.services.project_service import get_project_service
+
+        session_repo = get_session_repository()
+        await session_repo.update_by_id(session.id, {"project_id": request.project_id})
+        session.project_id = request.project_id
+
+        project_service = get_project_service()
+        await project_service.increment_session_count(request.project_id)
+
     # Include sandbox info if available
     sandbox_info = None
     settings = get_settings()

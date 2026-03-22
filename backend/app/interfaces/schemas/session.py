@@ -27,6 +27,7 @@ class CreateSessionRequest(BaseModel):
     )  # Phase 4 P0: Initial message for intent classification
     require_fresh_sandbox: bool = True
     sandbox_wait_seconds: float = 3.0
+    project_id: str | None = None  # Link session to a project
 
     @field_validator("message", mode="before")
     @classmethod
