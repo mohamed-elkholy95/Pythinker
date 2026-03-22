@@ -56,112 +56,24 @@
         />
       </div>
 
-      <!-- Col 2: Sidebar (sticky, spans rows 1-3) -->
-      <div class="project-sidebar">
-        <!-- Card 1: Instructions + Connectors -->
-        <div class="sidebar-card">
-          <div class="sidebar-section clickable" @click="showInstructionsModal = true">
-            <div class="sidebar-section-header">
-              <span class="sidebar-section-title">Instructions</span>
-              <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
-            </div>
-            <p class="sidebar-section-desc">
-              {{
-                project.instructions
-                  ? truncateText(project.instructions, 80)
-                  : "Add instructions to tailor Pythinker's responses"
-              }}
-            </p>
-            <button
-              class="sidebar-add-btn"
-              @click.stop="showInstructionsModal = true"
-            >
-              <Plus :size="14" />
-              <span>Add</span>
-            </button>
-          </div>
-          <div class="sidebar-separator" />
-          <div
-            class="sidebar-section-compact clickable"
-            @click="openConnectorDialog()"
-          >
-            <div class="connectors-row">
-              <Cable :size="16" class="text-[var(--text-secondary)]" />
-              <span class="connectors-label">Connectors</span>
-              <button class="connectors-add-btn" @click.stop="openConnectorDialog()">
-                <Plus :size="14" />
-                <span>Add</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 2: Files + Skills -->
-        <div class="sidebar-card">
-          <div class="sidebar-section" @click.self="triggerFileUpload">
-            <div class="sidebar-section-header">
-              <span class="sidebar-section-title">Files</span>
-              <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
-            </div>
-            <!-- Show uploaded files -->
-            <div v-if="project.file_ids.length > 0" class="sidebar-file-list">
-              <div
-                v-for="(fid, idx) in project.file_ids"
-                :key="fid"
-                class="sidebar-file-item"
-              >
-                <FileText :size="14" class="text-[var(--text-tertiary)] shrink-0" />
-                <span class="sidebar-file-name">{{ fileNameMap[fid] || fid.slice(0, 12) + '...' }}</span>
-                <button class="sidebar-remove-btn" title="Remove" @click.stop="removeFile(idx)">
-                  <X :size="12" />
-                </button>
-              </div>
-            </div>
-            <p v-else class="sidebar-section-desc">
-              Start by attaching files to your project.
-            </p>
-            <button class="sidebar-outline-btn" @click.stop="triggerFileUpload">
-              <Upload :size="14" />
-              <span>Upload files</span>
-            </button>
-            <input
-              ref="fileInputRef"
-              type="file"
-              multiple
-              class="hidden"
-              @change="handleFileUpload"
-            />
-          </div>
-          <div class="sidebar-separator" />
-          <div class="sidebar-section">
-            <div class="sidebar-section-header">
-              <span class="sidebar-section-title">Skills</span>
-              <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
-            </div>
-            <!-- Show selected skills -->
-            <div v-if="project.skill_ids.length > 0" class="sidebar-skill-list">
-              <div
-                v-for="(sid, idx) in project.skill_ids"
-                :key="sid"
-                class="sidebar-skill-item"
-              >
-                <Sparkles :size="14" class="text-[var(--text-tertiary)] shrink-0" />
-                <span class="sidebar-skill-name">{{ skillNameMap[sid] || sid }}</span>
-                <button class="sidebar-remove-btn" title="Remove" @click.stop="removeSkill(idx)">
-                  <X :size="12" />
-                </button>
-              </div>
-            </div>
-            <p v-else class="sidebar-section-desc">
-              Add skills to enhance Pythinker's know-how.
-            </p>
-            <button class="sidebar-outline-btn" @click.stop="showSkillsModal = true">
-              <Plus :size="14" />
-              <span>Add</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- Col 2: Sidebar -->
+      <ProjectSidebar
+        :project="project"
+        :file-details="fileDetailMap"
+        :skill-details="skillDetailMap"
+        @edit-instructions="showInstructionsModal = true"
+        @upload-file="triggerFileUpload"
+        @remove-file="removeFile"
+        @add-skills="showSkillsModal = true"
+        @remove-skill="removeSkill"
+      />
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        class="hidden"
+        @change="handleFileUpload"
+      />
 
       <!-- Col 1, Row 3: Tasks section -->
       <div class="project-tasks-col">
@@ -215,7 +127,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProject } from '@/composables/useProject'
 import { useSkills } from '@/composables/useSkills'
 import { useSettingsDialog } from '@/composables/useSettingsDialog'
-import { useConnectorDialog } from '@/composables/useConnectorDialog'
 import { getServerConfig } from '@/api/settings'
 import { uploadFile, getFileInfo } from '@/api/file'
 import { listProjectSessions, type ProjectSession } from '@/api/projects'
@@ -223,6 +134,7 @@ import type { FileInfo } from '@/api/file'
 import type { ThinkingMode, ResearchMode } from '@/api/agent'
 import ChatBox from '@/components/ChatBox.vue'
 import ProjectHeader from '@/components/project/ProjectHeader.vue'
+import ProjectSidebar from '@/components/project/ProjectSidebar.vue'
 import ProjectInstructionsModal from '@/components/project/ProjectInstructionsModal.vue'
 import ProjectSkillsModal from '@/components/project/ProjectSkillsModal.vue'
 import {
@@ -235,20 +147,13 @@ import {
   Ellipsis,
   Pencil,
   FileEdit,
-  FileText,
   Trash2,
-  Cable,
-  Plus,
-  Upload,
-  Sparkles,
-  X,
   MessageSquareDashed,
 } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const { openSettingsDialog } = useSettingsDialog()
-const { openConnectorDialog } = useConnectorDialog()
 const { availableSkills, loadAvailableSkills } = useSkills()
 
 const { project, loading, updateProject, deleteProject } = useProject(
@@ -262,8 +167,8 @@ const showInstructionsModal = ref(false)
 const showSkillsModal = ref(false)
 const activeModelName = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const fileNameMap = ref<Record<string, string>>({})
-const skillNameMap = ref<Record<string, string>>({})
+const fileDetailMap = ref<Record<string, { filename: string; content_type?: string | null; size?: number | null }>>({})
+const skillDetailMap = ref<Record<string, { name: string; description?: string }>>({})
 const projectSessions = ref<ProjectSession[]>([])
 
 async function loadProjectSessions() {
@@ -284,18 +189,27 @@ onMounted(async () => {
     activeModelName.value = 'Pythinker'
   }
 
-  // Load available skills and build name map
+  // Load available skills and build detail map
   await loadAvailableSkills()
   for (const skill of availableSkills.value) {
-    skillNameMap.value[skill.id] = skill.name
+    skillDetailMap.value[skill.id] = {
+      name: skill.name,
+      description: skill.description,
+    }
   }
 
-  // Resolve file names for existing project files
+  // Resolve file details for existing project files
   if (project.value?.file_ids.length) {
     for (const fid of project.value.file_ids) {
       try {
         const info = await getFileInfo(fid)
-        if (info) fileNameMap.value[fid] = info.filename
+        if (info) {
+          fileDetailMap.value[fid] = {
+            filename: info.filename,
+            content_type: info.content_type ?? null,
+            size: info.size ?? null,
+          }
+        }
       } catch {
         // File info unavailable, will show truncated ID
       }
@@ -305,11 +219,6 @@ onMounted(async () => {
   // Load project sessions
   await loadProjectSessions()
 })
-
-function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text
-  return text.slice(0, maxLen).trimEnd() + '...'
-}
 
 function triggerFileUpload() {
   fileInputRef.value?.click()
@@ -324,7 +233,11 @@ async function handleFileUpload(event: Event) {
     try {
       const uploaded = await uploadFile(file)
       newFileIds.push(uploaded.file_id)
-      fileNameMap.value[uploaded.file_id] = uploaded.filename
+      fileDetailMap.value[uploaded.file_id] = {
+        filename: uploaded.filename,
+        content_type: uploaded.content_type ?? null,
+        size: uploaded.size ?? null,
+      }
     } catch (err) {
       console.error('File upload failed:', err)
     }
@@ -543,220 +456,6 @@ async function handleSaveInstructions(instructions: string) {
     padding-bottom: 32px;
     margin-top: 0;
   }
-}
-
-/* ── Sidebar cards ── */
-.sidebar-card {
-  border-radius: 12px;
-  border: 1px solid var(--border-main);
-  overflow: hidden;
-}
-
-.sidebar-section {
-  padding: 16px;
-  padding-right: 12px;
-}
-
-.sidebar-section.clickable {
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.sidebar-section.clickable:hover {
-  background: var(--fill-tsp-gray-main);
-}
-
-.sidebar-separator {
-  border-top: 1px solid var(--border-main);
-}
-
-.sidebar-section-compact {
-  padding: 16px;
-  padding-right: 12px;
-}
-
-.sidebar-section-compact.clickable {
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.sidebar-section-compact.clickable:hover {
-  background: var(--fill-tsp-gray-main);
-}
-
-.sidebar-section-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.sidebar-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.sidebar-section-desc {
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-  margin: 0 0 10px 0;
-}
-
-.sidebar-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-main);
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.sidebar-add-btn:hover {
-  background: var(--fill-tsp-gray-main);
-  border-color: var(--border-hover, var(--border-main));
-}
-
-.sidebar-upload-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-main);
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.sidebar-upload-btn:hover {
-  background: var(--fill-tsp-gray-main);
-  border-color: var(--border-hover, var(--border-main));
-}
-
-/* ── File & Skill lists in sidebar ── */
-.sidebar-file-list,
-.sidebar-skill-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 10px;
-}
-
-.sidebar-file-item,
-.sidebar-skill-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.sidebar-file-item:hover,
-.sidebar-skill-item:hover {
-  background: var(--fill-tsp-gray-main);
-}
-
-.sidebar-file-name,
-.sidebar-skill-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-remove-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s, background 0.12s;
-  flex-shrink: 0;
-}
-
-.sidebar-file-item:hover .sidebar-remove-btn,
-.sidebar-skill-item:hover .sidebar-remove-btn {
-  opacity: 1;
-}
-
-.sidebar-remove-btn:hover {
-  background: var(--fill-tsp-gray-main);
-  color: var(--text-error, #ef4444);
-}
-
-.sidebar-outline-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-main);
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.sidebar-outline-btn:hover {
-  background: var(--fill-tsp-gray-main);
-}
-
-/* ── Connectors row ── */
-.connectors-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: var(--fill-tsp-white-light, rgba(255, 255, 255, 0.04));
-}
-
-.connectors-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  flex: 1;
-}
-
-.connectors-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.connectors-add-btn:hover {
-  color: var(--text-primary);
 }
 
 /* ── Tasks section ── */
