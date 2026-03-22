@@ -22,6 +22,28 @@ from app.domain.services.file_sync_manager import (
 )
 
 
+def _make_sweep_exec_side_effect(find_output: str, find_success: bool = True):
+    """Build a side_effect for sandbox.exec_command that handles the two-step sweep.
+
+    Step 1: ``test -d <workspace> && echo exists`` — returns "exists".
+    Step 2: ``find ...`` — returns the provided find_output.
+    """
+    call_count = 0
+
+    async def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Directory existence check
+            return ToolResult(success=True, data={"output": "exists"})
+        # Find command
+        return ToolResult(
+            success=find_success, data={"output": find_output}, message="" if find_success else "Command failed"
+        )
+
+    return side_effect
+
+
 @pytest.fixture
 def mock_sandbox() -> AsyncMock:
     sandbox = AsyncMock()
@@ -80,11 +102,10 @@ class TestSweepWorkspaceFiles:
         self, runner, mock_sandbox, mock_session_repository, mock_file_storage
     ):
         """Sweep should find files in sandbox and sync those not yet tracked."""
-        # Sandbox returns 2 files from find
+        # Sandbox returns 2 files from find (two-step: dir check then find)
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={"output": "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"},
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"
             )
         )
         # Session has no existing files
@@ -102,9 +123,8 @@ class TestSweepWorkspaceFiles:
     async def test_skips_already_tracked_files(self, runner, mock_sandbox, mock_session_repository, mock_file_storage):
         """Sweep should not re-sync files already in session.files."""
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={"output": "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"},
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"
             )
         )
         # report.md is already tracked
@@ -123,7 +143,7 @@ class TestSweepWorkspaceFiles:
     @pytest.mark.asyncio
     async def test_handles_empty_find_output(self, runner, mock_sandbox, mock_session_repository):
         """Sweep should handle no files found gracefully."""
-        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=True, data={"output": ""}))
+        mock_sandbox.exec_command = AsyncMock(side_effect=_make_sweep_exec_side_effect(""))
 
         result = await runner._sweep_workspace_files()
         assert result == []
@@ -131,7 +151,7 @@ class TestSweepWorkspaceFiles:
     @pytest.mark.asyncio
     async def test_handles_find_command_failure(self, runner, mock_sandbox):
         """Sweep should handle find command failure gracefully."""
-        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=False, message="Command failed"))
+        mock_sandbox.exec_command = AsyncMock(side_effect=_make_sweep_exec_side_effect("", find_success=False))
 
         result = await runner._sweep_workspace_files()
         assert result == []
@@ -150,9 +170,8 @@ class TestSweepWorkspaceFiles:
     ):
         """Sweep should continue syncing even if some files fail."""
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={"output": "/workspace/test-session/good.md\n/workspace/test-session/bad.md\n"},
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/good.md\n/workspace/test-session/bad.md\n"
             )
         )
         session = MagicMock()
@@ -160,11 +179,7 @@ class TestSweepWorkspaceFiles:
         mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         # First file succeeds, second fails
-        call_count = 0
-
         async def download_side_effect(path):
-            nonlocal call_count
-            call_count += 1
             if "bad" in path:
                 raise FileNotFoundError(f"No such file: {path}")
             return io.BytesIO(b"good content")
@@ -182,15 +197,10 @@ class TestSweepWorkspaceFiles:
     ):
         """Sweep should ignore paths not under /workspace/<session_id>."""
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={
-                    "output": (
-                        "/workspace/test-session/kept.py\n"
-                        "/home/ubuntu/.pnpm-store/v10/index/xx/some-package.json\n"
-                        "/home/ubuntu/old-report.md\n"
-                    )
-                },
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/kept.py\n"
+                "/home/ubuntu/.pnpm-store/v10/index/xx/some-package.json\n"
+                "/home/ubuntu/old-report.md\n"
             )
         )
         session = MagicMock()
@@ -206,17 +216,23 @@ class TestSweepWorkspaceFiles:
     @pytest.mark.asyncio
     async def test_sweep_command_scoped_to_session_workspace(self, runner, mock_sandbox, mock_session_repository):
         """Find command should run only under /workspace/<session_id>."""
-        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=True, data={"output": ""}))
+        mock_sandbox.exec_command = AsyncMock(side_effect=_make_sweep_exec_side_effect(""))
         session = MagicMock()
         session.files = []
         mock_session_repository.find_by_id_with_files = AsyncMock(return_value=session)
 
         await runner._sweep_workspace_files()
 
-        assert mock_sandbox.exec_command.await_count == 1
-        _session, exec_dir, command = mock_sandbox.exec_command.await_args.args
-        assert exec_dir == "/workspace/test-session"
-        assert "find /workspace/test-session" in command
+        # Two calls: dir existence check + find command
+        assert mock_sandbox.exec_command.await_count == 2
+        # First call is the directory existence check
+        first_call_args = mock_sandbox.exec_command.await_args_list[0].args
+        assert first_call_args[1] == "/workspace/test-session"
+        assert "test -d /workspace/test-session" in first_call_args[2]
+        # Second call is the find command
+        second_call_args = mock_sandbox.exec_command.await_args_list[1].args
+        assert second_call_args[1] == "/workspace/test-session"
+        assert "find /workspace/test-session" in second_call_args[2]
 
     @pytest.mark.asyncio
     async def test_sweep_ignores_files_outside_active_delivery_scope(
@@ -225,14 +241,9 @@ class TestSweepWorkspaceFiles:
         """A scoped sweep should ignore stale files from previous runs in a reused session."""
         runner._file_sync_manager.set_delivery_scope("run-2", "/workspace/test-session/runs/run-2")
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={
-                    "output": (
-                        "/workspace/test-session/runs/run-1/report-old.md\n"
-                        "/workspace/test-session/runs/run-2/report-current.md\n"
-                    )
-                },
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/runs/run-1/report-old.md\n"
+                "/workspace/test-session/runs/run-2/report-current.md\n"
             )
         )
         mock_file_storage.upload_file = AsyncMock(
@@ -259,9 +270,8 @@ class TestSweepWorkspaceFiles:
             lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
         )
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={"output": ("/workspace/test-session/report.md\n/workspace/test-session/final_report.md\n")},
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/report.md\n/workspace/test-session/final_report.md\n"
             )
         )
         session = MagicMock()
@@ -283,9 +293,8 @@ class TestSweepWorkspaceFiles:
             lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
         )
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={"output": ("/workspace/test-session/report_q1.md\n/workspace/test-session/report_q2.md\n")},
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/report_q1.md\n/workspace/test-session/report_q2.md\n"
             )
         )
         session = MagicMock()
@@ -307,13 +316,8 @@ class TestSweepWorkspaceFiles:
             lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
         )
         mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(
-                success=True,
-                data={
-                    "output": (
-                        "/workspace/test-session/analysis_backend.md\n/workspace/test-session/analysis_frontend.md\n"
-                    )
-                },
+            side_effect=_make_sweep_exec_side_effect(
+                "/workspace/test-session/analysis_backend.md\n/workspace/test-session/analysis_frontend.md\n"
             )
         )
         session = MagicMock()
