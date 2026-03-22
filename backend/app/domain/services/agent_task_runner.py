@@ -159,7 +159,18 @@ class AgentTaskRunner(TaskRunner):
         self._mcp_repository = mcp_repository
         self._mcp_tool = MCPTool()
         self._extra_mcp_configs = extra_mcp_configs or {}
+        # Coerce enums that may arrive as plain str from MongoDB
+        if isinstance(mode, str) and not isinstance(mode, AgentMode):
+            try:
+                mode = AgentMode(mode)
+            except ValueError:
+                mode = AgentMode.AGENT
         self._mode = mode
+        if isinstance(research_mode, str) and not isinstance(research_mode, ResearchMode):
+            try:
+                research_mode = ResearchMode(research_mode)
+            except ValueError:
+                research_mode = ResearchMode.DEEP_RESEARCH
         self._research_mode = research_mode
         self._deal_mode_emitted: bool = False
 

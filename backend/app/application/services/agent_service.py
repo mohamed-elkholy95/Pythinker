@@ -38,7 +38,7 @@ from app.domain.models.agent import Agent
 from app.domain.models.agent_usage import AgentRunStatus
 from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, SandboxLifecycleMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
@@ -300,7 +300,8 @@ class AgentService:
             research_mode=effective_research_mode,
         )
         settings = get_settings()
-        session.sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
+        _slm = getattr(settings, "sandbox_lifecycle_mode", "static")
+        session.sandbox_lifecycle_mode = SandboxLifecycleMode(_slm) if isinstance(_slm, str) else _slm
         if require_fresh_sandbox:
             session.status = SessionStatus.INITIALIZING
         logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
@@ -475,8 +476,9 @@ class AgentService:
         Phase 1 enhancement: Pre-warms browser context for immediate use.
         """
         settings = get_settings()
-        sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
-        ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
+        _slm_raw = getattr(settings, "sandbox_lifecycle_mode", "static")
+        sandbox_lifecycle_mode = SandboxLifecycleMode(_slm_raw) if isinstance(_slm_raw, str) else _slm_raw
+        ephemeral_lifecycle = sandbox_lifecycle_mode == SandboxLifecycleMode.EPHEMERAL
         lock = self._sandbox_warm_locks.setdefault(session_id, asyncio.Lock())
         uses_static_sandboxes = bool(
             getattr(
@@ -554,7 +556,7 @@ class AgentService:
                         reason=f"session already bound to sandbox {session.sandbox_id}",
                     )
                 else:
-                    owns_sandbox = sandbox_lifecycle_mode == "ephemeral"
+                    owns_sandbox = sandbox_lifecycle_mode == SandboxLifecycleMode.EPHEMERAL
                     metadata_changed = False
 
                     if session.sandbox_id != sandbox.id:

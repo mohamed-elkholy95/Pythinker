@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from app.domain.models.event import AgentEvent, PlanEvent
 from app.domain.models.file import FileInfo
@@ -174,6 +174,63 @@ class Session(BaseModel):
     thinking_level: ThinkingLevel | None = None
     verbose_mode: str | None = None  # off | on — controls verbose output
     elevated_mode: str | None = None  # off | on — controls elevated execution mode
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _coerce_mode(cls, v: object) -> AgentMode:
+        """Coerce plain string values to the AgentMode enum (MongoDB returns raw strings)."""
+        if isinstance(v, AgentMode):
+            return v
+        if isinstance(v, str):
+            try:
+                return AgentMode(v.strip().lower())
+            except ValueError:
+                return AgentMode.AGENT
+        return AgentMode.AGENT
+
+    @field_validator("research_mode", mode="before")
+    @classmethod
+    def _coerce_research_mode(cls, v: object) -> ResearchMode:
+        """Coerce plain string values to the ResearchMode enum (MongoDB returns raw strings)."""
+        if isinstance(v, ResearchMode):
+            return v
+        if isinstance(v, str):
+            try:
+                return ResearchMode(v.strip().lower())
+            except ValueError:
+                return ResearchMode.DEEP_RESEARCH
+        return ResearchMode.DEEP_RESEARCH
+
+    @field_validator("sandbox_lifecycle_mode", mode="before")
+    @classmethod
+    def _coerce_sandbox_lifecycle_mode(cls, v: object) -> SandboxLifecycleMode | None:
+        """Coerce plain string values to the SandboxLifecycleMode enum."""
+        if v is None:
+            return None
+        if isinstance(v, SandboxLifecycleMode):
+            return v
+        if isinstance(v, str):
+            try:
+                return SandboxLifecycleMode(v.strip().lower())
+            except ValueError:
+                allowed = ", ".join(m.value for m in SandboxLifecycleMode)
+                msg = f"Invalid sandbox_lifecycle_mode '{v}'. Allowed: {allowed}"
+                raise ValueError(msg) from None
+        msg = f"sandbox_lifecycle_mode must be a string or SandboxLifecycleMode, got {type(v).__name__}"
+        raise TypeError(msg)
+
+    @field_serializer("sandbox_lifecycle_mode")
+    @classmethod
+    def _serialize_sandbox_lifecycle_mode(cls, v: SandboxLifecycleMode | str | None) -> str | None:
+        """Serialize enum to its string value to prevent PydanticSerializationUnexpectedValue.
+
+        When use_enum_values=True is set on Settings but not on Session, the
+        sandbox_lifecycle_mode may arrive as a plain string from settings. This
+        serializer handles both enum members and plain strings without warnings.
+        """
+        if v is None:
+            return None
+        return v.value if isinstance(v, SandboxLifecycleMode) else str(v)
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
