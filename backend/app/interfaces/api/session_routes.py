@@ -986,9 +986,9 @@ async def chat(
                     error_code="stream_gap_detected",
                     error_category="transport",
                     severity="warning",
-                    recoverable=True,
-                    can_resume=True,
-                    retry_hint="Session is terminal; refreshed state includes the latest available output.",
+                    recoverable=False,
+                    can_resume=False,
+                    retry_hint="Session is terminal; do not reconnect.",
                     details={
                         "session_id": session_id,
                         "resume_cursor": resume_cursor,
@@ -1008,7 +1008,9 @@ async def chat(
         if replay_events:
 
             async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
-                yield ServerSentEvent(retry=1500)
+                # Disable browser auto-reconnect for terminal sessions to prevent
+                # retry storms — the session is done and reconnecting is pointless.
+                yield ServerSentEvent(retry=86_400_000)
                 if stale_resume_gap_event:
                     yield stale_resume_gap_event
                 for replay_event in replay_events:
@@ -1020,7 +1022,8 @@ async def chat(
         sse_done = await EventMapper.event_to_sse_event(done_event)
 
         async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
-            yield ServerSentEvent(retry=1500)
+            # Disable browser auto-reconnect for terminal sessions.
+            yield ServerSentEvent(retry=86_400_000)
             if stale_resume_gap_event:
                 yield stale_resume_gap_event
             if sse_done:
@@ -1028,6 +1031,9 @@ async def chat(
                     event=sse_done.event,
                     data=sse_done.data.model_dump_json() if sse_done.data else None,
                 )
+            else:
+                # Fallback: always emit a done event so the client terminates cleanly.
+                yield ServerSentEvent(event="done", data='{"title":"Task completed"}')
 
         return EventSourceResponse(completed_generator(), headers=protocol_headers)
 

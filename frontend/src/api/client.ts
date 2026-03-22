@@ -1492,6 +1492,13 @@ export const createEventSourceConnection = async <T = unknown>(
       return;
     }
 
+    // Safety: if we've received events but keep reconnecting, close the native
+    // EventSource to prevent it from auto-reconnecting behind our back.
+    // The browser's built-in reconnect fires independently of this handler.
+    if (source.readyState !== EventSource.CLOSED) {
+      source.close();
+    }
+
     retryCount += 1;
     const willRetry = retryCount <= activeRetryPolicy.maxRetries;
     const retryDelayMs = willRetry
