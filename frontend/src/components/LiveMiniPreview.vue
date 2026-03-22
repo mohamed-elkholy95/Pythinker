@@ -839,12 +839,12 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-header {
-  height: clamp(10px, 10cqh, 24px);
+  height: clamp(10px, 8cqh, 18px);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(1px, 1cqw, 4px);
-  padding: 0 clamp(2px, 2cqw, 8px);
+  gap: clamp(1px, 1cqw, 3px);
+  padding: 0 clamp(2px, 1.5cqw, 6px);
   background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
@@ -853,7 +853,7 @@ const useScaledViewport = computed(() => {
 
 .dc-header-title {
   max-width: 95%;
-  font-size: clamp(4.5px, 2.6cqw, 11px);
+  font-size: clamp(4.5px, 2.4cqw, 8px);
   font-weight: 600;
   color: var(--bolt-elements-textPrimary);
   text-align: center;
@@ -872,8 +872,8 @@ const useScaledViewport = computed(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin: clamp(1px, 0.8cqw, 5px);
-  padding: clamp(1px, 1.2cqw, 7px) clamp(2px, 1.8cqw, 9px);
+  margin: clamp(1px, 0.6cqw, 3px);
+  padding: clamp(1px, 1cqw, 4px) clamp(2px, 1.4cqw, 5px);
   background: var(--bolt-elements-bg-depth-2);
   border-radius: 4px;
 }
@@ -919,8 +919,8 @@ const useScaledViewport = computed(() => {
 .search-result-item-mini {
   display: flex;
   align-items: center;
-  gap: clamp(3px, 1.6cqw, 6px);
-  padding: clamp(2px, 1.2cqw, 5px) clamp(4px, 2cqw, 8px);
+  gap: clamp(2px, 1.2cqw, 4px);
+  padding: clamp(1px, 0.8cqw, 3px) clamp(2px, 1.4cqw, 5px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
@@ -934,9 +934,9 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-icon-wrap {
-  width: clamp(10px, 4cqw, 16px);
-  height: clamp(10px, 4cqw, 16px);
-  min-width: clamp(10px, 4cqw, 16px);
+  width: clamp(8px, 3cqw, 12px);
+  height: clamp(8px, 3cqw, 12px);
+  min-width: clamp(8px, 3cqw, 12px);
   border-radius: 50%;
   background: var(--fill-tsp-white-dark, var(--bolt-elements-bg-depth-1));
   display: flex;
@@ -947,8 +947,8 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-favicon {
-  width: clamp(7px, 3cqw, 11px);
-  height: clamp(7px, 3cqw, 11px);
+  width: clamp(5px, 2.2cqw, 8px);
+  height: clamp(5px, 2.2cqw, 8px);
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -969,24 +969,24 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-title {
-  font-size: clamp(4px, 2.4cqw, 10px);
+  font-size: clamp(4px, 2cqw, 7.5px);
   font-weight: 600;
   color: var(--text-primary, var(--bolt-elements-textPrimary));
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .sr-snippet {
-  font-size: clamp(3.5px, 2cqw, 9px);
+  font-size: clamp(3.5px, 1.8cqw, 6.5px);
   color: var(--text-tertiary, #9a9a9a);
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 /* ===== Terminal ===== */
@@ -996,8 +996,8 @@ const useScaledViewport = computed(() => {
 
 .dc-terminal-text {
   font-family: inherit;
-  font-size: clamp(4px, 2.4cqw, 10px);
-  line-height: 1.3;
+  font-size: clamp(4px, 2cqw, 7.5px);
+  line-height: 1.25;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1016,7 +1016,7 @@ const useScaledViewport = computed(() => {
 
 .dc-code-text {
   font-family: inherit;
-  font-size: clamp(4px, 2.4cqw, 10px);
+  font-size: clamp(4px, 2cqw, 7.5px);
   line-height: 1.3;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
@@ -1100,15 +1100,15 @@ const useScaledViewport = computed(() => {
 
 .dc-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: clamp(4px, 2.2cqw, 9px);
-  line-height: 1.3;
+  font-size: clamp(4px, 2cqw, 7px);
+  line-height: 1.25;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
 }
 
 .dc-mini-md .mini-h1 {
-  font-size: clamp(5px, 2.6cqw, 11px);
+  font-size: clamp(5px, 2.4cqw, 8.5px);
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
   margin: 0 0 1px;
@@ -1118,19 +1118,19 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-mini-md .mini-h2 {
-  font-size: clamp(4.5px, 2.4cqw, 10px);
+  font-size: clamp(4.5px, 2.2cqw, 8px);
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
   margin: 1px 0 1px;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .dc-mini-md .mini-h3 {
-  font-size: clamp(4.5px, 2.3cqw, 10px);
+  font-size: clamp(4.5px, 2.1cqw, 7.5px);
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
   margin: 1px 0 1px;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .dc-mini-md .mini-p {
