@@ -38,6 +38,7 @@ export interface ProjectSession {
   session_id: string
   title: string | null
   status: string
+  latest_message: string | null
   created_at: string | null
   updated_at: string | null
 }
