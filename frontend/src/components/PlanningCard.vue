@@ -57,107 +57,66 @@ const badge = computed(() => {
 
 <template>
   <div class="planning-card" role="status" aria-live="polite">
-    <div class="card-header">
-      <div class="status-wrap">
-        <PlannerActivityIndicator />
-        <div class="status-copy">
-          <p class="status-title">{{ title }}</p>
-          <p class="status-phase">{{ phaseDescription }}</p>
-        </div>
-      </div>
-      <span v-if="progressValue !== null" class="progress-value">{{ progressValue }}%</span>
+    <PlannerActivityIndicator />
+    <span class="status-title">{{ title }}</span>
+    <span class="status-sep">&middot;</span>
+    <span class="status-phase">{{ thinkingMessage }}</span>
+    <div class="progress-track" aria-hidden="true">
+      <div
+        class="progress-fill"
+        :class="{ 'progress-fill--indeterminate': progressValue === null }"
+        :style="progressValue !== null ? { width: progressWidth } : undefined"
+      />
     </div>
-
-    <p class="thinking-message">{{ thinkingMessage }}</p>
-
-    <div class="card-footer">
-      <div class="progress-track" aria-hidden="true">
-        <div
-          class="progress-fill"
-          :class="{ 'progress-fill--indeterminate': progressValue === null }"
-          :style="progressValue !== null ? { width: progressWidth } : undefined"
-        />
-      </div>
-      <span v-if="badge" class="complexity-badge" :class="badge.cls">{{ badge.label }}</span>
-    </div>
+    <span v-if="badge" class="complexity-badge" :class="badge.cls">{{ badge.label }}</span>
+    <span v-if="progressValue !== null" class="progress-value">{{ progressValue }}%</span>
   </div>
 </template>
 
 <style scoped>
 .planning-card {
-  padding: 8px 14px;
-  border-radius: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: var(--background-menu-white, #fff);
-  box-shadow: 0px 0px 1px 0px rgba(0, 0, 0, 0.05), 0px 8px 32px 0px rgba(0, 0, 0, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.card-header {
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.04);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.status-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.status-copy {
-  min-width: 0;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .status-title {
-  margin: 0;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text-primary, #0f172a);
-  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.status-sep {
+  font-size: 10px;
+  color: var(--text-secondary, #94a3b8);
+  flex-shrink: 0;
 }
 
 .status-phase {
-  margin: 1px 0 0;
   font-size: 11px;
   color: var(--text-secondary, #64748b);
-  line-height: 1.2;
-}
-
-.progress-value {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-primary, #0f172a);
-}
-
-.thinking-message {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-secondary, #334155);
-  line-height: 1.3;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.card-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  min-width: 0;
 }
 
 .progress-track {
   position: relative;
   height: 3px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.25);
   overflow: hidden;
-  flex: 1;
+  flex: 1 1 60px;
+  min-width: 40px;
+  max-width: 100px;
 }
 
 .progress-fill {
@@ -172,12 +131,20 @@ const badge = computed(() => {
   animation: progress-indeterminate 1.6s ease-in-out infinite;
 }
 
+.progress-value {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
 .complexity-badge {
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.03em;
+  flex-shrink: 0;
 }
 
 .badge--simple {
@@ -199,7 +166,7 @@ const badge = computed(() => {
 .dark .planning-card {
   border-color: rgba(148, 163, 184, 0.24);
   background: var(--background-menu-dark, rgba(15, 23, 42, 0.78));
-  box-shadow: 0px 0px 1px 0px rgba(0, 0, 0, 0.15), 0px 8px 32px 0px rgba(2, 6, 23, 0.3);
+  box-shadow: 0 1px 4px 0 rgba(2, 6, 23, 0.2);
 }
 
 :deep(.dark) .status-title,
@@ -210,22 +177,14 @@ const badge = computed(() => {
 }
 
 :deep(.dark) .status-phase,
-.dark .status-phase,
-:deep(.dark) .thinking-message,
-.dark .thinking-message {
+.dark .status-phase {
   color: #cbd5e1;
 }
 
 @keyframes progress-indeterminate {
-  0% {
-    transform: translateX(-30%);
-  }
-  50% {
-    transform: translateX(90%);
-  }
-  100% {
-    transform: translateX(-30%);
-  }
+  0% { transform: translateX(-30%); }
+  50% { transform: translateX(90%); }
+  100% { transform: translateX(-30%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
