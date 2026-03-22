@@ -1,1012 +1,996 @@
 <template>
-  <div class="session-history-page">
+  <div class="library-page">
     <!-- Header -->
-    <header class="page-header">
-      <!-- Row 1: Back + Title + Tabs -->
-      <div class="header-row-1">
-        <button class="btn-back" aria-label="Go back" @click="goBack">
-          <ArrowLeft :size="18" />
-        </button>
-        <h1 class="header-title">Library</h1>
-        <div class="tab-switcher">
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'sessions' }"
-            @click="activeTab = 'sessions'"
-          >
-            Sessions
-          </button>
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'files' }"
-            @click="activeTab = 'files'"
-          >
-            Files
-          </button>
-        </div>
-      </div>
+    <header class="library-header">
+      <h1 class="library-title">Library</h1>
 
-      <!-- Row 2: Search + Filters (sessions tab only) -->
-      <div v-if="activeTab === 'sessions'" class="header-row-2">
-        <div class="search-box" :class="{ focused: isSearchFocused }">
-          <Search :size="15" class="search-icon" />
-          <input
-            v-model="searchQuery"
-            id="session-search"
-            name="session-search"
-            type="text"
-            placeholder="Search sessions..."
-            class="search-input"
-            @focus="isSearchFocused = true"
-            @blur="isSearchFocused = false"
-          />
+      <!-- Toolbar -->
+      <div class="library-toolbar">
+        <div class="toolbar-left">
+          <!-- Category dropdown -->
+          <div class="category-dropdown" ref="dropdownRef">
+            <button class="toolbar-btn" @click="dropdownOpen = !dropdownOpen">
+              <SlidersHorizontal :size="14" />
+              {{ categoryLabels[category] }}
+              <ChevronDown :size="12" class="chevron" />
+            </button>
+            <Transition name="dropdown">
+              <div v-if="dropdownOpen" class="dropdown-menu">
+                <button
+                  v-for="cat in categories"
+                  :key="cat.value"
+                  class="dropdown-item"
+                  :class="{ active: category === cat.value }"
+                  @click="category = cat.value; dropdownOpen = false"
+                >
+                  <component :is="cat.icon" :size="15" />
+                  {{ cat.label }}
+                </button>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- Favorites toggle -->
           <button
-            v-if="searchQuery"
-            class="search-clear"
-            @click="searchQuery = ''"
-            aria-label="Clear search"
+            class="toolbar-btn"
+            :class="{ 'is-active': showFavoritesOnly }"
+            @click="showFavoritesOnly = !showFavoritesOnly"
           >
-            <X :size="14" />
+            <Star :size="14" :fill="showFavoritesOnly ? 'currentColor' : 'none'" />
+            My favorites
           </button>
         </div>
-        <div class="filter-group">
-          <button
-            v-for="filter in statusFilters"
-            :key="filter.value"
-            class="filter-chip"
-            :class="{ active: statusFilter === filter.value }"
-            @click="statusFilter = statusFilter === filter.value ? '' : filter.value"
-          >
-            <component :is="filter.icon" :size="13" v-if="filter.icon" />
-            {{ filter.label }}
-            <span v-if="filter.value && getStatusCount(filter.value)" class="filter-count">
-              {{ getStatusCount(filter.value) }}
-            </span>
-          </button>
+
+        <div class="toolbar-right">
+          <!-- Search -->
+          <div class="search-field" :class="{ focused: searchFocused }">
+            <Search :size="14" class="search-icon" />
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search files"
+              @focus="searchFocused = true"
+              @blur="searchFocused = false"
+            />
+            <button v-if="searchQuery" class="search-clear" @click="searchQuery = ''">
+              <X :size="12" />
+            </button>
+          </div>
+
+          <!-- View toggle -->
+          <div class="view-toggle">
+            <button
+              :class="{ active: viewMode === 'grid' }"
+              @click="viewMode = 'grid'"
+              aria-label="Grid view"
+            >
+              <LayoutGrid :size="16" />
+            </button>
+            <button
+              :class="{ active: viewMode === 'list' }"
+              @click="viewMode = 'list'"
+              aria-label="List view"
+            >
+              <List :size="16" />
+            </button>
+          </div>
         </div>
       </div>
     </header>
 
-    <!-- Files tab -->
-    <div v-if="activeTab === 'files'" class="tab-content">
-      <LibraryFilesView />
-    </div>
-
-    <!-- Sessions tab -->
-    <div v-else class="session-list">
-      <!-- Loading state -->
-      <div v-if="isLoading" class="loading-state">
-        <div class="loading-skeleton" v-for="i in 5" :key="i">
-          <div class="skeleton-icon"></div>
-          <div class="skeleton-content">
-            <div class="skeleton-title"></div>
-            <div class="skeleton-meta"></div>
+    <!-- Content -->
+    <main class="library-content" ref="contentRef">
+      <!-- Loading -->
+      <div v-if="isLoading" class="library-loading">
+        <div v-for="i in 3" :key="i" class="skeleton-section">
+          <div class="skeleton-heading" />
+          <div class="skeleton-rows">
+            <div v-for="j in (i === 1 ? 1 : 3)" :key="j" class="skeleton-row" />
           </div>
         </div>
       </div>
 
-      <!-- Empty state -->
-      <div v-else-if="filteredSessions.length === 0" class="empty-state">
-        <div class="empty-illustration">
-          <div class="empty-circle">
-            <Inbox :size="32" />
-          </div>
+      <!-- Empty -->
+      <div v-else-if="groupedBySession.length === 0" class="library-empty">
+        <div class="empty-icon-wrap">
+          <FolderOpen :size="36" />
         </div>
-        <h3 v-if="searchQuery || statusFilter">No matching sessions</h3>
-        <h3 v-else>No sessions yet</h3>
-        <p v-if="searchQuery || statusFilter">
-          Try adjusting your search or filters
-        </p>
-        <p v-else>Start a new task to begin your first session</p>
-        <button v-if="searchQuery || statusFilter" class="btn-clear-filters" @click="clearFilters">
-          Clear filters
-        </button>
+        <h3 v-if="searchQuery || category !== 'all' || showFavoritesOnly">No matching files</h3>
+        <h3 v-else>No files yet</h3>
+        <p v-if="searchQuery || category !== 'all' || showFavoritesOnly">Try adjusting your search or filters</p>
+        <p v-else>Files and reports created during tasks will appear here</p>
       </div>
 
-      <!-- Grouped sessions -->
+      <!-- File sections grouped by session -->
       <template v-else>
-        <div
-          v-for="group in groupedSessions"
-          :key="group.label"
-          class="session-group"
+        <section
+          v-for="group in groupedBySession"
+          :key="group.sessionId"
+          class="file-section"
         >
-          <div class="group-header">
-            <span class="group-label">{{ group.label }}</span>
-            <span class="group-count">{{ group.sessions.length }}</span>
+          <!-- Section header: session title + date -->
+          <div class="section-header">
+            <h2
+              class="section-title"
+              @click="$router.push(`/chat/${group.sessionId}`)"
+            >
+              {{ group.sessionTitle }}
+            </h2>
+            <span class="section-date">{{ formatGroupDate(group.sessionLatestAt) }}</span>
           </div>
 
-          <div class="group-list">
+          <!-- Grid view -->
+          <div v-if="viewMode === 'grid'" class="file-grid">
             <div
-              v-for="session in group.sessions"
-              :key="session.session_id"
-              class="session-card"
-              :class="{ 'is-running': isRunning(session) }"
-              @click="viewSession(session)"
+              v-for="file in visibleFiles(group)"
+              :key="file.file_id"
+              class="file-card"
+              @click="handlePreview(file)"
             >
-              <!-- Icon -->
-              <div class="session-icon-wrapper" :class="statusClass(session)">
-                <template v-if="isRunning(session)">
-                  <svg class="running-spinner" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.2" />
-                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                  </svg>
-                </template>
-                <template v-else>
-                  <TaskIcon :title="session.title || ''" :session-id="session.session_id" />
-                </template>
-              </div>
-
-              <!-- Content -->
-              <div class="session-content">
-                <div class="session-top-row">
-                  <h3 class="session-title">{{ session.title || deriveTitle(session) }}</h3>
-                  <span class="session-time">{{ formatDate(session.latest_message_at) }}</span>
-                </div>
-                <p v-if="session.latest_message && session.title" class="session-preview">
-                  {{ truncateMessage(session.latest_message) }}
-                </p>
-                <div class="session-bottom-row">
-                  <span class="session-status-badge" :class="session.status">
-                    <span class="status-dot"></span>
-                    {{ session.status }}
-                  </span>
-                  <span v-if="session.source === 'telegram'" class="source-badge telegram">
-                    <Send :size="10" />
-                    Telegram
-                  </span>
-                  <span v-if="session.is_shared" class="source-badge shared">
-                    <Share2 :size="10" />
-                    Shared
-                  </span>
-                </div>
-              </div>
-
-              <!-- Actions (visible on hover) -->
-              <div class="session-actions" @click.stop>
-                <button
-                  class="btn-session-action"
-                  title="Open session"
-                  @click="viewSession(session)"
-                >
-                  <ExternalLink :size="14" />
+              <div class="card-top">
+                <FileTypeIcon :filename="file.filename" :size="20" />
+                <span class="card-name">{{ file.metadata?.title || file.filename }}</span>
+                <button class="card-menu" @click.stop="toggleMenu(file.file_id)">
+                  <MoreHorizontal :size="16" />
                 </button>
+                <!-- Favorite star -->
                 <button
-                  v-if="session.is_shared"
-                  class="btn-session-action"
-                  title="Copy share link"
-                  @click="copyShareLink(session)"
+                  class="card-star"
+                  :class="{ favorited: isFavorite(file.file_id) }"
+                  @click.stop="toggleFavorite(file.file_id)"
                 >
-                  <Link :size="14" />
+                  <Star :size="13" :fill="isFavorite(file.file_id) ? 'currentColor' : 'none'" />
                 </button>
               </div>
+              <div class="card-body">
+                <img
+                  v-if="isImageFile(file.filename)"
+                  :src="file.file_url || getFileUrl(file.file_id)"
+                  :alt="file.filename"
+                  class="card-image"
+                  loading="lazy"
+                />
+                <div v-else-if="file.metadata?.title && file.metadata?.is_report" class="card-text-preview">
+                  {{ file.metadata.title }}
+                </div>
+                <div v-else class="card-icon-fallback">
+                  <FileTypeIcon :filename="file.filename" :size="28" />
+                </div>
+              </div>
+              <!-- File action menu -->
+              <Transition name="dropdown">
+                <div v-if="activeMenu === file.file_id" class="card-action-menu" @click.stop>
+                  <button @click="handlePreview(file); activeMenu = null"><Eye :size="14" /> Preview</button>
+                  <button @click="handleDownload(file); activeMenu = null"><Download :size="14" /> Download</button>
+                  <button @click="$router.push(`/chat/${file.session_id}`); activeMenu = null"><ExternalLink :size="14" /> Open session</button>
+                </div>
+              </Transition>
             </div>
           </div>
-        </div>
+
+          <!-- List view -->
+          <div v-else class="file-list">
+            <div
+              v-for="file in visibleFiles(group)"
+              :key="file.file_id"
+              class="file-row"
+              @click="handlePreview(file)"
+            >
+              <FileTypeIcon :filename="file.filename" :size="20" />
+              <span class="row-name">{{ file.metadata?.title || file.filename }}</span>
+              <button
+                class="row-star"
+                :class="{ favorited: isFavorite(file.file_id) }"
+                @click.stop="toggleFavorite(file.file_id)"
+              >
+                <Star :size="13" :fill="isFavorite(file.file_id) ? 'currentColor' : 'none'" />
+              </button>
+              <button class="row-menu" @click.stop="toggleMenu(file.file_id)">
+                <MoreHorizontal :size="16" />
+              </button>
+              <Transition name="dropdown">
+                <div v-if="activeMenu === file.file_id" class="row-action-menu" @click.stop>
+                  <button @click="handlePreview(file); activeMenu = null"><Eye :size="14" /> Preview</button>
+                  <button @click="handleDownload(file); activeMenu = null"><Download :size="14" /> Download</button>
+                  <button @click="$router.push(`/chat/${file.session_id}`); activeMenu = null"><ExternalLink :size="14" /> Open session</button>
+                </div>
+              </Transition>
+            </div>
+          </div>
+
+          <!-- "N more files" expander -->
+          <button
+            v-if="group.files.length > 3 && !expandedGroups.has(group.sessionId)"
+            class="more-btn"
+            @click="expandedGroups.add(group.sessionId)"
+          >
+            {{ group.files.length - 3 }} more files
+            <ChevronDown :size="14" />
+          </button>
+        </section>
       </template>
-    </div>
+    </main>
+
+    <!-- Close any open menus -->
+    <Teleport to="body">
+      <div v-if="activeMenu" class="menu-backdrop" @click="activeMenu = null" />
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import {
-  ArrowLeft,
-  Search,
-  Inbox,
-  CheckCircle2,
-  AlertCircle,
-  Share2,
-  Send,
-  ExternalLink,
-  Link,
-  X,
-  Loader2,
+  Search, X, Star, ChevronDown, SlidersHorizontal,
+  LayoutGrid, List, FolderOpen, MoreHorizontal,
+  Eye, Download, ExternalLink,
+  FileText, Image, Code2, Archive, FileBarChart, Files,
 } from 'lucide-vue-next'
-import { useSessionListFeed } from '@/composables/useSessionListFeed'
-import type { ListSessionItem } from '@/types/response'
-import { SessionStatus } from '@/types/response'
-import TaskIcon from '@/components/icons/TaskIcon.vue'
-import LibraryFilesView from '@/components/LibraryFilesView.vue'
-import { copyToClipboard } from '@/utils/dom'
+import FileTypeIcon from '@/components/FileTypeIcon.vue'
+import { useLibraryFiles, type FileCategory, type SessionFileGroup } from '@/composables/useLibraryFiles'
+import type { LibraryFileItem } from '@/api/file'
+import { getFileUrl, downloadFile as downloadFileApi } from '@/api/file'
+import { useFilePanel } from '@/composables/useFilePanel'
 
-type SessionItem = ListSessionItem
+const { showFilePanel } = useFilePanel()
 
-const MS_PER_MINUTE = 60_000
-const MS_PER_HOUR = 3_600_000
+const {
+  isLoading,
+  searchQuery,
+  category,
+  viewMode,
+  showFavoritesOnly,
+  groupedBySession,
+  fetchFiles,
+  toggleFavorite,
+  isFavorite,
+} = useLibraryFiles()
+
+const searchFocused = ref(false)
+const dropdownOpen = ref(false)
+const dropdownRef = ref<HTMLElement | null>(null)
+const contentRef = ref<HTMLElement | null>(null)
+const expandedGroups = ref(new Set<string>())
+const activeMenu = ref<string | null>(null)
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp'])
+
+const categoryLabels: Record<FileCategory, string> = {
+  all: 'All',
+  reports: 'Reports',
+  documents: 'Documents',
+  images: 'Images',
+  code: 'Code',
+  archives: 'Archives',
+}
+
+const categories: { value: FileCategory; label: string; icon: typeof Files }[] = [
+  { value: 'all', label: 'All', icon: Files },
+  { value: 'reports', label: 'Reports', icon: FileBarChart },
+  { value: 'documents', label: 'Documents', icon: FileText },
+  { value: 'images', label: 'Images', icon: Image },
+  { value: 'code', label: 'Code', icon: Code2 },
+  { value: 'archives', label: 'Archives', icon: Archive },
+]
+
 const MS_PER_DAY = 86_400_000
 const MS_PER_WEEK = 7 * MS_PER_DAY
 
-const router = useRouter()
-
-// State
-const activeTab = ref<'sessions' | 'files'>('sessions')
-const { sessions, isLoading } = useSessionListFeed({ initialFetch: true })
-const searchQuery = ref('')
-const statusFilter = ref('')
-const isSearchFocused = ref(false)
-
-const statusFilters = [
-  { label: 'All', value: '', icon: null },
-  { label: 'Running', value: 'running', icon: Loader2 },
-  { label: 'Completed', value: 'completed', icon: CheckCircle2 },
-  { label: 'Failed', value: 'failed', icon: AlertCircle },
-]
-
-// Filtered sessions
-const filteredSessions = computed(() => {
-  let result = sessions.value
-
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    result = result.filter(
-      (s) =>
-        s.title?.toLowerCase().includes(query) ||
-        s.latest_message?.toLowerCase().includes(query) ||
-        s.session_id.toLowerCase().includes(query)
-    )
-  }
-
-  if (statusFilter.value) {
-    result = result.filter((s) => s.status === statusFilter.value)
-  }
-
-  return result
-})
-
-function getStatusCount(status: string): number {
-  return sessions.value.filter((s) => s.status === status).length
-}
-
-// Group sessions by date
-const groupedSessions = computed(() => {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterday = new Date(today.getTime() - MS_PER_DAY)
-  const weekAgo = new Date(today.getTime() - MS_PER_WEEK)
-
-  const groups: { label: string; sessions: SessionItem[] }[] = [
-    { label: 'Today', sessions: [] },
-    { label: 'Yesterday', sessions: [] },
-    { label: 'This Week', sessions: [] },
-    { label: 'Earlier', sessions: [] },
-  ]
-
-  for (const session of filteredSessions.value) {
-    const ts = session.latest_message_at
-    if (!ts) {
-      groups[3].sessions.push(session)
-      continue
-    }
-    const date = new Date(ts * 1000)
-    if (date >= today) {
-      groups[0].sessions.push(session)
-    } else if (date >= yesterday) {
-      groups[1].sessions.push(session)
-    } else if (date >= weekAgo) {
-      groups[2].sessions.push(session)
-    } else {
-      groups[3].sessions.push(session)
-    }
-  }
-
-  return groups.filter((g) => g.sessions.length > 0)
-})
-
-function isRunning(session: SessionItem): boolean {
-  return session.status === SessionStatus.RUNNING || session.status === SessionStatus.PENDING
-}
-
-function statusClass(session: SessionItem): string {
-  if (isRunning(session)) return 'status-running'
-  if (session.status === SessionStatus.COMPLETED) return 'status-completed'
-  if (session.status === SessionStatus.FAILED) return 'status-failed'
-  return ''
-}
-
-function goBack(): void {
-  router.back()
-}
-
-function viewSession(session: SessionItem): void {
-  router.push(`/chat/${session.session_id}`)
-}
-
-async function copyShareLink(session: SessionItem): Promise<void> {
-  const url = `${window.location.origin}/share/${session.session_id}`
-  await copyToClipboard(url)
-}
-
-function clearFilters(): void {
-  searchQuery.value = ''
-  statusFilter.value = ''
-}
-
-function deriveTitle(session: SessionItem): string {
-  if (session.latest_message) {
-    const trimmed = session.latest_message.trim()
-    return trimmed.length > 60 ? trimmed.substring(0, 60) + '...' : trimmed
-  }
-  return 'New Session'
-}
-
-function truncateMessage(message: string): string {
-  if (message.length > 120) {
-    return message.substring(0, 120) + '...'
-  }
-  return message
-}
-
-function formatDate(timestamp: number | null): string {
+function formatGroupDate(timestamp: number | null): string {
   if (!timestamp) return ''
   const date = new Date(timestamp * 1000)
   const now = new Date()
-  const diff = now.getTime() - date.getTime()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
-  if (diff < MS_PER_MINUTE) return 'Just now'
-  if (diff < MS_PER_HOUR) {
-    const minutes = Math.floor(diff / MS_PER_MINUTE)
-    return `${minutes}m ago`
-  }
-  if (diff < MS_PER_DAY) {
-    const hours = Math.floor(diff / MS_PER_HOUR)
-    return `${hours}h ago`
-  }
-  if (diff < MS_PER_WEEK) {
-    const days = Math.floor(diff / MS_PER_DAY)
-    return `${days}d ago`
+  if (dateDay.getTime() === today.getTime()) return 'Today'
+  if (dateDay.getTime() === today.getTime() - MS_PER_DAY) return 'Yesterday'
+  if (now.getTime() - date.getTime() < MS_PER_WEEK) {
+    return date.toLocaleDateString(undefined, { weekday: 'long' })
   }
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
+
+function visibleFiles(group: SessionFileGroup): LibraryFileItem[] {
+  if (expandedGroups.value.has(group.sessionId) || group.files.length <= 3) {
+    return group.files
+  }
+  return group.files.slice(0, 3)
+}
+
+function isImageFile(filename: string): boolean {
+  const dot = filename.lastIndexOf('.')
+  return dot > 0 && IMAGE_EXTS.has(filename.slice(dot + 1).toLowerCase())
+}
+
+function handlePreview(file: LibraryFileItem) {
+  showFilePanel(file)
+}
+
+async function handleDownload(file: LibraryFileItem) {
+  try {
+    const blob = await downloadFileApi(file.file_id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.filename
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('Download failed:', e)
+  }
+}
+
+function toggleMenu(fileId: string) {
+  activeMenu.value = activeMenu.value === fileId ? null : fileId
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (dropdownRef.value && !dropdownRef.value.contains(e.target as Node)) {
+    dropdownOpen.value = false
+  }
+}
+
+onMounted(() => {
+  fetchFiles()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <style scoped>
-.session-history-page {
+.library-page {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--background-main);
+  background: var(--background-gray-main, var(--background-main));
 }
 
-/* ─── Header ─────────────────────────────── */
-.page-header {
-  padding: 20px 32px 16px;
-  background: var(--background-main);
-  max-width: 960px;
-  margin: 0 auto;
-  width: 100%;
+/* ════════════════════════════════════════════
+   HEADER
+   ════════════════════════════════════════════ */
+.library-header {
+  padding: 28px 40px 0;
+  flex-shrink: 0;
 }
 
-.header-row-1 {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.header-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
+.library-title {
+  margin: 0 0 20px;
+  font-size: 21px;
+  font-weight: 650;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
-.header-row-2 {
+/* ── Toolbar ── */
+.library-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
 }
 
-/* ─── Tab switcher ─────────────────────── */
-.tab-switcher {
+.toolbar-left,
+.toolbar-right {
   display: flex;
-  gap: 2px;
-  background: var(--fill-tsp-gray-main, #f0f0f0);
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
   border-radius: 8px;
-  padding: 3px;
-}
-
-:global(.dark) .tab-switcher {
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.tab-btn {
-  padding: 5px 16px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+  background: var(--background-menu-white, #fff);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.tab-btn.active {
-  background: var(--background-menu-white, #fff);
-  color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-:global(.dark) .tab-btn.active {
+:global(.dark) .toolbar-btn {
   background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
 }
 
-.tab-btn:hover:not(.active) {
+.toolbar-btn:hover {
+  border-color: rgba(0, 0, 0, 0.2);
   color: var(--text-primary);
 }
 
-/* ─── Tab content ─────────────────────── */
-.tab-content {
-  flex: 1;
-  overflow-y: auto;
-  max-width: 960px;
-  margin: 0 auto;
+.toolbar-btn.is-active {
+  border-color: #ca8a04;
+  color: #ca8a04;
+  background: rgba(234, 179, 8, 0.06);
+}
+
+.chevron {
+  opacity: 0.5;
+}
+
+/* ── Category dropdown ── */
+.category-dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--background-menu-white, #fff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+:global(.dark) .dropdown-menu {
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 0 32px 32px;
-}
-
-.btn-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 7px;
   background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-back:hover {
-  background: var(--background-hover);
   color: var(--text-primary);
-  border-color: var(--border-hover, var(--border-color));
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s ease;
 }
 
-/* removed: header-title-group, session-count, header-right — replaced by header-row-1/2 */
+.dropdown-item:hover {
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+}
 
-/* ─── Search ─────────────────────────────── */
-.search-box {
+.dropdown-item.active {
+  font-weight: 600;
+  color: var(--accent-color, #2563eb);
+}
+
+/* ── Search ── */
+.search-field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   padding: 7px 12px;
-  background: var(--background-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  transition: all 0.2s ease;
-  min-width: 220px;
+  min-width: 180px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--background-menu-white, #fff);
+  transition: border-color 0.15s ease;
 }
 
-.search-box.focused {
-  border-color: var(--text-brand, var(--function-success));
-  box-shadow: 0 0 0 3px var(--function-success-tsp, var(--focus-ring-color));
+:global(.dark) .search-field {
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
+}
+
+.search-field.focused {
+  border-color: var(--accent-color, #2563eb);
 }
 
 .search-icon {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
-.search-input {
-  background: transparent;
+.search-field input {
   border: none;
+  background: transparent;
   outline: none;
-  color: var(--text-primary);
   font-size: 13px;
+  color: var(--text-primary);
   width: 100%;
 }
 
-.search-input::placeholder {
-  color: var(--text-muted);
+.search-field input::placeholder {
+  color: var(--text-tertiary);
 }
 
 .search-clear {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  background: var(--background-hover);
   border: none;
   border-radius: 50%;
-  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s;
 }
 
-.search-clear:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
-
-/* ─── Filter Chips ───────────────────────── */
-.filter-group {
+/* ── View toggle ── */
+.view-toggle {
   display: flex;
-  gap: 6px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.filter-chip {
+:global(.dark) .view-toggle {
+  border-color: var(--border-main);
+}
+
+.view-toggle button {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.filter-chip:hover {
-  background: var(--background-hover);
-  color: var(--text-primary);
-}
-
-.filter-chip.active {
-  background: var(--text-primary);
-  color: var(--background-main);
-  border-color: var(--text-primary);
-}
-
-.filter-count {
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: 9px;
-  background: var(--fill-tsp-white-dark);
+  width: 34px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: var(--background-menu-white, #fff);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.1s ease;
 }
 
-.filter-chip:not(.active) .filter-count {
-  background: var(--background-tertiary);
-  color: var(--text-muted);
+:global(.dark) .view-toggle button {
+  background: var(--bolt-elements-bg-depth-1);
 }
 
-/* ─── Session List ───────────────────────── */
-.session-list {
+.view-toggle button:first-child {
+  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+}
+
+.view-toggle button.active {
+  color: var(--text-primary);
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+}
+
+/* ════════════════════════════════════════════
+   CONTENT
+   ════════════════════════════════════════════ */
+.library-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 32px 32px;
-  max-width: 960px;
-  margin: 0 auto;
-  width: 100%;
+  padding: 8px 40px 48px;
 }
 
-/* ─── Loading Skeleton ───────────────────── */
-.loading-state {
+/* ── File sections ── */
+.file-section {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+}
+
+.file-section:last-child {
+  border-bottom: none;
+}
+
+.section-header {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 14px;
 }
 
-.loading-skeleton {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  background: var(--background-secondary);
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-}
-
-.skeleton-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(110deg, var(--background-tertiary) 30%, var(--background-hover) 50%, var(--background-tertiary) 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  flex-shrink: 0;
-}
-
-.skeleton-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.skeleton-title {
-  width: 60%;
-  height: 14px;
-  border-radius: 6px;
-  background: linear-gradient(110deg, var(--background-tertiary) 30%, var(--background-hover) 50%, var(--background-tertiary) 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-.skeleton-meta {
-  width: 35%;
-  height: 10px;
-  border-radius: 5px;
-  background: linear-gradient(110deg, var(--background-tertiary) 30%, var(--background-hover) 50%, var(--background-tertiary) 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  animation-delay: 0.1s;
-}
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* ─── Empty State ────────────────────────── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 80px 24px;
-  text-align: center;
-}
-
-.empty-illustration {
-  margin-bottom: 8px;
-}
-
-.empty-circle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: var(--background-tertiary);
-  color: var(--text-muted);
-  border: 2px dashed var(--border-color);
-}
-
-.empty-state h3 {
+.section-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: color 0.1s ease;
 }
 
-.empty-state p {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text-muted);
-  max-width: 280px;
+.section-title:hover {
+  color: var(--accent-color, #2563eb);
 }
 
-.btn-clear-filters {
-  margin-top: 8px;
-  padding: 8px 18px;
+.section-date {
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-brand, var(--function-success));
-  background: transparent;
-  border: 1px solid var(--text-brand, var(--function-success));
-  border-radius: 8px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* ── Grid ── */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.file-card {
+  position: relative;
+  background: var(--background-menu-white, #fff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 12px;
+  overflow: hidden;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.btn-clear-filters:hover {
-  background: var(--function-success-tsp);
+:global(.dark) .file-card {
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
 }
 
-/* ─── Session Group ──────────────────────── */
-.session-group {
-  margin-bottom: 28px;
+.file-card:hover {
+  border-color: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
-.session-group:last-child {
-  margin-bottom: 0;
-}
-
-.group-header {
+.card-top {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  padding: 0 4px;
+  padding: 10px 12px 8px;
 }
 
-.group-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.group-count {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--background-tertiary);
-  padding: 1px 7px;
-  border-radius: 10px;
-}
-
-.group-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* ─── Session Card ───────────────────────── */
-.session-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  background: var(--background-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-}
-
-.session-card:hover {
-  background: var(--background-hover);
-  border-color: var(--border-hover, var(--border-color));
-  box-shadow: 0 2px 8px var(--shadow-color, var(--border-color));
-}
-
-.session-card.is-running {
-  border-color: var(--status-running, var(--text-brand));
-  border-left-width: 3px;
-}
-
-/* ─── Session Icon ───────────────────────── */
-.session-icon-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: var(--background-tertiary);
-  color: var(--text-muted);
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-
-.session-icon-wrapper.status-running {
-  background: var(--status-running-tsp, var(--function-info-tsp));
-  color: var(--status-running, var(--text-brand));
-}
-
-.session-icon-wrapper.status-completed {
-  background: var(--function-success-tsp);
-  color: var(--function-success);
-}
-
-.session-icon-wrapper.status-failed {
-  background: var(--function-error-tsp);
-  color: var(--function-error);
-}
-
-.running-spinner {
-  width: 22px;
-  height: 22px;
-  animation: spin 1.2s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ─── Session Content ────────────────────── */
-.session-content {
+.card-name {
   flex: 1;
   min-width: 0;
-}
-
-.session-top-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 3px;
-}
-
-.session-title {
-  margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.4;
 }
 
-.session-time {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.session-preview {
-  margin: 2px 0 6px;
-  font-size: 13px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.4;
-}
-
-.session-bottom-row {
+.card-menu,
+.card-star {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-/* ─── Status Badge ───────────────────────── */
-.session-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 500;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
   border-radius: 6px;
-  text-transform: capitalize;
-  line-height: 1.5;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.session-status-badge.completed {
-  background: var(--function-success-tsp);
-  color: var(--function-success);
-}
-
-.session-status-badge.completed .status-dot {
-  background: var(--function-success);
-}
-
-.session-status-badge.running {
-  background: var(--status-running-tsp, var(--function-info-tsp));
-  color: var(--status-running, var(--text-brand));
-}
-
-.session-status-badge.running .status-dot {
-  background: var(--status-running, var(--text-brand));
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.session-status-badge.pending {
-  background: var(--function-warning-tsp);
-  color: var(--function-warning);
-}
-
-.session-status-badge.pending .status-dot {
-  background: var(--function-warning);
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.session-status-badge.failed {
-  background: var(--function-error-tsp);
-  color: var(--function-error);
-}
-
-.session-status-badge.failed .status-dot {
-  background: var(--function-error);
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-/* ─── Source Badges ──────────────────────── */
-.source-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  font-size: 10px;
-  font-weight: 500;
-  border-radius: 5px;
-  text-transform: capitalize;
-}
-
-.source-badge.telegram {
-  background: var(--function-info-tsp);
-  color: var(--function-info, var(--text-brand));
-}
-
-.source-badge.shared {
-  background: var(--function-success-tsp);
-  color: var(--function-success);
-}
-
-/* ─── Session Actions ────────────────────── */
-.session-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.12s ease, color 0.12s ease;
   flex-shrink: 0;
 }
 
-.session-card:hover .session-actions {
+.file-card:hover .card-menu,
+.file-card:hover .card-star,
+.card-star.favorited {
   opacity: 1;
 }
 
-.btn-session-action {
+.card-star.favorited {
+  color: #eab308;
+}
+
+.card-menu:hover,
+.card-star:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.card-body {
+  height: 150px;
+  margin: 0 8px 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--fill-tsp-gray-main, #f7f7f7);
+}
+
+:global(.dark) .card-body {
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-text-preview {
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow: hidden;
+  height: 100%;
+}
+
+.card-icon-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  background: var(--background-tertiary);
-  border: 1px solid var(--border-color);
+  height: 100%;
+  opacity: 0.25;
+}
+
+.card-action-menu {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 30;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--background-menu-white, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 8px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
 }
 
-.btn-session-action:hover {
-  background: var(--background-hover);
+:global(.dark) .card-action-menu {
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
+}
+
+.card-action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-primary);
-  border-color: var(--border-hover, var(--border-color));
+  font-size: 13px;
+  cursor: pointer;
 }
 
-/* ─── Responsive ─────────────────────────── */
+.card-action-menu button:hover {
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+}
+
+/* ── List ── */
+.file-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  position: relative;
+}
+
+.file-row:hover {
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.03));
+}
+
+.row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-star,
+.row-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  flex-shrink: 0;
+}
+
+.file-row:hover .row-star,
+.file-row:hover .row-menu,
+.row-star.favorited {
+  opacity: 1;
+}
+
+.row-star.favorited {
+  color: #eab308;
+}
+
+.row-star:hover,
+.row-menu:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.row-action-menu {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  z-index: 30;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--background-menu-white, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+:global(.dark) .row-action-menu {
+  background: var(--bolt-elements-bg-depth-1);
+  border-color: var(--border-main);
+}
+
+.row-action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.row-action-menu button:hover {
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+}
+
+/* ── More button ── */
+.more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.more-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ── Loading ── */
+.library-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-top: 24px;
+}
+
+.skeleton-heading {
+  width: 220px;
+  height: 15px;
+  border-radius: 4px;
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.06));
+  margin-bottom: 14px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skeleton-row {
+  height: 44px;
+  border-radius: 8px;
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+
+/* ── Empty ── */
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px;
+  text-align: center;
+  gap: 8px;
+}
+
+.empty-icon-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+
+.library-empty h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.library-empty p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+/* ── Backdrop ── */
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+}
+
+/* ── Transitions ── */
+.dropdown-enter-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.dropdown-leave-active {
+  transition: opacity 0.08s ease, transform 0.08s ease;
+}
+.dropdown-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+/* ── Responsive ── */
 @media (max-width: 768px) {
-  .page-header {
-    padding: 16px 16px 12px;
+  .library-header {
+    padding: 20px 16px 0;
   }
 
-  .header-top {
-    flex-direction: column;
-    gap: 12px;
+  .library-toolbar {
+    flex-wrap: wrap;
   }
 
-  .header-right {
-    width: 100%;
+  .library-content {
+    padding: 8px 16px 32px;
   }
 
-  .search-box {
-    flex: 1;
+  .search-field {
     min-width: 0;
+    flex: 1;
   }
 
-  .session-list {
-    padding: 16px;
+  .file-grid {
+    grid-template-columns: 1fr;
   }
 
-  .filter-group {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .session-actions {
+  .row-star,
+  .row-menu {
     opacity: 1;
   }
 }
