@@ -721,20 +721,10 @@ onUnmounted(() => {
   left: 12px;
   bottom: 7px;
   z-index: 10;
-  width: 56px;
-  height: 40px;
+  width: 100px;
+  height: 68px;
   border-radius: 8px;
   overflow: hidden;
-}
-
-@media (min-width: 640px) {
-  .live-preview-thumbnail-floating {
-    position: absolute;
-    bottom: 7px;
-    left: 12px;
-    width: 100px;
-    height: 68px;
-  }
 }
 
 .live-preview-thumbnail-floating :deep(.live-mini-preview) {
@@ -744,13 +734,7 @@ onUnmounted(() => {
 }
 
 .progress-bar-collapsed.has-thumbnail {
-  padding-left: 80px; /* Space for 56px wide preview + gap (mobile) */
-}
-
-@media (min-width: 640px) {
-  .progress-bar-collapsed.has-thumbnail {
-    padding-left: 124px; /* Space for 100px wide preview + gap (desktop) */
-  }
+  padding-left: 124px; /* Space for 100px wide preview + gap */
 }
 
 .live-preview-thumbnail-expanded {
@@ -1292,11 +1276,15 @@ onUnmounted(() => {
 
 /* ── Mobile overrides ── */
 @media (max-width: 479px) {
+  /* Keep thumbnail visible on mobile — match desktop design */
   .live-preview-thumbnail-floating {
-    display: none;
+    width: 88px;
+    height: 60px;
+    left: 10px;
+    bottom: 6px;
   }
   .progress-bar-collapsed.has-thumbnail {
-    padding-left: 16px;
+    padding-left: 108px; /* 88px thumbnail + 20px gap */
   }
 }
 
