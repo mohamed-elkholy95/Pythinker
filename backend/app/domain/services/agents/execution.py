@@ -334,6 +334,9 @@ class ExecutionAgent(BaseAgent):
         # *before* token trimming, so summarization recovery can find it even
         # after aggressive context pruning.
         self._pre_trim_report_cache: str | None = None
+        # Cached file_write markdown content from execution steps.
+        # Populated as tool events arrive (immune to memory compaction/validation).
+        self._file_write_report_cache: str | None = None
         self._delivery_channel: str | None = None
         self._artifact_references: list[dict[str, str]] = []
         self._has_unexecuted_scripts: bool = False
@@ -726,6 +729,17 @@ class ExecutionAgent(BaseAgent):
                                         operation="created",
                                         content_summary=f"Created via {func_name}",
                                     )
+                                    # Cache markdown deliverable content for
+                                    # summarization recovery.  This survives
+                                    # memory compaction and orphan-conversion
+                                    # that would strip tool_calls from memory.
+                                    file_content = event.function_args.get("content", "")
+                                    if (
+                                        isinstance(file_content, str)
+                                        and file_path.endswith(".md")
+                                        and len(file_content) > 200
+                                    ):
+                                        self._file_write_report_cache = file_content
                             elif func_name == "file_read":
                                 file_path = event.function_args.get("path", "")
                                 if file_path:
@@ -943,6 +957,15 @@ class ExecutionAgent(BaseAgent):
         # workspace via file_write) would be lost — caching it here allows
         # _extract_report_from_file_write_memory to recover it.
         self._pre_trim_report_cache = self._extract_report_from_file_write_memory()
+        # Fallback: use the execution-time file_write cache if memory extraction
+        # failed (e.g. because _validate_and_fix_messages converted the orphaned
+        # tool_calls to "[Previously called file_write]" text before this point).
+        if not self._pre_trim_report_cache and self._file_write_report_cache:
+            self._pre_trim_report_cache = self._file_write_report_cache
+            logger.info(
+                "Pre-trim cache populated from execution file_write cache (%d chars)",
+                len(self._pre_trim_report_cache),
+            )
         if self._pre_trim_report_cache:
             logger.info(
                 "Pre-trim report cache populated (%d chars) — will survive memory trimming",
@@ -1195,48 +1218,63 @@ class ExecutionAgent(BaseAgent):
                     )
                     message_content = self._pre_trim_report_cache
                 else:
-                    # Retry with explicit anti-meta prompt
-                    retry_prompt = (
-                        "Your previous response was a brief description of the report instead of the "
-                        "report itself. You said: " + message_content[:200] + "\n\n"
-                        "This is NOT acceptable. You MUST write the FULL research report with actual "
-                        "data, findings, analysis, and citations. Start with a # heading and write "
-                        "the complete report content directly. Do NOT describe or summarize what "
-                        "you would write — write it."
-                    )
-                    await self._add_to_memory(
-                        [
-                            {"role": "assistant", "content": message_content},
-                            {"role": "user", "content": retry_prompt},
-                        ]
-                    )
-                    await self._ensure_within_token_limit()
+                    # Try file_write memory before LLM retry — the report may
+                    # already exist on disk from a prior step's file_write call.
+                    # This is deterministic and avoids depending on the LLM.
+                    _fw_report = self._extract_report_from_file_write_memory()
+                    if _fw_report and len(_fw_report) > 200:
+                        logger.info(
+                            "Recovered report from file_write memory (%d chars), skipping LLM retry",
+                            len(_fw_report),
+                        )
+                        message_content = _fw_report
+                        _metrics.record_counter(
+                            "pythinker_summarization_meta_commentary_total",
+                            labels={"recovery": "file_write_memory"},
+                        )
+                    else:
+                        # Retry with explicit anti-meta prompt
+                        retry_prompt = (
+                            "Your previous response was a brief description of the report instead of the "
+                            "report itself. You said: " + message_content[:200] + "\n\n"
+                            "This is NOT acceptable. You MUST write the FULL research report with actual "
+                            "data, findings, analysis, and citations. Start with a # heading and write "
+                            "the complete report content directly. Do NOT describe or summarize what "
+                            "you would write — write it."
+                        )
+                        await self._add_to_memory(
+                            [
+                                {"role": "assistant", "content": message_content},
+                                {"role": "user", "content": retry_prompt},
+                            ]
+                        )
+                        await self._ensure_within_token_limit()
 
-                    retry_text = ""
-                    retry_stream = self.llm.ask_stream(
-                        list(self.memory.get_messages()),
-                        tools=None,
-                        tool_choice=None,
-                        model=_summarize_model,
-                        max_tokens=_summarize_max_tokens,
-                    )
-                    async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
-                        retry_text += stream_event.content
-                        yield stream_event
+                        retry_text = ""
+                        retry_stream = self.llm.ask_stream(
+                            list(self.memory.get_messages()),
+                            tools=None,
+                            tool_choice=None,
+                            model=_summarize_model,
+                            max_tokens=_summarize_max_tokens,
+                        )
+                        async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
+                            retry_text += stream_event.content
+                            yield stream_event
 
-                    yield StreamEvent(content="", is_final=True, phase="summarizing")
-                    retry_content = self._clean_report_content(retry_text.strip())
+                        yield StreamEvent(content="", is_final=True, phase="summarizing")
+                        retry_content = self._clean_report_content(retry_text.strip())
 
-                    # Accept retry only if it's longer and not meta-commentary again
-                    if (
-                        retry_content
-                        and len(retry_content) > len(message_content)
-                        and not self._is_meta_commentary(retry_content)
-                    ):
-                        message_content = retry_content
-                    elif self._pre_trim_report_cache:
-                        # Retry also failed, last resort: use cache even if short
-                        message_content = self._pre_trim_report_cache
+                        # Accept retry only if it's longer and not meta-commentary again
+                        if (
+                            retry_content
+                            and len(retry_content) > len(message_content)
+                            and not self._is_meta_commentary(retry_content)
+                        ):
+                            message_content = retry_content
+                        elif self._pre_trim_report_cache:
+                            # Retry also failed, last resort: use cache even if short
+                            message_content = self._pre_trim_report_cache
 
             # Structural quality gate: even if meta-commentary detection missed
             # the pattern, catch degenerate outputs that lack report structure.
@@ -1260,41 +1298,55 @@ class ExecutionAgent(BaseAgent):
                     )
                     message_content = self._pre_trim_report_cache
                 else:
-                    # Retry with explicit anti-degenerate prompt
-                    retry_prompt = (
-                        "Your previous response was only: " + message_content[:200] + "\n\n"
-                        "This is NOT a report — it is a preamble or meta-commentary. "
-                        "You MUST write the FULL research report with actual data, findings, "
-                        "analysis, and citations. Start IMMEDIATELY with a # heading on the "
-                        "first line. Do NOT describe what you will write — write it."
-                    )
-                    await self._add_to_memory(
-                        [
-                            {"role": "assistant", "content": message_content},
-                            {"role": "user", "content": retry_prompt},
-                        ]
-                    )
-                    await self._ensure_within_token_limit()
+                    # Try file_write memory before LLM retry — the report may
+                    # already exist on disk from a prior step's file_write call.
+                    _fw_report = self._extract_report_from_file_write_memory()
+                    if _fw_report and len(_fw_report) > len(message_content):
+                        logger.info(
+                            "Recovered report from file_write memory for quality gate (%d chars)",
+                            len(_fw_report),
+                        )
+                        message_content = _fw_report
+                        _metrics.record_counter(
+                            "pythinker_summarization_low_quality_total",
+                            labels={"recovery": "file_write_memory"},
+                        )
+                    else:
+                        # Retry with explicit anti-degenerate prompt
+                        retry_prompt = (
+                            "Your previous response was only: " + message_content[:200] + "\n\n"
+                            "This is NOT a report — it is a preamble or meta-commentary. "
+                            "You MUST write the FULL research report with actual data, findings, "
+                            "analysis, and citations. Start IMMEDIATELY with a # heading on the "
+                            "first line. Do NOT describe what you will write — write it."
+                        )
+                        await self._add_to_memory(
+                            [
+                                {"role": "assistant", "content": message_content},
+                                {"role": "user", "content": retry_prompt},
+                            ]
+                        )
+                        await self._ensure_within_token_limit()
 
-                    retry_text = ""
-                    retry_stream = self.llm.ask_stream(
-                        list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
-                    )
-                    async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
-                        retry_text += stream_event.content
-                        yield stream_event
+                        retry_text = ""
+                        retry_stream = self.llm.ask_stream(
+                            list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                        )
+                        async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
+                            retry_text += stream_event.content
+                            yield stream_event
 
-                    yield StreamEvent(content="", is_final=True, phase="summarizing")
-                    retry_content = self._clean_report_content(retry_text.strip())
+                        yield StreamEvent(content="", is_final=True, phase="summarizing")
+                        retry_content = self._clean_report_content(retry_text.strip())
 
-                    if (
-                        retry_content
-                        and len(retry_content) > len(message_content)
-                        and not self._is_low_quality_summary(retry_content)
-                    ):
-                        message_content = retry_content
-                    elif self._pre_trim_report_cache:
-                        message_content = self._pre_trim_report_cache
+                        if (
+                            retry_content
+                            and len(retry_content) > len(message_content)
+                            and not self._is_low_quality_summary(retry_content)
+                        ):
+                            message_content = retry_content
+                        elif self._pre_trim_report_cache:
+                            message_content = self._pre_trim_report_cache
 
             if not message_content:
                 # Both attempts failed — extract fallback from conversation memory
