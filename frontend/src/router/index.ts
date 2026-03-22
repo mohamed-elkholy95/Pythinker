@@ -12,6 +12,8 @@ const ShareLayout = () => import('../pages/ShareLayout.vue')
 const SharePage = () => import('../pages/SharePage.vue')
 const SessionHistoryPage = () => import('../pages/SessionHistoryPage.vue')
 const CanvasPage = () => import('../pages/CanvasPage.vue')
+const ProjectPage = () => import('../pages/ProjectPage.vue')
+const ProjectsPage = () => import('../pages/ProjectsPage.vue')
 const NotFoundPage = () => import('../pages/NotFoundPage.vue')
 const PrivacyPage = () => import('../pages/PrivacyPage.vue')
 const TermsPage = () => import('../pages/TermsPage.vue')
@@ -70,6 +72,18 @@ export const router = createRouter({
           path: 'canvas/:projectId?',
           name: 'canvas',
           component: CanvasPage,
+          meta: { requiresAuth: true },
+        },
+        {
+          path: 'projects',
+          name: 'projects',
+          component: ProjectsPage,
+          meta: { requiresAuth: true },
+        },
+        {
+          path: 'projects/:projectId',
+          name: 'project-detail',
+          component: ProjectPage,
           meta: { requiresAuth: true },
         },
         {
