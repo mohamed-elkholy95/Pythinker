@@ -177,6 +177,11 @@ async def get_server_config(
         if val and str(val).strip():
             configured_keys.append(provider_name)
 
+    # Filter chain to only include providers with configured API keys,
+    # so the response reflects the *actual* runtime fallback chain.
+    configured_set = set(configured_keys)
+    active_chain = [p for p in search_chain if p in configured_set]
+
     return APIResponse.success(
         ServerConfigResponse(
             model_name=actual_model,
@@ -185,7 +190,7 @@ async def get_server_config(
             max_tokens=settings.max_tokens,
             llm_provider=settings.llm_provider,
             search_provider=getattr(settings, "search_provider", "duckduckgo") or "duckduckgo",
-            search_provider_chain=search_chain,
+            search_provider_chain=active_chain,
             configured_search_keys=configured_keys,
         )
     )
