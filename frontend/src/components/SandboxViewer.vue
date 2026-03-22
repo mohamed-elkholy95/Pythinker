@@ -260,6 +260,12 @@ async function initConnection(): Promise<void> {
     return
   }
 
+  // Terminal-state guard — never reconnect for completed/failed sessions.
+  // The frozen screenshot (via isSessionComplete prop) handles the final view.
+  if (props.isSessionComplete) {
+    return
+  }
+
   // Guard against concurrent calls — if a previous initConnection() is still
   // fetching the signed URL or connecting, skip this call to prevent opening
   // duplicate WebSocket connections to the sandbox (which causes preemption).
@@ -395,10 +401,11 @@ async function connect(): Promise<void> {
         normalizedReason.includes('sandbox not found') ||
         normalizedReason.includes('session not found') ||
         normalizedReason.includes('invalid signature') ||
-        normalizedReason.includes('expired')
+        normalizedReason.includes('expired') ||
+        normalizedReason.includes('screencast unavailable')
       const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
 
-      if (props.enabled && shouldRetry && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
+      if (props.enabled && shouldRetry && !props.isSessionComplete && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
         // Don't attempt reconnect while tab is hidden — save resources
         // and avoid thundering herd on tab refocus. The visibility handler
         // will trigger a fresh reconnect when the tab becomes visible.
@@ -580,7 +587,7 @@ function handleVisibilityChange(): void {
 
   if (isTabVisible) {
     // Tab became visible — check if we need to reconnect
-    if (props.enabled && !ws && !reconnectTimeout) {
+    if (props.enabled && !props.isSessionComplete && !ws && !reconnectTimeout) {
       // Connection was lost while tab was hidden, reconnect via debounce
       connectionAttempts = 0
       debouncedInitConnection()
@@ -667,7 +674,7 @@ watch(
     stepProgress.value = undefined
     lastBrowserAction.value = undefined
 
-    if (props.enabled) {
+    if (props.enabled && !props.isSessionComplete) {
       disconnect()
       debouncedInitConnection()
     }
@@ -687,7 +694,7 @@ onMounted(() => {
     overlayResizeObserver.observe(viewerContentRef.value)
   }
 
-  if (props.enabled) {
+  if (props.enabled && !props.isSessionComplete) {
     debouncedInitConnection()
   }
 })
