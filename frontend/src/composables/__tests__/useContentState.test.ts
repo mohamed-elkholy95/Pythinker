@@ -266,7 +266,7 @@ describe('useContentState', () => {
         function: 'navigate',
         args: {},
         status: 'called',
-        content: null as any,
+        content: null as unknown as undefined,
         timestamp: Date.now(),
       };
 

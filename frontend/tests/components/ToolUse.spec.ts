@@ -17,7 +17,7 @@ vi.mock('vue-i18n', () => ({
 
 // Mock the composables
 vi.mock('@/composables/useTool', () => ({
-  useToolInfo: (_toolRef: any) => ({
+  useToolInfo: (_toolRef: unknown) => ({
     toolInfo: ref({
       icon: markRaw({ template: '<svg data-testid="tool-icon"></svg>' }),
       name: 'File',
