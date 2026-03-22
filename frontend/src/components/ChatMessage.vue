@@ -300,30 +300,38 @@
       @open="handleReportOpen"
       @selectSuggestion="handleSelectSuggestion"
     />
-    <!-- File Attachments Grid (separate from report card) -->
-    <div v-if="reportData.attachments && reportData.attachments.length > 0" class="report-files-grid">
+    <!-- File Attachments Grid (Manus-style) -->
+    <div
+      v-if="reportData.attachments && reportData.attachments.length > 0"
+      class="w-full grid md:grid-cols-[repeat(auto-fill,minmax(240px,1fr))] grid-cols-1 gap-2 max-w-[568px] mt-3"
+    >
       <div
         v-for="file in reportData.attachments.slice(0, 3)"
         :key="file.file_id"
-        class="report-file-card"
+        class="flex items-center gap-1.5 p-2 pr-2.5 w-full min-w-[240px] group/attach relative overflow-hidden cursor-pointer rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[var(--background-tsp-menu-white)] max-w-full"
         @click="handleReportFileOpen(file)"
       >
-        <svg class="report-file-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z" fill="#4D81E8" />
-          <path d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z" fill="#9CC3F4" />
-          <path opacity="0.9" d="M10.1685 18.2363H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-          <path opacity="0.9" d="M10.1685 14.3472H16.9737" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-          <path opacity="0.9" d="M10.1685 21.8333H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
-        </svg>
-        <div class="report-file-info">
-          <span class="report-file-name">{{ file.filename }}</span>
-          <span class="report-file-meta">{{ getFileTypeLabel(file) }} · {{ formatBytes(file.size) }}</span>
+        <div class="flex justify-center items-center w-8 h-8 rounded-md">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z" fill="#4D81E8" />
+            <path d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z" fill="#9CC3F4" />
+            <path opacity="0.9" d="M10.1685 18.2363H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+            <path opacity="0.9" d="M10.1685 14.3472H16.9737" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+            <path opacity="0.9" d="M10.1685 21.8333H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" />
+          </svg>
+        </div>
+        <div class="flex flex-col gap-0.5 flex-1 min-w-0">
+          <div class="text-sm text-[var(--text-primary)] truncate flex-1 min-w-0" :title="file.filename">{{ file.filename }}</div>
+          <div class="text-xs text-[var(--text-tertiary)] truncate">{{ getFileTypeLabel(file) }} · {{ formatBytes(file.size) }}</div>
         </div>
       </div>
-      <button class="report-file-card report-file-view-all" @click="$emit('showAllFiles')">
-        <FolderOpen class="report-file-view-icon" :size="20" />
-        <span class="report-file-view-text">View all files in this task</span>
-      </button>
+      <div
+        class="h-[55px] ps-4 pe-1.5 w-full cursor-pointer flex items-center justify-center gap-1.5 rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[var(--background-tsp-menu-white)]"
+        @click="$emit('showAllFiles')"
+      >
+        <FileSearch :size="16" class="text-[var(--icon-secondary)]" />
+        <span class="text-sm text-[var(--icon-secondary)]">View all files in this task</span>
+      </div>
     </div>
     <!-- Task Completed Footer - shown below everything -->
     <TaskCompletedFooter @rate="handleReportRate" />
@@ -342,7 +350,7 @@ import { Message, MessageContent, AttachmentsContent, ReportContent, SkillDelive
 import { useAmbiguityParser } from '../composables/useAmbiguityParser';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
-import { CheckIcon, Copy, Check, XIcon, FolderOpen } from 'lucide-vue-next';
+import { CheckIcon, Copy, Check, XIcon, FileSearch } from 'lucide-vue-next';
 import { computed, ref, watch, onUnmounted } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
@@ -608,77 +616,6 @@ watch(
 </script>
 
 <style>
-/* ══════════════════════════════════════════════════
-   Report Files Grid (separate from report card)
-   ══════════════════════════════════════════════════ */
-.report-files-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 12px;
-  max-width: 580px;
-}
-
-.report-file-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px dashed var(--border-main);
-  background: var(--background-menu-white);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.report-file-card:hover {
-  border-color: var(--border-dark);
-  background: var(--fill-tsp-gray-main);
-}
-
-.report-file-icon {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-}
-
-.report-file-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.report-file-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.report-file-meta {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.report-file-view-all {
-  justify-content: center;
-  gap: 8px;
-}
-
-.report-file-view-icon {
-  color: var(--icon-secondary);
-  flex-shrink: 0;
-}
-
-.report-file-view-text {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
 /* ══════════════════════════════════════════════════
    Chat message entry animation (compact, snappy)
    ══════════════════════════════════════════════════ */

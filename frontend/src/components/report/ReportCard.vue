@@ -341,7 +341,7 @@ const _handleSaveToOneDriveWork = () => {
 /* ===== CARD CONTAINER ===== */
 .report-card {
   width: 100%;
-  max-width: 580px;
+  max-width: 568px;
   min-width: 0;
   border-radius: 16px;
   overflow: hidden;
@@ -461,6 +461,12 @@ const _handleSaveToOneDriveWork = () => {
 
 .report-markdown-preview :deep(.prose-compact) {
   color: var(--text-primary);
+}
+
+.report-markdown-preview :deep(.prose-compact h1),
+.report-markdown-preview :deep(.prose-compact h2),
+.report-markdown-preview :deep(.prose-compact h3) {
+  font-family: var(--font-sans);
 }
 
 .report-markdown-preview :deep(.prose-compact h1) {
