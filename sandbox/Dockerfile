@@ -86,6 +86,12 @@ RUN python3 -m venv /opt/base-python-venv && \
     find /usr/lib/python3* -path '*/wheel*' -name '*.dist-info' -exec rm -rf {} + 2>/dev/null; \
     rm -rf /usr/lib/python3/dist-packages/wheel* /usr/lib/python3/dist-packages/setuptools* \
            /usr/lib/python3/dist-packages/jaraco* /usr/lib/python3/dist-packages/pkg_resources* && \
+    # Remove stale vendored dist-info INSIDE setuptools (Trivy scans setuptools/_vendor/)
+    find /opt/base-python-venv -path '*/setuptools/_vendor/jaraco*context*dist-info' -exec rm -rf {} + 2>/dev/null; \
+    find /opt/base-python-venv -path '*/setuptools/_vendor/wheel*dist-info' -exec rm -rf {} + 2>/dev/null; \
+    # Also remove any stale standalone dist-info in the venv (belt-and-suspenders)
+    find /opt/base-python-venv -name 'jaraco.context-*.dist-info' ! -name 'jaraco.context-6.*' -exec rm -rf {} + 2>/dev/null; \
+    find /opt/base-python-venv -name 'wheel-*.dist-info' ! -name 'wheel-0.46.*' -exec rm -rf {} + 2>/dev/null; \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)
 
 # Node CLI tools used by sandbox code-dev/test endpoints
