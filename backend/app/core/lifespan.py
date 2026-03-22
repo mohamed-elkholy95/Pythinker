@@ -371,24 +371,28 @@ async def lifespan(app: FastAPI):
             _health_state["redis_cache"] = False
 
         # Cleanup stale running sessions from previous crashes/restarts.
-        # On startup, ANY session still marked RUNNING is orphaned — the backend
-        # just (re)started so no in-memory task can be alive.  Use threshold=0
-        # to catch sessions from hot-reloads that are only seconds old.
+        # Use the configured startup threshold to avoid killing sessions that
+        # were recently active — this is critical during development when
+        # uvicorn --reload restarts the process frequently on file changes.
+        # Sessions younger than the startup threshold are preserved to allow
+        # them to be resumed or to finish gracefully.
         try:
             from app.application.services.maintenance_service import MaintenanceService
 
             db = get_mongodb().client[settings.mongodb_database]
             maintenance_service = MaintenanceService(db)
 
+            startup_threshold = settings.stale_session_startup_threshold_minutes
             if await _try_acquire_startup_singleton("stale_session_cleanup", ttl_seconds=600):
                 cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
-                    stale_threshold_minutes=0,
+                    stale_threshold_minutes=startup_threshold,
                     dry_run=False,
                 )
                 if cleanup_result["sessions_cleaned"] > 0:
                     logger.info(
-                        "Startup: cleaned %d orphaned RUNNING sessions (threshold=0 min)",
+                        "Startup: cleaned %d orphaned RUNNING sessions (threshold=%d min)",
                         cleanup_result["sessions_cleaned"],
+                        startup_threshold,
                     )
 
             if await _try_acquire_startup_singleton("periodic_session_cleanup_loop"):
