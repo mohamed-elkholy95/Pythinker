@@ -4,10 +4,11 @@
     :class="sizeClass"
     @click="emit('click')"
   >
-    <!-- Initializing state - sandbox environment starting up -->
-    <div v-if="isInitializing" class="init-preview">
-      <div class="init-container">
-        <!-- Animated monitor icon with boot sequence effect -->
+    <!-- Scaled-down viewport: renders at 355x284 full size, CSS-transformed to fit -->
+    <div class="mini-viewport">
+
+      <!-- Initializing state -->
+      <div v-if="isInitializing" class="vp-centered">
         <div class="init-monitor">
           <div class="monitor-frame">
             <div class="monitor-screen">
@@ -23,231 +24,189 @@
         </div>
         <span class="init-label">Initializing<span class="init-ellipsis"></span></span>
       </div>
-      <!-- Subtle grid pattern background -->
-      <div class="init-grid"></div>
-    </div>
 
-    <!-- Wide Research view (parallel multi-source search) -->
-    <WideResearchMiniPreview
-      v-else-if="isWideResearch && wideResearchState"
-      :state="wideResearchState"
-      :is-active="isActive"
-    />
-
-    <!-- Summary / report preview (markdown-rendered, Shiki-style) -->
-    <div v-else-if="isSummaryPhase" class="content-preview streaming-preview">
-      <div class="streaming-mini-window">
-        <div class="streaming-mini-header">
-          <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
-        </div>
-        <div class="streaming-mini-body">
-          <div v-if="reportPreviewText" class="report-mini-text">
-            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
-          </div>
-          <div v-else class="streaming-mini-lines">
-            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isSummaryStreaming" class="activity-indicator"></div>
-    </div>
-
-    <!-- Planning preview (plan markdown) -->
-    <div v-else-if="isPlanningPhase" class="content-preview streaming-preview">
-      <div class="streaming-mini-window">
-        <div class="streaming-mini-header">
-          <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
-        </div>
-        <div class="streaming-mini-body">
-          <div v-if="props.planPresentationText" class="report-mini-text">
-            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
-          </div>
-          <div v-else class="streaming-mini-lines">
-            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isPlanStreaming" class="activity-indicator"></div>
-    </div>
-
-    <!-- Terminal view (shell, code_executor) -->
-    <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
-      <div class="terminal-window">
-        <div class="terminal-header">
-          <span class="terminal-title">{{ terminalTitle }}</span>
-        </div>
-        <div class="terminal-body">
-          <div class="terminal-accent"></div>
-          <div class="terminal-content-area">
-            <pre class="preview-text terminal-text" v-html="styledTerminalContent"></pre>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Terminal tool running without content yet - show live preview -->
-    <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="live-preview-container">
-      <LiveViewer
-        :session-id="sessionId"
-        :enabled="enabled"
-        :view-only="true"
-        :compact-loading="true"
-        :show-controls="false"
+      <!-- Wide Research view -->
+      <WideResearchMiniPreview
+        v-else-if="isWideResearch && wideResearchState"
+        :state="wideResearchState"
+        :is-active="isActive"
       />
-    </div>
 
-    <!-- Search results view (search, info tools) -->
-    <div v-else-if="currentViewType === 'search'" class="content-preview search-preview">
-      <div class="search-window">
-        <div class="search-header">
-          <Search :size="10" class="search-header-icon" />
-          <span class="search-title">{{ truncate(searchQuery || 'Search', 20) }}</span>
+      <!-- Summary / report preview -->
+      <div v-else-if="isSummaryPhase" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">{{ streamingPresentation.headline.value }}</span>
         </div>
-        <div class="search-body">
-          <div class="search-content-area">
-            <div v-if="searchResults.length > 0" class="search-results-mini">
-              <div v-for="(result, idx) in searchResults.slice(0, 3)" :key="idx" class="search-result-item">
-                <img
-                  v-if="!faviconErrors[result.url || result.link]"
-                  :src="getFavicon(result.url || result.link)"
-                  alt=""
-                  class="result-favicon"
-                  @error="onFaviconError(result.url || result.link)"
-                />
-                <span v-else class="result-favicon-fallback">{{ getIconLetterFromUrl(result.url || result.link, result.title) }}</span>
-                <div class="result-text">
-                  <span class="result-title">{{ truncate(result.title || result.name || 'Result', 25) }}</span>
-                  <span v-if="result.snippet" class="result-snippet">{{ truncate(result.snippet, 40) }}</span>
-                </div>
-              </div>
-              <div v-if="searchResults.length > 3" class="results-more">
-                +{{ searchResults.length - 3 }} more
-              </div>
-            </div>
-            <div v-else-if="isActive" class="search-loading">
-              <div class="loading-dots">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </div>
-              <span class="loading-text">Searching...</span>
-            </div>
-            <div v-else class="search-empty">
-              <Search :size="14" class="empty-search-icon" />
-              <span>No results</span>
-            </div>
+        <div class="vp-body">
+          <div v-if="reportPreviewText" class="vp-md-text">
+            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="vp-skeleton-lines">
+            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
+        <div v-if="isSummaryStreaming" class="activity-dot"></div>
       </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
 
-    <!-- Editor view (file tools) -->
-    <div v-else-if="currentViewType === 'editor' && contentPreview" class="content-preview file-preview">
-      <div class="file-window">
-        <div class="file-header">
-          <span class="file-title">{{ fileName }}</span>
+      <!-- Planning preview -->
+      <div v-else-if="isPlanningPhase" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">{{ streamingPresentation.headline.value }}</span>
         </div>
-        <div class="file-body">
-          <div class="file-accent"></div>
-          <div class="file-content-area">
-            <pre class="preview-text">{{ contentPreview }}</pre>
+        <div class="vp-body">
+          <div v-if="props.planPresentationText" class="vp-md-text">
+            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="vp-skeleton-lines">
+            <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
+        <div v-if="isPlanStreaming" class="activity-dot"></div>
       </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
 
-    <!-- Chart view (chart tool creates images, not visible via live preview) -->
-    <div v-else-if="currentViewType === 'chart'" class="content-preview chart-preview">
-      <div class="chart-mini-window">
-        <div class="chart-mini-header">
-          <BarChart3 :size="10" class="chart-header-icon" />
-          <span class="chart-mini-title">{{ chartTitle }}</span>
+      <!-- Terminal view -->
+      <div v-else-if="currentViewType === 'terminal' && contentPreview" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">{{ terminalTitle }}</span>
         </div>
-        <div class="chart-mini-body">
+        <div class="vp-body vp-body-terminal">
+          <pre class="vp-terminal-text" v-html="styledTerminalContent"></pre>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Terminal running without content — live preview -->
+      <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="vp-live">
+        <LiveViewer
+          :session-id="sessionId"
+          :enabled="enabled"
+          :view-only="true"
+          :compact-loading="true"
+          :show-controls="false"
+        />
+      </div>
+
+      <!-- Search results -->
+      <div v-else-if="currentViewType === 'search'" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">{{ truncate(searchQuery || 'Search', 30) }}</span>
+        </div>
+        <div class="vp-body vp-body-search">
+          <div v-if="searchResults.length > 0" class="search-results-list">
+            <div v-for="(result, idx) in searchResults.slice(0, 5)" :key="idx" class="search-result-row">
+              <img
+                v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
+                :src="getFavicon(result.url ?? result.link ?? '')"
+                alt=""
+                class="sr-favicon"
+                @error="onFaviconError(result.url ?? result.link ?? '')"
+              />
+              <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
+              <div class="sr-text">
+                <span class="sr-title">{{ truncate(result.title || result.name || 'Result', 50) }}</span>
+                <span v-if="result.snippet" class="sr-snippet">{{ truncate(result.snippet, 80) }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="isActive" class="vp-centered-small">
+            <div class="loading-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <span class="loading-label">Searching...</span>
+          </div>
+          <div v-else class="vp-centered-small">
+            <Search :size="20" class="empty-icon" />
+            <span class="empty-label">No results</span>
+          </div>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Editor view -->
+      <div v-else-if="currentViewType === 'editor' && contentPreview" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">{{ fileName }}</span>
+        </div>
+        <div class="vp-body vp-body-code">
+          <pre class="vp-code-text">{{ contentPreview }}</pre>
+        </div>
+        <div v-if="isActive" class="activity-dot"></div>
+      </div>
+
+      <!-- Chart view -->
+      <div v-else-if="currentViewType === 'chart'" class="vp-panel">
+        <div class="vp-header">
+          <BarChart3 :size="14" class="vp-header-icon" />
+          <span class="vp-header-title">{{ chartTitle }}</span>
+        </div>
+        <div class="vp-body vp-body-chart">
           <img
             v-if="chartPngUrl"
             :src="chartPngUrl"
             alt="Chart"
-            class="chart-mini-image"
+            class="chart-image"
           />
-          <div v-else-if="isActive" class="chart-generating">
-            <div class="chart-bars-mini">
-              <div class="bar-mini bar-mini-1"></div>
-              <div class="bar-mini bar-mini-2"></div>
-              <div class="bar-mini bar-mini-3"></div>
+          <div v-else-if="isActive" class="vp-centered-small">
+            <div class="chart-bars">
+              <div class="bar bar-1"></div>
+              <div class="bar bar-2"></div>
+              <div class="bar bar-3"></div>
             </div>
-            <span class="chart-gen-text">Generating...</span>
+            <span class="loading-label">Generating...</span>
           </div>
-          <div v-else class="chart-empty">
-            <BarChart3 :size="14" class="empty-chart-icon" />
+          <div v-else class="vp-centered-small">
+            <BarChart3 :size="24" class="empty-icon" />
           </div>
         </div>
+        <div v-if="isActive" class="activity-dot"></div>
       </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
 
-    <!-- Live preview (only with active tool context) -->
-    <div v-else-if="shouldShowLivePreview" class="live-preview-container">
-      <LiveViewer
-        ref="liveViewerRef"
-        :session-id="sessionId"
-        :enabled="enabled"
-        :view-only="true"
-        :compact-loading="true"
-        :show-controls="false"
-      />
-    </div>
+      <!-- Live preview (active or completed session without report) -->
+      <div v-else-if="shouldShowLivePreview" class="vp-live">
+        <LiveViewer
+          ref="liveViewerRef"
+          :session-id="sessionId"
+          :enabled="enabled"
+          :view-only="true"
+          :compact-loading="true"
+          :show-controls="false"
+          :is-session-complete="isSessionComplete"
+          :replay-screenshot-url="replayScreenshotUrl || ''"
+        />
+      </div>
 
-    <!-- Session complete: report text takes priority, then CDP screenshot -->
-    <div v-else-if="shouldShowFinalScreenshot && reportPreviewText" class="content-preview streaming-preview">
-      <div class="streaming-mini-window">
-        <div class="streaming-mini-header">
-          <span class="streaming-mini-title">Report</span>
+      <!-- Session complete with report text -->
+      <div v-else-if="shouldShowFinalScreenshot && reportPreviewText" class="vp-panel">
+        <div class="vp-header">
+          <span class="vp-header-title">Report</span>
         </div>
-        <div class="streaming-mini-body">
-          <div class="report-mini-text">
+        <div class="vp-body">
+          <div class="vp-md-text">
             <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Session complete fallback (replay final frame — no report text) -->
-    <div v-else-if="shouldShowFinalScreenshot" class="final-screenshot-preview">
-      <img
-        v-if="finalScreenshotUrl && !finalScreenshotLoadError"
-        :src="finalScreenshotUrl"
-        alt="Final session state"
-        class="final-screenshot-image"
-        @error="handleFinalScreenshotError"
-      />
-      <div v-else class="final-screenshot-placeholder">
-        <Monitor class="placeholder-icon" />
-        <span class="placeholder-text">Session Complete</span>
-      </div>
-    </div>
-
-    <!-- Generic tool indicator (fallback when no session or unknown tool) -->
-    <div v-else class="tool-preview">
-      <div class="tool-preview-content">
-        <component :is="toolIcon" class="tool-preview-icon" />
-        <span class="tool-preview-label">{{ toolLabel }}</span>
-        <div v-if="showInitializingDots" class="loading-dots init-loading-dots" aria-hidden="true">
+      <!-- Generic tool indicator (fallback) -->
+      <div v-else class="vp-centered">
+        <component :is="toolIcon" :size="32" class="fallback-icon" />
+        <span class="fallback-label">{{ toolLabel }}</span>
+        <div v-if="showInitializingDots" class="loading-dots" aria-hidden="true">
           <span class="dot"></span>
           <span class="dot"></span>
           <span class="dot"></span>
         </div>
+        <div v-if="isActive" class="activity-dot activity-dot-abs"></div>
       </div>
-      <div v-if="isActive" class="activity-pulse"></div>
+
     </div>
 
-    <!-- Hover overlay -->
-    <div class="hover-overlay">
-      <Monitor class="hover-icon" />
-    </div>
+    <!-- Hover expand button (outside viewport so it's not scaled) -->
+    <button class="hover-expand-btn">
+      <Monitor :size="16" class="expand-icon" />
+    </button>
   </div>
 </template>
 
@@ -444,11 +403,9 @@ const reportPreviewText = computed(() => {
 
 /**
  * Lightweight markdown → HTML for mini preview.
- * Renders headings, code blocks (Shiki github-dark style bg),
- * bold, italic, lists, and horizontal rules. No external deps.
+ * Renders headings, code blocks, bold, italic, lists, and horizontal rules.
  */
 const renderedMiniMarkdown = computed(() => {
-  // Use plan text when in planning phase, otherwise report text
   const raw = isPlanningPhase.value ? (props.planPresentationText || '') : reportPreviewText.value;
   if (!raw) return '';
 
@@ -464,14 +421,12 @@ const renderedMiniMarkdown = computed(() => {
   let codeLang = '';
 
   for (const line of lines) {
-    // Fenced code block toggle
     if (line.startsWith('```')) {
       if (!inCode) {
         inCode = true;
         codeLang = line.slice(3).trim();
         codeLines = [];
       } else {
-        // Skip mermaid/chart blocks in mini preview (illegible at this scale)
         if (codeLang === 'mermaid' || codeLang === 'chart' || codeLang === 'plotly') {
           inCode = false;
           codeLang = '';
@@ -494,7 +449,6 @@ const renderedMiniMarkdown = computed(() => {
       continue;
     }
 
-    // Headings
     if (line.startsWith('### ')) {
       html.push(`<div class="mini-h3">${inlineFormat(line.slice(4))}</div>`);
     } else if (line.startsWith('## ')) {
@@ -502,42 +456,33 @@ const renderedMiniMarkdown = computed(() => {
     } else if (line.startsWith('# ')) {
       html.push(`<div class="mini-h1">${inlineFormat(line.slice(2))}</div>`);
     }
-    // Table separator row (skip entirely)
     else if (/^\|[\s:|-]+\|$/.test(line.trim())) {
       continue;
     }
-    // Table row — strip pipes and render as compact paragraph
     else if (/^\|.+\|$/.test(line.trim())) {
       const cells = line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).filter(Boolean);
       if (cells.length > 0) {
         html.push(`<div class="mini-p">${inlineFormat(cells.join(' · '))}</div>`);
       }
     }
-    // Blockquote callout (> [!NOTE], > [!WARNING], etc.) — simplify to paragraph
     else if (/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/.test(line)) {
-      continue; // skip callout marker line, content follows
+      continue;
     }
-    // Blockquote content line
     else if (line.startsWith('> ')) {
       html.push(`<div class="mini-p">${inlineFormat(line.slice(2))}</div>`);
     }
-    // Horizontal rule
     else if (/^[-*_]{3,}\s*$/.test(line)) {
       html.push('<hr class="mini-hr" />');
     }
-    // Unordered list
     else if (/^\s*[-*+]\s/.test(line)) {
       html.push(`<div class="mini-li">${inlineFormat(line.replace(/^\s*[-*+]\s/, ''))}</div>`);
     }
-    // Ordered list
     else if (/^\s*\d+\.\s/.test(line)) {
       html.push(`<div class="mini-li mini-li-num">${inlineFormat(line.replace(/^\s*\d+\.\s/, ''))}</div>`);
     }
-    // Empty line
     else if (line.trim() === '') {
       html.push('<div class="mini-spacer"></div>');
     }
-    // Regular paragraph
     else {
       html.push(`<div class="mini-p">${inlineFormat(line)}</div>`);
     }
@@ -569,18 +514,16 @@ const shouldShowLivePreview = computed(() => {
     return false;
   }
 
-  // Never show live preview for completed sessions — use final screenshot instead
+  // For completed sessions, keep LiveViewer visible (mirrors main tool panel)
+  // unless a report is available to show instead.
   if (props.isSessionComplete && !props.isActive) {
-    return false;
+    return !reportPreviewText.value;
   }
 
-  // Once live preview has been shown, keep it visible while the session is active
-  // to prevent flicker during brief gaps between tool calls.
   if (livePreviewHasBeenShown.value && props.isActive) {
     return true;
   }
 
-  // Avoid opening a live preview feed before the agent emits any concrete tool context.
   if (!effectiveToolContent.value) {
     return false;
   }
@@ -588,59 +531,39 @@ const shouldShowLivePreview = computed(() => {
   return props.isActive || currentViewType.value === 'live_preview';
 });
 
-// Mark live preview as shown once it becomes visible (watcher avoids side effects in computed)
 watch(shouldShowLivePreview, (show) => {
   if (show) livePreviewHasBeenShown.value = true;
-});
-
-const finalScreenshotLoadError = ref(false);
-
-const finalScreenshotUrl = computed(() => props.replayScreenshotUrl || '');
-
-watch(finalScreenshotUrl, () => {
-  finalScreenshotLoadError.value = false;
 });
 
 const shouldShowFinalScreenshot = computed(() => {
   if (!props.sessionId || !props.enabled || props.isInitializing) {
     return false;
   }
-
   if (isSummaryPhase.value) {
     return false;
   }
-
   if (shouldShowLivePreview.value) {
     return false;
   }
-
   return Boolean(props.isSessionComplete && !props.isActive);
 });
-
-const handleFinalScreenshotError = () => {
-  finalScreenshotLoadError.value = true;
-};
 
 // Wide research state
 const { miniState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal();
 
-// Check if this is a wide research tool
 const isWideResearch = computed(() => {
   const toolName = props.toolName?.toLowerCase() || '';
   const toolFunc = props.toolFunction?.toLowerCase() || '';
   return (toolName.includes('wide_research') || toolFunc.includes('wide_research')) && wideResearchActive.value;
 });
 
-// Helper to truncate text
 const truncate = (text: string, maxLength: number): string => {
   if (!text) return '';
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 };
 
-// Get favicon URL for a given link using shared utility
 const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
 
-// Track favicon errors per URL and cache failures globally
 const faviconErrors: Record<string, boolean> = reactive({});
 
 const onFaviconError = (url: string) => {
@@ -648,16 +571,13 @@ const onFaviconError = (url: string) => {
   markFaviconFailed(url);
 };
 
-// Extract filename from path
 const fileName = computed(() => {
   if (!props.filePath) return 'File';
   const parts = props.filePath.split('/');
   const name = parts[parts.length - 1] || 'File';
-  // Truncate long names
   return name.length > 20 ? name.slice(0, 17) + '...' : name;
 });
 
-// Chart mini-preview data
 const chartTitle = computed(() => {
   const content = effectiveToolContent.value?.content as Record<string, unknown> | undefined;
   return truncate(String(content?.title || 'Chart'), 20);
@@ -670,26 +590,20 @@ const chartPngUrl = computed(() => {
   return fileApi.getFileUrl(pngFileId);
 });
 
-// Terminal title from content or default
 const terminalTitle = computed(() => {
-  // Try to extract a meaningful title from the terminal session name
   const preview = props.contentPreview || '';
-  // Look for common shell session names in first line
   const match = preview.match(/^setup_env|^[a-z_]+@[a-z]+:/i);
   if (match) return match[0].replace(/:$/, '');
   return 'Terminal';
 });
 
-// Style terminal content with green prompts (ubuntu@sandbox:~ $)
 const styledTerminalContent = computed(() => {
   const content = props.contentPreview || '';
-  // Escape HTML first
   const escaped = content
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Style shell prompts in green (matches patterns like "ubuntu@sandbox:~ $" or "user@host:/path $")
   const styled = escaped.replace(
     /^(\s*)([a-z_][a-z0-9_-]*@[a-z0-9_-]+:[^$#]*[$#])/gim,
     '$1<span class="shell-prompt">$2</span>'
@@ -698,7 +612,6 @@ const styledTerminalContent = computed(() => {
   return styled;
 });
 
-// Get appropriate icon for fallback
 const toolIcon = computed(() => {
   const name = props.toolName || '';
   const func = props.toolFunction || '';
@@ -721,7 +634,6 @@ const toolIcon = computed(() => {
   return Monitor;
 });
 
-// Get label for fallback
 const toolLabel = computed(() => {
   if (showInitializingDots.value) return streamingPresentation.headline.value;
   if (toolDisplay.value?.displayName) return toolDisplay.value.displayName;
@@ -747,239 +659,147 @@ const sizeClass = computed(() => {
 </script>
 
 <style scoped>
+/* ===== Outer Card Container ===== */
 .live-mini-preview {
   position: relative;
   border-radius: 8px;
   overflow: hidden;
-  background: var(--bolt-elements-bg-depth-2);
+  background: var(--bolt-elements-bg-depth-1);
   border: 1px solid var(--bolt-elements-borderColor);
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px var(--shadow-XS);
-  aspect-ratio: 16 / 10;
-}
-
-.live-mini-preview:hover {
-  transform: scale(1.02);
-  border-color: var(--bolt-elements-borderColorActive);
-  box-shadow: 0 4px 16px var(--shadow-S);
-}
-
-/* Size variants */
-.size-sm { width: 96px; }
-.size-md { width: 144px; }
-.size-lg { width: 176px; }
-
-@media (max-width: 640px) {
-  .size-sm { width: 72px; }
-  .size-md { width: 112px; }
-  .size-lg { width: 136px; }
-}
-
-/* Live Preview Container */
-.live-preview-container {
-  position: absolute;
-  inset: 0;
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.final-screenshot-preview {
-  position: absolute;
-  inset: 0;
-  background: var(--bolt-elements-bg-depth-1);
-  overflow: hidden;
-}
-
-.final-screenshot-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.final-screenshot-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--bolt-elements-textTertiary);
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.placeholder-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.placeholder-text {
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* Content Preview (File/Terminal) */
-.content-preview {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: 2;
-}
-
-.file-preview {
-  background: var(--bolt-elements-bg-depth-1);
-  z-index: 3;
-}
-
-/* Decorated file window */
-.file-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-1);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.file-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px;
-  background: var(--bolt-elements-bg-depth-2);
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
-}
-
-.file-title {
-  font-size: 8px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: transform 0.2s ease;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   max-width: 100%;
 }
 
-.file-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+.live-mini-preview:hover {
+  transform: scale(1.03);
 }
 
-.file-accent {
-  width: 2px;
-  background: var(--bolt-elements-item-contentAccent);
-  flex-shrink: 0;
+/* Size variants (outer container dimensions) */
+.size-sm { width: 200px; height: 140px; }
+.size-md { width: 272px; height: 190px; }
+.size-lg { width: 320px; height: 224px; }
+
+@media (max-width: 640px) {
+  .size-sm { width: 140px; height: 98px; }
+  .size-md { width: 200px; height: 140px; }
+  .size-lg { width: 256px; height: 180px; }
 }
 
-.file-content-area {
-  flex: 1;
-  padding: 4px 6px;
-  overflow: hidden;
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-.terminal-preview {
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-/* ===== Search Preview ===== */
-.search-preview {
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.search-window {
+/* ===== Scale-Transform Viewport ===== */
+.mini-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 355px;
+  height: 284px;
+  transform-origin: 0 0;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-2);
-  border-radius: 6px;
   overflow: hidden;
+  background: var(--bolt-elements-bg-depth-1);
 }
 
-.search-header {
+/* Non-uniform scale: scaleX = width/355, scaleY = height/284 */
+.size-sm .mini-viewport { transform: scale(0.563, 0.493); }
+.size-md .mini-viewport { transform: scale(0.766, 0.669); }
+.size-lg .mini-viewport { transform: scale(0.901, 0.789); }
+
+@media (max-width: 640px) {
+  .size-sm .mini-viewport { transform: scale(0.394, 0.345); }
+  .size-md .mini-viewport { transform: scale(0.563, 0.493); }
+  .size-lg .mini-viewport { transform: scale(0.721, 0.634); }
+}
+
+/* ===== Panel Layout (header + body) ===== */
+.vp-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.vp-header {
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 3px 6px;
-  background: var(--bolt-elements-bg-depth-3);
+  gap: 6px;
+  padding: 0 12px;
+  background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
-.search-header-icon {
-  color: var(--bolt-elements-textPrimary);
-  flex-shrink: 0;
-}
-
-.search-title {
-  font-size: 7px;
+.vp-header-title {
+  max-width: 280px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
+  color: var(--bolt-elements-textSecondary);
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 85%;
 }
 
-.search-body {
-  display: flex;
+.vp-header-icon {
+  flex-shrink: 0;
+  color: var(--bolt-elements-textSecondary);
+}
+
+.vp-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  padding: 12px 16px;
 }
 
-.search-content-area {
-  flex: 1;
-  padding: 3px 4px;
-  overflow: hidden;
-  background: var(--bolt-elements-bg-depth-2);
+/* ===== Search Results ===== */
+.vp-body-search {
+  padding: 0;
 }
 
-.search-results-mini {
+.search-results-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
-.search-result-item {
+.search-result-row {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  padding: 3px 4px;
+  gap: 8px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   overflow: hidden;
 }
 
-.search-result-item:last-child {
+.search-result-row:last-child {
   border-bottom: none;
 }
 
-.result-favicon {
-  width: 10px;
-  height: 10px;
+.sr-favicon {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  margin-top: 1px;
-  border-radius: 2px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--bolt-elements-borderColor);
 }
 
-.result-favicon-fallback {
-  width: 10px;
-  height: 10px;
+.sr-favicon-fallback {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  margin-top: 1px;
-  border-radius: 2px;
-  background: var(--fill-tsp-gray-main, #e5e7eb);
-  color: var(--text-tertiary, #9ca3af);
-  font-size: 7px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+  color: var(--bolt-elements-textTertiary);
+  font-size: 10px;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -987,297 +807,188 @@ const sizeClass = computed(() => {
   line-height: 1;
 }
 
-.result-text {
+.sr-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
 
-.result-title {
-  font-size: 6px;
-  font-weight: 600;
+.sr-title {
+  font-size: 14px;
+  font-weight: 500;
   color: var(--bolt-elements-textPrimary);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
   line-height: 1.3;
 }
 
-.result-snippet {
-  font-size: 5px;
-  color: var(--bolt-elements-textSecondary);
-  white-space: nowrap;
+.sr-snippet {
+  font-size: 12px;
+  color: var(--bolt-elements-textTertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-  line-height: 1.2;
+  line-height: 1.35;
+  margin-top: 2px;
 }
 
-.results-more {
-  font-size: 5px;
-  color: var(--bolt-elements-textTertiary);
-  text-align: center;
-  padding: 2px 0;
-}
-
-.search-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 4px;
-}
-
-.loading-dots {
-  display: flex;
-  gap: 3px;
-}
-
-.loading-dots .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--bolt-elements-textPrimary);
-  animation: bounce 1.4s infinite ease-in-out both;
-}
-
-.loading-dots .dot:nth-child(1) { animation-delay: -0.32s; }
-.loading-dots .dot:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes bounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
-}
-
-.loading-text {
-  font-size: 6px;
-  color: var(--bolt-elements-textSecondary);
-}
-
-.search-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 3px;
-  font-size: 6px;
-  color: var(--bolt-elements-textTertiary);
-}
-
-.empty-search-icon {
-  color: var(--bolt-elements-textTertiary);
-}
-
-/* Decorated terminal window */
-.terminal-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-1);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.terminal-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px;
+/* ===== Terminal ===== */
+.vp-body-terminal {
   background: var(--bolt-elements-bg-depth-2);
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
+  padding: 10px 12px;
 }
 
-.terminal-title {
-  font-size: 8px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-}
-
-.terminal-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.terminal-accent {
-  width: 2px;
-  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
-  flex-shrink: 0;
-}
-
-.terminal-content-area {
-  flex: 1;
-  padding: 4px 6px;
-  overflow: hidden;
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-.terminal-content-area.terminal-running {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-
-.running-icon {
-  width: 16px;
-  height: 16px;
-  color: #f97316;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.running-text {
-  font-size: 7px;
-  font-weight: 500;
-  color: var(--bolt-elements-textSecondary);
-}
-
-.preview-text {
+.vp-terminal-text {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 6px;
-  line-height: 1.4;
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.terminal-text {
-  color: var(--bolt-elements-textPrimary);
-  font-size: 5px;
-  line-height: 1.3;
-}
-
-/* Green shell prompt (ubuntu@sandbox:~ $) */
-.terminal-text :deep(.shell-prompt) {
+.vp-terminal-text :deep(.shell-prompt) {
   color: #16a34a;
   font-weight: 500;
 }
 
-/* Activity indicator */
-.activity-indicator {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  background: var(--bolt-elements-item-contentAccent);
-  border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
+/* ===== Code / Editor ===== */
+.vp-body-code {
+  background: var(--bolt-elements-bg-depth-2);
+  padding: 10px 12px;
 }
 
-/* Streaming mini preview */
-.streaming-preview {
-  background: var(--bolt-elements-bg-depth-1);
+.vp-code-text {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--bolt-elements-textPrimary);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-.streaming-mini-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.streaming-mini-header {
+/* ===== Chart ===== */
+.vp-body-chart {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
-  background: var(--bolt-elements-bg-depth-2);
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
 }
 
-.streaming-mini-title {
-  font-size: 7px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
+.chart-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
-.streaming-mini-body {
-  flex: 1;
-  padding: 6px 8px;
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 40px;
+}
+
+.bar {
+  width: 12px;
+  background: var(--bolt-elements-item-contentAccent);
+  border-radius: 3px 3px 0 0;
+  animation: bar-grow 1.5s ease-in-out infinite;
+}
+
+.bar-1 { animation-delay: 0s; }
+.bar-2 { animation-delay: 0.2s; }
+.bar-3 { animation-delay: 0.4s; }
+
+@keyframes bar-grow {
+  0%, 100% { height: 30%; opacity: 0.6; }
+  50% { height: 80%; opacity: 1; }
+}
+
+/* ===== Live Preview ===== */
+.vp-live {
+  width: 100%;
+  height: 100%;
+}
+
+/* ===== Centered Content (init, fallback) ===== */
+.vp-centered {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bolt-elements-bg-depth-1);
 }
 
-.streaming-line {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--bolt-elements-borderColor);
-  animation: line-appear 0.6s ease-out both;
+.vp-centered-small {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
 }
 
-@keyframes line-appear {
-  from { width: 0; opacity: 0; }
-  to { opacity: 0.6; }
-}
-
-/* Report text mini preview */
-.report-mini-text {
+/* ===== Markdown Report ===== */
+.vp-md-text {
   flex: 1;
   overflow: hidden;
   position: relative;
 }
 
-.report-mini-text::after {
+.vp-md-text::after {
   content: '';
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 18px;
+  height: 30px;
   background: linear-gradient(to bottom, transparent, var(--bolt-elements-bg-depth-1));
   pointer-events: none;
-  z-index: 1;
 }
 
-/* ===== Mini Markdown Renderer (Shiki-style) ===== */
 .report-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 6px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
-  opacity: 0.9;
 }
 
 .report-mini-md .mini-h1 {
-  font-size: 8px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
-  margin: 3px 0 2px;
-  line-height: 1.2;
+  margin: 6px 0 4px;
+  line-height: 1.25;
   border-bottom: 1px solid var(--bolt-elements-borderColor);
-  padding-bottom: 2px;
+  padding-bottom: 4px;
 }
 
 .report-mini-md .mini-h2 {
-  font-size: 7px;
+  font-size: 15px;
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
-  margin: 2px 0 1px;
-  line-height: 1.25;
+  margin: 4px 0 2px;
+  line-height: 1.3;
 }
 
 .report-mini-md .mini-h3 {
-  font-size: 6.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
-  margin: 2px 0 1px;
-  line-height: 1.3;
+  margin: 4px 0 2px;
+  line-height: 1.35;
 }
 
 .report-mini-md .mini-p {
@@ -1286,40 +997,39 @@ const sizeClass = computed(() => {
 }
 
 .report-mini-md .mini-li {
-  padding-left: 6px;
+  padding-left: 12px;
   position: relative;
   margin: 0;
 }
 
 .report-mini-md .mini-li::before {
-  content: '•';
+  content: '\2022';
   position: absolute;
-  left: 1px;
+  left: 2px;
   color: var(--bolt-elements-textTertiary);
-  font-size: 5px;
+  font-size: 12px;
 }
 
 .report-mini-md .mini-li-num::before {
-  content: '–';
+  content: '\2013';
 }
 
 .report-mini-md .mini-spacer {
-  height: 2px;
+  height: 4px;
 }
 
 .report-mini-md .mini-hr {
   border: none;
   height: 1px;
   background: var(--bolt-elements-borderColor);
-  margin: 2px 0;
+  margin: 4px 0;
 }
 
-/* Fenced code block — matches Shiki github-dark theme bg */
 .report-mini-md .mini-code-block {
   background: #24292e;
-  border-radius: 3px;
-  padding: 3px 4px;
-  margin: 2px 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 4px 0;
   position: relative;
   overflow: hidden;
 }
@@ -1332,8 +1042,8 @@ const sizeClass = computed(() => {
 .report-mini-md .mini-code-block pre {
   margin: 0;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 5px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.4;
   color: #e1e4e8;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1341,22 +1051,21 @@ const sizeClass = computed(() => {
 
 .report-mini-md .mini-code-lang {
   position: absolute;
-  top: 1px;
-  right: 3px;
-  font-size: 4px;
+  top: 3px;
+  right: 6px;
+  font-size: 9px;
   font-weight: 600;
   color: #6a737d;
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
-/* Inline code — subtle bg pill */
 .report-mini-md .mini-inline-code {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 5.5px;
+  font-size: 12px;
   background: rgba(175, 184, 193, 0.15);
-  border-radius: 2px;
-  padding: 0 2px;
+  border-radius: 3px;
+  padding: 1px 4px;
 }
 
 :global(.dark) .report-mini-md .mini-inline-code {
@@ -1372,51 +1081,90 @@ const sizeClass = computed(() => {
   opacity: 0.85;
 }
 
-/* Tool Preview (fallback) */
-.tool-preview {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.tool-preview-content {
+/* ===== Skeleton Lines ===== */
+.vp-skeleton-lines {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
-.tool-preview-icon {
-  width: 24px;
-  height: 24px;
+.skeleton-line {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bolt-elements-borderColor);
+  animation: line-appear 0.6s ease-out both;
+}
+
+@keyframes line-appear {
+  from { width: 0; opacity: 0; }
+  to { opacity: 0.6; }
+}
+
+/* ===== Loading Dots ===== */
+.loading-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.loading-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bolt-elements-textSecondary);
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+.loading-label {
+  font-size: 13px;
   color: var(--bolt-elements-textSecondary);
 }
 
-.tool-preview-label {
-  font-size: 10px;
+.empty-icon {
+  color: var(--bolt-elements-textTertiary);
+  opacity: 0.5;
+}
+
+.empty-label {
+  font-size: 13px;
+  color: var(--bolt-elements-textTertiary);
+}
+
+/* ===== Fallback ===== */
+.fallback-icon {
+  color: var(--bolt-elements-textSecondary);
+}
+
+.fallback-label {
+  font-size: 14px;
   font-weight: 500;
   color: var(--bolt-elements-textSecondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.init-loading-dots .dot {
-  background: var(--bolt-elements-textSecondary);
-}
-
-.activity-pulse {
+/* ===== Activity Dot ===== */
+.activity-dot {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 8px;
+  right: 8px;
   width: 8px;
   height: 8px;
   background: var(--bolt-elements-item-contentAccent);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+
+.activity-dot-abs {
+  top: 10px;
+  right: 10px;
 }
 
 @keyframes pulse {
@@ -1424,122 +1172,7 @@ const sizeClass = computed(() => {
   50% { opacity: 1; transform: scale(1.2); }
 }
 
-/* ===== Chart Preview ===== */
-.chart-preview {
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.chart-mini-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-2);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.chart-mini-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 3px 6px;
-  background: var(--bolt-elements-bg-depth-3);
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
-}
-
-.chart-header-icon {
-  color: var(--text-brand, #636EFA);
-  flex-shrink: 0;
-}
-
-.chart-mini-title {
-  font-size: 7px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 85%;
-}
-
-.chart-mini-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  padding: 2px;
-}
-
-.chart-mini-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  border-radius: 2px;
-}
-
-.chart-generating {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.chart-bars-mini {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 24px;
-}
-
-.bar-mini {
-  width: 6px;
-  background: var(--text-brand, #636EFA);
-  border-radius: 2px 2px 0 0;
-  animation: bar-grow-mini 1.5s ease-in-out infinite;
-}
-
-.bar-mini-1 { animation-delay: 0s; }
-.bar-mini-2 { animation-delay: 0.2s; }
-.bar-mini-3 { animation-delay: 0.4s; }
-
-.chart-gen-text {
-  font-size: 7px;
-  color: var(--bolt-elements-textSecondary);
-}
-
-.empty-chart-icon {
-  color: var(--bolt-elements-textTertiary);
-  opacity: 0.5;
-}
-
-@keyframes bar-grow-mini {
-  0%, 100% { height: 30%; opacity: 0.6; }
-  50% { height: 80%; opacity: 1; }
-}
-
-/* ===== Initialization State ===== */
-.init-preview {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bolt-elements-bg-depth-2);
-  overflow: hidden;
-}
-
-.init-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  z-index: 2;
-}
-
+/* ===== Initializing ===== */
 .init-monitor {
   position: relative;
 }
@@ -1551,15 +1184,15 @@ const sizeClass = computed(() => {
 }
 
 .monitor-screen {
-  width: 28px;
-  height: 20px;
+  width: 48px;
+  height: 34px;
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-  border-radius: 3px;
+  border-radius: 4px;
   border: 2px solid #475569;
   position: relative;
   overflow: hidden;
   box-shadow:
-    inset 0 0 8px rgba(59, 130, 246, 0.15),
+    inset 0 0 12px rgba(59, 130, 246, 0.15),
     0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
@@ -1567,7 +1200,7 @@ const sizeClass = computed(() => {
   position: absolute;
   left: 0;
   right: 0;
-  height: 2px;
+  height: 3px;
   background: linear-gradient(90deg,
     transparent 0%,
     rgba(59, 130, 246, 0.4) 20%,
@@ -1579,24 +1212,24 @@ const sizeClass = computed(() => {
 }
 
 @keyframes scan {
-  0% { top: -2px; opacity: 0; }
+  0% { top: -3px; opacity: 0; }
   10% { opacity: 1; }
   90% { opacity: 1; }
-  100% { top: calc(100% + 2px); opacity: 0; }
+  100% { top: calc(100% + 3px); opacity: 0; }
 }
 
 .boot-dots {
   position: absolute;
-  bottom: 3px;
+  bottom: 5px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 3px;
+  gap: 4px;
 }
 
 .boot-dot {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: var(--bolt-elements-item-contentAccent);
   animation: boot-pulse 1.2s ease-in-out infinite;
@@ -1609,26 +1242,24 @@ const sizeClass = computed(() => {
   0%, 100% {
     opacity: 0.3;
     transform: scale(0.8);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
   }
   50% {
     opacity: 1;
     transform: scale(1);
-    box-shadow: 0 0 4px 1px rgba(59, 130, 246, 0.4);
   }
 }
 
 .monitor-stand {
-  width: 8px;
-  height: 4px;
+  width: 12px;
+  height: 6px;
   background: linear-gradient(180deg, #64748b 0%, #475569 100%);
-  border-radius: 0 0 2px 2px;
+  border-radius: 0 0 3px 3px;
   margin-top: -1px;
 }
 
 .init-label {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--bolt-elements-textSecondary);
   letter-spacing: 0.5px;
@@ -1648,39 +1279,31 @@ const sizeClass = computed(() => {
   100% { content: ''; }
 }
 
-.init-grid {
+/* ===== Hover Expand Button ===== */
+.hover-expand-btn {
   position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(71, 85, 105, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(71, 85, 105, 0.03) 1px, transparent 1px);
-  background-size: 8px 8px;
-  pointer-events: none;
-}
-
-/* Hover overlay */
-.hover-overlay {
-  position: absolute;
-  inset: 0;
+  bottom: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(2px);
+  border: none;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s ease;
   z-index: 10;
+  pointer-events: auto;
 }
 
-.live-mini-preview:hover .hover-overlay {
+.live-mini-preview:hover .hover-expand-btn {
   opacity: 1;
 }
 
-.hover-icon {
-  width: 20px;
-  height: 20px;
+.expand-icon {
   color: white;
 }
 </style>
