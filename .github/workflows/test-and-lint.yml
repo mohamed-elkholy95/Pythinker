@@ -78,7 +78,7 @@ jobs:
 
       - name: Install Ruff
         if: needs.changes.outputs.backend == 'true'
-        run: pip install "ruff>=0.8.0"
+        run: pip install "ruff>=0.15.7"
 
       - name: Run Ruff linter
         if: needs.changes.outputs.backend == 'true'
