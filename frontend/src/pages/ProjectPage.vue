@@ -169,7 +169,20 @@
           <span class="tasks-title">Tasks</span>
           <span class="tasks-note">Your tasks stay private unless shared</span>
         </div>
-        <div class="tasks-empty">
+        <!-- Session list -->
+        <div v-if="projectSessions.length > 0" class="project-session-list">
+          <button
+            v-for="s in projectSessions"
+            :key="s.session_id"
+            class="project-session-item"
+            @click="router.push(`/chat/${s.session_id}`)"
+          >
+            <MessageSquareDashed :size="16" class="text-[var(--text-tertiary)] shrink-0" />
+            <span class="project-session-title">{{ s.title || 'Untitled task' }}</span>
+            <span class="project-session-status" :class="`status-${s.status}`">{{ s.status }}</span>
+          </button>
+        </div>
+        <div v-else class="tasks-empty">
           <MessageSquareDashed :size="32" class="text-[var(--text-tertiary)]" />
           <span>Create a new task to get started</span>
         </div>
@@ -205,6 +218,7 @@ import { useSettingsDialog } from '@/composables/useSettingsDialog'
 import { useConnectorDialog } from '@/composables/useConnectorDialog'
 import { getServerConfig } from '@/api/settings'
 import { uploadFile, getFileInfo } from '@/api/file'
+import { listProjectSessions, type ProjectSession } from '@/api/projects'
 import type { FileInfo } from '@/api/file'
 import type { ThinkingMode, ResearchMode } from '@/api/agent'
 import ChatBox from '@/components/ChatBox.vue'
@@ -250,6 +264,17 @@ const activeModelName = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const fileNameMap = ref<Record<string, string>>({})
 const skillNameMap = ref<Record<string, string>>({})
+const projectSessions = ref<ProjectSession[]>([])
+
+async function loadProjectSessions() {
+  const pid = route.params.projectId as string
+  if (!pid) return
+  try {
+    projectSessions.value = await listProjectSessions(pid)
+  } catch {
+    projectSessions.value = []
+  }
+}
 
 onMounted(async () => {
   try {
@@ -276,6 +301,9 @@ onMounted(async () => {
       }
     }
   }
+
+  // Load project sessions
+  await loadProjectSessions()
 })
 
 function truncateText(text: string, maxLen: number): string {
@@ -759,6 +787,75 @@ async function handleSaveInstructions(instructions: string) {
   padding: 48px 24px;
   color: var(--text-tertiary);
   font-size: 14px;
+}
+
+/* ── Project session list ── */
+.project-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-session-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s;
+  text-align: left;
+  width: 100%;
+}
+
+.project-session-item:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.project-session-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-session-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  text-transform: capitalize;
+}
+
+.status-completed {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+}
+
+.status-running, .status-initializing {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
+.status-pending {
+  background: rgba(234, 179, 8, 0.1);
+  color: #ca8a04;
+}
+
+.status-failed, .status-cancelled {
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+}
+
+.status-waiting {
+  background: rgba(168, 85, 247, 0.1);
+  color: #7c3aed;
 }
 
 /* ── Loading / Not found states ── */

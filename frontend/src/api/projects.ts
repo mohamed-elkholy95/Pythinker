@@ -33,3 +33,22 @@ export async function updateProject(
 export async function deleteProject(projectId: string): Promise<void> {
   await apiClient.delete(`/projects/${projectId}`)
 }
+
+export interface ProjectSession {
+  session_id: string
+  title: string | null
+  status: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export async function listProjectSessions(
+  projectId: string,
+  params?: { limit?: number; offset?: number },
+): Promise<ProjectSession[]> {
+  const response = await apiClient.get<ApiResponse<ProjectSession[]>>(
+    `/projects/${projectId}/sessions`,
+    { params },
+  )
+  return response.data.data
+}
