@@ -155,8 +155,8 @@
 
 <style scoped>
 .planner-activity {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
