@@ -86,6 +86,20 @@ export const router = createRouter({
           component: ProjectPage,
           meta: { requiresAuth: true },
         },
+        // Redirect well-known sidebar paths so they never fall through
+        // to the :sessionId catch-all below.
+        {
+          path: 'library',
+          redirect: '/chat/history',
+        },
+        {
+          path: 'search',
+          redirect: '/chat',
+        },
+        {
+          path: 'settings',
+          redirect: '/chat',
+        },
         {
           path: ':sessionId',
           name: 'chat-session',
