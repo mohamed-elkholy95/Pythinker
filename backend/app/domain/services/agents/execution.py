@@ -914,13 +914,13 @@ class ExecutionAgent(BaseAgent):
                 )
                 + f"\n\n## Available Sources\n{source_list}"
                 # Pre-baked references anchor: injecting the complete numbered list
-                # here guarantees the LLM can copy it verbatim at the end of its
-                # response, even when output is near the token budget.  This is the
-                # root-cause fix for phantom/orphan citations: the LLM always has the
-                # full list in context and is explicitly instructed to include it.
+                # here guarantees the LLM can reference it at the end of its
+                # response, even when output is near the token budget.
                 + "\n\n⚠️ MANDATORY: Your response MUST end with a `## References` section "
-                "that lists **every** source from 'Available Sources' above, in the same "
-                "numbered format `[N] Title - URL`. Do NOT omit any entries."
+                "that lists ONLY the sources you actually cited inline using [N] notation. "
+                "Use the exact numbered format `[N] Title - URL` from 'Available Sources' above. "
+                "Do NOT include sources you did not cite inline — every entry in References "
+                "must correspond to an inline [N] citation in the report body."
             )
         else:
             summarize_prompt = build_summarize_prompt(
