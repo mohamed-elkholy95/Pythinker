@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pythinker AI Dev"
+  short_description: "Clean architecture and coding workflow for Pythinker"
+  default_prompt: "Use $pythinker-ai-dev to implement and review Pythinker changes with clean architecture boundaries and strict type-safe async patterns."

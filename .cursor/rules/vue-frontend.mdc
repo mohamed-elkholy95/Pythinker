@@ -1,0 +1,58 @@
+---
+description: Vue 3 Composition API + TypeScript + Pinia rules for the Pythinker frontend
+globs: frontend/**/*.{vue,ts}
+alwaysApply: false
+---
+
+# Vue 3 Frontend Standards
+
+## Lint Before Commit
+```bash
+cd frontend && bun run lint && bun run type-check
+```
+
+## Component Structure
+```vue
+<script setup lang="ts">
+// ✅ Always <script setup lang="ts">
+// ✅ PascalCase component names (matches filename)
+// ✅ useX composables for shared logic
+import { ref, computed, onMounted } from 'vue'
+import { useMyComposable } from '@/composables/useMyComposable'
+</script>
+```
+
+## Naming
+- Components: `PascalCase` (file and usage)
+- Composables: `useX` prefix → `useSession`, `useSSE`, `useAuth`
+- Pinia stores: `use*Store` → `useSessionStore`
+
+## Type Safety
+```typescript
+// ❌ No any
+const data: any = response
+
+// ✅ Typed
+interface ApiResponse { id: string; status: string }
+const data: ApiResponse = response
+```
+
+## SSE Streaming
+- Use existing `useSSE` composable — never create raw `EventSource` directly.
+- Always handle `skill` and `partial_result` event types in SSE registry.
+- 30s heartbeat required; include `id:` and `retry:` fields server-side.
+
+## State Management (Pinia)
+```typescript
+// ✅ Composition-style stores
+export const useMyStore = defineStore('my', () => {
+  const state = ref<MyType>(initialValue)
+  const derived = computed(() => state.value.field)
+  async function action() { ... }
+  return { state, derived, action }
+})
+```
+
+## Reuse First
+- Check `frontend/src/composables/` (40+ composables) before creating new shared logic.
+- Check `frontend/src/components/` before creating new UI components.

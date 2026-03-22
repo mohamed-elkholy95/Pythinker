@@ -1,0 +1,32 @@
+---
+description: Core Pythinker project principles - reuse, simplicity, DDD, full implementation
+alwaysApply: true
+---
+
+# Pythinker Core Rules
+
+## Before Writing Any Code
+- **Search first**: Use codebase search to find existing components, composables, services, utilities before creating new ones.
+- **No duplication**: Never create a file, class, or utility that already exists or can be extended.
+
+## Implementation Quality
+- **Full code always**: Never use placeholders (`// ... rest of code`, `pass`, `TODO`). Write complete implementations.
+- **No over-engineering**: Minimum complexity for the current task. No hypothetical future abstractions.
+- **Type safety**: Full type hints in Python, strict TypeScript — no `any`, no untyped functions.
+
+## Context7 MCP Validation
+- Always validate new implementations against Context7 docs before finalizing.
+- Use `resolve-library-id` then `query-docs` for FastAPI, Pydantic, Vue, etc.
+
+## Git Commits
+- Split commits by logical concern — one responsibility per commit.
+- Format: `fix(scope)` · `feat(scope)` · `refactor(scope)` · `chore(scope)`
+- Stage selectively with `git add <specific-files>` — never `git add .`
+
+## Layer Discipline (DDD)
+```
+domain/ → application/ → infrastructure/ → interfaces/api/
+```
+- Business logic in `domain/` only.
+- `infrastructure/` implements `domain/` protocols — never the reverse.
+- No circular imports across layers.
