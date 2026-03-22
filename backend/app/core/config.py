@@ -403,7 +403,8 @@ class Settings(
 
             self._emitted_security_warnings.add(warning)
             logger.warning(f"[SECURITY] {warning}")
-            warnings.warn(warning, UserWarning, stacklevel=2)
+            if self.is_production:
+                warnings.warn(warning, UserWarning, stacklevel=2)
 
         # === RAISE ERRORS ===
         if errors:
