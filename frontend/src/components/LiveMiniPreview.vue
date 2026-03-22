@@ -121,23 +121,30 @@
 
       <!-- Search results -->
       <div v-else-if="currentViewType === 'search'" class="dc-panel">
-        <div class="dc-header">
-          <span class="dc-header-title">{{ truncate(searchQuery || 'Search', 30) }}</span>
+        <div class="dc-header dc-header-search">
+          <Search :size="10" class="dc-header-icon" />
+          <span class="dc-header-title dc-header-title-search">{{ truncate(searchQuery || 'Search', 50) }}</span>
         </div>
         <div class="dc-body dc-body-search">
           <div v-if="searchResults.length > 0" class="search-results-list">
-            <div v-for="(result, idx) in searchResults.slice(0, 4)" :key="idx" class="search-result-row">
-              <img
-                v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
-                :src="getFavicon(result.url ?? result.link ?? '')"
-                alt=""
-                class="sr-favicon"
-                @error="onFaviconError(result.url ?? result.link ?? '')"
-              />
-              <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
+            <div
+              v-for="(result, idx) in searchResults.slice(0, 8)"
+              :key="idx"
+              class="search-result-item-mini"
+            >
+              <div class="sr-icon-wrap">
+                <img
+                  v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
+                  :src="getFavicon(result.url ?? result.link ?? '')"
+                  alt=""
+                  class="sr-favicon"
+                  @error="onFaviconError(result.url ?? result.link ?? '')"
+                />
+                <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
+              </div>
               <div class="sr-text">
-                <span class="sr-title">{{ truncate(result.title || result.name || 'Result', 40) }}</span>
-                <span v-if="result.snippet" class="sr-snippet">{{ truncate(result.snippet, 60) }}</span>
+                <span class="sr-title">{{ truncate(result.title || result.name || 'Result', 45) }}</span>
+                <span v-if="result.snippet" class="sr-snippet">{{ truncate(result.snippet, 70) }}</span>
               </div>
             </div>
           </div>
@@ -885,9 +892,23 @@ const useScaledViewport = computed(() => {
   height: 100%;
 }
 
-/* ===== Search Results ===== */
+/* ===== Search Results (compact mini mirror of SearchContentView) ===== */
+.dc-header-search {
+  gap: clamp(2px, 1cqw, 3px);
+}
+
+.dc-header-title-search {
+  font-style: italic;
+  font-weight: 400;
+  opacity: 0.65;
+}
+
 .dc-body-search {
-  padding: 4px 0;
+  padding: 0;
+  margin: clamp(1px, 0.6cqw, 3px);
+  background: var(--background-white-main, var(--bolt-elements-bg-depth-2));
+  border-radius: 3px;
+  overflow: hidden;
 }
 
 .search-results-list {
@@ -895,77 +916,77 @@ const useScaledViewport = computed(() => {
   flex-direction: column;
 }
 
-.search-result-row {
+.search-result-item-mini {
   display: flex;
-  align-items: flex-start;
-  gap: clamp(3px, 1.8cqw, 6px);
-  padding: clamp(2px, 1.5cqw, 5px) clamp(4px, 2.4cqw, 8px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: center;
+  gap: clamp(3px, 1.6cqw, 6px);
+  padding: clamp(2px, 1.2cqw, 5px) clamp(4px, 2cqw, 8px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
 
-:global(.dark) .search-result-row {
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+:global(.dark) .search-result-item-mini {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
-.search-result-row:last-child {
+.search-result-item-mini:last-child {
   border-bottom: none;
 }
 
-.sr-favicon {
-  width: clamp(8px, 4.1cqw, 16px);
-  height: clamp(8px, 4.1cqw, 16px);
-  flex-shrink: 0;
-  margin-top: 1px;
+.sr-icon-wrap {
+  width: clamp(10px, 4cqw, 16px);
+  height: clamp(10px, 4cqw, 16px);
+  min-width: clamp(10px, 4cqw, 16px);
   border-radius: 50%;
-  border: 1px solid var(--bolt-elements-borderColor);
-}
-
-.sr-favicon-fallback {
-  width: clamp(8px, 4.1cqw, 16px);
-  height: clamp(8px, 4.1cqw, 16px);
-  flex-shrink: 0;
-  margin-top: 1px;
-  border-radius: 50%;
-  border: 1px solid var(--bolt-elements-borderColor);
-  background: var(--bolt-elements-bg-depth-2);
-  color: var(--bolt-elements-textTertiary);
-  font-size: clamp(6px, 2.9cqw, 11px);
-  font-weight: 600;
+  background: var(--fill-tsp-white-dark, var(--bolt-elements-bg-depth-1));
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sr-favicon {
+  width: clamp(7px, 3cqw, 11px);
+  height: clamp(7px, 3cqw, 11px);
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.sr-favicon-fallback {
+  font-size: clamp(5px, 2.2cqw, 8px);
+  font-weight: 700;
+  color: var(--text-secondary, var(--bolt-elements-textTertiary));
   line-height: 1;
 }
 
 .sr-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
   flex: 1;
 }
 
 .sr-title {
-  font-size: clamp(7px, 3.2cqw, 12px);
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
+  font-size: clamp(6px, 2.8cqw, 10px);
+  font-weight: 600;
+  color: var(--text-primary, var(--bolt-elements-textPrimary));
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   overflow: hidden;
-  line-height: 1.25;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 .sr-snippet {
-  font-size: clamp(6px, 2.9cqw, 11px);
-  color: var(--bolt-elements-textTertiary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: clamp(5px, 2.3cqw, 9px);
+  color: var(--text-tertiary, #9a9a9a);
+  font-weight: 400;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.25;
-  margin-top: 1px;
 }
 
 /* ===== Terminal ===== */
