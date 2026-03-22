@@ -1363,6 +1363,22 @@ class AgentTaskRunner(TaskRunner):
             None,
         )
 
+    async def _sync_project_files_to_sandbox(self, files: list[FileInfo]) -> None:
+        """Download project files from MinIO and upload to sandbox."""
+        import io
+
+        for file_info in files:
+            try:
+                if not file_info.file_id:
+                    continue
+                stream, _ = await self._file_storage.download_file(file_info.file_id, self._user_id)
+                content = stream.read()
+                dest_path = f"/home/user/uploads/{file_info.filename}"
+                await self._sandbox.file_upload(io.BytesIO(content), dest_path)
+                logger.info("Synced project file to sandbox: %s", dest_path)
+            except Exception as e:
+                logger.warning("Failed to sync project file %s: %s", file_info.filename, e)
+
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
         """Sync message attachments to sandbox (delegated to FileSyncManager)."""
         await self._file_sync_manager.sync_message_attachments_to_sandbox(event)
@@ -1719,6 +1735,51 @@ class AgentTaskRunner(TaskRunner):
             )
             await self._put_and_add_event(task, flow_event)
 
+            # === PROJECT CONTEXT INJECTION ===
+            _project_context = None
+            try:
+                _session = await self._session_repository.find_by_id(self._session_id)
+                _project_context = getattr(_session, "project_context", None) if _session else None
+            except Exception as _pc_err:
+                logger.warning("Failed to load session for project context: %s", _pc_err)
+
+            if _project_context and _project_context.has_context():
+                # 1. Inject project instructions into system prompt
+                if _project_context.instructions:
+                    _instructions_text = _project_context.instructions_text()
+                    if self._plan_act_flow and hasattr(self._plan_act_flow, "executor"):
+                        self._plan_act_flow.executor.system_prompt = (
+                            _instructions_text + "\n\n" + self._plan_act_flow.executor.system_prompt
+                        )
+                        logger.info(
+                            "Injected project instructions into PlanAct system prompt (%d chars)",
+                            len(_instructions_text),
+                        )
+                    if self._discuss_flow and hasattr(self._discuss_flow, "system_prompt"):
+                        self._discuss_flow.system_prompt = (
+                            _instructions_text + "\n\n" + self._discuss_flow.system_prompt
+                        )
+
+                # 2. Sync project files to sandbox
+                if _project_context.files:
+                    try:
+                        await self._sync_project_files_to_sandbox(_project_context.files)
+                    except Exception as e:
+                        logger.warning("Project file sync failed (non-fatal): %s", e)
+
+                # 3. Inject file manifest into system prompt
+                _file_manifest = _project_context.file_manifest_text()
+                if _file_manifest and self._plan_act_flow and hasattr(self._plan_act_flow, "executor"):
+                    self._plan_act_flow.executor.system_prompt += "\n\n" + _file_manifest
+                    logger.info("Injected project file manifest into system prompt")
+
+                logger.info(
+                    "Project context injected: instructions=%s, files=%d, skills=%d",
+                    bool(_project_context.instructions),
+                    len(_project_context.files),
+                    len(_project_context.skill_ids),
+                )
+
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)
                 if event is None:
@@ -1737,10 +1798,24 @@ class AgentTaskRunner(TaskRunner):
                 if event.skills:
                     logger.info(f"Agent {self._agent_id} received skills: {event.skills}")
 
+                # Merge project skills server-side
+                _msg_skills = list(event.skills or [])
+                if _project_context and _project_context.skill_ids:
+                    _existing_skill_set = set(_msg_skills)
+                    _msg_skills.extend(
+                        _sid for _sid in _project_context.skill_ids if _sid not in _existing_skill_set
+                    )
+                    if len(_msg_skills) > len(event.skills or []):
+                        logger.info(
+                            "Merged %d project skills (total: %d)",
+                            len(_project_context.skill_ids),
+                            len(_msg_skills),
+                        )
+
                 message_obj = Message(
                     message=message,
                     attachments=attachments,
-                    skills=event.skills or [],
+                    skills=_msg_skills,
                     thinking_mode=event.thinking_mode,
                 )
 
