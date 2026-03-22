@@ -2,69 +2,67 @@
   <div class="session-history-page">
     <!-- Header -->
     <header class="page-header">
-      <div class="header-top">
-        <div class="header-left">
-          <button class="btn-back" aria-label="Go back" @click="goBack">
-            <ArrowLeft :size="18" />
+      <!-- Row 1: Back + Title + Tabs -->
+      <div class="header-row-1">
+        <button class="btn-back" aria-label="Go back" @click="goBack">
+          <ArrowLeft :size="18" />
+        </button>
+        <h1 class="header-title">Library</h1>
+        <div class="tab-switcher">
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'sessions' }"
+            @click="activeTab = 'sessions'"
+          >
+            Sessions
           </button>
-          <div class="header-title-group">
-            <h1>Library</h1>
-          </div>
-          <!-- Tab switcher -->
-          <div class="tab-switcher">
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'sessions' }"
-              @click="activeTab = 'sessions'"
-            >
-              Sessions
-            </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'files' }"
-              @click="activeTab = 'files'"
-            >
-              Files
-            </button>
-          </div>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'files' }"
+            @click="activeTab = 'files'"
+          >
+            Files
+          </button>
         </div>
-        <div v-if="activeTab === 'sessions'" class="header-right">
-          <div class="search-box" :class="{ focused: isSearchFocused }">
-            <Search :size="15" class="search-icon" />
-            <input
-              v-model="searchQuery"
-              id="session-search"
-              name="session-search"
-              type="text"
-              placeholder="Search sessions..."
-              class="search-input"
-              @focus="isSearchFocused = true"
-              @blur="isSearchFocused = false"
-            />
-            <button
-              v-if="searchQuery"
-              class="search-clear"
-              @click="searchQuery = ''"
-              aria-label="Clear search"
-            >
-              <X :size="14" />
-            </button>
-          </div>
-          <div class="filter-group">
-            <button
-              v-for="filter in statusFilters"
-              :key="filter.value"
-              class="filter-chip"
-              :class="{ active: statusFilter === filter.value }"
-              @click="statusFilter = statusFilter === filter.value ? '' : filter.value"
-            >
-              <component :is="filter.icon" :size="13" v-if="filter.icon" />
-              {{ filter.label }}
-              <span v-if="filter.value && getStatusCount(filter.value)" class="filter-count">
-                {{ getStatusCount(filter.value) }}
-              </span>
-            </button>
-          </div>
+      </div>
+
+      <!-- Row 2: Search + Filters (sessions tab only) -->
+      <div v-if="activeTab === 'sessions'" class="header-row-2">
+        <div class="search-box" :class="{ focused: isSearchFocused }">
+          <Search :size="15" class="search-icon" />
+          <input
+            v-model="searchQuery"
+            id="session-search"
+            name="session-search"
+            type="text"
+            placeholder="Search sessions..."
+            class="search-input"
+            @focus="isSearchFocused = true"
+            @blur="isSearchFocused = false"
+          />
+          <button
+            v-if="searchQuery"
+            class="search-clear"
+            @click="searchQuery = ''"
+            aria-label="Clear search"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+        <div class="filter-group">
+          <button
+            v-for="filter in statusFilters"
+            :key="filter.value"
+            class="filter-chip"
+            :class="{ active: statusFilter === filter.value }"
+            @click="statusFilter = statusFilter === filter.value ? '' : filter.value"
+          >
+            <component :is="filter.icon" :size="13" v-if="filter.icon" />
+            {{ filter.label }}
+            <span v-if="filter.value && getStatusCount(filter.value)" class="filter-count">
+              {{ getStatusCount(filter.value) }}
+            </span>
+          </button>
         </div>
       </div>
     </header>
@@ -372,23 +370,33 @@ function formatDate(timestamp: number | null): string {
 
 /* ─── Header ─────────────────────────────── */
 .page-header {
-  padding: 20px 28px 16px;
-  background: var(--background-secondary);
-  border-bottom: 1px solid var(--border-color);
+  padding: 20px 32px 16px;
+  background: var(--background-main);
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
 }
 
-.header-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.header-left {
+.header-row-1 {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.header-row-2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ─── Tab switcher ─────────────────────── */
@@ -397,8 +405,7 @@ function formatDate(timestamp: number | null): string {
   gap: 2px;
   background: var(--fill-tsp-gray-main, #f0f0f0);
   border-radius: 8px;
-  padding: 2px;
-  margin-left: 8px;
+  padding: 3px;
 }
 
 :global(.dark) .tab-switcher {
@@ -406,7 +413,7 @@ function formatDate(timestamp: number | null): string {
 }
 
 .tab-btn {
-  padding: 5px 14px;
+  padding: 5px 16px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -435,7 +442,10 @@ function formatDate(timestamp: number | null): string {
 .tab-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0 28px 28px;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 32px 32px;
 }
 
 .btn-back {
@@ -459,32 +469,7 @@ function formatDate(timestamp: number | null): string {
   border-color: var(--border-hover, var(--border-color));
 }
 
-.header-title-group {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.session-count {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
+/* removed: header-title-group, session-count, header-right — replaced by header-row-1/2 */
 
 /* ─── Search ─────────────────────────────── */
 .search-box {
@@ -598,7 +583,10 @@ function formatDate(timestamp: number | null): string {
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 28px 32px;
+  padding: 20px 32px 32px;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* ─── Loading Skeleton ───────────────────── */
