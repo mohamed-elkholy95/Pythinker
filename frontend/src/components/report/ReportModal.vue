@@ -836,7 +836,7 @@ watch(isOpen, (newVal) => {
   line-height: 1.2;
   color: var(--text-primary);
   margin: 0 0 24px 0;
-  font-family: var(--font-display);
+  font-family: var(--font-content);
 }
 
 .doc-meta {
@@ -1078,7 +1078,7 @@ watch(isOpen, (newVal) => {
   color: rgba(0, 0, 0, 0.45);
   font-size: 9.5px;
   font-weight: 700;
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
   letter-spacing: 0;
   text-decoration: none !important;
   cursor: pointer;

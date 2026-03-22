@@ -258,7 +258,7 @@ function getTextConfig(element: CanvasElement): Record<string, unknown> {
     height: element.height,
     text: element.text || '',
     fontSize: ts?.font_size ?? 16,
-    fontFamily: ts?.font_family ?? 'Libre Baskerville',
+    fontFamily: ts?.font_family ?? 'Arial',
     fontStyle: ts?.font_style ?? 'normal',
     fontVariant: undefined,
     align: ts?.text_align ?? 'left',
