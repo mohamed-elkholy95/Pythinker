@@ -124,6 +124,7 @@
         <div class="dc-header dc-header-search">
           <Search :size="10" class="dc-header-icon" />
           <span class="dc-header-title dc-header-title-search">{{ truncate(searchQuery || 'Search', 50) }}</span>
+          <div v-if="isActive" class="activity-dot"></div>
         </div>
         <div class="dc-body dc-body-search">
           <div v-if="searchResults.length > 0" class="search-results-list">
@@ -161,13 +162,13 @@
             <span class="empty-label">No results</span>
           </div>
         </div>
-        <div v-if="isActive" class="activity-dot"></div>
       </div>
 
       <!-- Editor view — markdown files get rich rendering, others get code view -->
       <div v-else-if="currentViewType === 'editor' && contentPreview" class="dc-panel">
         <div class="dc-header">
           <span class="dc-header-title">{{ fileName }}</span>
+          <div v-if="isActive" class="activity-dot"></div>
         </div>
         <div v-if="isMarkdownFile" class="dc-body">
           <div class="dc-md-text">
@@ -177,7 +178,6 @@
         <div v-else class="dc-body dc-body-code">
           <pre class="dc-code-text">{{ contentPreview }}</pre>
         </div>
-        <div v-if="isActive" class="activity-dot"></div>
       </div>
 
       <!-- Chart view -->
@@ -185,6 +185,7 @@
         <div class="dc-header">
           <BarChart3 :size="11" class="dc-header-icon" />
           <span class="dc-header-title">{{ chartTitle }}</span>
+          <div v-if="isActive" class="activity-dot"></div>
         </div>
         <div class="dc-body dc-body-chart">
           <img
@@ -205,7 +206,6 @@
             <BarChart3 :size="20" class="empty-icon" />
           </div>
         </div>
-        <div v-if="isActive" class="activity-dot"></div>
       </div>
 
       <!-- Session complete with report text -->
@@ -1295,18 +1295,21 @@ const useScaledViewport = computed(() => {
 /* ===== Activity Dot ===== */
 .activity-dot {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 8px;
-  height: 8px;
+  top: 50%;
+  right: clamp(3px, 1.5cqw, 6px);
+  transform: translateY(-50%);
+  width: clamp(4px, 2cqw, 7px);
+  height: clamp(4px, 2cqw, 7px);
   background: var(--bolt-elements-item-contentAccent);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 .activity-dot-abs {
   top: 10px;
   right: 10px;
+  transform: none;
 }
 
 @keyframes pulse {
