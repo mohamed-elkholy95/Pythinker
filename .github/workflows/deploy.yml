@@ -159,7 +159,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.1
+        uses: appleboy/ssh-action@v1.2.5
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
