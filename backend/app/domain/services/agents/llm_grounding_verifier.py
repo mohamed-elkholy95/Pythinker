@@ -41,13 +41,20 @@ the key factual claims from the response and check each against the source conte
 Return a JSON object with a single key "claims" containing an array. Each element:
 {
   "claim": "<the factual claim from the response>",
-  "verdict": "supported" | "unsupported" | "unverifiable"
+  "verdict": "supported" | "unsupported" | "unverifiable" | "common_knowledge"
 }
 
 Rules:
 - "supported": the claim is directly backed by the source context
 - "unsupported": the claim contradicts the source context or makes specific \
-assertions (numbers, dates, names) not found in the source context
+assertions (numbers, dates, names) not found in the source context AND is not \
+widely known
+- "common_knowledge": the claim states a widely known, well-established fact \
+that does not need source backing (e.g., historical dates like "World War II \
+ended in 1945", famous events like "AlphaGo beat Lee Sedol in 2016", scientific \
+consensus like "DNA is a double helix", well-known product launches, established \
+company facts). Use this verdict when a reasonable educated person would accept \
+the claim without a citation.
 - "unverifiable": the claim is subjective, a general statement, or cannot be \
 checked against the provided context (e.g., opinions, formatting instructions)
 - Only extract factual claims (numbers, dates, names, comparisons, statistics)
@@ -232,19 +239,28 @@ class LLMGroundingVerifier:
             total = 0
             unsupported = 0
             self_referential_skipped = 0
+            common_knowledge_skipped = 0
 
             for claim in claims_raw:
                 if not isinstance(claim, dict):
                     continue
                 claim_text = claim.get("claim", "")
                 verdict = claim.get("verdict", "unverifiable").lower()
-                if verdict not in ("supported", "unsupported", "unverifiable"):
+                if verdict not in ("supported", "unsupported", "unverifiable", "common_knowledge"):
                     verdict = "unverifiable"
 
                 # Skip self-referential claims — they are meta-statements about
                 # the agent's own output, not verifiable external facts.
                 if self._is_self_referential_claim(claim_text):
                     self_referential_skipped += 1
+                    continue
+
+                # Skip common knowledge claims — well-established facts that
+                # don't need source backing (e.g., historical dates, famous events).
+                # Counting these as "unsupported" inflates the hallucination score
+                # with false positives and causes alert fatigue.
+                if verdict == "common_knowledge":
+                    common_knowledge_skipped += 1
                     continue
 
                 total += 1
@@ -258,10 +274,11 @@ class LLMGroundingVerifier:
                         )
                     )
 
-            if self_referential_skipped > 0:
+            if self_referential_skipped > 0 or common_knowledge_skipped > 0:
                 logger.info(
-                    "LLM grounding: skipped %d self-referential claim(s)",
+                    "LLM grounding: skipped %d self-referential and %d common-knowledge claim(s)",
                     self_referential_skipped,
+                    common_knowledge_skipped,
                 )
 
             if total == 0:
