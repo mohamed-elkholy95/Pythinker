@@ -102,63 +102,69 @@
           </button>
         </div>
         <div class="nav-section">
-          <div class="nav-section-title">{{ t('Projects') }}</div>
-          <button class="nav-item" type="button" @click="showCreateProjectModal = true">
-            <FolderPlus class="nav-icon" />
-            <span>{{ t('New project') }}</span>
+          <button class="nav-section-toggle" type="button" @click="projectsExpanded = !projectsExpanded">
+            <ChevronRight
+              :size="12"
+              class="nav-section-chevron"
+              :class="{ 'nav-section-chevron-open': projectsExpanded }"
+            />
+            <span class="nav-section-title">{{ t('Projects') }}</span>
+            <button
+              class="nav-section-action"
+              type="button"
+              @click.stop="showCreateProjectModal = true"
+              :title="t('New project')"
+            >
+              <Plus :size="14" />
+            </button>
           </button>
-          <button
-            v-for="proj in projects.slice(0, 5)"
-            :key="proj.id"
-            class="nav-item"
-            :class="{ 'nav-item-active': route.params.projectId === proj.id }"
-            type="button"
-            @click="router.push(`/chat/projects/${proj.id}`)"
-          >
-            <Folder class="nav-icon" :size="16" />
-            <span class="truncate">{{ proj.name }}</span>
-          </button>
-          <button
-            v-if="projects.length > 5"
-            class="nav-item nav-item-view-all"
-            type="button"
-            @click="router.push('/chat/projects')"
-          >
-            <span class="text-xs text-[var(--text-tertiary)]">{{ t('View all') }}</span>
-          </button>
+          <div v-show="projectsExpanded" class="nav-section-collapsible">
+            <button
+              v-for="proj in projects.slice(0, 8)"
+              :key="proj.id"
+              class="nav-item nav-item-compact"
+              :class="{ 'nav-item-active': route.params.projectId === proj.id }"
+              type="button"
+              @click="router.push(`/chat/projects/${proj.id}`)"
+            >
+              <Folder class="nav-icon" :size="14" />
+              <span class="truncate">{{ proj.name }}</span>
+            </button>
+            <button
+              v-if="projects.length > 8"
+              class="nav-item nav-item-view-all"
+              type="button"
+              @click="router.push('/chat/projects')"
+            >
+              <span class="text-xs text-[var(--text-tertiary)]">{{ t('View all') }}</span>
+            </button>
+          </div>
         </div>
       </div>
-      <div class="left-panel-section-title">
-        {{ t('All tasks') }}
-      </div>
-      <div v-if="!isAgentsWorkspace" class="session-source-filter-row" data-testid="session-source-filters">
-        <button
-          type="button"
-          class="session-source-filter-btn"
-          :class="{ 'session-source-filter-btn-active': channelFilter === 'all' }"
-          data-testid="session-source-filter-all"
-          @click="setChannelFilter('all')"
-        >
-          All
-        </button>
-        <button
-          type="button"
-          class="session-source-filter-btn"
-          :class="{ 'session-source-filter-btn-active': channelFilter === 'telegram' }"
-          data-testid="session-source-filter-telegram"
-          @click="setChannelFilter('telegram')"
-        >
-          Telegram
-        </button>
-        <button
-          type="button"
-          class="session-source-filter-btn"
-          :class="{ 'session-source-filter-btn-active': channelFilter === 'web' }"
-          data-testid="session-source-filter-web"
-          @click="setChannelFilter('web')"
-        >
-          Web
-        </button>
+      <div class="all-tasks-header">
+        <span class="all-tasks-title">{{ t('All tasks') }}</span>
+        <Popover v-if="!isAgentsWorkspace">
+          <PopoverTrigger as-child>
+            <button
+              class="all-tasks-filter-btn"
+              :class="{ 'all-tasks-filter-btn-active': channelFilter !== 'all' }"
+              aria-label="Filter tasks"
+            >
+              <SlidersHorizontal :size="14" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="end" :side-offset="4" class="!w-auto !min-w-[120px] !rounded-xl !p-1">
+            <button
+              v-for="filter in (['all', 'telegram', 'web'] as const)"
+              :key="filter"
+              class="filter-menu-item"
+              :class="{ 'filter-menu-item-active': channelFilter === filter }"
+              @click="setChannelFilter(filter)"
+            >
+              {{ filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1) }}
+            </button>
+          </PopoverContent>
+        </Popover>
       </div>
       <div class="flex flex-col flex-1 min-h-0">
         <div
@@ -223,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, Folder, SquarePen, Radar } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, Folder, SquarePen, Radar, ChevronRight, SlidersHorizontal } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from './icons/PythinkerLogoTextIcon.vue';
 import SessionItem from './SessionItem.vue';
 import SearchModal from './SearchModal.vue';
@@ -261,6 +267,7 @@ const channelFilter = ref<SessionChannelFilter>('all')
 const showSearchModal = ref(false)
 const showCreateProjectModal = ref(false)
 const { projects, addProject } = useProjectList()
+const projectsExpanded = ref(false)
 
 interface SessionTitleHintDetail {
   sessionId: string
@@ -753,13 +760,138 @@ watch(() => route.path, async (newPath, oldPath) => {
   margin-bottom: 10px;
 }
 
-.nav-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
+/* ===== COLLAPSIBLE PROJECT SECTION ===== */
+.nav-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
   padding: 4px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.nav-section-toggle:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.nav-section-chevron {
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-section-chevron-open {
+  transform: rotate(90deg);
+}
+
+.nav-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  text-align: left;
+}
+
+.nav-section-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+  opacity: 0;
+}
+
+.nav-section-toggle:hover .nav-section-action {
+  opacity: 1;
+}
+
+.nav-section-action:hover {
+  background: var(--fill-tsp-gray-dark);
+  color: var(--text-primary);
+}
+
+.nav-section-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 2px;
+}
+
+.nav-item-compact {
+  height: 32px;
+  padding: 0 8px 0 22px;
+  font-size: 13px;
+}
+
+/* ===== ALL TASKS HEADER ===== */
+.all-tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 4px;
+}
+
+.all-tasks-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.all-tasks-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.all-tasks-filter-btn:hover {
+  background: var(--fill-tsp-gray-main);
+  color: var(--text-primary);
+}
+
+.all-tasks-filter-btn-active {
+  color: var(--text-primary);
+  background: rgba(34, 158, 217, 0.12);
+}
+
+.filter-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.filter-menu-item:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.filter-menu-item-active {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .nav-item {
@@ -802,6 +934,7 @@ watch(() => route.path, async (newPath, oldPath) => {
   color: var(--icon-secondary);
 }
 
+/* Old section title style kept for backward compat */
 .left-panel-section-title {
   padding: 6px 14px 2px 14px;
   font-size: 11px;
@@ -809,39 +942,6 @@ watch(() => route.path, async (newPath, oldPath) => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-tertiary);
-}
-
-.session-source-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px 6px;
-}
-
-.session-source-filter-btn {
-  height: 24px;
-  border-radius: 9999px;
-  border: 1px solid var(--border-light);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  padding: 0 10px;
-  transition: all 0.15s ease;
-  cursor: pointer;
-}
-
-.session-source-filter-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-main);
-  background: var(--fill-tsp-gray-main);
-}
-
-.session-source-filter-btn-active {
-  color: var(--text-primary);
-  border-color: rgba(34, 158, 217, 0.45);
-  background: rgba(34, 158, 217, 0.14);
 }
 
 /* ===== NEW TASK BUTTON ===== */
