@@ -104,7 +104,7 @@ from app.domain.services.agents.error_integration import (
     AgentHealthLevel,
     ErrorIntegrationBridge,
 )
-from app.domain.services.agents.guardrails import InputAnalysisResult, InputGuardrails, InputRiskLevel, OutputGuardrails
+from app.domain.services.agents.guardrails import InputAnalysisResult, InputGuardrails, OutputGuardrails
 
 # Import memory management for Phase 3 proactive compaction
 from app.domain.services.agents.memory_manager import (
