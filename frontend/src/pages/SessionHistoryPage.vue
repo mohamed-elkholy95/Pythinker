@@ -345,7 +345,9 @@ onBeforeUnmount(() => {
 .library-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  flex: 1;
+  min-width: 0;
   background: var(--background-gray-main, var(--background-main));
 }
 
