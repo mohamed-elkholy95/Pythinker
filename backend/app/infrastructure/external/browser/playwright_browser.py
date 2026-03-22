@@ -1990,6 +1990,38 @@ class PlaywrightBrowser:
                 "Content extraction timed out - page may be too complex. Try browser_get_content for text-only fetch."
             )
 
+        # Fallback: If viewport-based extraction yielded very little content,
+        # retry with full-page innerText (no viewport filter). This catches
+        # JS-heavy SPAs where content renders outside the initial viewport.
+        min_content_chars = 100
+        if len(content) < min_content_chars:
+            logger.warning(
+                "Content extraction yielded only %d chars (threshold: %d), retrying with full-page innerText fallback",
+                len(content),
+                min_content_chars,
+            )
+            fallback_content = await self._evaluate_with_timeout(
+                """(() => {
+                    const body = document.body;
+                    if (!body) return '';
+                    // Remove script/style/noscript text from consideration
+                    const clone = body.cloneNode(true);
+                    for (const el of clone.querySelectorAll('script, style, noscript, svg')) {
+                        el.remove();
+                    }
+                    const text = (clone.innerText || '').trim();
+                    return text.slice(0, 30000);
+                })()""",
+                timeout_ms=3000,
+            )
+            if fallback_content and len(fallback_content) > len(content):
+                logger.info(
+                    "Full-page fallback extracted %d chars (was %d)",
+                    len(fallback_content),
+                    len(content),
+                )
+                return fallback_content
+
         return content
 
     async def _extract_page_content(self) -> str:
