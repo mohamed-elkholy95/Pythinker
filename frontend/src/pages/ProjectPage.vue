@@ -3,11 +3,18 @@
     <div class="project-main">
       <ProjectHeader :project="project" />
 
-      <div class="project-info-banner">
-        Tasks are independent for focus. Use project instructions and files for shared context.
+      <!-- Chat Input — reuses the same ChatBox as HomePage -->
+      <div class="chat-input-wrapper">
+        <ChatBox
+          :rows="1"
+          v-model="message"
+          @submit="handleSubmit"
+          :isRunning="isSubmitting"
+          :attachments="attachments"
+          :showConnectorBanner="true"
+          expand-direction="down"
+        />
       </div>
-
-      <ProjectTaskInput @submit="handleCreateTask" />
 
       <div class="project-tasks-section">
         <div class="project-tasks-header">
@@ -48,10 +55,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useProject } from '@/composables/useProject'
+import ChatBox from '@/components/ChatBox.vue'
 import ProjectHeader from '@/components/project/ProjectHeader.vue'
-import ProjectTaskInput from '@/components/project/ProjectTaskInput.vue'
 import ProjectTaskList from '@/components/project/ProjectTaskList.vue'
 import ProjectInstructionsPanel from '@/components/project/ProjectInstructionsPanel.vue'
 import ProjectConnectorsPanel from '@/components/project/ProjectConnectorsPanel.vue'
@@ -59,18 +66,49 @@ import ProjectFilesPanel from '@/components/project/ProjectFilesPanel.vue'
 import ProjectSkillsPanel from '@/components/project/ProjectSkillsPanel.vue'
 import ProjectInstructionsModal from '@/components/project/ProjectInstructionsModal.vue'
 import ProjectConnectorsModal from '@/components/project/ProjectConnectorsModal.vue'
+import type { FileInfo } from '@/api/file'
+import type { ThinkingMode, ResearchMode } from '@/api/agent'
 
 const route = useRoute()
+const router = useRouter()
 const { project, loading, updateProject } = useProject(
   computed(() => route.params.projectId as string),
 )
 
+const message = ref('')
+const attachments = ref<FileInfo[]>([])
+const isSubmitting = ref(false)
 const showInstructionsModal = ref(false)
 const showConnectorsModal = ref(false)
 
-function handleCreateTask(message: string) {
-  // TODO: Create a new task/session within this project
-  console.log('Create task:', message)
+async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
+  const trimmedMessage = message.value.trim()
+  if (!trimmedMessage || isSubmitting.value) return
+
+  isSubmitting.value = true
+  try {
+    await router.push({
+      path: '/chat/new',
+      state: {
+        pendingSessionCreate: true,
+        mode: 'agent',
+        research_mode: 'deep_research' as ResearchMode,
+        message: message.value,
+        thinking_mode: options.thinkingMode || 'auto',
+        project_id: route.params.projectId,
+        skills: [],
+        files: attachments.value.map((file: FileInfo) => ({
+          file_id: file.file_id,
+          filename: file.filename,
+          content_type: file.content_type,
+          size: file.size,
+          upload_date: file.upload_date,
+        })),
+      },
+    })
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 async function handleSaveInstructions(instructions: string) {
@@ -97,13 +135,8 @@ async function handleSaveInstructions(instructions: string) {
   min-width: 0;
 }
 
-.project-info-banner {
-  font-size: 14px;
-  color: var(--text-tertiary);
-  background: var(--fill-tsp-gray-main, #f5f5f5);
-  padding: 12px 16px;
-  border-radius: 10px;
-  line-height: 1.5;
+.chat-input-wrapper {
+  width: 100%;
 }
 
 .project-tasks-section {
