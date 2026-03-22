@@ -568,6 +568,16 @@ async def lifespan(app: FastAPI):
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
 
+        # Pre-warm AgentService singleton to avoid startup race condition.
+        # Without this, concurrent first-page-load requests all enter the
+        # @lru_cache function before the first call returns, creating 4+
+        # duplicate instances.
+        try:
+            get_agent_service()
+            logger.info("AgentService pre-warmed during startup")
+        except Exception as e:
+            logger.warning(f"AgentService pre-warm failed (will retry on first request): {e}")
+
         # Wire domain-layer agent metrics to Prometheus infrastructure
         try:
             from app.infrastructure.observability.agent_metrics_adapter import configure_agent_metrics
