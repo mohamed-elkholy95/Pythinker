@@ -93,6 +93,16 @@ vi.mock('@/composables/useSessionListFeed', async () => {
   }
 })
 
+vi.mock('@/composables/useProjectList', async () => {
+  const vue = await vi.importActual<typeof import('vue')>('vue')
+  return {
+    useProjectList: () => ({
+      projects: vue.ref([]),
+      addProject: vi.fn(),
+    }),
+  }
+})
+
 import LeftPanel from '../LeftPanel.vue'
 
 const SessionItemStub = defineComponent({
@@ -169,7 +179,7 @@ describe('LeftPanel channel source filtering', () => {
     expect(homeLink.exists()).toBe(true)
     await homeLink.trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/')
-    expect(wrapper.find('[data-testid="session-source-filters"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="session-source-filter-trigger"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Telegram report')
     expect(wrapper.text()).toContain('Web task')
 
@@ -193,7 +203,7 @@ describe('LeftPanel channel source filtering', () => {
     const wrapper = mountLeftPanel()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="session-source-filters"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="session-source-filter-trigger"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Telegram report')
     expect(wrapper.text()).not.toContain('Web task')
   })

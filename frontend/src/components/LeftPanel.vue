@@ -102,13 +102,21 @@
           </button>
         </div>
         <div class="nav-section">
-          <button class="nav-section-toggle" type="button" @click="projectsExpanded = !projectsExpanded">
-            <ChevronRight
-              :size="12"
-              class="nav-section-chevron"
-              :class="{ 'nav-section-chevron-open': projectsExpanded }"
-            />
-            <span class="nav-section-title">{{ t('Projects') }}</span>
+          <div class="nav-section-toggle-row">
+            <div
+              class="nav-section-toggle"
+              role="button"
+              tabindex="0"
+              @click="projectsExpanded = !projectsExpanded"
+              @keydown.enter.space.prevent="projectsExpanded = !projectsExpanded"
+            >
+              <ChevronRight
+                :size="12"
+                class="nav-section-chevron"
+                :class="{ 'nav-section-chevron-open': projectsExpanded }"
+              />
+              <span class="nav-section-title">{{ t('Projects') }}</span>
+            </div>
             <button
               class="nav-section-action"
               type="button"
@@ -117,7 +125,7 @@
             >
               <Plus :size="14" />
             </button>
-          </button>
+          </div>
           <div
             class="nav-section-collapsible"
             :class="{ 'nav-section-collapsible-open': projectsExpanded }"
@@ -153,6 +161,7 @@
             <button
               class="all-tasks-filter-btn"
               :class="{ 'all-tasks-filter-btn-active': channelFilter !== 'all' }"
+              data-testid="session-source-filter-trigger"
               aria-label="Filter tasks"
             >
               <SlidersHorizontal :size="14" />
@@ -164,6 +173,7 @@
               :key="filter"
               class="filter-menu-item"
               :class="{ 'filter-menu-item-active': channelFilter === filter }"
+              :data-testid="`session-source-filter-${filter}`"
               @click="setChannelFilter(filter)"
             >
               {{ filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1) }}
@@ -766,11 +776,17 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 /* ===== COLLAPSIBLE PROJECT SECTION ===== */
+.nav-section-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .nav-section-toggle {
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
+  flex: 1;
   padding: 4px 6px;
   background: transparent;
   border: none;
@@ -814,9 +830,10 @@ watch(() => route.path, async (newPath, oldPath) => {
   cursor: pointer;
   transition: all 0.15s;
   opacity: 0;
+  flex-shrink: 0;
 }
 
-.nav-section-toggle:hover .nav-section-action {
+.nav-section-toggle-row:hover .nav-section-action {
   opacity: 1;
 }
 
