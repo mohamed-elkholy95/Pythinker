@@ -367,10 +367,16 @@ class DockerSandbox(Sandbox):
         """Lightweight health check to verify browser is ready
 
         This can be run in parallel with other initialization tasks.
+        Ensures Chrome is started on-demand before polling CDP.
 
         Returns:
             bool: True if browser is ready, False otherwise
         """
+        # Trigger on-demand Chrome start before polling CDP.
+        # Chrome has autostart=false in supervisord; without this call,
+        # _verify_cdp_with_backoff() would poll a dead endpoint for 90s.
+        await self._ensure_chrome_running()
+
         return await self._verify_cdp_with_backoff() and await self._verify_browser_responsive()
 
     async def browser_health_check(self) -> bool:
@@ -537,6 +543,11 @@ class DockerSandbox(Sandbox):
 
                 # All services running - now verify browser health
                 logger.debug("All supervisor services running, verifying browser health...")
+
+                # Trigger on-demand Chrome start before polling CDP.
+                # Chrome has autostart=false; without this, CDP checks
+                # poll a dead endpoint until the retry budget is exhausted.
+                await self._ensure_chrome_running()
 
                 # Check CDP connection
                 cdp_ok = await self._verify_cdp_connection()
