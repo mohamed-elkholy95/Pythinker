@@ -207,7 +207,9 @@ class BrowserSettingsMixin:
     browser_blocked_resource_types: str = "image,media"  # Comma-separated resource types
 
     # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
-    fast_ack_refiner_timeout: float = 5.0  # LLM timeout for fast acknowledgment generation
+    # Raised from 5.0→8.0 to accommodate high-latency providers (Z.AI GLM).
+    # Benchmark showed 43% timeout rate at 5.0s.  Override: FAST_ACK_REFINER_TIMEOUT=<seconds>
+    fast_ack_refiner_timeout: float = 8.0  # LLM timeout for fast acknowledgment generation
     fast_ack_refiner_traceback_sample_rate: float = 0.05  # Sample rate for error traceback logging
 
 

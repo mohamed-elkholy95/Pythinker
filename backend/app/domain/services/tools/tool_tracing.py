@@ -106,8 +106,14 @@ class ToolTracer:
             _record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly)
 
         if trace.anomalies:
-            logger.debug(
-                "Tool tracing anomalies detected",
+            # Use warning for validation failures (indicates LLM generating bad
+            # tool args), info for oversized_result (expected for large web pages).
+            has_validation_failure = any(a == "args_validation_failed" for a in trace.anomalies)
+            log_fn = logger.warning if has_validation_failure else logger.info
+            log_fn(
+                "Tool tracing anomalies: %s on %s",
+                ", ".join(trace.anomalies),
+                tool_name,
                 extra={
                     "tool_name": tool_name,
                     "anomalies": trace.anomalies,
