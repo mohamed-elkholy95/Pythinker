@@ -20,13 +20,6 @@
             >
               <img src="/logo.png" alt="Pythinker" width="20" height="25" class="h-6 w-auto object-contain" />
             </button>
-            <!-- Desktop branding (visible when sidebar is collapsed) -->
-            <PythinkerLogoTextIcon
-              v-if="!isLeftPanelShow"
-              :width="120"
-              :height="28"
-              class="hidden sm:block flex-shrink-0 -ml-2"
-            />
           </div>
           <!-- Center: Model name as header title (Pythinker-style) -->
           <button
@@ -125,7 +118,6 @@ import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { useSettingsDialog } from '../composables/useSettingsDialog';
 import UserMenu from '../components/UserMenu.vue';
-import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { getServerConfig, getSettings } from '../api/settings';
 import { resolveInitialHeaderModelName } from '@/utils/chatHeaderModel';
@@ -480,17 +472,12 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 }
 
 .header-model-title-label {
-  font-size: 18px;
-  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
   white-space: nowrap;
   letter-spacing: -0.01em;
   color: #374151;
-}
-
-@media (max-width: 639px) {
-  .header-model-title-label {
-    font-size: 16px;
-  }
 }
 
 .header-model-title-icon {
