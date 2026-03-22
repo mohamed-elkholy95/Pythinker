@@ -214,13 +214,6 @@ const apiResiliencePlugin = {
         const attempt = retryCount + 1
         const delayMs = computeDelay(retryCount, baseDelayMs, maxDelayMs)
 
-        if (import.meta.env.DEV) {
-          console.debug(
-            `[apiResilience] Retry ${config.method?.toUpperCase()} ${config.url} ` +
-              `(${attempt}/${maxRetries}, ${Math.round(delayMs)}ms)`,
-          )
-        }
-
         state.isRetrying = true
         await sleep(delayMs)
 

@@ -128,9 +128,6 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
       return true;
     }
     if (!isValidTransition(current, nextPhase)) {
-      if (import.meta.env.DEV) {
-        console.debug(`[StreamState] Skipped invalid transition: ${current} → ${nextPhase}`);
-      }
       return false;
     }
 
@@ -146,9 +143,6 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
     previewText.value = '';
     pendingPreviewText = null;
     touch();
-    if (import.meta.env.DEV) {
-      console.debug('[StreamState] Reset to idle (stale timeout)');
-    }
   };
 
   const desiredPhase = computed<StreamPhase>(() => {

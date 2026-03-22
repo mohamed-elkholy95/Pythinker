@@ -65,8 +65,8 @@ function initTerminal() {
           if (width > 200) {
             try {
               fitAddon.fit()
-            } catch (e) {
-              console.debug('Initial fit failed:', e)
+            } catch {
+              // Initial fit may fail if container not yet sized
             }
           }
         }
@@ -85,8 +85,8 @@ function initTerminal() {
           if (fitAddon && terminal) {
             try {
               fitAddon.fit()
-            } catch (e) {
-              console.debug('Resize fit failed:', e)
+            } catch {
+              // Resize fit may fail during rapid layout changes
             }
           }
         })
@@ -160,8 +160,8 @@ onUnmounted(() => {
   if (fitAddon) {
     try {
       fitAddon.dispose()
-    } catch (e) {
-      console.debug('FitAddon disposal skipped:', e)
+    } catch {
+      // FitAddon disposal may fail if already detached
     }
     fitAddon = null
   }
@@ -170,8 +170,8 @@ onUnmounted(() => {
   if (terminal) {
     try {
       terminal.dispose()
-    } catch (e) {
-      console.debug('Terminal disposal error:', e)
+    } catch {
+      // Terminal disposal may fail if already disposed
     }
     terminal = null
   }

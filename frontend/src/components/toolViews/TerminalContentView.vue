@@ -159,8 +159,8 @@ onMounted(async () => {
         if (width > 200) {
           try {
             fitAddon.value.fit();
-          } catch (e) {
-            console.debug('Initial fit failed:', e);
+          } catch {
+            // Initial fit may fail if container not yet sized
           }
         }
       }
@@ -181,8 +181,8 @@ onMounted(async () => {
           if (fitAddon.value && terminal.value) {
             try {
               fitAddon.value.fit();
-            } catch (e) {
-              console.debug('Resize fit failed:', e);
+            } catch {
+              // Resize fit may fail during rapid layout changes
             }
           }
         });
@@ -216,9 +216,8 @@ onUnmounted(() => {
   if (fitAddon.value) {
     try {
       fitAddon.value.dispose();
-    } catch (e) {
+    } catch {
       // Addon already disposed or not properly loaded
-      console.debug('FitAddon disposal skipped:', e);
     }
     fitAddon.value = null;
   }
@@ -227,8 +226,8 @@ onUnmounted(() => {
   if (terminal.value) {
     try {
       terminal.value.dispose();
-    } catch (e) {
-      console.debug('Terminal disposal error:', e);
+    } catch {
+      // Terminal disposal may fail if already disposed
     }
     terminal.value = null;
   }

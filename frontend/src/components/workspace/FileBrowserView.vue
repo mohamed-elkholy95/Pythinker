@@ -193,7 +193,6 @@ function getMockFiles(): FileItem[] {
 function handleFolderClick(folder: FileItem) {
   currentPath.value = folder.path
   // TODO: Load folder contents
-  console.log('Open folder:', folder.path)
 }
 
 function handleFileClick(file: FileItem) {
