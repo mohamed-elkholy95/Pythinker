@@ -2565,4 +2565,26 @@ const handleBrowseUrl = async (url: string) => {
 .fade-jump-leave-to {
   opacity: 0;
 }
+
+/* ===== MOBILE OVERRIDES ===== */
+@media (max-width: 639px) {
+  .panel-frame-header {
+    padding: 10px 12px;
+  }
+  .panel-control-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+  .panel-activity-line {
+    flex-wrap: wrap;
+  }
+  .panel-content-header {
+    padding: 6px 10px;
+  }
+  .panel-content-header .text-xs {
+    font-size: 11px;
+    padding: 4px 6px;
+  }
+}
 </style>

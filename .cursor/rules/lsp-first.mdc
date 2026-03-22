@@ -1,0 +1,57 @@
+---
+description: LSP-first navigation rule - use Language Server Protocol before grep/find/read for code navigation
+alwaysApply: true
+---
+
+# LSP-First Navigation (MANDATORY)
+
+**LSP is the PRIMARY tool for ALL code navigation.** Use it BEFORE grep, search, or reading entire files. This matches Claude Code's LSP-first enforcement.
+
+## ALWAYS use LSP for these tasks
+
+| Task | LSP Feature | Never use instead |
+|------|-------------|-------------------|
+| Find where a function/class/variable is defined | Go to Definition (F12) | grep "def foo", grep "class Bar" |
+| Find all callers/usages of a symbol | Find All References (Shift+F12) | grep "foo(" across files |
+| Get type info, signature, docstring | Hover (mouse hover / Ctrl+K Ctrl+I) | Read file to check types |
+| List all functions/classes in a file | Go to Symbol (Ctrl+Shift+O) | Read entire file top to bottom |
+| Search for a class/function by name project-wide | Go to Symbol in Workspace (Ctrl+T) | glob + grep combination |
+| Find implementations of an interface/Protocol | Go to Implementation (Ctrl+F12) | grep "class.*Protocol" |
+| Check if a variable/import is used anywhere | Find All References | grep variable name |
+| Understand import chains | Go to Definition on import | grep import statements |
+
+## LSP-first workflow (follow this order every time)
+
+1. **Hover** -> understand symbol type/signature
+2. **Go to Definition** -> jump to implementation
+3. **Find All References** -> see all usages
+4. **Call Hierarchy** -> understand call graph (Ctrl+Shift+H for incoming, Ctrl+Alt+H for outgoing)
+5. **Only then** fall back to grep/search if LSP didn't answer
+
+## When text search IS appropriate
+
+- String literals, log messages, error messages, comments
+- Regex patterns (e.g., `TODO|FIXME|HACK`)
+- Non-code files: markdown, YAML, .env, Dockerfile, docker-compose
+- File name patterns
+- HTML templates, CSS, JSON configs
+
+## Available LSP servers (all installed)
+
+| Server | Languages | Version |
+|--------|-----------|---------|
+| **Pyright** | Python (.py, .pyi) | 1.1.408 |
+| **vtsls** | TypeScript, JavaScript (.ts, .tsx, .js, .jsx) | 0.3.0 |
+| **Vue Language Server (Volar)** | Vue (.vue) | 3.2.5 |
+| **typescript-language-server** | TypeScript, JavaScript (fallback) | 5.1.3 |
+
+## Cursor extensions required
+
+- `ms-python.python` or `cursor-pyright` - Python LSP (Pyright)
+- `Vue.volar` - Vue Language Features (Volar)
+- `charliermarsh.ruff` - Python linter/formatter (Ruff)
+- TypeScript support is built into Cursor/VS Code
+
+## Rationale
+
+LSP provides type-aware, semantically accurate navigation. grep/search is text-based and returns false positives (comments, strings, similarly-named symbols). LSP understands scope, types, and relationships. This rule ensures both Claude Code and Cursor use the same LSP-first approach for consistency.
