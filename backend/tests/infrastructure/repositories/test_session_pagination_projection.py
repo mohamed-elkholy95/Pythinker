@@ -25,7 +25,7 @@ class TestEventPaginationProjection:
         mock_collection.find_one = AsyncMock(return_value={"events": events})
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             result = await repo.get_events_paginated("session-1", offset=0, limit=5)
@@ -46,7 +46,7 @@ class TestEventPaginationProjection:
         mock_collection.find_one = AsyncMock(return_value={"events": events})
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.get_events_paginated("session-1", offset=10, limit=3)
@@ -62,7 +62,7 @@ class TestEventPaginationProjection:
         mock_collection.find_one = AsyncMock(return_value=None)
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             result = await repo.get_events_paginated("nonexistent", offset=0, limit=100)
@@ -80,7 +80,7 @@ class TestEventPaginationProjection:
         mock_collection.aggregate = mock_aggregate
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             count = await repo.get_event_count("session-1")
@@ -99,7 +99,7 @@ class TestEventPaginationProjection:
         mock_collection.aggregate = mock_aggregate
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             count = await repo.get_event_count("nonexistent")

@@ -27,7 +27,7 @@ def repo():
 
 @pytest.fixture
 def mock_collection():
-    """Mock pymongo collection returned by SessionDocument.get_pymongo_collection()."""
+    """Mock pymongo collection returned by SessionDocument.get_motor_collection()."""
     return AsyncMock()
 
 
@@ -107,7 +107,7 @@ class TestProjectionDiscipline:
         )
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.find_by_id("s1")
@@ -134,7 +134,7 @@ class TestProjectionDiscipline:
         )
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.find_by_id_and_user_id("s1", "u1")
@@ -152,7 +152,7 @@ class TestProjectionDiscipline:
 
         file_info = FileInfo(file_id="f1", filename="test.py", file_path="/test.py")
 
-        with patch.object(SessionDocument, "get_pymongo_collection", return_value=mock_collection):
+        with patch.object(SessionDocument, "get_motor_collection", return_value=mock_collection):
             await repo.add_file("s1", file_info)
 
         mock_collection.find_one.assert_not_called()
@@ -173,7 +173,7 @@ class TestProjectionDiscipline:
         )
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.get_file_by_path("s1", "/test.py")
@@ -192,7 +192,7 @@ class TestEventQueryOptimizations:
         mock_collection.find_one = AsyncMock(return_value={"events": [{"type": "message", "id": "e5"}]})
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.get_event_by_sequence("s1", 5)
@@ -212,7 +212,7 @@ class TestEventQueryOptimizations:
         mock_collection.aggregate = MagicMock(return_value=mock_cursor)
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.get_event_by_id("s1", "e1")
@@ -236,7 +236,7 @@ class TestEventQueryOptimizations:
         mock_collection.aggregate = MagicMock(return_value=mock_cursor)
 
         with patch(
-            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_motor_collection",
             return_value=mock_collection,
         ):
             await repo.get_events_in_range("s1", start, end)

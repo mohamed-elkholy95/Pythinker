@@ -28,7 +28,7 @@ async def test_update_daily_aggregate_upserts_by_usage_id_and_sets_date_type() -
         usage_type=UsageType.LLM_CALL,
     )
 
-    with patch.object(DailyUsageDocument, "get_pymongo_collection", return_value=fake_collection):
+    with patch.object(DailyUsageDocument, "get_motor_collection", return_value=fake_collection):
         await service._update_daily_aggregate(record)
 
     fake_collection.find_one_and_update.assert_awaited_once()
@@ -51,7 +51,7 @@ async def test_record_tool_call_uses_atomic_upsert_with_date_object() -> None:
     today = datetime.now(tz=UTC).date()
     usage_id = f"user-1_{today.isoformat()}"
 
-    with patch.object(DailyUsageDocument, "get_pymongo_collection", return_value=fake_collection):
+    with patch.object(DailyUsageDocument, "get_motor_collection", return_value=fake_collection):
         await service.record_tool_call(user_id="user-1", session_id="session-1")
 
     fake_collection.find_one_and_update.assert_awaited_once()
@@ -205,7 +205,7 @@ async def test_record_agent_step_updates_run_totals() -> None:
     fake_step_doc = SimpleNamespace(insert=AsyncMock())
     with (
         patch.object(AgentStepDocument, "from_domain", return_value=fake_step_doc),
-        patch.object(AgentRunDocument, "get_pymongo_collection", return_value=fake_collection),
+        patch.object(AgentRunDocument, "get_motor_collection", return_value=fake_collection),
     ):
         recorded = await service.record_agent_step(step)
 
@@ -242,7 +242,7 @@ async def test_record_agent_step_does_not_clobber_primary_model_for_tool_steps()
     fake_step_doc = SimpleNamespace(insert=AsyncMock())
     with (
         patch.object(AgentStepDocument, "from_domain", return_value=fake_step_doc),
-        patch.object(AgentRunDocument, "get_pymongo_collection", return_value=fake_collection),
+        patch.object(AgentRunDocument, "get_motor_collection", return_value=fake_collection),
     ):
         await service.record_agent_step(step)
 
@@ -266,7 +266,7 @@ async def test_record_agent_step_skips_run_aggregate_when_step_insert_fails() ->
     fake_step_doc = SimpleNamespace(insert=AsyncMock(side_effect=RuntimeError("insert failed")))
     with (
         patch.object(AgentStepDocument, "from_domain", return_value=fake_step_doc),
-        patch.object(AgentRunDocument, "get_pymongo_collection", return_value=run_collection),
+        patch.object(AgentRunDocument, "get_motor_collection", return_value=run_collection),
     ):
         recorded = await service.record_agent_step(step)
 
@@ -341,7 +341,7 @@ async def test_finalize_agent_run_updates_terminal_status_and_duration() -> None
         }
     )
 
-    with patch.object(AgentRunDocument, "get_pymongo_collection", return_value=fake_collection):
+    with patch.object(AgentRunDocument, "get_motor_collection", return_value=fake_collection):
         finalized = await service.finalize_agent_run(
             run_id="run-1",
             status=AgentRunStatus.COMPLETED,

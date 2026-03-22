@@ -118,7 +118,7 @@ class MongoUsageRepository(UsageRepository):
         completed_at: datetime,
     ) -> AgentRun | None:
         try:
-            collection = AgentRunDocument.get_pymongo_collection()
+            collection = AgentRunDocument.get_motor_collection()
             finalized_run = await collection.find_one_and_update(
                 {"run_id": run_id},
                 [
@@ -162,7 +162,7 @@ class MongoUsageRepository(UsageRepository):
 
     async def increment_agent_run_aggregate(self, step: AgentStep) -> None:
         try:
-            collection = AgentRunDocument.get_pymongo_collection()
+            collection = AgentRunDocument.get_motor_collection()
         except Exception as exc:
             logger.warning("AgentRunDocument collection not initialized, skipping aggregate: %s", exc)
             return
@@ -208,7 +208,7 @@ class MongoUsageRepository(UsageRepository):
     ) -> None:
         usage_id = f"{user_id}_{today.isoformat()}"
         try:
-            collection = DailyUsageDocument.get_pymongo_collection()
+            collection = DailyUsageDocument.get_motor_collection()
         except Exception as exc:
             logger.warning("DailyUsageDocument collection not initialized, skipping tool call aggregate: %s", exc)
             return
@@ -252,7 +252,7 @@ class MongoUsageRepository(UsageRepository):
         usage_id = f"{record.user_id}_{today.isoformat()}"
         safe_model_key = _sanitize_model_key(record.model)
         try:
-            collection = DailyUsageDocument.get_pymongo_collection()
+            collection = DailyUsageDocument.get_motor_collection()
         except Exception as exc:
             logger.warning("DailyUsageDocument collection not initialized, skipping daily aggregate: %s", exc)
             return

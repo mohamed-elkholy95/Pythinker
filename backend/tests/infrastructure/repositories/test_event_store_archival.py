@@ -42,7 +42,7 @@ class TestArchiveEventsBefore:
         mock_archive.insert_many = AsyncMock()
 
         with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff)
@@ -64,7 +64,7 @@ class TestArchiveEventsBefore:
         mock_source.find.return_value.sort.return_value.limit.return_value = mock_cursor
 
         with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff)
@@ -108,7 +108,7 @@ class TestArchiveEventsBefore:
         mock_archive.insert_many = AsyncMock()
 
         with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_pymongo_collection",
+            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff, batch_size=5)
