@@ -69,7 +69,7 @@ class ProjectService:
         # Resolve file_ids to FileInfo objects
         files: list[FileInfo] = []
         if project.file_ids:
-            from app.application.services.file_service import get_file_service
+            from app.interfaces.dependencies import get_file_service
 
             file_service = get_file_service()
             for fid in project.file_ids:
