@@ -280,14 +280,19 @@ services:
           memory: 1G
     healthcheck:
       test: >-
-        mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
-          try { rs.status().ok }
-          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}).ok }
-        "
-      interval: 10s
-      timeout: 10s
+        mongosh --norc --quiet
+        -u "$$MONGO_INITDB_ROOT_USERNAME"
+        -p "$$MONGO_INITDB_ROOT_PASSWORD"
+        --authenticationDatabase admin
+        --eval "
+          try { if (rs.status().ok) quit(0); }
+          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}); }
+          quit(0);
+        " || exit 1
+      interval: 15s
+      timeout: 15s
       retries: 10
-      start_period: 30s
+      start_period: 45s
 
   # ---------------------------------------------------------------------------
   # Redis — Password-Protected with AOF Persistence
