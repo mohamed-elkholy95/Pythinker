@@ -30,10 +30,7 @@
         :instructions="project.instructions"
         @edit="showInstructionsModal = true"
       />
-      <ProjectConnectorsPanel
-        :connector-ids="project.connector_ids"
-        @add="showConnectorsModal = true"
-      />
+      <ProjectConnectorsPanel />
       <ProjectFilesPanel />
       <ProjectSkillsPanel />
     </div>
@@ -43,7 +40,6 @@
       :instructions="project.instructions"
       @save="handleSaveInstructions"
     />
-    <ProjectConnectorsModal v-model:open="showConnectorsModal" />
   </div>
   <div v-else-if="loading" class="project-loading">
     Loading...
@@ -65,7 +61,6 @@ import ProjectConnectorsPanel from '@/components/project/ProjectConnectorsPanel.
 import ProjectFilesPanel from '@/components/project/ProjectFilesPanel.vue'
 import ProjectSkillsPanel from '@/components/project/ProjectSkillsPanel.vue'
 import ProjectInstructionsModal from '@/components/project/ProjectInstructionsModal.vue'
-import ProjectConnectorsModal from '@/components/project/ProjectConnectorsModal.vue'
 import type { FileInfo } from '@/api/file'
 import type { ThinkingMode, ResearchMode } from '@/api/agent'
 
@@ -79,7 +74,6 @@ const message = ref('')
 const attachments = ref<FileInfo[]>([])
 const isSubmitting = ref(false)
 const showInstructionsModal = ref(false)
-const showConnectorsModal = ref(false)
 
 async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
   const trimmedMessage = message.value.trim()
