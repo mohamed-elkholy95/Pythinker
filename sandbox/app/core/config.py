@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # Screencast stream preemption wait timeout (must exceed CDP_COMMAND_TIMEOUT)
     CDP_PREEMPT_WAIT_TIMEOUT: float = 8.0
 
+    # Chrome on-demand lifecycle (reduces idle CPU to zero)
+    CHROME_ON_DEMAND: bool = True  # Enable on-demand Chrome lifecycle
+    CHROME_IDLE_TIMEOUT: int = 60  # Seconds of inactivity before stopping Chrome
+    CHROME_READY_TIMEOUT: int = 30  # Max seconds to wait for Chrome startup
+    CHROME_IDLE_CHECK_INTERVAL: int = 15  # Seconds between idle checks
+    CHROME_CDP_PORT: int = 8222  # Chrome's local CDP port (before socat)
+
     # Environment metadata
     SANDBOX_VERSION: str = "dev"
     TZ: str = "UTC"
