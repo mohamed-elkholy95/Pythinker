@@ -53,11 +53,13 @@
         :show-stats="showStats"
         :show-agent-actions="showAgentActions"
         :show-agent-cursor="showAgentCursor"
+        :hide-local-cursor="viewOnly"
         @frame-received="onFrameReceived"
       />
 
       <!-- Browser Interaction Overlay (positioned over KonvaLiveStage) -->
       <BrowserInteractionOverlay
+        v-if="showBrowserInteractionOverlay"
         :last-action="lastBrowserAction"
         :container-width="1280"
         :container-height="1024"
@@ -152,10 +154,14 @@ const isLoading = ref(false)
 const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
-const showAgentActions = ref(true)
-const showAgentCursor = ref(true)
-
-const liveStreamCursorStyle = { cursor: getApplePointerCursorCss() }
+const showAgentActions = computed(() => !props.viewOnly)
+const showAgentCursor = computed(() => !props.viewOnly)
+const showBrowserInteractionOverlay = computed(() => !props.viewOnly)
+const liveStreamCursorStyle = computed(() => (
+  props.viewOnly
+    ? { cursor: 'none' }
+    : { cursor: getApplePointerCursorCss() }
+))
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
@@ -673,8 +679,12 @@ onBeforeUnmount(() => {
  */
 function processToolEvent(event: ToolEventData): void {
   try {
-    liveStageRef.value?.processToolEvent(event)
-    updateBrowserAction(event)
+    if (showAgentActions.value || showAgentCursor.value) {
+      liveStageRef.value?.processToolEvent(event)
+    }
+    if (showBrowserInteractionOverlay.value) {
+      updateBrowserAction(event)
+    }
   } catch (e) {
     console.warn('[SandboxViewer] Failed to process tool event:', e)
   }

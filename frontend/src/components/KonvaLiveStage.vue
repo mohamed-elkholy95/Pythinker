@@ -245,11 +245,14 @@ const props = withDefaults(
     showAgentActions?: boolean
     /** Show persistent agent cursor on overlay */
     showAgentCursor?: boolean
+    /** Hide the local browser cursor over the stage in passive viewing mode */
+    hideLocalCursor?: boolean
   }>(),
   {
     showStats: false,
     showAgentActions: true,
     showAgentCursor: true,
+    hideLocalCursor: false,
   },
 )
 
@@ -292,7 +295,11 @@ const frameDimensions = screencast.frameDimensions
 // ---------------------------------------------------------------------------
 
 /** OS cursor over stream matches Apple pointer (agent overlay + hover). */
-const streamCursorStyle = { cursor: getApplePointerCursorCss() }
+const streamCursorStyle = computed(() => (
+  props.hideLocalCursor
+    ? { cursor: 'none' }
+    : { cursor: getApplePointerCursorCss() }
+))
 
 const stageConfig = computed(() => ({
   width: containerWidth.value,
