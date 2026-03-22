@@ -61,7 +61,7 @@
                 y: -8,
                 text: action.label,
                 fontSize: 11,
-                fontFamily: 'Libre Baskerville, sans-serif',
+                fontFamily: 'Arial, sans-serif',
                 fill: action.color,
                 opacity: action.opacity,
               }"
@@ -123,7 +123,7 @@
                 y: -8,
                 text: action.label,
                 fontSize: 11,
-                fontFamily: 'Libre Baskerville, sans-serif',
+                fontFamily: 'Arial, sans-serif',
                 fill: action.color,
                 opacity: action.opacity,
               }"
@@ -206,7 +206,7 @@
               y: ann.y ?? 0,
               text: ann.text || 'Text',
               fontSize: ann.style.fontSize ?? 16,
-              fontFamily: 'Libre Baskerville, sans-serif',
+              fontFamily: 'Arial, sans-serif',
               fill: ann.style.color,
               opacity: ann.style.opacity,
               listening: false,

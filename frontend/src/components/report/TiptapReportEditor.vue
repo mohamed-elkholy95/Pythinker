@@ -887,7 +887,7 @@ defineExpose({
   color: rgba(0, 0, 0, 0.45);
   font-size: 9.5px;
   font-weight: 700;
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
   letter-spacing: 0;
   text-decoration: none !important;
   cursor: pointer;
@@ -990,7 +990,7 @@ defineExpose({
 :deep(.prose-compact h1),
 :deep(.prose-compact h2),
 :deep(.prose-compact h3) {
-  font-family: var(--font-sans) !important;
+  font-family: var(--font-content) !important;
 }
 
 :deep(.prose-compact h2) {
@@ -1123,7 +1123,7 @@ defineExpose({
     0 4px 6px rgba(0, 0, 0, 0.04),
     0 12px 28px rgba(0, 0, 0, 0.10);
   pointer-events: auto;
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
   text-decoration: none;
   display: block;
   cursor: pointer;

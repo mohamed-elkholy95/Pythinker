@@ -364,7 +364,7 @@ const _handleSaveToOneDriveWork = () => {
 }
 
 .header-title {
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
   font-size: 14px;
   line-height: 20px;
   font-weight: 500;
@@ -395,7 +395,7 @@ const _handleSaveToOneDriveWork = () => {
 /* ===== CONTENT PREVIEW (scaled 0.75, inline Tailwind handles layout) ===== */
 .report-markdown-preview {
   width: 100%;
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
 }
 
 .report-markdown-preview :deep(.prose-compact) {
@@ -407,7 +407,7 @@ const _handleSaveToOneDriveWork = () => {
 .report-markdown-preview :deep(.prose-compact h1),
 .report-markdown-preview :deep(.prose-compact h2),
 .report-markdown-preview :deep(.prose-compact h3) {
-  font-family: var(--font-sans);
+  font-family: var(--font-content);
   font-weight: 600;
   line-height: 1.3;
 }
