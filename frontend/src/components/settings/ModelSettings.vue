@@ -6,9 +6,23 @@
       <div class="active-config-info">
         <span class="active-config-label">Active Model</span>
         <span class="active-config-value">
-          {{ localSettings.model_name || 'Loading...' }}
+          {{ serverConfig.model_name || 'Loading...' }}
           <span class="active-config-sep">&middot;</span>
           <span class="active-config-endpoint">{{ displayApiBase }}</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Env Notice -->
+    <div class="env-notice">
+      <div class="env-notice-icon">
+        <Lock class="w-4 h-4" />
+      </div>
+      <div class="env-notice-content">
+        <span class="env-notice-title">Server-managed configuration</span>
+        <span class="env-notice-text">
+          AI model settings are controlled by the <code>.env</code> file on the server.
+          To change the model or parameters, update the environment variables and restart the backend.
         </span>
       </div>
     </div>
@@ -21,7 +35,7 @@
         </div>
         <div class="section-info">
           <h4 class="section-title">AI Configuration</h4>
-          <p class="section-desc">Select your AI provider and model for conversations</p>
+          <p class="section-desc">Current AI provider and model for conversations</p>
         </div>
       </div>
 
@@ -31,72 +45,39 @@
           <Server class="w-4 h-4 text-[var(--icon-tertiary)]" />
           <div class="setting-text">
             <span class="setting-label">{{ t('LLM Provider') }}</span>
-            <span class="setting-hint">Choose your preferred AI service</span>
+            <span class="setting-hint">Active AI service</span>
           </div>
         </div>
-        <Select v-model="localSettings.llm_provider" @update:modelValue="onProviderChange">
-          <SelectTrigger class="settings-select">
-            <SelectValue :placeholder="t('Select provider')" />
-          </SelectTrigger>
-          <SelectContent :side-offset="5">
-            <SelectItem
-              v-for="provider in providers.llm_providers"
-              :key="provider.id"
-              :value="provider.id"
-            >
-              {{ provider.name }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <div class="readonly-value">
+          {{ activeProviderName }}
+        </div>
       </div>
 
-      <!-- Model Selection -->
+      <!-- Model -->
       <div class="setting-row">
         <div class="setting-label-group">
           <Cpu class="w-4 h-4 text-[var(--icon-tertiary)]" />
           <div class="setting-text">
             <span class="setting-label">{{ t('Model') }}</span>
-            <span class="setting-hint">Select the AI model to use</span>
+            <span class="setting-hint">Active AI model</span>
           </div>
         </div>
-        <Select v-model="localSettings.model_name" @update:modelValue="saveSettings">
-          <SelectTrigger class="settings-select">
-            <SelectValue :placeholder="t('Select model')" />
-          </SelectTrigger>
-          <SelectContent :side-offset="5">
-            <SelectItem
-              v-for="model in availableModels"
-              :key="model"
-              :value="model"
-            >
-              {{ model }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <div class="readonly-value">
+          {{ serverConfig.model_name || 'Not configured' }}
+        </div>
       </div>
 
-      <!-- API Endpoint (read-only, auto-set from provider) -->
+      <!-- API Endpoint -->
       <div class="setting-row">
         <div class="setting-label-group">
           <Link class="w-4 h-4 text-[var(--icon-tertiary)]" />
           <div class="setting-text">
             <span class="setting-label">API Endpoint</span>
-            <span class="setting-hint">Automatically set based on provider selection</span>
+            <span class="setting-hint">Server-configured endpoint</span>
           </div>
         </div>
         <div class="endpoint-badge">
           <code class="endpoint-url">{{ displayApiBase }}</code>
-        </div>
-      </div>
-
-      <!-- Provider Setup Note (conditional) -->
-      <div v-if="activeSetupNote" class="setup-note">
-        <div class="setup-note-icon">
-          <Info class="w-4 h-4" />
-        </div>
-        <div class="setup-note-content">
-          <span class="setup-note-title">Setup</span>
-          <p class="setup-note-text">{{ activeSetupNote }}</p>
         </div>
       </div>
     </div>
@@ -109,67 +90,38 @@
         </div>
         <div class="section-info">
           <h4 class="section-title">Model Parameters</h4>
-          <p class="section-desc">Fine-tune the AI response behavior</p>
+          <p class="section-desc">Current AI response behavior settings</p>
         </div>
       </div>
 
-      <!-- Temperature Slider -->
-      <div class="setting-block">
-        <div class="setting-row-header">
-          <div class="setting-label-group">
-            <Thermometer class="w-4 h-4 text-[var(--icon-tertiary)]" />
-            <div class="setting-text">
-              <label class="setting-label" for="model-temperature">{{ t('Temperature') }}</label>
-              <span class="setting-hint">Controls randomness in responses</span>
-            </div>
-          </div>
-          <span class="setting-value-badge">{{ localSettings.temperature.toFixed(1) }}</span>
-        </div>
-        <div class="slider-container">
-          <input
-            type="range"
-            id="model-temperature"
-            name="temperature"
-            min="0"
-            max="2"
-            step="0.1"
-            v-model.number="localSettings.temperature"
-            @change="saveSettings"
-            class="settings-slider"
-            :aria-valuetext="`${localSettings.temperature.toFixed(1)} - ${localSettings.temperature <= 0.3 ? 'Precise' : localSettings.temperature >= 1.5 ? 'Creative' : 'Balanced'}`"
-          />
-          <div class="slider-labels">
-            <span>{{ t('Precise') }}</span>
-            <span>{{ t('Creative') }}</span>
+      <!-- Temperature -->
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <Thermometer class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          <div class="setting-text">
+            <span class="setting-label">{{ t('Temperature') }}</span>
+            <span class="setting-hint">Controls randomness in responses</span>
           </div>
         </div>
+        <span class="setting-value-badge">
+          {{ serverConfig.temperature.toFixed(1) }}
+          <span class="value-label">{{ serverConfig.temperature <= 0.3 ? 'Precise' : serverConfig.temperature >= 1.5 ? 'Creative' : 'Balanced' }}</span>
+        </span>
       </div>
 
       <!-- Max Tokens -->
-      <div class="setting-block">
-        <div class="setting-row-header">
-          <div class="setting-label-group">
-            <Hash class="w-4 h-4 text-[var(--icon-tertiary)]" />
-            <div class="setting-text">
-              <label class="setting-label" for="model-max-tokens">{{ t('Max Tokens') }}</label>
-              <span class="setting-hint">Maximum response length (1000-32000)</span>
-            </div>
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <Hash class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          <div class="setting-text">
+            <span class="setting-label">{{ t('Max Tokens') }}</span>
+            <span class="setting-hint">Maximum response length</span>
           </div>
         </div>
-        <div class="input-container">
-          <input
-            type="number"
-            id="model-max-tokens"
-            name="max_tokens"
-            v-model.number="localSettings.max_tokens"
-            @change="saveSettings"
-            min="1000"
-            max="32000"
-            step="1"
-            class="settings-input"
-          />
-          <span class="input-suffix">tokens</span>
-        </div>
+        <span class="setting-value-badge">
+          {{ serverConfig.max_tokens.toLocaleString() }}
+          <span class="value-label">tokens</span>
+        </span>
       </div>
     </div>
   </div>
@@ -178,67 +130,52 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { showErrorToast } from '@/utils/toast'
 import {
   Sparkles,
   Server,
   Cpu,
   Link,
-  Info,
+  Lock,
   SlidersHorizontal,
   Thermometer,
   Hash,
 } from 'lucide-vue-next'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { getSettings, updateSettings, getProviders, getServerConfig, type UserSettings, type ProvidersInfo, type ServerConfig, type LLMProviderInfo } from '@/api/settings'
+import { getProviders, getServerConfig, type ProvidersInfo, type ServerConfig, type LLMProviderInfo } from '@/api/settings'
 
 const { t } = useI18n()
 
-// Local settings — always reflects what the user sees and what the server should use
-const localSettings = ref<UserSettings>({
-  llm_provider: 'openai',
-  model_name: 'gpt-4',
+// Server config — the actual running state (source of truth from .env)
+const serverConfig = ref<ServerConfig>({
+  model_name: '',
   api_base: '',
-  temperature: 0.7,
-  max_tokens: 8000,
-  search_provider: 'bing',
-  browser_agent_max_steps: 25,
-  browser_agent_timeout: 300,
-  browser_agent_use_vision: true,
-  response_verbosity_preference: 'adaptive',
-  clarification_policy: 'auto',
-  quality_floor_enforced: true,
-  skill_auto_trigger_enabled: false,
+  temperature: 0.6,
+  max_tokens: 8192,
+  llm_provider: 'auto',
+  search_provider: '',
+  search_provider_chain: [],
+  configured_search_keys: [],
 })
 
-// Providers info
+// Providers info (for display names)
 const providers = ref<ProvidersInfo>({
   llm_providers: [],
   search_providers: [],
 })
 
-// Available models for selected provider
-const availableModels = computed(() => {
-  const provider = providers.value.llm_providers.find(p => p.id === localSettings.value.llm_provider)
-  return provider?.models || []
-})
-
 // Display-friendly API base
 const displayApiBase = computed(() => {
-  const base = localSettings.value.api_base || ''
+  const base = serverConfig.value.api_base || ''
   return base.replace(/^https?:\/\//, '') || 'Not configured'
 })
 
-// Get the active provider's setup note (if any)
-const activeSetupNote = computed(() => {
-  const provider = providers.value.llm_providers.find(p => p.id === localSettings.value.llm_provider)
-  return provider?.setup_note || ''
+// Resolve provider display name from server config
+const activeProviderName = computed(() => {
+  const detected = detectProviderFromServerConfig(serverConfig.value, providers.value.llm_providers)
+  if (detected) {
+    const provider = providers.value.llm_providers.find(p => p.id === detected.providerId)
+    return provider?.name || detected.providerId
+  }
+  return serverConfig.value.llm_provider || 'Auto'
 })
 
 /**
@@ -251,7 +188,6 @@ function detectProviderFromServerConfig(
 ): { providerId: string; apiBase: string } | null {
   if (!srvConfig.model_name) return null
 
-  // 1. Match by api_base against provider metadata
   for (const p of providerList) {
     if (p.api_base && srvConfig.api_base) {
       try {
@@ -265,7 +201,6 @@ function detectProviderFromServerConfig(
     }
   }
 
-  // 2. Match by model name prefix
   const modelLower = srvConfig.model_name.toLowerCase()
   for (const p of providerList) {
     if (p.models.some(m => m.toLowerCase() === modelLower)) {
@@ -276,72 +211,19 @@ function detectProviderFromServerConfig(
   return null
 }
 
-// Load server config + providers on mount, then initialize dropdowns from truth
+// Load server config + providers on mount (read-only, no saves)
 onMounted(async () => {
   try {
-    const [settings, providersInfo, srvConfig] = await Promise.all([
-      getSettings(),
+    const [providersInfo, srvConfig] = await Promise.all([
       getProviders(),
       getServerConfig(),
     ])
     providers.value = providersInfo
-
-    // Start from server config (the actual running model) as the source of truth
-    const detected = detectProviderFromServerConfig(srvConfig, providersInfo.llm_providers)
-
-    if (detected) {
-      // Server config successfully mapped to a known provider
-      localSettings.value = {
-        ...localSettings.value,
-        ...settings,
-        // Override with server truth so dropdowns match reality
-        llm_provider: detected.providerId,
-        model_name: srvConfig.model_name,
-        api_base: srvConfig.api_base || detected.apiBase,
-        temperature: srvConfig.temperature,
-        max_tokens: srvConfig.max_tokens,
-      }
-    } else {
-      // Couldn't detect provider — use saved settings as-is
-      localSettings.value = { ...localSettings.value, ...settings }
-    }
-
-    // Persist the synced state so MongoDB matches reality
-    await saveSettings()
+    serverConfig.value = srvConfig
   } catch {
     // Settings load failed - using defaults
   }
 })
-
-// Handle provider change — auto-set api_base and reset model
-const onProviderChange = (provider: string) => {
-  localSettings.value.llm_provider = provider
-  const providerInfo = providers.value.llm_providers.find(p => p.id === provider)
-  if (providerInfo) {
-    if (providerInfo.api_base) {
-      localSettings.value.api_base = providerInfo.api_base
-    }
-    if (providerInfo.models.length > 0) {
-      localSettings.value.model_name = providerInfo.models[0]
-    }
-  }
-  saveSettings()
-}
-
-// Save settings
-const saveSettings = async () => {
-  try {
-    await updateSettings({
-      llm_provider: localSettings.value.llm_provider,
-      model_name: localSettings.value.model_name,
-      api_base: localSettings.value.api_base,
-      temperature: localSettings.value.temperature,
-      max_tokens: localSettings.value.max_tokens,
-    })
-  } catch {
-    showErrorToast(t('Failed to save settings'))
-  }
-}
 </script>
 
 <style scoped>
@@ -534,6 +416,67 @@ const saveSettings = async () => {
   border-radius: 6px;
 }
 
+/* ── Env Notice ────────────────────────────────────────────── */
+.env-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgba(100, 116, 139, 0.06);
+  border: 1px solid rgba(100, 116, 139, 0.15);
+  border-radius: 12px;
+}
+
+.env-notice-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.env-notice-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.env-notice-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.env-notice-text {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.env-notice-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  background: var(--fill-tsp-white-dark);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* ── Read-only Value Display ───────────────────────────────── */
+.readonly-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--fill-tsp-white-dark);
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Endpoint Badge ─────────────────────────────────────────── */
 .endpoint-badge {
   display: flex;
@@ -555,143 +498,11 @@ const saveSettings = async () => {
   max-width: 260px;
 }
 
-/* ── Setup Note Card ────────────────────────────────────────── */
-.setup-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: rgba(59, 130, 246, 0.06);
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  border-radius: 10px;
-}
-
-.setup-note-icon {
-  color: var(--text-brand);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.setup-note-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.setup-note-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-brand);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.setup-note-text {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  margin: 0;
-}
-
-/* ── Select ─────────────────────────────────────────────────── */
-.settings-select {
-  width: 200px;
-  height: 40px;
-  border-radius: 10px;
-  background: var(--background-white-main);
-  border: 1px solid var(--border-main);
-  font-size: 14px;
-  transition: all 0.2s ease;
-}
-
-.settings-select:hover {
-  border-color: var(--border-dark);
-}
-
-/* ── Slider ─────────────────────────────────────────────────── */
-.slider-container {
-  padding: 0 4px;
-}
-
-.settings-slider {
-  width: 100%;
-  height: 6px;
-  background: var(--fill-tsp-white-dark);
-  border-radius: 3px;
-  appearance: none;
-  cursor: pointer;
-  margin-bottom: 8px;
-}
-
-.settings-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: var(--text-brand);
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
-  transition: transform 0.15s ease;
-}
-
-.settings-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-}
-
-.settings-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  background: var(--text-brand);
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
-}
-
-.slider-labels {
-  display: flex;
-  justify-content: space-between;
+/* ── Value Label (unit/descriptor inside badge) ────────────── */
+.value-label {
   font-size: 11px;
+  font-weight: 400;
   color: var(--text-tertiary);
-}
-
-/* ── Number Input ───────────────────────────────────────────── */
-.input-container {
-  position: relative;
-  width: 200px;
-}
-
-.settings-input {
-  width: 100%;
-  height: 40px;
-  padding: 0 60px 0 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border-main);
-  background: var(--background-white-main);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-}
-
-.settings-input:hover {
-  border-color: var(--border-dark);
-}
-
-.settings-input:focus {
-  outline: none;
-  border-color: var(--text-brand);
-  box-shadow: 0 0 0 3px var(--fill-blue);
-}
-
-.input-suffix {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--text-tertiary);
-  pointer-events: none;
+  margin-left: 4px;
 }
 </style>
