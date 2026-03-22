@@ -73,6 +73,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libgles2 libglx0 libegl1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Remove stale pip/setuptools from base image BEFORE copying builder packages
+# (Docker COPY merges directories — old dist-info would survive alongside upgraded versions)
+# Fixes CVE-2026-1703, CVE-2025-8869 (pip), CVE-2026-23949 (jaraco.context via setuptools)
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip* \
+           /usr/local/lib/python3.12/site-packages/setuptools* \
+           /usr/local/lib/python3.12/site-packages/wheel* \
+           /usr/local/lib/python3.12/site-packages/jaraco* \
+           /usr/local/lib/python3.12/site-packages/pkg_resources*
+
 # Copy installed Python packages from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
