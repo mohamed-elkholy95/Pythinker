@@ -98,18 +98,29 @@
 
         <!-- Card 2: Files + Skills -->
         <div class="sidebar-card">
-          <div class="sidebar-section clickable" @click="triggerFileUpload">
+          <div class="sidebar-section" @click.self="triggerFileUpload">
             <div class="sidebar-section-header">
               <span class="sidebar-section-title">Files</span>
               <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
             </div>
-            <p class="sidebar-section-desc">
+            <!-- Show uploaded files -->
+            <div v-if="project.file_ids.length > 0" class="sidebar-file-list">
+              <div
+                v-for="(fid, idx) in project.file_ids"
+                :key="fid"
+                class="sidebar-file-item"
+              >
+                <FileText :size="14" class="text-[var(--text-tertiary)] shrink-0" />
+                <span class="sidebar-file-name">{{ fileNameMap[fid] || fid.slice(0, 12) + '...' }}</span>
+                <button class="sidebar-remove-btn" title="Remove" @click.stop="removeFile(idx)">
+                  <X :size="12" />
+                </button>
+              </div>
+            </div>
+            <p v-else class="sidebar-section-desc">
               Start by attaching files to your project.
             </p>
-            <button
-              class="sidebar-upload-btn"
-              @click.stop="triggerFileUpload"
-            >
+            <button class="sidebar-outline-btn" @click.stop="triggerFileUpload">
               <Upload :size="14" />
               <span>Upload files</span>
             </button>
@@ -122,21 +133,29 @@
             />
           </div>
           <div class="sidebar-separator" />
-          <div
-            class="sidebar-section clickable"
-            @click="openSettingsDialog('skills')"
-          >
+          <div class="sidebar-section">
             <div class="sidebar-section-header">
               <span class="sidebar-section-title">Skills</span>
               <ChevronRight :size="14" class="text-[var(--text-tertiary)]" />
             </div>
-            <p class="sidebar-section-desc">
+            <!-- Show selected skills -->
+            <div v-if="project.skill_ids.length > 0" class="sidebar-skill-list">
+              <div
+                v-for="(sid, idx) in project.skill_ids"
+                :key="sid"
+                class="sidebar-skill-item"
+              >
+                <Sparkles :size="14" class="text-[var(--text-tertiary)] shrink-0" />
+                <span class="sidebar-skill-name">{{ skillNameMap[sid] || sid }}</span>
+                <button class="sidebar-remove-btn" title="Remove" @click.stop="removeSkill(idx)">
+                  <X :size="12" />
+                </button>
+              </div>
+            </div>
+            <p v-else class="sidebar-section-desc">
               Add skills to enhance Pythinker's know-how.
             </p>
-            <button
-              class="sidebar-add-btn"
-              @click.stop="openSettingsDialog('skills')"
-            >
+            <button class="sidebar-outline-btn" @click.stop="showSkillsModal = true">
               <Plus :size="14" />
               <span>Add</span>
             </button>
@@ -163,6 +182,11 @@
       :instructions="project.instructions"
       @save="handleSaveInstructions"
     />
+    <ProjectSkillsModal
+      v-model:open="showSkillsModal"
+      :current-skill-ids="project.skill_ids"
+      @save="handleSkillsSelected"
+    />
   </div>
   <div v-else-if="loading" class="project-loading">
     Loading...
@@ -176,15 +200,17 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProject } from '@/composables/useProject'
+import { useSkills } from '@/composables/useSkills'
 import { useSettingsDialog } from '@/composables/useSettingsDialog'
 import { useConnectorDialog } from '@/composables/useConnectorDialog'
 import { getServerConfig } from '@/api/settings'
-import { uploadFile } from '@/api/file'
+import { uploadFile, getFileInfo } from '@/api/file'
 import type { FileInfo } from '@/api/file'
 import type { ThinkingMode, ResearchMode } from '@/api/agent'
 import ChatBox from '@/components/ChatBox.vue'
 import ProjectHeader from '@/components/project/ProjectHeader.vue'
 import ProjectInstructionsModal from '@/components/project/ProjectInstructionsModal.vue'
+import ProjectSkillsModal from '@/components/project/ProjectSkillsModal.vue'
 import {
   Popover,
   PopoverContent,
@@ -195,10 +221,13 @@ import {
   Ellipsis,
   Pencil,
   FileEdit,
+  FileText,
   Trash2,
   Cable,
   Plus,
   Upload,
+  Sparkles,
+  X,
   MessageSquareDashed,
 } from 'lucide-vue-next'
 
@@ -206,6 +235,7 @@ const route = useRoute()
 const router = useRouter()
 const { openSettingsDialog } = useSettingsDialog()
 const { openConnectorDialog } = useConnectorDialog()
+const { availableSkills, loadAvailableSkills } = useSkills()
 
 const { project, loading, updateProject, deleteProject } = useProject(
   computed(() => route.params.projectId as string),
@@ -215,8 +245,11 @@ const message = ref('')
 const attachments = ref<FileInfo[]>([])
 const isSubmitting = ref(false)
 const showInstructionsModal = ref(false)
+const showSkillsModal = ref(false)
 const activeModelName = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const fileNameMap = ref<Record<string, string>>({})
+const skillNameMap = ref<Record<string, string>>({})
 
 onMounted(async () => {
   try {
@@ -224,6 +257,24 @@ onMounted(async () => {
     activeModelName.value = config.model_name || 'Pythinker'
   } catch {
     activeModelName.value = 'Pythinker'
+  }
+
+  // Load available skills and build name map
+  await loadAvailableSkills()
+  for (const skill of availableSkills.value) {
+    skillNameMap.value[skill.id] = skill.name
+  }
+
+  // Resolve file names for existing project files
+  if (project.value?.file_ids.length) {
+    for (const fid of project.value.file_ids) {
+      try {
+        const info = await getFileInfo(fid)
+        if (info) fileNameMap.value[fid] = info.filename
+      } catch {
+        // File info unavailable, will show truncated ID
+      }
+    }
   }
 })
 
@@ -238,19 +289,43 @@ function triggerFileUpload() {
 
 async function handleFileUpload(event: Event) {
   const input = event.target as HTMLInputElement
-  if (!input.files?.length) return
+  if (!input.files?.length || !project.value) return
 
+  const newFileIds = [...project.value.file_ids]
   for (const file of Array.from(input.files)) {
     try {
       const uploaded = await uploadFile(file)
+      newFileIds.push(uploaded.file_id)
+      fileNameMap.value[uploaded.file_id] = uploaded.filename
+      // Also add to attachments for session creation
       attachments.value.push(uploaded)
     } catch (err) {
       console.error('File upload failed:', err)
     }
   }
+  await updateProject({ file_ids: newFileIds })
 
   // Reset input so same file can be re-selected
   input.value = ''
+}
+
+async function removeFile(index: number) {
+  if (!project.value) return
+  const newFileIds = [...project.value.file_ids]
+  newFileIds.splice(index, 1)
+  await updateProject({ file_ids: newFileIds })
+}
+
+async function removeSkill(index: number) {
+  if (!project.value) return
+  const newSkillIds = [...project.value.skill_ids]
+  newSkillIds.splice(index, 1)
+  await updateProject({ skill_ids: newSkillIds })
+}
+
+async function handleSkillsSelected(skillIds: string[]) {
+  await updateProject({ skill_ids: skillIds })
+  showSkillsModal.value = false
 }
 
 function handleEditProject() {
@@ -276,7 +351,7 @@ async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
         message: message.value,
         thinking_mode: options.thinkingMode || 'auto',
         project_id: route.params.projectId,
-        skills: [],
+        skills: project.value?.skill_ids || [],
         files: attachments.value.map((file: FileInfo) => ({
           file_id: file.file_id,
           filename: file.filename,
@@ -532,6 +607,85 @@ async function handleSaveInstructions(instructions: string) {
 .sidebar-upload-btn:hover {
   background: var(--fill-tsp-gray-main);
   border-color: var(--border-hover, var(--border-main));
+}
+
+/* ── File & Skill lists in sidebar ── */
+.sidebar-file-list,
+.sidebar-skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.sidebar-file-item,
+.sidebar-skill-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sidebar-file-item:hover,
+.sidebar-skill-item:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.sidebar-file-name,
+.sidebar-skill-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+  flex-shrink: 0;
+}
+
+.sidebar-file-item:hover .sidebar-remove-btn,
+.sidebar-skill-item:hover .sidebar-remove-btn {
+  opacity: 1;
+}
+
+.sidebar-remove-btn:hover {
+  background: var(--fill-tsp-gray-main);
+  color: var(--text-error, #ef4444);
+}
+
+.sidebar-outline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-main);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sidebar-outline-btn:hover {
+  background: var(--fill-tsp-gray-main);
 }
 
 /* ── Connectors row ── */
