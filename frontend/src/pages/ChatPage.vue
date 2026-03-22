@@ -4727,17 +4727,12 @@ const handleFileListShow = () => {
 }
 
 .header-model-title-label {
-  font-size: 18px;
-  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
   white-space: nowrap;
   letter-spacing: -0.01em;
   color: #374151;
-}
-
-@media (max-width: 639px) {
-  .header-model-title-label {
-    font-size: 16px;
-  }
 }
 
 .header-model-title-icon {
