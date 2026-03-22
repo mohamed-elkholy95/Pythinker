@@ -1852,9 +1852,7 @@ class ExecutionAgent(BaseAgent):
             # internal context-compression markers and must never reach the UI.
             _placeholder_re = re.compile(r"\[Previously called \w+\]")
             if _placeholder_re.search(message_content):
-                logger.warning(
-                    "Report content contains orphaned tool-call placeholder — stripping"
-                )
+                logger.warning("Report content contains orphaned tool-call placeholder — stripping")
                 message_content = _placeholder_re.sub("", message_content).strip()
             if not message_content and self._pre_trim_report_cache:
                 logger.info(
