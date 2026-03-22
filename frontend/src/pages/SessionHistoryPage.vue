@@ -355,9 +355,6 @@ onBeforeUnmount(() => {
 .library-header {
   padding: 28px 40px 0;
   flex-shrink: 0;
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
 }
 
 .library-title {
@@ -569,9 +566,6 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   padding: 8px 40px 48px;
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
 }
 
 /* ── File sections ── */
