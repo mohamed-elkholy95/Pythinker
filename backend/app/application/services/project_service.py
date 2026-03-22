@@ -3,6 +3,7 @@
 import logging
 from datetime import UTC, datetime
 
+from app.domain.models.file import FileInfo
 from app.domain.models.project import Project, ProjectContext, ProjectStatus
 from app.infrastructure.repositories.mongo_project_repository import MongoProjectRepository
 
@@ -64,8 +65,24 @@ class ProjectService:
         project = await self._repo.get_by_id(project_id, user_id)
         if not project:
             return None
+
+        # Resolve file_ids to FileInfo objects
+        files: list[FileInfo] = []
+        if project.file_ids:
+            from app.application.services.file_service import get_file_service
+
+            file_service = get_file_service()
+            for fid in project.file_ids:
+                try:
+                    info = await file_service.get_file_info(fid, user_id)
+                    if info:
+                        files.append(info)
+                except Exception as e:
+                    logger.warning(f"Failed to resolve file {fid}: {e}")
+
         return ProjectContext(
             instructions=project.instructions,
+            files=files,
             connector_ids=project.connector_ids,
             skill_ids=project.skill_ids,
         )
