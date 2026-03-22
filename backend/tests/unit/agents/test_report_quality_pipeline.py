@@ -735,11 +735,11 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
-        """Hallucination findings downgrade (not block) on completed Telegram delivery.
+    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
+        """Critical hallucination ratio blocks delivery even when all steps completed.
 
-        Completed research should ALWAYS reach the user with a disclaimer.
-        Only structural failures (truncation, citation integrity) remain non-downgradable.
+        hallucination_ratio_critical is non-downgradable — it must block delivery
+        alongside other structural failures (truncation, citation integrity).
         """
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -777,9 +777,9 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        # Hallucination is now downgradable — completed research delivers with disclaimer
-        assert any(isinstance(event, ReportEvent) for event in events)
-        assert not any(isinstance(event, ErrorEvent) for event in events)
+        # hallucination_ratio_critical is non-downgradable — delivery is blocked
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_telegram_gate_failure_blocks_when_steps_incomplete(self):
