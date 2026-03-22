@@ -139,6 +139,7 @@ class Session(BaseModel):
     pending_action_status: PendingActionStatus | None = None
     # Workspace metadata (sanitized)
     project_name: str | None = None
+    project_id: str | None = None  # Link to parent project
     project_path: str | None = None
     template_id: str | None = None
     template_used: str | None = None
