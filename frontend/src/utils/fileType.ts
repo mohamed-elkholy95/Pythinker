@@ -1,5 +1,6 @@
 import { defineAsyncComponent, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
+import type { FileInfo } from '@/api/file';
 import {
   FileText,
   FileCode,
@@ -185,7 +186,7 @@ export const getFileIconColor = (filename: string): string => {
 /**
  * Check if a file is an interactive Plotly chart based on metadata (Phase 5)
  */
-export const isInteractiveChartFile = (metadata?: Record<string, any>): boolean => {
+export const isInteractiveChartFile = (metadata?: Record<string, unknown>): boolean => {
   if (!metadata) return false;
 
   // Only allow HTML files with explicit chart metadata
@@ -198,7 +199,7 @@ export const isInteractiveChartFile = (metadata?: Record<string, any>): boolean 
 /**
  * Check if a file is a chart PNG file based on metadata or filename
  */
-export const isChartPngFile = (filename: string, metadata?: Record<string, any>): boolean => {
+export const isChartPngFile = (filename: string, metadata?: Record<string, unknown>): boolean => {
   const ext = filename.split('.').pop()?.toLowerCase();
   if (ext !== 'png') return false;
 
@@ -216,12 +217,12 @@ export const isChartPngFile = (filename: string, metadata?: Record<string, any>)
 /**
  * Get the corresponding HTML chart file for a PNG chart file
  */
-export const getChartHtmlFile = (pngFile: any, allFiles: any[]): any | null => {
+export const getChartHtmlFile = (pngFile: FileInfo, allFiles: FileInfo[]): FileInfo | null => {
   if (!isChartPngFile(pngFile.filename, pngFile.metadata)) return null;
 
   // Find corresponding HTML file by replacing .png with .html
   const htmlFilename = pngFile.filename.replace(/\.png$/, '.html');
-  return allFiles.find(f => f.filename === htmlFilename && isInteractiveChartFile(f.metadata));
+  return allFiles.find(f => f.filename === htmlFilename && isInteractiveChartFile(f.metadata)) ?? null;
 };
 
 // Text files that should use TipTap editor
@@ -262,7 +263,7 @@ const archiveFileExtensions = [
   'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma',
 ];
 
-export const getFileType = (filename: string, metadata?: Record<string, any>): FileType => {
+export const getFileType = (filename: string, metadata?: Record<string, unknown>): FileType => {
   const file_extension = filename.split('.').pop()?.toLowerCase();
   const iconComponent = getFileIconComponent(filename);
 
@@ -319,7 +320,7 @@ export const getFileType = (filename: string, metadata?: Record<string, any>): F
  * @param metadata - Optional file metadata (for detecting interactive charts)
  * @returns Localized description of file type
  */
-export const getFileTypeText = (filename: string, metadata?: Record<string, any>): string => {
+export const getFileTypeText = (filename: string, metadata?: Record<string, unknown>): string => {
   const { t } = useI18n();
   const file_extension = filename.split('.').pop()?.toLowerCase();
 

@@ -17,17 +17,17 @@ export interface PlotlyChartOptions {
 }
 
 export interface PlotlyChartData {
-  data: any[] | null;
-  layout: any | null;
-  config: any;
+  data: Record<string, unknown>[] | null;
+  layout: Record<string, unknown> | null;
+  config: Record<string, unknown>;
   loading: boolean;
   error: string | null;
 }
 
 export function usePlotlyChart(options: PlotlyChartOptions = {}) {
   // Reactive state
-  const plotlyData = ref<any[] | null>(null);
-  const plotlyLayout = ref<any | null>(null);
+  const plotlyData = ref<Record<string, unknown>[] | null>(null);
+  const plotlyLayout = ref<Record<string, unknown> | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -123,24 +123,18 @@ export function usePlotlyChart(options: PlotlyChartOptions = {}) {
   const applyDarkModeTheme = () => {
     if (!plotlyLayout.value) return;
 
+    const layout = plotlyLayout.value;
+    const font = (typeof layout.font === 'object' && layout.font !== null) ? layout.font as Record<string, unknown> : {};
+    const xaxis = (typeof layout.xaxis === 'object' && layout.xaxis !== null) ? layout.xaxis as Record<string, unknown> : {};
+    const yaxis = (typeof layout.yaxis === 'object' && layout.yaxis !== null) ? layout.yaxis as Record<string, unknown> : {};
+
     plotlyLayout.value = {
-      ...plotlyLayout.value,
+      ...layout,
       paper_bgcolor: '#1a1a2e',
       plot_bgcolor: '#1a1a2e',
-      font: {
-        ...plotlyLayout.value.font,
-        color: '#e0e0e0',
-      },
-      xaxis: {
-        ...plotlyLayout.value.xaxis,
-        gridcolor: '#2a2a3e',
-        color: '#e0e0e0',
-      },
-      yaxis: {
-        ...plotlyLayout.value.yaxis,
-        gridcolor: '#2a2a3e',
-        color: '#e0e0e0',
-      },
+      font: { ...font, color: '#e0e0e0' },
+      xaxis: { ...xaxis, gridcolor: '#2a2a3e', color: '#e0e0e0' },
+      yaxis: { ...yaxis, gridcolor: '#2a2a3e', color: '#e0e0e0' },
     };
   };
 
@@ -150,24 +144,18 @@ export function usePlotlyChart(options: PlotlyChartOptions = {}) {
   const applyLightModeTheme = () => {
     if (!plotlyLayout.value) return;
 
+    const layout = plotlyLayout.value;
+    const font = (typeof layout.font === 'object' && layout.font !== null) ? layout.font as Record<string, unknown> : {};
+    const xaxis = (typeof layout.xaxis === 'object' && layout.xaxis !== null) ? layout.xaxis as Record<string, unknown> : {};
+    const yaxis = (typeof layout.yaxis === 'object' && layout.yaxis !== null) ? layout.yaxis as Record<string, unknown> : {};
+
     plotlyLayout.value = {
-      ...plotlyLayout.value,
+      ...layout,
       paper_bgcolor: '#ffffff',
       plot_bgcolor: '#ffffff',
-      font: {
-        ...plotlyLayout.value.font,
-        color: '#1a1a1a',
-      },
-      xaxis: {
-        ...plotlyLayout.value.xaxis,
-        gridcolor: '#e5e7eb',
-        color: '#1a1a1a',
-      },
-      yaxis: {
-        ...plotlyLayout.value.yaxis,
-        gridcolor: '#e5e7eb',
-        color: '#1a1a1a',
-      },
+      font: { ...font, color: '#1a1a1a' },
+      xaxis: { ...xaxis, gridcolor: '#e5e7eb', color: '#1a1a1a' },
+      yaxis: { ...yaxis, gridcolor: '#e5e7eb', color: '#1a1a1a' },
     };
   };
 

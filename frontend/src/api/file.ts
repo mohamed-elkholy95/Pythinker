@@ -11,7 +11,7 @@ export interface FileInfo {
   content_type?: string;
   size: number;
   upload_date: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   file_url?: string;
 }
 
@@ -41,7 +41,7 @@ export async function getAllLibraryFiles(): Promise<LibraryFileItem[]> {
  * @param metadata Optional metadata
  * @returns Upload result
  */
-export async function uploadFile(file: File, metadata?: Record<string, any>): Promise<FileInfo> {
+export async function uploadFile(file: File, metadata?: Record<string, unknown>): Promise<FileInfo> {
   const formData = new FormData();
   formData.append('file', file);
   

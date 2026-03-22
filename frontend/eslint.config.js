@@ -25,8 +25,8 @@ export default [
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_'
       }],
-      // Allow any type - common in Vue ecosystem
-      '@typescript-eslint/no-explicit-any': 'off',
+      // Warn on explicit any — migrate incrementally to proper types
+      '@typescript-eslint/no-explicit-any': 'warn',
       // Allow empty object types in certain contexts
       '@typescript-eslint/no-empty-object-type': 'off',
       // Vue specific
