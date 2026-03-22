@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -50,8 +52,53 @@ def setup_logging():
 setup_logging()
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: initialize Chrome on-demand lifecycle manager."""
+    from app.services.chrome_lifecycle import init_chrome_lifecycle
+
+    lifecycle = None
+    if settings.CHROME_ON_DEMAND:
+        import xmlrpc.client
+        from urllib.parse import quote
+
+        from app.services.supervisor import UnixStreamTransport
+
+        username = quote(settings.SUPERVISOR_RPC_USERNAME, safe="")
+        password = quote(settings.SUPERVISOR_RPC_PASSWORD, safe="")
+
+        rpc = xmlrpc.client.ServerProxy(
+            f"http://{username}:{password}@localhost",
+            transport=UnixStreamTransport("/tmp/supervisor.sock"),
+        )
+
+        lifecycle = init_chrome_lifecycle(
+            rpc,
+            idle_timeout=settings.CHROME_IDLE_TIMEOUT,
+            ready_timeout=settings.CHROME_READY_TIMEOUT,
+            idle_check_interval=settings.CHROME_IDLE_CHECK_INTERVAL,
+            cdp_port=settings.CHROME_CDP_PORT,
+        )
+        await lifecycle.sync_state_from_supervisor()
+        await lifecycle.start_idle_checker()
+        logger.info(
+            "Chrome on-demand lifecycle enabled (idle_timeout=%ds)",
+            settings.CHROME_IDLE_TIMEOUT,
+        )
+    else:
+        logger.info("Chrome on-demand disabled — Chrome is always-on")
+
+    yield
+
+    if lifecycle is not None:
+        await lifecycle.stop_idle_checker()
+        logger.info("Chrome lifecycle manager shut down")
+
+
 app = FastAPI(
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Set up CORS
@@ -133,8 +180,10 @@ async def get_sandbox_context():
 async def health_check(response: Response):
     """Health check endpoint for container orchestration.
 
-    Returns health status and basic service readiness checks.
+    When Chrome on-demand is enabled, an intentionally stopped Chrome is
+    reported as ``"on_demand_stopped"`` (healthy), not as a failure.
     """
+    from app.services.chrome_lifecycle import get_chrome_lifecycle
 
     async def _check_port(host: str, port: int) -> bool:
         try:
@@ -147,13 +196,26 @@ async def health_check(response: Response):
         except Exception:
             return False
 
-    checks = {
+    lifecycle = get_chrome_lifecycle()
+
+    checks: dict = {
         "api": True,
-        "cdp": await _check_port("127.0.0.1", 9222),
         "framework": await _check_port("127.0.0.1", 8082),
     }
 
-    if not all(checks.values()):
+    if lifecycle is not None:
+        # On-demand mode: Chrome being stopped is healthy
+        if lifecycle.is_running:
+            checks["cdp"] = await _check_port("127.0.0.1", 9222)
+        else:
+            checks["cdp"] = "on_demand_stopped"
+    else:
+        # Always-on mode: CDP must be responsive
+        checks["cdp"] = await _check_port("127.0.0.1", 9222)
+
+    # "on_demand_stopped" is healthy — only False is unhealthy
+    unhealthy = any(v is False for v in checks.values())
+    if unhealthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"status": "degraded", "service": "sandbox", "checks": checks}
 
