@@ -101,6 +101,11 @@ export function useLottie(options: LottieOptions): LottieState {
   const duration = ref(0)
   const reducedMotion = ref(prefersReducedMotion())
 
+  // Named listener callbacks for proper removal
+  let onDOMLoaded: (() => void) | null = null
+  let onEnterFrame: (() => void) | null = null
+  let onComplete: (() => void) | null = null
+
   // Media query listener for reduced motion
   let mediaQueryList: MediaQueryList | null = null
 
@@ -147,8 +152,8 @@ export function useLottie(options: LottieOptions): LottieState {
 
       animation.value = lottie.loadAnimation(config)
 
-      // Set up event listeners
-      animation.value.addEventListener('DOMLoaded', () => {
+      // Named listener callbacks (stored for removal in destroy())
+      onDOMLoaded = () => {
         isLoaded.value = true
         totalFrames.value = animation.value?.totalFrames ?? 0
         duration.value = animation.value?.getDuration() ?? 0
@@ -162,18 +167,23 @@ export function useLottie(options: LottieOptions): LottieState {
         if (respectReducedMotion && reducedMotion.value) {
           animation.value?.goToAndStop(0, true)
         }
-      })
+      }
 
-      animation.value.addEventListener('enterFrame', () => {
+      onEnterFrame = () => {
         currentFrame.value = animation.value?.currentFrame ?? 0
-      })
+      }
 
-      animation.value.addEventListener('complete', () => {
+      onComplete = () => {
         if (!loop) {
           isPlaying.value = false
           isPaused.value = true
         }
-      })
+      }
+
+      // Set up event listeners
+      animation.value.addEventListener('DOMLoaded', onDOMLoaded)
+      animation.value.addEventListener('enterFrame', onEnterFrame)
+      animation.value.addEventListener('complete', onComplete)
 
       // Update playing state
       isPlaying.value = autoplay && !(respectReducedMotion && reducedMotion.value)
@@ -235,8 +245,25 @@ export function useLottie(options: LottieOptions): LottieState {
 
   const destroy = () => {
     if (animation.value) {
+      // Remove event listeners before destroying to prevent leaks
+      if (onDOMLoaded) {
+        animation.value.removeEventListener('DOMLoaded', onDOMLoaded)
+      }
+      if (onEnterFrame) {
+        animation.value.removeEventListener('enterFrame', onEnterFrame)
+      }
+      if (onComplete) {
+        animation.value.removeEventListener('complete', onComplete)
+      }
+
       animation.value.destroy()
       animation.value = null
+
+      // Clear listener references to prevent stale closures
+      onDOMLoaded = null
+      onEnterFrame = null
+      onComplete = null
+
       isLoaded.value = false
       isPlaying.value = false
       isPaused.value = true
