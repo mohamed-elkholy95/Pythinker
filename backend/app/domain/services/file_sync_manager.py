@@ -660,6 +660,22 @@ class FileSyncManager:
         try:
             workspace_root = self._get_workspace_root()
 
+            # Check if workspace directory exists before running find.
+            # The sweep can fire before a session's workspace has been bootstrapped;
+            # running find on a non-existent dir triggers auto-creation in the sandbox
+            # shell service, which is wasteful and pollutes logs.
+            dir_check = await self._sandbox.exec_command(
+                "sweep_check", workspace_root, f"test -d {workspace_root} && echo exists"
+            )
+            dir_exists = (dir_check.data or {}).get("output", "").strip() == "exists"
+            if not dir_exists:
+                logger.debug(
+                    "Agent %s: Workspace %s does not exist yet, skipping sweep",
+                    self._agent_id,
+                    workspace_root,
+                )
+                return []
+
             prune_clauses = " -o ".join(f'-name "{d}"' for d in sorted(SKIP_DIRECTORIES))
             ext_clauses = " -o ".join(f'-name "*{ext}"' for ext in sorted(DELIVERABLE_EXTENSIONS))
             find_cmd = (
