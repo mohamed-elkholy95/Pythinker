@@ -120,8 +120,8 @@ function getStepNumberClass(status: string): string {
 
 <template>
   <div class="plan-presentation">
-    <!-- Header -->
-    <div class="plan-header">
+    <!-- Header (hidden during initial streaming placeholder) -->
+    <div v-if="parsedSteps.length > 0 || !isStreaming" class="plan-header">
       <div class="plan-title-row">
         <h2 class="plan-title">{{ planTitle }}</h2>
         <div v-if="totalSteps > 0" class="plan-badge">
