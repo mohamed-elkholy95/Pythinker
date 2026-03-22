@@ -571,6 +571,15 @@ onBeforeUnmount(() => {
   annotationLayer.unbind()
   if (_fitRetryTimer) clearTimeout(_fitRetryTimer)
   if (_resizeDebounce) clearTimeout(_resizeDebounce)
+
+  // Clear and destroy the Konva stage to prevent ghost frames during route transitions.
+  // Without this, the last rendered screencast frame (e.g. Chrome's Google new-tab page)
+  // remains painted on the canvas during the brief DOM teardown between route swaps.
+  const stage = stageRef.value?.getNode()
+  if (stage) {
+    stage.clear()
+    stage.destroy()
+  }
 })
 
 // ---------------------------------------------------------------------------

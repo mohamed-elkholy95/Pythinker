@@ -5,7 +5,11 @@
     <main id="main-content" class="flex-1 min-w-0 h-full py-0 pr-0 relative">
       <div class="flex h-full bg-[var(--background-gray-main)]">
         <div class="flex flex-1 min-w-0 min-h-0">
-          <router-view />
+          <router-view v-slot="{ Component }">
+            <transition name="page-fade" mode="out-in">
+              <component :is="Component" :key="$route.path" />
+            </transition>
+          </router-view>
           <FilePanel />
         </div>
       </div>
@@ -52,5 +56,17 @@ import SettingsDialog from '@/components/settings/SettingsDialog.vue';
   border-radius: 4px;
   text-decoration: none;
   font-size: 14px;
+}
+
+/* Route transition — fast opacity fade prevents screencast canvas ghost frames */
+.page-fade-enter-active {
+  transition: opacity 0.08s ease-in;
+}
+.page-fade-leave-active {
+  transition: opacity 0.05s ease-out;
+}
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
 }
 </style>
