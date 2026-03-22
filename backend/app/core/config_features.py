@@ -396,9 +396,12 @@ class FeatureFlagsSettingsMixin:
     # token-level probabilities.  Coarser but more interpretable, avoids the
     # false-positive problem where LettuceDetect flagged stylistic paraphrasing.
     # Industry standard: LLM Guard uses 0.30.  We use graduated response:
-    # >15% warn with disclaimer, >40% block and re-summarize.
+    # warn at 15% with disclaimer, block at 50% and re-summarize.
+    # Raised block from 0.40 to 0.50 after benchmark showed claim-level verifiers
+    # have 20-30% false-positive rates on paraphrased content.
+    # Env override: HALLUCINATION_WARN_THRESHOLD, HALLUCINATION_BLOCK_THRESHOLD
     hallucination_warn_threshold: float = 0.15  # 15% -> reliability notice appended
-    hallucination_block_threshold: float = 0.40  # 40% -> block delivery, re-summarize
+    hallucination_block_threshold: float = 0.50  # 50% -> block delivery, re-summarize
     hallucination_annotate_spans: bool = False  # Annotate flagged claims in output
     hallucination_grounding_context_size: int = 16000  # Chars of source context for grounding verifier
     hallucination_grounding_context_deep: int = 32000  # Expanded context for DEEP research
