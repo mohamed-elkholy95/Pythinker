@@ -26,6 +26,17 @@
           </div>
         </div>
         <div class="header-actions">
+          <!-- Edit Toggle -->
+          <button
+            class="action-btn"
+            :class="{ 'action-btn-active': isEditing }"
+            @click="toggleEditing"
+            :title="isEditing ? 'Done editing' : 'Edit report'"
+          >
+            <Check v-if="isEditing" class="w-5 h-5" />
+            <Pencil v-else class="w-5 h-5" />
+          </button>
+
           <!-- Share Button -->
           <button
             class="action-btn"
@@ -150,9 +161,11 @@
               <TiptapReportEditor
                 class="doc-body-tiptap"
                 :content="viewerContent"
+                :editable="isEditing"
                 :compact="false"
                 :embedded="true"
                 :sources="report?.sources"
+                @update:html="handleEditorUpdate"
               />
             </div>
           </div>
@@ -254,7 +267,9 @@ import {
   MoreHorizontal,
   Printer,
   FileDown,
-  FileType
+  FileType,
+  Pencil,
+  Check
 } from 'lucide-vue-next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -289,6 +304,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'share'): void;
   (e: 'suggestionAction'): void;
+  (e: 'contentUpdate', html: string): void;
 }>();
 
 const isOpen = defineModel<boolean>('open', { default: false });
@@ -303,6 +319,8 @@ const showTocSidebar = ref(false);
 const isDownloading = ref(false);
 const isFullscreen = ref(false);
 const isCopied = ref(false);
+const isEditing = ref(false);
+const pendingHtml = ref('');
 const DOWNLOAD_ACTION_COOLDOWN_MS = 800;
 const lastDownloadStartMs = ref(0);
 
@@ -510,6 +528,19 @@ const toggleFullscreen = () => {
   isFullscreen.value = !isFullscreen.value;
 };
 
+const toggleEditing = () => {
+  if (isEditing.value && pendingHtml.value) {
+    // Leaving edit mode — emit the updated HTML
+    emit('contentUpdate', pendingHtml.value);
+    pendingHtml.value = '';
+  }
+  isEditing.value = !isEditing.value;
+};
+
+const handleEditorUpdate = (html: string) => {
+  pendingHtml.value = html;
+};
+
 const handleSuggestionAction = () => {
   emit('suggestionAction');
 };
@@ -707,6 +738,12 @@ watch(() => props.report?.content, () => {
 // Watch for open state
 watch(isOpen, (newVal) => {
   if (!newVal) {
+    // Save any pending edits before closing
+    if (isEditing.value && pendingHtml.value) {
+      emit('contentUpdate', pendingHtml.value);
+    }
+    isEditing.value = false;
+    pendingHtml.value = '';
     emit('close');
     showTocSidebar.value = false;
   }
@@ -785,6 +822,17 @@ watch(isOpen, (newVal) => {
 .action-btn:hover {
   background: var(--fill-tsp-gray-main);
   color: var(--icon-secondary);
+}
+
+.action-btn-active {
+  background: var(--bolt-elements-item-contentAccent, #22c55e);
+  color: white;
+}
+
+.action-btn-active:hover {
+  background: var(--bolt-elements-item-contentAccent, #22c55e);
+  color: white;
+  opacity: 0.9;
 }
 
 .dropdown-item {

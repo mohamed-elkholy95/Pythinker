@@ -76,6 +76,7 @@ const props = defineProps<{
 
 const _emit = defineEmits<{
   (e: 'scroll', event: Event): void;
+  (e: 'update:html', html: string): void;
 }>();
 
 const contentRef = ref<HTMLElement | null>(null);
@@ -475,7 +476,12 @@ const editor = useEditor({
     },
   },
   onCreate: () => { nextTick(postRenderEnhance); },
-  onUpdate: () => { nextTick(postRenderEnhance); },
+  onUpdate: ({ editor: ed }) => {
+    nextTick(postRenderEnhance);
+    if (props.editable) {
+      _emit('update:html', ed.getHTML());
+    }
+  },
 });
 
 // Watch for content changes - convert markdown to HTML
