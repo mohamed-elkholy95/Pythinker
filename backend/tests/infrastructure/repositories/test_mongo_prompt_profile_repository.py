@@ -68,10 +68,10 @@ def _make_run(
 
 @pytest.fixture(autouse=True)
 def _patch_beanie_collection():
-    """Patch Beanie's get_pymongo_collection to avoid CollectionWasNotInitialized."""
+    """Patch Beanie's get_motor_collection to avoid CollectionWasNotInitialized."""
     mock_collection = MagicMock()
     with patch(
-        "beanie.odm.documents.Document.get_pymongo_collection",
+        "beanie.odm.documents.Document.get_motor_collection",
         return_value=mock_collection,
     ):
         yield

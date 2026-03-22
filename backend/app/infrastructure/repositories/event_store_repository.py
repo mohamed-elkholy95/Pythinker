@@ -275,7 +275,7 @@ class EventStoreRepository:
         """
         from app.core.prometheus_metrics import event_store_archived_total
 
-        source = AgentEventDocument.get_pymongo_collection()
+        source = AgentEventDocument.get_motor_collection()
         db = source.database
         archive = db["agent_events_archive"]
 
