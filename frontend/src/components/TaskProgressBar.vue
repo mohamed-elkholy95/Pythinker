@@ -1289,4 +1289,58 @@ onUnmounted(() => {
 .flip-board-move {
   transition: none;
 }
+
+/* ── Mobile overrides ── */
+@media (max-width: 479px) {
+  .live-preview-thumbnail-floating {
+    display: none;
+  }
+  .progress-bar-collapsed.has-thumbnail {
+    padding-left: 16px;
+  }
+}
+
+@media (max-width: 639px) {
+  .expanded-header .flex.items-start {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .expanded-header .flex.items-center.gap-1.flex-shrink-0 {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+  }
+  .expanded-header {
+    position: relative;
+    padding: 14px 16px;
+  }
+  .action-btn {
+    padding: 10px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .expand-btn {
+    padding: 10px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .task-description {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .progress-bar-expanded {
+    max-height: 80vh;
+    border-radius: 12px 12px 0 0;
+  }
+  .task-list {
+    max-height: 55vh;
+  }
+  .collapsed-task-text {
+    font-size: 13px;
+  }
+  .timer-section {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
 </style>
