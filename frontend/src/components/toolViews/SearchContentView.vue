@@ -252,19 +252,20 @@ function handleResultClick(result: SearchResult) {
 
 .result-title {
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.35;
-  letter-spacing: -0.008em;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .result-snippet {
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--text-tertiary);
+  font-size: 14px;
   font-weight: 400;
-  line-height: 1.45;
-  margin: 2px 0 0;
+  line-height: 1.5;
+  margin: 4px 0 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
