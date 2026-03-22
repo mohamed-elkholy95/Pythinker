@@ -1904,6 +1904,15 @@ async def create_sandbox_signed_url(
     if not session:
         raise NotFoundError("Session not found")
 
+    # Reject signed-URL requests for sessions in terminal states — the
+    # screencast/sandbox is no longer available after completion or failure.
+    terminal_statuses = {"completed", "failed", "cancelled"}
+    if session.status in terminal_statuses:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session is {session.status} — screencast no longer available",
+        )
+
     ws_base_url = f"/api/v1/sessions/{session_id}/{target}"
     if target == "screencast":
         ws_base_url = f"{ws_base_url}?quality={quality}&max_fps={max_fps}"
@@ -1972,6 +1981,17 @@ async def screencast_websocket(
 
         if not session or not session.sandbox_id:
             await websocket.close(code=1008, reason="Session or sandbox not found")
+            return
+
+        # Reject screencast connections for sessions in terminal states —
+        # the sandbox is torn down after completion/failure, so streaming
+        # would just produce immediate disconnects and waste resources.
+        ws_terminal_statuses = {"completed", "failed", "cancelled"}
+        if session.status in ws_terminal_statuses:
+            await websocket.close(
+                code=1008,
+                reason=f"Session {session.status} — screencast unavailable",
+            )
             return
 
         sandbox = await sandbox_cls.get(session.sandbox_id)
