@@ -68,11 +68,18 @@ def _make_run(
 
 @pytest.fixture(autouse=True)
 def _patch_beanie_collection():
-    """Patch Beanie's get_motor_collection to avoid CollectionWasNotInitialized."""
+    """Patch Beanie's collection getters to avoid CollectionWasNotInitialized."""
+    from app.infrastructure.models.prompt_optimization_documents import (
+        OptimizationRunDocument,
+        PromptProfileDocument,
+    )
+
     mock_collection = MagicMock()
-    with patch(
-        "beanie.odm.documents.Document.get_motor_collection",
-        return_value=mock_collection,
+    with (
+        patch.object(PromptProfileDocument, "get_motor_collection", create=True, return_value=mock_collection),
+        patch.object(PromptProfileDocument, "get_pymongo_collection", create=True, return_value=mock_collection),
+        patch.object(OptimizationRunDocument, "get_motor_collection", create=True, return_value=mock_collection),
+        patch.object(OptimizationRunDocument, "get_pymongo_collection", create=True, return_value=mock_collection),
     ):
         yield
 

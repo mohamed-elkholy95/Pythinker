@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.infrastructure.repositories.event_store_repository import EventStoreRepository
+from app.infrastructure.repositories.event_store_repository import AgentEventDocument, EventStoreRepository
 
 
 @pytest.fixture
@@ -41,8 +41,10 @@ class TestArchiveEventsBefore:
         mock_source.delete_many = AsyncMock(return_value=mock_delete_result)
         mock_archive.insert_many = AsyncMock()
 
-        with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
+        with patch.object(
+            AgentEventDocument,
+            "get_motor_collection",
+            create=True,
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff)
@@ -63,8 +65,10 @@ class TestArchiveEventsBefore:
         mock_cursor.to_list = AsyncMock(return_value=[])
         mock_source.find.return_value.sort.return_value.limit.return_value = mock_cursor
 
-        with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
+        with patch.object(
+            AgentEventDocument,
+            "get_motor_collection",
+            create=True,
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff)
@@ -107,8 +111,10 @@ class TestArchiveEventsBefore:
         mock_source.delete_many = AsyncMock(side_effect=[mock_delete_result, mock_delete_result2])
         mock_archive.insert_many = AsyncMock()
 
-        with patch(
-            "app.infrastructure.repositories.event_store_repository.AgentEventDocument.get_motor_collection",
+        with patch.object(
+            AgentEventDocument,
+            "get_motor_collection",
+            create=True,
             return_value=mock_source,
         ):
             archived = await repo.archive_events_before(cutoff, batch_size=5)
