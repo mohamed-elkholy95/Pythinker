@@ -234,10 +234,25 @@ let isTabVisible = true
 // racing and opening duplicate WebSocket connections to the sandbox.
 let _isConnecting = false
 
-// Debounce timer for sessionId-triggered reconnects — prevents rapid
-// disconnect/reconnect churn when sessions change in quick succession.
+// Unified debounce timer for ALL initConnection triggers — prevents rapid
+// disconnect/reconnect churn from sessionId changes, enabled prop toggles,
+// visibility restores, or any other source of rapid-fire reconnections.
 let _initDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const INIT_DEBOUNCE_MS = 300
+
+/**
+ * Debounced wrapper around initConnection(). All code paths that want to
+ * (re)connect the screencast WebSocket MUST call this instead of
+ * initConnection() directly, so that rapid-fire triggers coalesce into a
+ * single connection attempt.
+ */
+function debouncedInitConnection(): void {
+  if (_initDebounceTimer) clearTimeout(_initDebounceTimer)
+  _initDebounceTimer = setTimeout(() => {
+    _initDebounceTimer = null
+    initConnection()
+  }, INIT_DEBOUNCE_MS)
+}
 
 // Fetch screencast URL (proxied through backend) and connect
 async function initConnection(): Promise<void> {
@@ -401,7 +416,8 @@ async function connect(): Promise<void> {
         reconnectTimeout = window.setTimeout(() => {
           // Refresh signed URL for each reconnect attempt to avoid stale links.
           screencastWsUrl.value = null
-          initConnection()
+          reconnectTimeout = null
+          debouncedInitConnection()
         }, delay)
       } else {
         emit('error', closeReason)
@@ -448,7 +464,7 @@ function disconnect(): void {
 function reconnect(): void {
   connectionAttempts = 0
   error.value = null
-  initConnection()
+  debouncedInitConnection()
 }
 
 function handleError(msg: string): void {
@@ -565,9 +581,9 @@ function handleVisibilityChange(): void {
   if (isTabVisible) {
     // Tab became visible — check if we need to reconnect
     if (props.enabled && !ws && !reconnectTimeout) {
-      // Connection was lost while tab was hidden, reconnect now
+      // Connection was lost while tab was hidden, reconnect via debounce
       connectionAttempts = 0
-      initConnection()
+      debouncedInitConnection()
     } else if (ws && ws.readyState === WebSocket.OPEN) {
       // Connection still alive — reset watchdog baseline
       lastMessageReceivedAt = Date.now()
@@ -614,7 +630,7 @@ watch(
     if (enabled) {
       // Don't reconnect if session is already complete
       if (!props.isSessionComplete) {
-        initConnection()
+        debouncedInitConnection()
       }
     } else {
       disconnect()
@@ -653,13 +669,7 @@ watch(
 
     if (props.enabled) {
       disconnect()
-      // Debounce the reconnect so rapid sessionId changes (e.g. session churn)
-      // coalesce into a single connection attempt.
-      if (_initDebounceTimer) clearTimeout(_initDebounceTimer)
-      _initDebounceTimer = setTimeout(() => {
-        _initDebounceTimer = null
-        initConnection()
-      }, INIT_DEBOUNCE_MS)
+      debouncedInitConnection()
     }
   }
 )
@@ -678,7 +688,7 @@ onMounted(() => {
   }
 
   if (props.enabled) {
-    initConnection()
+    debouncedInitConnection()
   }
 })
 
