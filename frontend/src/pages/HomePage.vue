@@ -18,7 +18,7 @@
               @click="toggleLeftPanel"
               aria-label="Open sidebar"
             >
-              <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" style="aspect-ratio: 1 / 1;" />
+              <img src="/logo.png" alt="Pythinker" width="20" height="25" class="h-6 w-auto object-contain" />
             </button>
             <!-- Desktop branding (visible when sidebar is collapsed) -->
             <PythinkerLogoTextIcon
