@@ -1,0 +1,3 @@
+# Ephemeral Codex session artifacts
+session/*
+!session/.gitkeep

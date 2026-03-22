@@ -10,6 +10,7 @@ alwaysApply: false
 - Always `conda activate pythinker` before running tests or tools.
 - Lint: `ruff check . && ruff format --check .` before every commit.
 - Tests: `pytest tests/` (or `pytest -p no:cov -o addopts= tests/test_file.py` for single file).
+- Follow `AGENTS.md` and `.codex/README.md` when repo-law and workflow guidance are relevant.
 
 ## Pydantic v2
 ```python
