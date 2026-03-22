@@ -20,7 +20,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-CHROME_PROCESS_NAME = "chrome_cdp_only"
+# Supervisord group-qualified process name.
+# Processes inside a [group:services] block require the "services:" prefix
+# for XML-RPC startProcess/stopProcess calls.
+CHROME_PROCESS_NAME = "services:chrome_cdp_only"
 
 
 class ChromeState(enum.StrEnum):
