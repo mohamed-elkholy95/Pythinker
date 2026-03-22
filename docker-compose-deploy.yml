@@ -251,21 +251,49 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
+  # MongoDB Keyfile Init — Generate auth keyfile for replica set (one-shot)
+  # ---------------------------------------------------------------------------
+  mongodb-keyfile-init:
+    image: mongo:7.0.28
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        if [ ! -f /mongo-keyfile/keyfile ]; then
+          openssl rand -base64 756 > /mongo-keyfile/keyfile
+          echo "MongoDB keyfile created"
+        else
+          echo "MongoDB keyfile already exists"
+        fi
+        chmod 400 /mongo-keyfile/keyfile
+        chown 999:999 /mongo-keyfile/keyfile
+    volumes:
+      - mongodb_keyfile:/mongo-keyfile
+    networks:
+      - pythinker-internal
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
   # MongoDB — Single-Node Replica Set (for oplog/change streams)
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0.28
     hostname: pythinker-mongodb
     restart: always
+    depends_on:
+      mongodb-keyfile-init:
+        condition: service_completed_successfully
     command:
       - mongod
       - --replSet=rs0
+      - --keyFile=/mongo-keyfile/keyfile
       - --wiredTigerCacheSizeGB=${MONGO_CACHE_SIZE_GB:-1}
       - --setParameter=diagnosticDataCollectionEnabled=false
       - --setParameter=cursorTimeoutMillis=600000
       - --setParameter=maxIndexBuildMemoryUsageMegabytes=200
     volumes:
       - mongodb_data:/data/db
+      - mongodb_keyfile:/mongo-keyfile:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
@@ -454,6 +482,8 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  mongodb_keyfile:
+    name: pythinker-mongodb-keyfile
   redis_data:
     name: pythinker-redis-data
   qdrant_data:
