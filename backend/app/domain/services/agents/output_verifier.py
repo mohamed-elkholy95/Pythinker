@@ -426,6 +426,54 @@ class OutputVerifier:
 
         return should_verify
 
+    # ── Hallucination Rewrite ─────────────────────────────────────────
+
+    async def _rewrite_without_unsupported_claims(
+        self,
+        content: str,
+        flagged_claims: list[Any],
+    ) -> str | None:
+        """Ask the LLM to rewrite *content* with unsupported claims removed.
+
+        Returns the rewritten text, or ``None`` if the rewrite fails so the
+        caller can fall back to the original content + disclaimer.
+        """
+        if not flagged_claims:
+            return None
+
+        claims_list = "\n".join(f"- {getattr(c, 'claim_text', str(c))}" for c in flagged_claims)
+
+        rewrite_prompt = (
+            "The following response contains factual claims that could NOT be "
+            "verified against available sources. Rewrite the response so that "
+            "every unsupported claim listed below is either **removed entirely** "
+            "or **replaced with a hedged statement** (e.g. 'reportedly', "
+            "'according to unverified sources'). Do NOT invent new facts. "
+            "Preserve the overall structure, tone, and all verified information.\n\n"
+            f"## Unsupported claims to remove or hedge\n{claims_list}\n\n"
+            f"## Original response\n{content}\n\n"
+            "Return ONLY the rewritten response with no preamble or explanation."
+        )
+
+        try:
+            result = await self._llm.ask(
+                messages=[{"role": "user", "content": rewrite_prompt}],
+                temperature=0.2,
+            )
+            rewritten = (result.content or "").strip()
+            # Sanity: rewritten text must be substantial (>30% of original)
+            if len(rewritten) > len(content) * 0.3:
+                return rewritten
+            logger.warning(
+                "Hallucination rewrite too short (%d vs %d chars); keeping original",
+                len(rewritten),
+                len(content),
+            )
+            return None
+        except Exception:
+            logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)
+            return None
+
     # ── Hallucination Verification (Primary Entry Point) ───────────────
 
     async def apply_hallucination_verification(self, content: str, query: str) -> str:
@@ -530,12 +578,22 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >block_threshold: blocking issue + disclaimer
+                    # - >block_threshold: rewrite unsupported claims + disclaimer
                     # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
                     _block_threshold = settings.hallucination_block_threshold
                     _warn_threshold = settings.hallucination_warn_threshold
                     if grounding_result.hallucination_score > _block_threshold:
+                        # Attempt to rewrite the content with flagged claims removed
+                        rewritten = await self._rewrite_without_unsupported_claims(
+                            content, grounding_result.flagged_claims
+                        )
+                        if rewritten:
+                            logger.info(
+                                "LLM grounding: rewrote content to remove %d unsupported claim(s)",
+                                len(grounding_result.flagged_claims),
+                            )
+                            content = rewritten
                         disclaimer = (
                             "\n\n> **Note:** Some information in this response "
                             "could not be fully verified against available sources."
