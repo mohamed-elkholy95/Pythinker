@@ -826,6 +826,12 @@ class ResponseGenerator:
         if not content:
             return True
 
+        # Detect orphaned tool-call conversion artifacts that leaked into the
+        # summarization output.  These are internal fixup markers from
+        # _validate_and_fix_messages() and must never appear in user-facing content.
+        if re.search(r"\[Previously called \w+\]", content):
+            return True
+
         # Depth-aware minimum lengths
         depth_min_chars: dict[str, int] = {
             "QUICK": 300,
