@@ -14,7 +14,7 @@ describe('PlanningCard', () => {
     })
 
     expect(wrapper.text()).toContain('Agent is thinking')
-    expect(wrapper.text()).toContain('Building an execution plan')
+    // When a non-empty message is provided, it replaces the phase description
     expect(wrapper.text()).toContain('Collecting trusted sources and organizing plan steps.')
   })
 
@@ -55,13 +55,23 @@ describe('PlanningCard', () => {
   })
 
   it('renders verifying phase with correct description', () => {
+    // With a non-empty message, the message is shown instead of phase description
     const wrapper = mount(PlanningCard, {
       props: {
         phase: 'verifying' as PlanningPhase,
         message: 'Checking plan quality...',
       },
     })
-    expect(wrapper.text()).toContain('Verifying plan quality')
+    expect(wrapper.text()).toContain('Checking plan quality...')
+
+    // With empty message, phase description is used as fallback
+    const fallbackWrapper = mount(PlanningCard, {
+      props: {
+        phase: 'verifying' as PlanningPhase,
+        message: '  ',
+      },
+    })
+    expect(fallbackWrapper.text()).toContain('Verifying plan quality')
   })
 
   it('renders executing_setup phase', () => {
@@ -71,7 +81,16 @@ describe('PlanningCard', () => {
         message: 'Preparing to execute...',
       },
     })
-    expect(wrapper.text()).toContain('Starting execution')
+    expect(wrapper.text()).toContain('Preparing to execute...')
+
+    // With empty message, phase description is used as fallback
+    const fallbackWrapper = mount(PlanningCard, {
+      props: {
+        phase: 'executing_setup' as PlanningPhase,
+        message: '',
+      },
+    })
+    expect(fallbackWrapper.text()).toContain('Starting execution')
   })
 
   it('renders a custom title for plan-ready handoff state', () => {
