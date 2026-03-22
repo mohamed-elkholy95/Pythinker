@@ -1,40 +1,40 @@
 # AgentSkills standard (Anthropic open standard for portable skill packaging)
-skills-ref>=0.1.0
+skills-ref>=0.1.0,<1.0.0
 
 # Build tooling compatibility for transient sdist metadata generation.
 # setuptools>=82 can break transitive legacy `pkg_resources` import paths.
 setuptools<83
 
 # Core web framework
-fastapi[standard]>=0.115.0
-uvicorn>=0.32.0
+fastapi[standard]>=0.115.0,<1.0.0
+uvicorn>=0.32.0,<1.0.0
 
 # LLM providers (let browser-use control openai version)
-openai>=2.7.2
-instructor>=1.14.5
+openai>=2.7.0,<3.0.0
+instructor>=1.14.5,<2.0.0
 
 # Data validation
-pydantic>=2.9.0
-pydantic-settings>=2.6.0
+pydantic>=2.9.0,<3.0.0
+pydantic-settings>=2.6.0,<3.0.0
 
 # Configuration
-python-dotenv>=1.0.0
+python-dotenv>=1.0.0,<2.0.0
 
 # Async/SSE (let browser-use control httpx version)
-sse-starlette>=2.1.0
-httpx>=0.28.1
+sse-starlette>=2.1.0,<3.0.0
+httpx>=0.28.1,<1.0.0
 
 # HTTP and encoding dependencies with pinned versions for E2E reliability
 # >=2.6.3 fixes CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 (decompression bomb + unbounded chain)
-urllib3>=2.6.3
+urllib3>=2.6.3,<3.0.0
 charset-normalizer>=3.0,<3.4
 
 # Utilities (let browser-use control rich and markdownify)
-tenacity>=8.2.0
-rich>=14.0.0
-markdownify>=1.2.0
-rapidfuzz>=3.9.0
-reportlab>=4.2.0  # Telegram PDF delivery generation engine
+tenacity>=8.2.0,<9.0.0
+rich>=14.0.0,<15.0.0
+markdownify>=1.2.0,<2.0.0
+rapidfuzz>=3.9.0,<4.0.0
+reportlab>=4.2.0,<5.0.0  # Telegram PDF delivery generation engine
 # Keep html5lib on wheel-backed modern release to avoid legacy build path
 # that imports pkg_resources in pip-audit's ephemeral resolver environment.
 html5lib==1.1
@@ -43,75 +43,75 @@ html5lib==1.1
 symspellpy==6.9.0
 
 # Browser automation
-playwright>=1.48.0
-browser-use>=0.11.0
+playwright>=1.48.0,<2.0.0
+browser-use>=0.11.0,<1.0.0
 # Security overrides for browser-use transitive deps
-authlib>=1.6.9     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
-pypdf>=6.9.1       # CVE-2026-27026 through CVE-2026-33123 (9 CVEs)
+authlib>=1.6.9,<2.0.0     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
+pypdf>=6.9.1,<7.0.0       # CVE-2026-27026 through CVE-2026-33123 (9 CVEs)
 
 # Web scraping with TLS fingerprinting and stealth capabilities
 # [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)
-scrapling[fetchers]>=0.4
+scrapling[fetchers]>=0.4,<1.0.0
 
 # Docker SDK
-docker>=7.1.0
+docker>=7.1.0,<8.0.0
 
 # WebSockets
-websockets>=13.1
+websockets>=13.1,<14.0.0
 
 # Database clients
-motor>=3.6.0
-pymongo>=4.10.0
-beanie>=1.27.0
-redis>=5.2.0
-qdrant-client>=1.12.0
+motor>=3.6.0,<4.0.0
+pymongo>=4.10.0,<5.0.0
+beanie>=1.27.0,<2.0.0
+redis>=5.2.0,<6.0.0
+qdrant-client>=1.12.0,<2.0.0
 
 # Object storage
-minio>=7.2.0
+minio>=7.2.0,<8.0.0
 
 # Image processing (screenshot deduplication & WebP thumbnails)
-Pillow>=12.1.1
-imagehash>=4.3.1
+Pillow>=12.1.1,<13.0.0
+imagehash>=4.3.1,<5.0.0
 
 # Caching
-async-lru>=2.0.0
+async-lru>=2.0.0,<3.0.0
 
 # Search & Retrieval
-rank-bm25>=0.2.2
-numpy>=1.24.0  # Required for MMR diversification
+rank-bm25>=0.2.2,<1.0.0
+numpy>=1.24.0,<3.0.0  # Required for MMR diversification
 
 # Hallucination detection handled by LLM-as-Judge (llm_grounding_verifier.py)
 
 # Deal Scraper: RSS feed parsing + structured data extraction
-feedparser>=6.0
-extruct>=0.17
+feedparser>=6.0,<7.0.0
+extruct>=0.17,<1.0.0
 
 # File uploads
-python-multipart>=0.0.12
+python-multipart>=0.0.12,<1.0.0
 
 # MCP protocol
-mcp>=1.9.0
+mcp>=1.9.0,<2.0.0
 
 # Security
-pyjwt[crypto]>=2.9.0
-cryptography>=43.0.0
+pyjwt[crypto]>=2.9.0,<3.0.0
+cryptography>=43.0.0,<44.0.0
 
 # Token counting
-tiktoken>=0.8.0
+tiktoken>=0.8.0,<1.0.0
 
 # TOTP authentication
-pyotp>=2.9.0
+pyotp>=2.9.0,<3.0.0
 
 # Observability
-prometheus_client>=0.21.0
-structlog>=24.4.0
+prometheus_client>=0.21.0,<1.0.0
+structlog>=24.4.0,<25.0.0
 
 # OpenTelemetry distributed tracing (optional — graceful no-op when not installed)
-opentelemetry-api>=1.29.0
-opentelemetry-sdk>=1.29.0
-opentelemetry-exporter-otlp-proto-grpc>=1.29.0
-opentelemetry-instrumentation-httpx>=0.50b0
-opentelemetry-instrumentation-fastapi>=0.50b0
+opentelemetry-api>=1.29.0,<2.0.0
+opentelemetry-sdk>=1.29.0,<2.0.0
+opentelemetry-exporter-otlp-proto-grpc>=1.29.0,<2.0.0
+opentelemetry-instrumentation-httpx>=0.50b0,<1.0.0
+opentelemetry-instrumentation-fastapi>=0.50b0,<1.0.0
 
 # Knowledge Base (RAG-Anything) — REMOVED from default image.
 # raganything pulls torch (1.7GB), nvidia CUDA (4.3GB), triton (640MB),
@@ -121,7 +121,7 @@ opentelemetry-instrumentation-fastapi>=0.50b0
 
 # Prompt optimization pipeline (Thompson sampling + MIPROv2)
 # Enable with FEATURE_PROMPT_OPTIMIZATION_PIPELINE=true
-dspy>=2.6.0
+dspy>=2.6.0,<3.0.0
 
 # ---------------------------------------------------------------------------
 # Nanobot integration dependencies
