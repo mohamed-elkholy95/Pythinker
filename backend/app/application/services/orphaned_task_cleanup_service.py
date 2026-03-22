@@ -235,15 +235,127 @@ class OrphanedTaskCleanupService:
 
     async def _cleanup_stale_cancel_events(self, metrics: CleanupMetrics) -> None:
         """
-        Clean up stale cancel events in agent_service._session_cancel_events.
+        Clean up sessions stuck in a cancelled-but-incomplete state.
 
-        Note: This requires access to the AgentService instance, which may
-        not be available in a background cleanup task. This is a placeholder
-        for when service lifecycle management is improved.
+        Finds sessions that were cancelled (status=CANCELLED) but have no
+        corresponding completion or failure event, and the cancel happened
+        longer ago than the stale threshold. These are marked as FAILED
+        to prevent them from lingering indefinitely.
+
+        Also cleans up stale Redis cancel signal keys (session:cancel:*)
+        that were never consumed.
         """
-        # TODO: Implement when service registry is available
-        # For now, cancel events are cleaned up on session completion
-        logger.debug("Stale cancel event cleanup - not yet implemented (requires service registry)")
+        try:
+            from app.domain.models.session import SessionStatus
+            from app.infrastructure.repositories.mongo_session_repository import (
+                MongoSessionRepository,
+            )
+
+            repo = MongoSessionRepository()
+
+            # Use a 30-minute threshold (configurable via stale_cancel_event_age_seconds)
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=self.stale_cancel_event_age_seconds)
+
+            # Find sessions that are still RUNNING/INITIALIZING but have a cancel
+            # signal older than the threshold — these were never properly stopped.
+            stale_candidates = await repo.collection.find(
+                {
+                    "status": {"$in": [SessionStatus.RUNNING.value, SessionStatus.INITIALIZING.value]},
+                    "updated_at": {"$lt": cutoff_time},
+                }
+            ).to_list(length=100)
+
+            for session_doc in stale_candidates:
+                session_id = str(session_doc["_id"])
+
+                # Check if a cancel was signalled via Redis
+                cancel_key = f"session:cancel:{session_id}"
+                try:
+                    cancel_exists = await self.redis.exists(cancel_key)
+                except Exception:
+                    cancel_exists = False
+
+                if not cancel_exists:
+                    # No cancel signal — this is handled by zombie session cleanup
+                    continue
+
+                # Session has a cancel signal but is still RUNNING — mark as failed
+                try:
+                    await repo.collection.update_one(
+                        {"_id": session_doc["_id"]},
+                        {
+                            "$set": {
+                                "status": SessionStatus.FAILED.value,
+                                "error": "Session cancelled but never completed (stale cancel event cleanup)",
+                                "updated_at": datetime.now(UTC),
+                            }
+                        },
+                    )
+                    # Clean up the Redis cancel key
+                    await self.redis.delete(cancel_key)
+                    metrics.stale_cancel_events += 1
+                    logger.warning(
+                        "Cleaned stale cancel event for session",
+                        session_id=session_id,
+                        last_updated=session_doc.get("updated_at"),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to clean stale cancel event",
+                        session_id=session_id,
+                        error=str(e),
+                    )
+                    metrics.errors_encountered += 1
+
+            # Also clean up orphaned Redis cancel keys that have no matching session
+            try:
+                cursor = 0
+                while True:
+                    cursor, keys = await self.redis.scan(cursor=cursor, match="session:cancel:*", count=100)
+                    for key in keys:
+                        key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+                        # Extract session_id from key
+                        cancel_session_id = key_str.removeprefix("session:cancel:")
+                        try:
+                            # Check if session exists at all
+                            session_exists = await repo.collection.find_one(
+                                {"_id": cancel_session_id},
+                                {"_id": 1},
+                            )
+                            if not session_exists:
+                                # Try as ObjectId
+                                import contextlib
+
+                                from bson import ObjectId
+
+                                with contextlib.suppress(Exception):
+                                    session_exists = await repo.collection.find_one(
+                                        {"_id": ObjectId(cancel_session_id)},
+                                        {"_id": 1},
+                                    )
+
+                            if not session_exists:
+                                await self.redis.delete(key_str)
+                                metrics.stale_cancel_events += 1
+                                logger.debug(
+                                    "Deleted orphaned cancel key (no matching session)",
+                                    key=key_str,
+                                )
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to check/delete cancel key",
+                                key=key_str,
+                                error=str(e),
+                            )
+
+                    if cursor == 0:
+                        break
+            except Exception as e:
+                logger.warning("Redis cancel key scan failed", error=str(e))
+
+        except Exception as e:
+            logger.error("Stale cancel event cleanup failed", error=str(e), exc_info=True)
+            metrics.errors_encountered += 1
 
     async def _cleanup_zombie_sessions(self, metrics: CleanupMetrics) -> None:
         """
@@ -322,6 +434,72 @@ class OrphanedTaskCleanupService:
             logger.error("Zombie session cleanup failed", error=str(e), exc_info=True)
             metrics.errors_encountered += 1
 
+    async def _is_sandbox_orphaned(self, container_name: str) -> bool:
+        """
+        Check if a sandbox container has no matching active session.
+
+        Cross-references the container name against MongoDB sessions to determine
+        if the sandbox is orphaned (no active session references it).
+
+        Args:
+            container_name: Docker container name (e.g., pythinker-sandbox-abc123)
+
+        Returns:
+            True if no active session references this sandbox, False otherwise
+        """
+        try:
+            from app.domain.models.session import SessionStatus
+            from app.infrastructure.repositories.mongo_session_repository import (
+                MongoSessionRepository,
+            )
+
+            repo = MongoSessionRepository()
+
+            # Active statuses that would legitimately own a sandbox
+            active_statuses = [
+                SessionStatus.RUNNING.value,
+                SessionStatus.PENDING.value,
+                SessionStatus.INITIALIZING.value,
+                SessionStatus.WAITING.value,
+            ]
+
+            # Check if any active session references this container name as sandbox_id
+            matching_session = await repo.collection.find_one(
+                {
+                    "sandbox_id": container_name,
+                    "status": {"$in": active_statuses},
+                }
+            )
+
+            if matching_session:
+                return False
+
+            # Also check by partial match — sandbox_id might be stored as just
+            # the ID portion (without the pythinker-sandbox- prefix)
+            if container_name.startswith("pythinker-sandbox-"):
+                sandbox_id_suffix = container_name.removeprefix("pythinker-sandbox-")
+                matching_session = await repo.collection.find_one(
+                    {
+                        "sandbox_id": sandbox_id_suffix,
+                        "status": {"$in": active_statuses},
+                    }
+                )
+                if matching_session:
+                    return False
+
+            # No active session found — sandbox is orphaned
+            return True
+
+        except Exception as e:
+            # On error, be conservative: assume NOT orphaned to avoid destroying
+            # a sandbox that might still be in use
+            logger.warning(
+                "Failed to check if sandbox is orphaned, assuming active",
+                container_name=container_name,
+                error=str(e),
+            )
+            return False
+
     async def _cleanup_abandoned_sandboxes(self, metrics: CleanupMetrics) -> None:
         """
         Clean up abandoned sandbox containers.
@@ -363,13 +541,35 @@ class OrphanedTaskCleanupService:
 
                         # Check if container is old and potentially abandoned
                         if age.total_seconds() > self.zombie_session_age_seconds:
-                            # TODO: Cross-reference with active sessions
-                            # For safety, only log for now (don't auto-delete)
-                            logger.warning(
-                                "Found potentially abandoned sandbox container",
-                                container_name=container_name,
-                                age_seconds=age.total_seconds(),
-                            )
+                            # Cross-reference with active sessions in MongoDB
+                            is_orphaned = await self._is_sandbox_orphaned(container_name)
+                            if is_orphaned:
+                                logger.info(
+                                    "Destroying orphaned sandbox container",
+                                    container_name=container_name,
+                                    age_seconds=age.total_seconds(),
+                                )
+                                try:
+                                    await container.stop()
+                                    await container.delete(force=True)
+                                    metrics.abandoned_sandboxes += 1
+                                    logger.info(
+                                        "Successfully destroyed orphaned sandbox",
+                                        container_name=container_name,
+                                    )
+                                except Exception as destroy_err:
+                                    logger.warning(
+                                        "Failed to destroy orphaned sandbox",
+                                        container_name=container_name,
+                                        error=str(destroy_err),
+                                    )
+                                    metrics.errors_encountered += 1
+                            else:
+                                logger.debug(
+                                    "Old sandbox still has active session, skipping",
+                                    container_name=container_name,
+                                    age_seconds=age.total_seconds(),
+                                )
 
                     except Exception as e:
                         logger.warning(
