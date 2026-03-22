@@ -270,6 +270,18 @@ class IntentClassifier:
             logger.info(f"Classified as task request: {message[:50]}")
             return ("task_request", AgentMode.AGENT, 0.85)
 
+        # Check for HTML/script injection patterns BEFORE file path heuristic
+        # (the "/" in tags like <script> would otherwise match the file path check)
+        _html_injection_pattern = re.compile(
+            r"<\s*(?:script|iframe|object|embed|form|img|svg|link|style|meta|base)\b"
+            r"|javascript\s*:"
+            r"|\bon\w+\s*=",
+            re.IGNORECASE,
+        )
+        if _html_injection_pattern.search(message):
+            logger.warning("Classified as HTML/XSS injection attempt: %s", message[:50])
+            return ("invalid_input", AgentMode.DISCUSS, 0.99)
+
         # Check for file paths or commands (suggests executable task)
         # Do this BEFORE word count check to catch short commands like "edit /path"
         has_file_path = "/" in message or "\\" in message
