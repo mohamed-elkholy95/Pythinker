@@ -206,6 +206,11 @@ class BrowserSettingsMixin:
     browser_block_resources_default: bool = False  # Enable resource blocking by default
     browser_blocked_resource_types: str = "image,media"  # Comma-separated resource types
 
+    # Chrome on-demand lifecycle (sandbox-side feature)
+    # When enabled, backend calls /api/v1/browser/ensure before browser operations
+    chrome_on_demand: bool = True
+    chrome_ensure_timeout: float = 35.0  # Timeout for ensure call (slightly > CHROME_READY_TIMEOUT)
+
     # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
     # Raised from 5.0→8.0 to accommodate high-latency providers (Z.AI GLM).
     # Benchmark showed 43% timeout rate at 5.0s.  Override: FAST_ACK_REFINER_TIMEOUT=<seconds>

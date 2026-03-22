@@ -1416,6 +1416,40 @@ class DockerSandbox(Sandbox):
             logger.debug(f"Screenshot capture failed: {e}")
             raise
 
+    async def _ensure_chrome_running(self) -> None:
+        """Request the sandbox to ensure Chrome is running (on-demand lifecycle).
+
+        No-op when chrome_on_demand is disabled.  Idempotent — safe to call
+        before every browser operation.
+        """
+        settings = get_settings()
+        if not getattr(settings, "chrome_on_demand", False):
+            return
+
+        try:
+            client = await self.get_client()
+            timeout = getattr(settings, "chrome_ensure_timeout", 35.0)
+            resp = await client.post(
+                "/api/v1/browser/ensure",
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "Chrome ensure returned %d: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+            else:
+                data = resp.json().get("data", {})
+                if data.get("cold_start"):
+                    logger.info(
+                        "Chrome cold-started in %sms for sandbox %s",
+                        data.get("startup_ms"),
+                        self.id,
+                    )
+        except Exception as e:
+            logger.warning("Chrome ensure failed for sandbox %s: %s", self.id, e)
+
     async def get_browser(
         self,
         block_resources: bool = True,
@@ -1438,6 +1472,9 @@ class DockerSandbox(Sandbox):
         Raises:
             Exception: If verify_connection is True and connection cannot be established
         """
+        # Ensure Chrome is running (on-demand lifecycle — no-op if disabled)
+        await self._ensure_chrome_running()
+
         settings = get_settings()
         uses_static_sandboxes = bool(
             getattr(
