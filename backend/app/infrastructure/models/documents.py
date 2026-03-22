@@ -272,6 +272,10 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
             IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)]),  # User's sessions chronologically
             IndexModel([("user_id", ASCENDING), ("updated_at", DESCENDING)]),  # User's sessions by recent activity
             IndexModel([("is_shared", ASCENDING), ("created_at", DESCENDING)]),  # Shared sessions chronologically
+            IndexModel(
+                [("project_id", ASCENDING), ("user_id", ASCENDING), ("created_at", DESCENDING)],
+                sparse=True,
+            ),
         ]
 
 
