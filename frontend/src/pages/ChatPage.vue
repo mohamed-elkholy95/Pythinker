@@ -1417,12 +1417,21 @@ const getPendingSessionCreateState = (): PendingSessionCreateState | null => {
   return state;
 };
 
+// Guard against concurrent/duplicate session creation (e.g. onMounted + route update race)
+let _sessionCreationInProgress = false;
+
 const initializePendingSession = async () => {
+  if (_sessionCreationInProgress) return false;
+
   const routeSessionId = router.currentRoute.value.params.sessionId;
   if (routeSessionId !== 'new') return false;
 
   const pendingState = getPendingSessionCreateState();
   if (!pendingState) return false;
+
+  // Consume history.state immediately to prevent re-entry on refresh/navigation
+  _sessionCreationInProgress = true;
+  history.replaceState({}, document.title);
 
   const pendingMessage = (pendingState.message || '').trim();
   const pendingFiles = Array.isArray(pendingState.files) ? pendingState.files : [];
@@ -1487,6 +1496,8 @@ const initializePendingSession = async () => {
       messages.value = [];
     }
     showErrorToast(t('Failed to create session, please try again later'));
+  } finally {
+    _sessionCreationInProgress = false;
   }
 
   return true;
