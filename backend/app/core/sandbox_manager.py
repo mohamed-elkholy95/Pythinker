@@ -445,9 +445,7 @@ class ManagedSandbox:
             chrome_on_demand = getattr(settings, "chrome_on_demand", False)
             api_task = asyncio.create_task(self._check_api_health())
             browser_task = asyncio.create_task(
-                self._check_browser_health_on_demand()
-                if chrome_on_demand
-                else self._check_browser_health()
+                self._check_browser_health_on_demand() if chrome_on_demand else self._check_browser_health()
             )
             health_tasks: list[asyncio.Task[Any]] = [api_task, browser_task]
 
