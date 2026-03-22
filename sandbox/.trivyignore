@@ -1,3 +1,8 @@
+# jaraco.context 5.3.0 ghost dist-info inside setuptools vendor directory
+# Real installation is >=6.1.0 (standalone pip install), but Trivy detects vendored metadata
+# Dockerfile cleanup removes most paths; residual metadata is a false positive
+CVE-2026-23949
+
 # gh CLI bundles google.golang.org/grpc v1.79.2; fix requires v1.79.3
 # gh 2.88.1 is the latest release as of 2026-03-22 — no upstream fix available yet
 # Tracked: https://github.com/cli/cli/issues (gRPC authorization bypass via missing leading slash in :path)
