@@ -1413,9 +1413,21 @@ const maybeSendPendingInitialMessage = () => {
 };
 
 const getPendingSessionCreateState = (): PendingSessionCreateState | null => {
+  // Primary: check history.state (set by router.push({ state }))
   const state = history.state as PendingSessionCreateState | null;
-  if (!state?.pendingSessionCreate) return null;
-  return state;
+  if (state?.pendingSessionCreate) return state;
+
+  // Fallback: check sessionStorage (set by ProjectPage for cross-route reliability)
+  try {
+    const stored = sessionStorage.getItem('pythinker:pendingSession');
+    if (stored) {
+      sessionStorage.removeItem('pythinker:pendingSession');
+      const parsed = JSON.parse(stored) as PendingSessionCreateState;
+      if (parsed?.pendingSessionCreate) return parsed;
+    }
+  } catch { /* storage unavailable or parse error */ }
+
+  return null;
 };
 
 // Guard against concurrent/duplicate session creation (e.g. onMounted + route update race)

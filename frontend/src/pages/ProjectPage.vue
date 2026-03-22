@@ -340,24 +340,33 @@ async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
 
   isSubmitting.value = true
   try {
+    // Build the pending session state
+    const pendingState = {
+      pendingSessionCreate: true,
+      mode: 'agent',
+      research_mode: 'deep_research' as ResearchMode,
+      message: message.value,
+      thinking_mode: options.thinkingMode || 'auto',
+      project_id: route.params.projectId as string,
+      skills: project.value?.skill_ids || [],
+      files: attachments.value.map((file: FileInfo) => ({
+        file_id: file.file_id,
+        filename: file.filename,
+        content_type: file.content_type,
+        size: file.size,
+        upload_date: file.upload_date,
+      })),
+    }
+
+    // Store in sessionStorage as fallback — history.state can be lost
+    // during cross-route transitions within the same Vue Router layout
+    try {
+      sessionStorage.setItem('pythinker:pendingSession', JSON.stringify(pendingState))
+    } catch { /* storage unavailable */ }
+
     await router.push({
       path: '/chat/new',
-      state: {
-        pendingSessionCreate: true,
-        mode: 'agent',
-        research_mode: 'deep_research' as ResearchMode,
-        message: message.value,
-        thinking_mode: options.thinkingMode || 'auto',
-        project_id: route.params.projectId,
-        skills: project.value?.skill_ids || [],
-        files: attachments.value.map((file: FileInfo) => ({
-          file_id: file.file_id,
-          filename: file.filename,
-          content_type: file.content_type,
-          size: file.size,
-          upload_date: file.upload_date,
-        })),
-      },
+      state: pendingState,
     })
   } finally {
     isSubmitting.value = false
