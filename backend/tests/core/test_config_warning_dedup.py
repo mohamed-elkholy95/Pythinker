@@ -22,8 +22,7 @@ def test_auth_provider_none_warning_emitted_once_per_process(monkeypatch, caplog
             Settings().validate()
 
         auth_none_warnings = [
-            r for r in caplog.records
-            if "AUTH_PROVIDER is set to 'none'" in r.message and r.levelno == logging.WARNING
+            r for r in caplog.records if "AUTH_PROVIDER is set to 'none'" in r.message and r.levelno == logging.WARNING
         ]
         # Dedup: should appear exactly once despite two validate() calls
         assert len(auth_none_warnings) == 1
