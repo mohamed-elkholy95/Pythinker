@@ -1802,9 +1802,7 @@ class AgentTaskRunner(TaskRunner):
                 _msg_skills = list(event.skills or [])
                 if _project_context and _project_context.skill_ids:
                     _existing_skill_set = set(_msg_skills)
-                    _msg_skills.extend(
-                        _sid for _sid in _project_context.skill_ids if _sid not in _existing_skill_set
-                    )
+                    _msg_skills.extend(_sid for _sid in _project_context.skill_ids if _sid not in _existing_skill_set)
                     if len(_msg_skills) > len(event.skills or []):
                         logger.info(
                             "Merged %d project skills (total: %d)",

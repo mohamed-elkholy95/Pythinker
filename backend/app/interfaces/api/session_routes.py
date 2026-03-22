@@ -390,9 +390,7 @@ async def create_session(
         project_service = get_project_service()
 
         # Resolve full project context (instructions, files, skills)
-        project_context = await project_service.get_project_context(
-            request.project_id, current_user.id
-        )
+        project_context = await project_service.get_project_context(request.project_id, current_user.id)
 
         session_repo = get_session_repository()
         update_fields: dict = {"project_id": request.project_id}
