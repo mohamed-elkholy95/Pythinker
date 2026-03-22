@@ -2659,6 +2659,8 @@ class PlaywrightBrowser:
 
             # Bring page to front for live preview visibility
             await self._ensure_page_visible()
+            # Park cursor outside viewport so it doesn't appear in screencast
+            await self._park_cursor()
 
             # Extract basic content quickly (no scrolling, no full element extraction)
             try:
@@ -2769,6 +2771,8 @@ class PlaywrightBrowser:
                 await self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
                 # Bring page to front for live preview visibility
                 await self._ensure_page_visible()
+                # Park cursor outside viewport so it doesn't appear in screencast
+                await self._park_cursor()
                 logger.debug(f"navigate_for_display: showed {url} on live preview")
                 self._display_failure_count = 0
                 return True
@@ -3211,6 +3215,7 @@ class PlaywrightBrowser:
         """Simulate key press"""
         await self._ensure_page()
         await self.page.keyboard.press(key)
+        await self._park_cursor()
         return ToolResult(success=True)
 
     async def select_option(self, index: int, option: int) -> ToolResult:
@@ -3223,6 +3228,7 @@ class PlaywrightBrowser:
 
             # Try to select the option
             await element.select_option(index=option)
+            await self._park_cursor()
             return ToolResult(success=True)
         except Exception as e:
             return ToolResult(success=False, message=f"Failed to select option: {e!s}")
@@ -3257,6 +3263,7 @@ class PlaywrightBrowser:
             at_top = new_scroll <= 10
             scroll_percentage = int((new_scroll + viewport_height) / page_height * 100) if page_height > 0 else 0
 
+            await self._park_cursor()
             return ToolResult(
                 success=True,
                 message=f"Scrolled {'to top' if to_top else 'up'}. Position: {scroll_percentage}% of page",
@@ -3312,6 +3319,7 @@ class PlaywrightBrowser:
             at_bottom = (new_scroll + viewport_height) >= (new_height - 50)
             scroll_percentage = int((new_scroll + viewport_height) / new_height * 100) if new_height > 0 else 0
 
+            await self._park_cursor()
             return ToolResult(
                 success=True,
                 message=f"Scrolled {'to bottom' if to_bottom else 'down'}. Position: {scroll_percentage}% of page{' (more content loaded)' if lazy_content_loaded else ''}",
