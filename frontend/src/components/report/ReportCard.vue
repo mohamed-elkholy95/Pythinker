@@ -194,8 +194,17 @@ const getSuggestionIcon = (index: number) => {
 const processedContent = computed(() => {
   if (!normalizedReportContent.value) return '';
 
+  // Prepend Author/Date metadata (matching Manus design)
+  const metaLines: string[] = [];
+  const author = props.report.author || 'Pythinker';
+  metaLines.push(`**Author:** ${author}`);
+  const dateStr = _formatDateLong(props.report.lastModified);
+  if (dateStr !== 'Unknown') metaLines.push(`**Date:** ${dateStr}`);
+  const metaBlock = metaLines.join('\n');
+
   const normalized = normalizedReportContent.value.replace(/^\n+/, '').trim();
-  if (normalized.length <= 1900) return normalized;
+  const withMeta = `${metaBlock}\n\n${normalized}`;
+  if (withMeta.length <= 1900) return withMeta;
 
   // Find a safe cut point at a paragraph/section boundary to avoid
   // bisecting markdown structures (tables, code fences, lists) which
@@ -215,7 +224,7 @@ const processedContent = computed(() => {
     }
   }
 
-  return normalized.slice(0, cutAt);
+  return withMeta.slice(0, cutAt);
 });
 
 const _formatDateLong = (timestamp: number | string | undefined) => {
