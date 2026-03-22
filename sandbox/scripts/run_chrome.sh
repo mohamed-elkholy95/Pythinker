@@ -49,6 +49,7 @@ CHROME_FLAGS=(
     --window-size=1280,1024
     --start-maximized
     --disable-gpu-sandbox
+    --disable-gpu-compositing
     --disable-vulkan
     --enable-unsafe-swiftshader
     --disable-dev-shm-usage

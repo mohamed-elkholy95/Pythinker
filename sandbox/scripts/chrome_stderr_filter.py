@@ -39,6 +39,8 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"CheckVkSuccessImpl"),
     # GPU blocklist — no GPU adapter in headless containers
     re.compile(r"gpu_blocklist\.cc.*Unable to get gpu adapter"),
+    # GPU shared image compositor — no real GPU in containers
+    re.compile(r"SharedImageManager::ProduceMemory"),
     # Video capture / on-device model — no GPU/codec hardware in containers
     re.compile(r"Bind context provider failed"),
     re.compile(r"on_device_model.*service disconnect"),
