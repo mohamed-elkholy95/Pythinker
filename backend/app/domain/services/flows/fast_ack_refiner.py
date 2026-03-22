@@ -61,7 +61,7 @@ class FastAcknowledgmentRefiner:
             elapsed = time.perf_counter() - start_time
             metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "timeout"})
             metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
-            logger.debug("Fast ack refiner fallback: timeout")
+            logger.info("Fast ack refiner fallback: timeout (%.1fs limit)", self._timeout_seconds)
             return fallback
         except asyncio.CancelledError:
             raise
