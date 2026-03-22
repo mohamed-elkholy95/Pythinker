@@ -855,10 +855,8 @@ class PlaywrightBrowser:
         """
         if not self.page:
             return
-        try:
+        with contextlib.suppress(Exception):  # best-effort; never block the action
             await self.page.mouse.move(-100, -100)
-        except Exception:
-            pass  # best-effort; never block the action
 
     async def _setup_dialog_handlers(self, page: Page) -> None:
         """Set up automatic dialog/popup handlers for the page.
