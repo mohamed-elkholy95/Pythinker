@@ -19,7 +19,7 @@ import { computed } from 'vue'
 const props = defineProps({
   width: {
     type: [String, Number],
-    default: 80
+    default: 110
   },
   height: {
     type: [String, Number],

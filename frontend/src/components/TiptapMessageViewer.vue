@@ -1138,7 +1138,7 @@ defineExpose({ contentRef });
   color: rgba(0, 0, 0, 0.45);
   font-size: 9.5px;
   font-weight: 700;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-sans);
   letter-spacing: 0;
   text-decoration: none !important;
   cursor: pointer;
@@ -1179,7 +1179,7 @@ defineExpose({ contentRef });
     0 4px 6px rgba(0, 0, 0, 0.04),
     0 12px 28px rgba(0, 0, 0, 0.1);
   pointer-events: auto;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-sans);
   text-decoration: none;
   display: block;
   cursor: pointer;

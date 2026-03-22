@@ -57,7 +57,7 @@
       >
         <div class="assistant-brand flex items-center">
           <img src="/icon.svg" alt="Pythinker" class="assistant-brand-icon w-5 h-5" />
-          <PythinkerTextIcon :width="94" :height="24" />
+          <PythinkerTextIcon :width="120" :height="24" />
         </div>
         <div class="flex items-center gap-[2px]">
           <div
@@ -100,7 +100,7 @@
       >
         <div class="assistant-brand flex items-center">
           <img src="/icon.svg" alt="Pythinker" class="assistant-brand-icon w-5 h-5" />
-          <PythinkerTextIcon :width="94" :height="24" />
+          <PythinkerTextIcon :width="120" :height="24" />
         </div>
         <div class="flex items-center gap-[2px]">
           <div
