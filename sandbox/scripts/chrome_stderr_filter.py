@@ -49,6 +49,9 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"alsa_util\.cc\(\d+\).*PcmOpen"),
     # Transient DNS handshake noise from blocked/ephemeral third-party subresources
     re.compile(r"ssl_client_socket_impl\.cc\(\d+\).*handshake failed.*net_error -101"),
+    # STUN server DNS resolution failures — WebRTC NAT traversal is not needed
+    # in the sandbox (CDP screencast does not use WebRTC).
+    re.compile(r"socket_manager\.cc.*Failed to resolve address for stun"),
 )
 
 
