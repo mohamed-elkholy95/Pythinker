@@ -1407,15 +1407,19 @@ export const createEventSourceConnection = async <T = unknown>(
     }
 
     const envelope = parsedData as StreamEnvelope;
-    // Prefer the SSE transport-level id (Redis stream format "12345-0")
-    // over the JSON payload's event_id (UUID format)
+    // Use any available event ID for deduplication, but only store
+    // Redis stream IDs (format "digits-digits") as the resume cursor.
+    // UUID/synthetic IDs cause a format mismatch on the backend which
+    // disables skip mode and forces full event replay on reconnect.
     const eventId = nativeEventId || envelope.event_id;
     if (eventId) {
       const isUniqueEvent = trackEventId(eventId);
       if (!isUniqueEvent) {
         return;
       }
-      lastReceivedEventId = eventId;
+      if (/^\d+-\d+$/.test(eventId)) {
+        lastReceivedEventId = eventId;
+      }
     }
 
     if (eventName === 'progress') {
