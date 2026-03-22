@@ -47,6 +47,18 @@ class StuckDetectionMiddleware(BaseMiddleware):
         if not last_response:
             return MiddlewareResult.ok()
 
+        # A text-only response (no tool_calls) means the agent has already
+        # broken out of the tool loop and is producing output.  Injecting a
+        # recovery prompt here would create an infinite text→inject→text loop
+        # because the stale tool-action history keeps confidence high even
+        # though the agent is no longer calling tools.
+        has_tool_calls = bool(last_response.get("tool_calls"))
+        if not has_tool_calls:
+            # Still track the response so the detector can reset its counters,
+            # but never escalate to INJECT/FORCE on a text-only response.
+            self._detector.track_response(last_response)
+            return MiddlewareResult.ok()
+
         is_stuck, _confidence = self._detector.track_response(last_response)
 
         if is_stuck and not self._detector.can_attempt_recovery():

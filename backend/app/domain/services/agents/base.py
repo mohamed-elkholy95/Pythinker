@@ -2577,6 +2577,11 @@ class BaseAgent:
 
         empty_response_count = 0
         max_empty_responses = 5
+        # Safety valve: cap consecutive after_step INJECT retries to prevent
+        # infinite text→inject→text loops when stuck detection fires on
+        # stale tool-action history.
+        after_step_inject_count = 0
+        max_after_step_injects = 2
 
         for _retry in range(self.max_retries + max_empty_responses):
             usage_ratio = self._current_token_usage_ratio()
@@ -2776,8 +2781,19 @@ class BaseAgent:
                     self._stuck_recovery_exhausted = True
                     # Don't break — just set flag, let caller handle
                 elif _after_result.signal == _MwSig.INJECT:
-                    await self._add_to_memory([filtered_message, {"role": "user", "content": _after_result.message}])
-                    continue
+                    after_step_inject_count += 1
+                    if after_step_inject_count > max_after_step_injects:
+                        logger.warning(
+                            "after_step INJECT cap reached (%d/%d) — forcing response through",
+                            after_step_inject_count,
+                            max_after_step_injects,
+                        )
+                        # Fall through to return the response instead of looping
+                    else:
+                        await self._add_to_memory(
+                            [filtered_message, {"role": "user", "content": _after_result.message}]
+                        )
+                        continue
 
             await self._add_to_memory([filtered_message])
             empty_response_count = 0  # Reset on successful non-empty response
