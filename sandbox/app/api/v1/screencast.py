@@ -32,6 +32,7 @@ from app.services.cdp_screencast import (
     get_screencast_service,
 )
 from app.services.x11_screencast import (
+    drain_x11_event_queue,
     is_x11_available,
     stream_x11_frames,
 )
@@ -292,6 +293,9 @@ async def stream_frames_ws(
                     pass
 
         if x11_exited_cleanly:
+            # Drain queued X11 events to prevent "event leak: N queued"
+            # warnings from x11vnc during rapid session cycling.
+            await drain_x11_event_queue()
             done_event.set()
             async with _slot_lock:
                 if _active_stop_event is stop_event:
