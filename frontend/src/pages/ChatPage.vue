@@ -1354,6 +1354,31 @@ const activeCanvasUpdate = ref<CanvasUpdateEventData | null>(null);
 const sessionResearchMode = ref<agentApi.ResearchMode | null>(null);
 const sessionSource = ref<string>('web');
 
+/**
+ * Check if an error is an HTTP 404 (session not found / cleaned up by maintenance).
+ * Used to gracefully stop polling when a session no longer exists.
+ */
+const isSessionNotFoundError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const response = (error as { response?: { status?: number } }).response;
+  if (response?.status === 404) return true;
+  const code = (error as { code?: number }).code;
+  return code === 404;
+};
+
+/**
+ * Handle a session that was cleaned up (404). Clears local state, notifies the user,
+ * and redirects to the home page. Each caller should stop its own polling/retry loop
+ * by returning early after calling this.
+ */
+const handleSessionExpired = (context: string) => {
+  console.warn(`[${context}] Session expired (404), redirecting to home`);
+  sessionId.value = '';
+  sessionStatus.value = undefined;
+  showInfoToast(t('Session expired or cleaned up'));
+  router.replace('/chat');
+};
+
 const refreshSessionStatus = async (targetSessionId?: string) => {
   const activeSessionId = targetSessionId ?? sessionId.value;
   if (!activeSessionId) {
@@ -1367,8 +1392,12 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
     if (sessionStatus.value !== SessionStatus.INITIALIZING) {
       sessionInitTimedOut.value = false;
     }
-  } catch {
-    // Session status fetch failed - non-critical
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
+      handleSessionExpired('REFRESH_STATUS');
+      return;
+    }
+    // Other errors are non-critical
   }
 };
 
@@ -1482,6 +1511,13 @@ const waitForSessionIfInitializing = async () => {
         maybeSendPendingInitialMessage();
       }
     }
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
+      handleSessionExpired('WAIT_FOR_READY');
+      return;
+    }
+    // Re-throw other errors (transient retries exhausted, etc.)
+    throw error;
   } finally {
     isWaitingForSessionReady.value = false;
   }
@@ -1686,6 +1722,10 @@ const reconcileSessionStatus = async () => {
       logChatSseDiagnostics('reconcile:still_running', { status });
     }
   } catch (err) {
+    if (isSessionNotFoundError(err)) {
+      handleSessionExpired('RECONCILE');
+      return;
+    }
     logChatSseDiagnostics('reconcile:error', { error: String(err) });
     // Non-critical — don't propagate. User can always refresh.
   }
@@ -1817,7 +1857,11 @@ const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
       }
       return 'stop';
     }
-  } catch {
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
+      handleSessionExpired('FALLBACK_POLL');
+      return 'stop';
+    }
     // Keep polling on transient errors; controller handles scheduling/attempt caps.
   }
 
@@ -4278,8 +4322,12 @@ watch(documentVisibility, async (newVisibility) => {
         sessionStatus.value = nextStatus;
       }
     }
-  } catch {
-    // Session may have been deleted — clear state
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
+      handleSessionExpired('VISIBILITY');
+      return;
+    }
+    // Other transient errors — session may still exist
     console.log('[VISIBILITY] Session status check failed, session may no longer exist');
   }
 });
@@ -4527,7 +4575,11 @@ const handleRetryConnection = async () => {
       finalizeSession('retry_reconcile', status);
       return;
     }
-  } catch {
+  } catch (error) {
+    if (isSessionNotFoundError(error)) {
+      handleSessionExpired('RETRY_CONNECTION');
+      return;
+    }
     // Network error — fall through to SSE reconnect (which has its own retry logic)
   }
 
