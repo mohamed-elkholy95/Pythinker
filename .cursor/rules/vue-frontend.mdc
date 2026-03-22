@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Lint Before Commit
 ```bash
-cd frontend && bun run lint && bun run type-check
+cd frontend && bun run lint:check && bun run type-check
 ```
 
 ## Component Structure
@@ -56,3 +56,4 @@ export const useMyStore = defineStore('my', () => {
 ## Reuse First
 - Check `frontend/src/composables/` (40+ composables) before creating new shared logic.
 - Check `frontend/src/components/` before creating new UI components.
+- Follow `AGENTS.md` and `.codex/README.md` when repo-law and workflow guidance are relevant.

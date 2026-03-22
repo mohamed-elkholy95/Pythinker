@@ -8,7 +8,9 @@
 
   // ── Instructions ────────────────────────────────────────────
   "instructions": [
+    "AGENTS.md",
     "instructions.md",
+    ".codex/README.md",
     "docs/guides/PYTHON_STANDARDS.md",
     "docs/guides/VUE_STANDARDS.md",
     ".opencode/HEADLESS_ENV.md"
@@ -175,7 +177,7 @@
   // ── Project Commands ────────────────────────────────────────
   "command": {
     "lint": {
-      "template": "Run linting for the specified target. If no target given, lint both backend and frontend.\n\nFor backend: `conda activate pythinker && cd backend && ruff check . && ruff format --check .`\nFor frontend: `cd frontend && bun run lint && bun run type-check`\n\nTarget: $ARGUMENTS",
+      "template": "Run linting for the specified target. If no target given, lint both backend and frontend.\n\nFor backend: `conda activate pythinker && cd backend && ruff check . && ruff format --check .`\nFor frontend: `cd frontend && bun run lint:check && bun run type-check`\n\nTarget: $ARGUMENTS",
       "description": "Run linters (backend/frontend/both)",
       "agent": "build"
     },
