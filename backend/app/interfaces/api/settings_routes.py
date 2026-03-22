@@ -130,6 +130,7 @@ class ServerConfigResponse(BaseModel):
     """The actual running server-side configuration (from env vars / singletons)."""
 
     model_name: str
+    model_display_name: str
     api_base: str
     temperature: float
     max_tokens: int
@@ -185,6 +186,7 @@ async def get_server_config(
     return APIResponse.success(
         ServerConfigResponse(
             model_name=actual_model,
+            model_display_name=live_config.get("model_display_name", ""),
             api_base=actual_api_base,
             temperature=settings.temperature,
             max_tokens=settings.max_tokens,

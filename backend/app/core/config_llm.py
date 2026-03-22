@@ -26,6 +26,9 @@ class LLMSettingsMixin:
     # Model configuration
     # Kimi 2.5 Code: Moonshot AI coding model, 128k context
     model_name: str = "kimi-for-coding"
+    # Human-friendly display name shown in the UI (e.g. "Pythinker Lite").
+    # When empty, the UI falls back to model_name.
+    model_display_name: str = ""
     temperature: float = 0.6
     max_tokens: int = 8192  # Output token limit per LLM call
     summarization_max_tokens: int = 32000  # Higher limit for report/summary generation
