@@ -80,6 +80,7 @@
       <div v-if="isSummaryPhase" class="dc-panel">
         <div class="dc-header">
           <span class="dc-header-title">{{ streamingPresentation.headline.value }}</span>
+          <div v-if="isSummaryStreaming" class="activity-dot"></div>
         </div>
         <div class="dc-body">
           <div v-if="reportPreviewText" class="dc-md-text">
@@ -89,13 +90,13 @@
             <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
-        <div v-if="isSummaryStreaming" class="activity-dot"></div>
       </div>
 
       <!-- Planning preview -->
       <div v-else-if="isPlanningPhase" class="dc-panel">
         <div class="dc-header">
           <span class="dc-header-title">{{ streamingPresentation.headline.value }}</span>
+          <div v-if="isPlanStreaming" class="activity-dot"></div>
         </div>
         <div class="dc-body">
           <div v-if="props.planPresentationText" class="dc-md-text">
@@ -105,18 +106,17 @@
             <div class="skeleton-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
-        <div v-if="isPlanStreaming" class="activity-dot"></div>
       </div>
 
       <!-- Terminal view -->
       <div v-else-if="currentViewType === 'terminal' && contentPreview" class="dc-panel">
         <div class="dc-header">
           <span class="dc-header-title">{{ terminalTitle }}</span>
+          <div v-if="isActive" class="activity-dot"></div>
         </div>
         <div class="dc-body dc-body-terminal">
           <pre class="dc-terminal-text" v-html="styledTerminalContent"></pre>
         </div>
-        <div v-if="isActive" class="activity-dot"></div>
       </div>
 
       <!-- Search results -->
