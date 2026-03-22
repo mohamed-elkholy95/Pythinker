@@ -43,6 +43,7 @@ ALLOWED_SESSION_UPDATE_FIELDS: frozenset[str] = frozenset(
         "multi_task_challenge",
         # Project linking
         "project_id",
+        "project_context",
         # Session state
         "title",
         "status",
