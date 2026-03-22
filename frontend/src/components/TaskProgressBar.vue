@@ -207,7 +207,7 @@
             :size="16"
             :stroke-width="2.5"
           />
-          <div v-else-if="steps.some(s => s.status === 'running')" class="collapsed-running-dot" />
+          <PlannerActivityIndicator v-else-if="steps.some(s => s.status === 'running')" class="collapsed-thinking-indicator" />
           <span v-else class="collapsed-pending-num">{{ currentCount }}</span>
         </div>
 
@@ -258,6 +258,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, type Component } from 'vue'
 import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
 import LiveMiniPreview from './LiveMiniPreview.vue'
+import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState'
@@ -637,17 +638,9 @@ onUnmounted(() => {
   border: 1.5px solid var(--border-light);
 }
 
-.collapsed-running-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  animation: collapsed-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes collapsed-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+.collapsed-thinking-indicator {
+  width: 18px !important;
+  height: 18px !important;
 }
 
 .collapsed-pending-num {
@@ -745,7 +738,7 @@ onUnmounted(() => {
 }
 
 .live-preview-thumbnail-floating :deep(.live-mini-preview) {
-  width: 100% !important;
+  max-width: none;
   height: 100%;
   aspect-ratio: unset;
 }
