@@ -153,6 +153,41 @@ class MongoSessionRepository(SessionRepository):
             sessions.append(Session.model_validate(doc))
         return sessions
 
+    async def find_user_files(self, user_id: str) -> list[dict]:
+        """Return all files across a user's sessions with session context.
+
+        Uses a lightweight projection (session_id, title, created_at, files)
+        to avoid loading events.  Skips sessions with no files.
+        """
+        collection = SessionDocument.get_pymongo_collection()
+        cursor = collection.find(
+            {"user_id": user_id, "files": {"$exists": True, "$ne": []}},
+            projection={
+                "session_id": 1,
+                "title": 1,
+                "created_at": 1,
+                "latest_message_at": 1,
+                "files": 1,
+                "_id": 0,
+            },
+        ).sort("latest_message_at", -1)
+
+        results: list[dict] = []
+        async for doc in cursor:
+            session_id = doc.get("session_id", "")
+            session_title = doc.get("title", "Untitled Session")
+            created_at = doc.get("created_at")
+            latest_at = doc.get("latest_message_at")
+            for f in doc.get("files", []):
+                f["session_id"] = session_id
+                f["session_title"] = session_title
+                f["session_created_at"] = created_at.isoformat() if created_at else None
+                f["session_latest_at"] = (
+                    int(latest_at.timestamp()) if latest_at else None
+                )
+                results.append(f)
+        return results
+
     async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Session | None:
         """Find a session by ID and user ID (lightweight — excludes events/files)."""
         collection = SessionDocument.get_pymongo_collection()
