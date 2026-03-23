@@ -69,12 +69,15 @@ def _verify_root_metrics_auth(
         )
 
 
-# Log warning at startup if metrics are unprotected
-if not settings.metrics_password:
+# Log warning at startup if metrics are unprotected (production only — avoid spamming dev logs)
+if not settings.metrics_password and settings.is_production:
     logger.warning(
         "[SECURITY] METRICS_PASSWORD not set — /metrics endpoint is unauthenticated. "
         "Set METRICS_PASSWORD in .env to enforce HTTP Basic Auth."
     )
+elif not settings.metrics_password:
+    logger.debug("METRICS_PASSWORD not set (dev mode — not a concern)")
+
 
 app = FastAPI(
     title="Pythinker AI Agent",
