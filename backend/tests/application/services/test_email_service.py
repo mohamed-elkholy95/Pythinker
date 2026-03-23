@@ -666,7 +666,7 @@ class TestCreateVerificationEmail:
             return raw.decode()
         return str(part.get_payload())
 
-    def test_reset_email_contains_plain_text_html_and_cid_logo(self, service: EmailService) -> None:
+    def test_reset_email_contains_plain_text_html_and_hosted_logo(self, service: EmailService) -> None:
         msg = service._create_verification_email("dest@example.com", "987654")
 
         text_part = self._find_part(msg, "text/plain")
@@ -678,13 +678,11 @@ class TestCreateVerificationEmail:
         html_content = self._decode_payload(html_part)
         assert "987654" in html_content
         assert "Reset your password" in html_content
-        # Logo is embedded via CID inline attachment (works in all email clients)
-        assert "cid:pythinker-logo" in html_content
-        logo_part = self._find_part(msg, "image/png")
-        assert logo_part is not None
-        assert logo_part["Content-ID"] == "<pythinker-logo>"
+        # Logo uses hosted URL (no attachment, no data URI)
+        assert "https://pythinker.com/logo.png" in html_content
+        assert self._find_part(msg, "image/png") is None
 
-    def test_registration_email_uses_professional_copy_and_cid_logo(self, service: EmailService) -> None:
+    def test_registration_email_uses_professional_copy_and_hosted_logo(self, service: EmailService) -> None:
         msg = service._create_registration_verification_email("dest@example.com", "123456")
 
         text_part = self._find_part(msg, "text/plain")
@@ -696,10 +694,9 @@ class TestCreateVerificationEmail:
         html_content = self._decode_payload(html_part)
         assert "Welcome to Pythinker" in html_content
         assert "verify your email address" in html_content.lower()
-        # Logo is embedded via CID inline attachment (works in all email clients)
-        assert "cid:pythinker-logo" in html_content
-        logo_part = self._find_part(msg, "image/png")
-        assert logo_part is not None
+        # Logo uses hosted URL (no attachment, no data URI)
+        assert "https://pythinker.com/logo.png" in html_content
+        assert self._find_part(msg, "image/png") is None
         text_content = self._decode_payload(text_part)
         assert "123456" in text_content
         assert "10 minutes" in text_content
