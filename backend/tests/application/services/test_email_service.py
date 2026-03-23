@@ -679,7 +679,7 @@ class TestCreateVerificationEmail:
         assert "987654" in html_content
         assert "Reset your password" in html_content
         # Logo uses hosted URL (no attachment, no data URI)
-        assert "https://pythinker.com/logo.png" in html_content
+        assert "https://pythinker.com/icon-192.png" in html_content
         assert self._find_part(msg, "image/png") is None
 
     def test_registration_email_uses_professional_copy_and_hosted_logo(self, service: EmailService) -> None:
@@ -694,8 +694,8 @@ class TestCreateVerificationEmail:
         html_content = self._decode_payload(html_part)
         assert "Welcome to Pythinker" in html_content
         assert "verify your email address" in html_content.lower()
-        # Logo uses hosted URL (no attachment, no data URI)
-        assert "https://pythinker.com/logo.png" in html_content
+        # Logo uses hosted square icon URL (no attachment, no data URI)
+        assert "https://pythinker.com/icon-192.png" in html_content
         assert self._find_part(msg, "image/png") is None
         text_content = self._decode_payload(text_part)
         assert "123456" in text_content
