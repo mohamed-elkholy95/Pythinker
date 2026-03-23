@@ -747,8 +747,15 @@ class AgentTaskRunner(TaskRunner):
 
         try:
             session = await self._session_repository.find_by_id(self._session_id)
-            if session and session.workspace_structure and "deliverables" in session.workspace_structure:
-                self._workspace_deliverables_root = "/workspace/deliverables"
+            workspace_structure = session.workspace_structure if session else None
+            if isinstance(workspace_structure, dict) and workspace_structure:
+                output_path = str(workspace_structure.get("_output_path") or "").rstrip("/")
+                if output_path:
+                    self._workspace_deliverables_root = f"{output_path}/reports"
+                elif "deliverables" in workspace_structure:
+                    self._workspace_deliverables_root = f"/workspace/{self._session_id}/deliverables"
+
+            if self._workspace_deliverables_root:
                 logger.debug(
                     "Resolved workspace deliverables root: %s (session=%s)",
                     self._workspace_deliverables_root,
