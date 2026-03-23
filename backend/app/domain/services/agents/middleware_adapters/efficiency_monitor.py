@@ -38,24 +38,28 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         research_mode: str | None = None,
     ) -> None:
         self._monitor = monitor or ToolEfficiencyMonitor(research_mode=research_mode)
-        # Per-step browser navigation counter.  Resets when the step changes
-        # (detected via ctx.metadata["current_step_index"]).
+        # Per-step browser navigation counter.  Resets when step_iteration_count
+        # drops (indicating a new step started in the plan_act flow).
         self._browser_nav_count = 0
         self._browser_nav_urls: set[str] = set()
-        self._current_step_index: int = -1
+        self._last_step_iteration: int = -1
 
     @property
     def name(self) -> str:
         return "efficiency_monitor"
 
+    def reset_browser_budget(self) -> None:
+        """Reset browser navigation budget for a new step."""
+        self._browser_nav_count = 0
+        self._browser_nav_urls.clear()
+
     async def before_tool_call(self, ctx: MiddlewareContext, tool_call: ToolCallInfo) -> MiddlewareResult:
         """Enforce browser navigation budget before expensive browser calls."""
-        # Reset counter when step changes
-        step_idx = ctx.metadata.get("current_step_index", 0)
-        if step_idx != self._current_step_index:
-            self._current_step_index = step_idx
-            self._browser_nav_count = 0
-            self._browser_nav_urls.clear()
+        # Detect new step: step_iteration_count resets to 0 when plan_act starts
+        # a new step.  If it drops below our last seen value, a new step began.
+        if ctx.step_iteration_count < self._last_step_iteration:
+            self.reset_browser_budget()
+        self._last_step_iteration = ctx.step_iteration_count
 
         if tool_call.function_name not in _BROWSER_NAV_TOOLS:
             return MiddlewareResult.ok()
