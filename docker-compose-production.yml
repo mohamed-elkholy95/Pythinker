@@ -187,8 +187,9 @@ services:
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:?Set SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:?Set SUPERVISOR_RPC_PASSWORD}
       - LIBGL_ALWAYS_SOFTWARE=1
+      - ENABLE_VNC=${ENABLE_VNC:-0}
     # Production: no host port exposure -- backend accesses via internal network
-    shm_size: '2g'
+    shm_size: ${SANDBOX_SHM_SIZE:-256m}
     security_opt:
       - no-new-privileges:true
       - seccomp=./sandbox/seccomp-sandbox.hardened.json
@@ -213,10 +214,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1'
+          memory: ${SANDBOX_MEM_LIMIT:-2G}
+          cpus: '${SANDBOX_CPU_LIMIT:-1}'
         reservations:
-          memory: 512M
+          memory: ${SANDBOX_MEM_RESERVATION:-512M}
     networks:
       - pythinker-internal  # Backend reaches sandbox; sandbox cannot reach frontend
     healthcheck:
