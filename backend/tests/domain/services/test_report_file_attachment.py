@@ -123,6 +123,39 @@ class TestReportFileAttachment:
         assert event.attachments[0].metadata.get("delivery_scope") == "run-2"
 
     @pytest.mark.asyncio
+    async def test_report_event_prefers_session_output_workspace(self, runner, mock_sandbox):
+        runner._session_repository.find_by_id = AsyncMock(
+            return_value=MagicMock(
+                workspace_structure={
+                    "_output_path": "/workspace/test-session/output",
+                    "reports": "Markdown reports",
+                }
+            )
+        )
+        event = ReportEvent(
+            id="report-output-1",
+            title="Workspace Report",
+            content="# Hello\n\nWorkspace body.",
+            attachments=None,
+        )
+
+        await runner._ensure_report_file(event)
+
+        mock_sandbox.file_write.assert_called_once()
+        assert event.attachments is not None
+        assert event.attachments[0].file_path == "/workspace/test-session/output/reports/report-report-output-1.md"
+
+    @pytest.mark.asyncio
+    async def test_resolve_workspace_deliverables_root_avoids_shared_deliverables_directory(self, runner):
+        runner._session_repository.find_by_id = AsyncMock(
+            return_value=MagicMock(workspace_structure={"deliverables": "Final outputs"})
+        )
+
+        result = await runner._resolve_workspace_deliverables_root()
+
+        assert result == "/workspace/test-session/deliverables"
+
+    @pytest.mark.asyncio
     async def test_comparison_report_generates_chart_attachment(self, runner, mock_sandbox):
         event = ReportEvent(
             id="report-chart-1",
