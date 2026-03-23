@@ -3536,10 +3536,10 @@ const handleAttachmentFileClick = async (file: FileInfo) => {
 }
 
 // Handle report rate
-const handleReportRate = async (rating: number, feedback?: string) => {
-  if (!sessionId.value || !currentReport.value) return;
+const handleReportRate = async (reportId: string, rating: number, feedback?: string) => {
+  if (!sessionId.value || !reportId) return;
   try {
-    await agentApi.submitRating(sessionId.value, currentReport.value.id, rating, feedback);
+    await agentApi.submitRating(sessionId.value, reportId, rating, feedback);
     showSuccessToast(t('Rating submitted'));
   } catch {
     showErrorToast(t('Failed to submit rating'));

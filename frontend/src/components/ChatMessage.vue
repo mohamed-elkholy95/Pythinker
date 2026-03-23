@@ -395,7 +395,7 @@ const emit = defineEmits<{
   (e: 'reportOpen', report: ReportData): void;
   (e: 'reportFileOpen', file: FileInfo): void;
   (e: 'showAllFiles'): void;
-  (e: 'reportRate', rating: number, feedback?: string): void;
+  (e: 'reportRate', reportId: string, rating: number, feedback?: string): void;
   (e: 'selectSuggestion', suggestion: string): void;
 }>();
 
@@ -428,7 +428,13 @@ const formatBytes = (bytes: number): string => {
 };
 
 const handleReportRate = (rating: number, feedback?: string) => {
-  emit('reportRate', rating, feedback);
+  let id = '';
+  if (props.message.type === 'report') {
+    id = (props.message.content as ReportContent).id;
+  } else if (props.message.type === 'skill_delivery') {
+    id = (props.message.content as SkillDeliveryContent).package_id;
+  }
+  emit('reportRate', id, rating, feedback);
 };
 
 const handleSelectSuggestion = (suggestion: string) => {
