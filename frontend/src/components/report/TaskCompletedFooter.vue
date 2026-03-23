@@ -203,9 +203,13 @@ const doSubmit = (includeFeedback: boolean) => {
   submitting.value = true;
   submittedRating.value = rating.value;
 
-  const trimmed = includeFeedback ? feedback.value.trim() : undefined;
+  const trimmed = includeFeedback ? feedback.value.trim() || undefined : undefined;
   try {
-    emit('rate', rating.value, trimmed || undefined);
+    if (trimmed) {
+      emit('rate', rating.value, trimmed);
+    } else {
+      emit('rate', rating.value);
+    }
     phase.value = 'submitted';
   } catch {
     errorMessage.value = 'Failed to submit rating. Please try again.';
