@@ -115,7 +115,7 @@ def test_slow_tool_breaker_missing_fast_model_logs_once(caplog) -> None:
     assert llm._is_slow_tool_breaker_active(now_monotonic=250.0) is True
 
     with (
-        caplog.at_level("ERROR"),
+        caplog.at_level("INFO"),
         patch("app.infrastructure.external.llm.openai_llm.time.monotonic", return_value=250.0),
     ):
         resolved1 = llm._resolve_slow_tool_breaker_model(
@@ -132,7 +132,8 @@ def test_slow_tool_breaker_missing_fast_model_logs_once(caplog) -> None:
     assert resolved1 is None
     assert resolved2 is None
     assert llm._slow_breaker_missing_fast_model_warned is True
-    assert sum("FAST_MODEL is not configured" in rec.message for rec in caplog.records) == 1
+    # Downgraded from error to info — degraded mode handles this silently
+    assert sum("FAST_MODEL not configured" in rec.message for rec in caplog.records) == 1
 
 
 def test_slow_tool_breaker_resets_streak_after_cooldown_expiry() -> None:

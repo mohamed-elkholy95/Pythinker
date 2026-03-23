@@ -357,12 +357,13 @@ class OpenAILLM(LLM):
                 self._slow_breaker_invalid_fast_model_warned = True
             return model_override_for_attempt
 
-        # Breaker tripped but FAST_MODEL is not configured — log once per instance.
+        # Breaker tripped but FAST_MODEL is not configured — use degraded mode
+        # (reduced max_tokens + timeout) instead.  Log once at info level;
+        # this is an expected operational state, not an error.
         if not getattr(self, "_slow_breaker_missing_fast_model_warned", False):
-            logger.error(
-                "Slow tool-call circuit breaker tripped but FAST_MODEL is not configured "
-                "(fast_model=''); set FAST_MODEL in .env to enable automatic model switching. "
-                "Continuing with primary model '%s'.",
+            logger.info(
+                "Slow tool-call circuit breaker active; FAST_MODEL not configured — "
+                "using degraded mode (reduced tokens/timeout) with primary model '%s'",
                 self._model_name,
             )
             self._slow_breaker_missing_fast_model_warned = True
