@@ -105,13 +105,14 @@ class TestJsonFormatReEnforcement:
     """JSON format re-enforcement after the tool-calling while-loop."""
 
     @pytest.mark.asyncio
-    async def test_non_json_response_triggers_re_enforcement(self, repo, llm, parser, tool_registry):
-        """When the post-loop message is free-form text, a second ask with
-        format='json_object' must be made and its result used as the final
-        MessageEvent content."""
+    async def test_non_json_response_wrapped_directly(self, repo, llm, parser, tool_registry):
+        """When the post-loop message is free-form prose (not JSON), it should
+        be wrapped directly as JSON without an extra LLM re-enforcement call.
+        This avoids costly recovery round-trips for providers that don't
+        handle json_object format well (e.g. GLM-class models)."""
         agent = _make_agent(repo, llm, parser, tool_registry)
 
-        valid_json = json.dumps({"success": True, "result": "done"})
+        prose_text = "Here is what I found: the task is done."
 
         # Round 1: agent asks for a tool call
         agent.ask = AsyncMock(
@@ -126,36 +127,22 @@ class TestJsonFormatReEnforcement:
             }
         )
 
-        # Round 2 (after tool result): returns free-form text — not valid JSON
-        # Round 3 (re-enforcement call): returns proper JSON
+        # Post-loop: returns free-form text — not valid JSON
         agent.ask_with_messages = AsyncMock(
-            side_effect=[
-                {"content": "Here is what I found: the task is done."},  # non-JSON
-                {"content": valid_json},  # re-enforced JSON
-            ]
+            return_value={"content": prose_text},
         )
 
         events = await _collect(agent.execute("do the work"))
 
         message_events = [e for e in events if isinstance(e, MessageEvent)]
         assert len(message_events) == 1
-        # Final content must be the JSON-enforced response, not the free-form text
-        assert message_events[0].message == valid_json
-        # Verify the re-enforcement call passed format="json_object"
-        enforcement_call = agent.ask_with_messages.call_args_list[1]
-        assert enforcement_call == call(
-            [
-                {
-                    "role": "user",
-                    "content": (
-                        "Your previous response was not in the required JSON format. "
-                        "Restate your response as ONLY a valid JSON object matching the "
-                        "expected schema. No prose, no markdown fencing."
-                    ),
-                }
-            ],
-            format="json_object",
-        )
+        # Prose should be wrapped as JSON with success=True
+        result = json.loads(message_events[0].message)
+        assert result["success"] is True
+        assert result["result"] == prose_text
+        assert result["attachments"] == []
+        # Only one ask_with_messages call (the tool-result call) — no re-enforcement
+        assert agent.ask_with_messages.await_count == 1
 
     @pytest.mark.asyncio
     async def test_valid_json_response_skips_re_enforcement(self, repo, llm, parser, tool_registry):
