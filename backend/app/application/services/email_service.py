@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import logging
 import secrets
@@ -8,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import Message
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -18,6 +18,9 @@ from app.domain.external.cache import Cache
 
 logger = logging.getLogger(__name__)
 
+_LOGO_PATH = Path(__file__).parent / "email_assets" / "logo.png"
+_LOGO_CID = "pythinker-logo"
+
 
 def _mask_email(email: str) -> str:
     """Mask email for safe logging: 'user@example.com' -> 'use***@example.com'."""
@@ -25,16 +28,19 @@ def _mask_email(email: str) -> str:
     return f"{local[:3]}***@{domain}" if domain else f"{email[:3]}***"
 
 
-_LOGO_PATH = Path(__file__).parent / "email_assets" / "logo.png"
+def _build_logo_attachment() -> MIMEImage | None:
+    """Build an inline MIMEImage attachment for the logo.
 
-
-def _logo_data_uri() -> str:
-    """Return base64 data URI for the logo, or empty string if unavailable."""
+    Uses CID (Content-ID) embedding — the only method that works reliably
+    across all email clients. data: URIs are blocked by Gmail/Outlook/Yahoo.
+    """
     if not _LOGO_PATH.exists():
         logger.debug("Logo not found at %s, skipping", _LOGO_PATH)
-        return ""
-    b64 = base64.b64encode(_LOGO_PATH.read_bytes()).decode()
-    return f"data:image/png;base64,{b64}"
+        return None
+    img = MIMEImage(_LOGO_PATH.read_bytes(), _subtype="png")
+    img.add_header("Content-ID", f"<{_LOGO_CID}>")
+    img.add_header("Content-Disposition", "inline", filename="logo.png")
+    return img
 
 
 def _build_code_email_text(
@@ -56,13 +62,10 @@ def _build_code_email_html(
     code: str,
     detail: str,
     ignore_note: str,
-    logo_src: str,
 ) -> str:
     logo_html = (
-        f'<img src="{logo_src}" alt="Pythinker" width="64" height="64" '
+        f'<img src="cid:{_LOGO_CID}" alt="Pythinker" width="64" height="64" '
         f'style="display:block; margin:0 auto; border:0; border-radius:18px;" />'
-        if logo_src
-        else ""
     )
     return f"""\
 <html>
@@ -301,12 +304,18 @@ class EmailService:
             code=code,
             detail=detail,
             ignore_note=ignore_note,
-            logo_src=_logo_data_uri(),
         )
 
-        msg = MIMEMultipart("alternative")
-        msg.attach(MIMEText(plain, "plain"))
-        msg.attach(MIMEText(html, "html"))
+        alt_part = MIMEMultipart("alternative")
+        alt_part.attach(MIMEText(plain, "plain"))
+        alt_part.attach(MIMEText(html, "html"))
+
+        msg = MIMEMultipart("related")
+        msg.attach(alt_part)
+
+        logo = _build_logo_attachment()
+        if logo:
+            msg.attach(logo)
 
         msg["From"] = f"Pythinker <{from_addr}>"
         msg["To"] = email
