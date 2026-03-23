@@ -222,7 +222,7 @@ services:
       - "127.0.0.1:8083:8080"
       - "127.0.0.1:8082:8082"
       - "127.0.0.1:8443:8443"
-    shm_size: '4gb'
+    shm_size: '${SANDBOX_SHM_SIZE:-256m}'
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -240,11 +240,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6G
-          cpus: '2'
+          memory: ${SANDBOX_MEM_LIMIT:-4G}
+          cpus: '${SANDBOX_CPU_LIMIT:-1.5}'
           pids: 4096
         reservations:
-          memory: 1G
+          memory: ${SANDBOX_MEM_RESERVATION:-512M}
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
       - ENABLE_VNC=${ENABLE_VNC:-0}
