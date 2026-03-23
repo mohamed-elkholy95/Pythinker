@@ -48,3 +48,19 @@ def test_last_resort_fallback_handles_empty_raw(step_executor):
     result = step_executor.apply_step_result_payload(step, None, "")
     assert result is False
     assert step.error == "Step response did not match expected JSON schema"
+
+
+def test_strict_failure_payload_preserves_error_message(step_executor):
+    step = MagicMock(spec=Step)
+    payload = {
+        "success": False,
+        "result": None,
+        "attachments": [],
+        "error": "Step completed without required search action",
+    }
+
+    result = step_executor.apply_step_result_payload(step, payload, '{"success": false}')
+
+    assert result is True
+    assert step.success is False
+    assert step.error == "Step completed without required search action"
