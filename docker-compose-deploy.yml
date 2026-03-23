@@ -97,6 +97,7 @@ services:
     env_file:
       - .env
     environment:
+      - ENVIRONMENT=production
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
@@ -158,6 +159,7 @@ services:
     env_file:
       - .env
     environment:
+      - ENVIRONMENT=production
       - CHANNEL_GATEWAY_ENABLED=true
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
