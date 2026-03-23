@@ -35,6 +35,7 @@ pycparser==2.23
 pydantic==2.12.1
 pydantic-core==2.41.3
 pydantic-settings==2.12.0
+defusedxml==0.7.1
 pyee==13.0.0
 python-dateutil==2.9.0.post0
 python-multipart==0.0.22
