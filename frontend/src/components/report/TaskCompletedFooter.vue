@@ -1,54 +1,21 @@
 <template>
   <div class="task-completed-footer">
     <!-- Phase 1: Inline star row (before any star is clicked) -->
-    <div v-if="phase === 'initial' && props.showRating" class="footer-row">
-      <div class="status-wrap">
-        <Check class="status-icon" />
-        <span class="status-text">{{ $t('Task completed') }}</span>
-      </div>
-
-      <div class="rating-panel">
-        <span class="rating-title">{{ $t('How was this result?') }}</span>
-        <div class="rating-stars">
-          <button
-            v-for="i in 5"
-            :key="i"
-            class="star-btn"
-            @click="handleStarClick(i)"
-            @mouseenter="hoverRating = i"
-            @mouseleave="hoverRating = 0"
-            :aria-label="`Rate ${i}`"
-            type="button"
-          >
-            <Star
-              class="star-icon"
-              :class="i <= (hoverRating || rating) ? 'star-active' : 'star-inactive'"
-            />
-          </button>
+    <Transition name="fade">
+      <div v-if="phase === 'initial' && props.showRating" class="footer-row">
+        <div class="status-wrap">
+          <Check class="status-icon" />
+          <span class="status-text">{{ $t('Task completed') }}</span>
         </div>
-      </div>
-    </div>
 
-    <!-- Phase 1: No rating variant -->
-    <div v-if="phase === 'initial' && !props.showRating" class="footer-row">
-      <div class="status-wrap">
-        <Check class="status-icon" />
-        <span class="status-text">{{ $t('Task completed') }}</span>
-      </div>
-    </div>
-
-    <!-- Phase 2: Expanded rating card (after clicking a star) -->
-    <div v-if="phase === 'expanded'" class="rating-card">
-      <div class="rating-card-inner">
-        <!-- Header: title + stars -->
-        <div class="rating-card-header">
-          <span class="rating-card-title">{{ $t('How was this result?') }}</span>
+        <div class="rating-panel">
+          <span class="rating-title">{{ $t('How was this result?') }}</span>
           <div class="rating-stars">
             <button
               v-for="i in 5"
               :key="i"
               class="star-btn"
-              @click="rating = i"
+              @click="handleStarClick(i)"
               @mouseenter="hoverRating = i"
               @mouseleave="hoverRating = 0"
               :aria-label="`Rate ${i}`"
@@ -61,84 +28,137 @@
             </button>
           </div>
         </div>
-
-        <!-- Comment textarea -->
-        <div class="comment-section">
-          <div class="comment-label-row">
-            <span class="comment-label">{{ $t('Comment') }}</span>
-            <span class="comment-optional">({{ $t('optional') }})</span>
-          </div>
-          <div class="comment-input-wrap">
-            <textarea
-              v-model="feedback"
-              class="comment-textarea"
-              :placeholder="$t('Additional feedback')"
-              rows="3"
-            />
-          </div>
-        </div>
-
-        <!-- Footer: consent checkbox + buttons -->
-        <div class="rating-card-footer">
-          <label class="consent-label">
-            <span class="consent-checkbox-wrap">
-              <input
-                v-model="consentChecked"
-                type="checkbox"
-                class="consent-checkbox-input"
-              />
-              <span v-if="consentChecked" class="consent-checkbox-icon consent-checked">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" width="16" height="16">
-                  <rect width="16" height="16" rx="4" fill="currentColor" />
-                  <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4021 5.05176C12.722 5.37869 12.7162 5.903 12.3893 6.22283L7.31009 11.1916C6.98822 11.5065 6.47375 11.5065 6.15189 11.1916L3.6123 8.70721C3.28537 8.38738 3.2796 7.86307 3.59943 7.53613C3.91926 7.20919 4.44357 7.20343 4.77051 7.52326L6.73099 9.44112L11.2311 5.03889C11.558 4.71906 12.0823 4.72482 12.4021 5.05176Z" fill="white" />
-                </svg>
-              </span>
-              <span v-else class="consent-checkbox-icon consent-unchecked">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" width="16" height="16">
-                  <rect x="0.5" y="0.5" width="15" height="15" rx="3.5" stroke="currentColor" fill="none" />
-                </svg>
-              </span>
-            </span>
-            <span class="consent-text">{{ $t('Help Pythinker improve with my feedback') }}</span>
-          </label>
-
-          <div class="rating-card-buttons">
-            <button
-              type="button"
-              class="btn-skip"
-              @click="handleSkip"
-            >
-              {{ $t('Skip comment') }}
-            </button>
-            <button
-              type="button"
-              class="btn-submit"
-              @click="handleSubmit"
-            >
-              {{ $t('Submit') }}
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </Transition>
 
-    <!-- Phase 3: Submitted confirmation -->
-    <div v-if="phase === 'submitted'" class="footer-row">
+    <!-- Phase 1: No rating variant -->
+    <div v-if="phase === 'initial' && !props.showRating" class="footer-row">
       <div class="status-wrap">
         <Check class="status-icon" />
         <span class="status-text">{{ $t('Task completed') }}</span>
       </div>
-      <div class="submitted-badge">
-        <Check :size="14" />
-        <span>{{ $t('Rating submitted') }}</span>
-      </div>
     </div>
+
+    <!-- Phase 2: Expanded rating card (after clicking a star) -->
+    <Transition name="slide-expand">
+      <div v-if="phase === 'expanded'" class="rating-card">
+        <div class="rating-card-inner">
+          <!-- Header: title + stars -->
+          <div class="rating-card-header">
+            <span class="rating-card-title">{{ $t('How was this result?') }}</span>
+            <div class="rating-stars">
+              <button
+                v-for="i in 5"
+                :key="i"
+                class="star-btn"
+                :disabled="submitting"
+                @click="rating = i"
+                @mouseenter="hoverRating = i"
+                @mouseleave="hoverRating = 0"
+                :aria-label="`Rate ${i}`"
+                type="button"
+              >
+                <Star
+                  class="star-icon"
+                  :class="i <= (hoverRating || rating) ? 'star-active' : 'star-inactive'"
+                />
+              </button>
+            </div>
+          </div>
+
+          <!-- Comment textarea -->
+          <div class="comment-section">
+            <div class="comment-label-row">
+              <span class="comment-label">{{ $t('Comment') }}</span>
+              <span class="comment-optional">({{ $t('optional') }})</span>
+            </div>
+            <div class="comment-input-wrap">
+              <textarea
+                v-model="feedback"
+                class="comment-textarea"
+                :disabled="submitting"
+                :placeholder="$t('Additional feedback')"
+                rows="3"
+              />
+            </div>
+          </div>
+
+          <!-- Error message -->
+          <Transition name="fade">
+            <div v-if="errorMessage" class="error-bar">
+              <AlertCircle :size="14" />
+              <span>{{ errorMessage }}</span>
+            </div>
+          </Transition>
+
+          <!-- Footer: consent checkbox + buttons -->
+          <div class="rating-card-footer">
+            <label class="consent-label">
+              <span class="consent-checkbox-wrap">
+                <input
+                  v-model="consentChecked"
+                  type="checkbox"
+                  class="consent-checkbox-input"
+                  :disabled="submitting"
+                />
+                <span v-if="consentChecked" class="consent-checkbox-icon consent-checked">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                    <rect width="16" height="16" rx="4" fill="currentColor" />
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4021 5.05176C12.722 5.37869 12.7162 5.903 12.3893 6.22283L7.31009 11.1916C6.98822 11.5065 6.47375 11.5065 6.15189 11.1916L3.6123 8.70721C3.28537 8.38738 3.2796 7.86307 3.59943 7.53613C3.91926 7.20919 4.44357 7.20343 4.77051 7.52326L6.73099 9.44112L11.2311 5.03889C11.558 4.71906 12.0823 4.72482 12.4021 5.05176Z" fill="white" />
+                  </svg>
+                </span>
+                <span v-else class="consent-checkbox-icon consent-unchecked">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                    <rect x="0.5" y="0.5" width="15" height="15" rx="3.5" stroke="currentColor" fill="none" />
+                  </svg>
+                </span>
+              </span>
+              <span class="consent-text">{{ $t('Help Pythinker improve with my feedback') }}</span>
+            </label>
+
+            <div class="rating-card-buttons">
+              <button
+                type="button"
+                class="btn-skip"
+                :disabled="submitting"
+                @click="handleSkip"
+              >
+                {{ $t('Skip comment') }}
+              </button>
+              <button
+                type="button"
+                class="btn-submit"
+                :disabled="submitting"
+                @click="handleSubmit"
+              >
+                <Loader2 v-if="submitting" :size="14" class="spin" />
+                {{ submitting ? $t('Submitting...') : $t('Submit') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Phase 3: Submitted confirmation (permanent — never shows rating again) -->
+    <Transition name="fade">
+      <div v-if="phase === 'submitted'" class="footer-row">
+        <div class="status-wrap">
+          <Check class="status-icon" />
+          <span class="status-text">{{ $t('Task completed') }}</span>
+        </div>
+        <div class="submitted-badge">
+          <Star :size="13" class="submitted-star" />
+          <span>{{ submittedRating }}/5 &middot; {{ $t('Thanks for your feedback') }}</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { Check, Star } from 'lucide-vue-next';
+import { AlertCircle, Check, Loader2, Star } from 'lucide-vue-next';
 
 const props = withDefaults(
   defineProps<{
@@ -153,35 +173,49 @@ const emit = defineEmits<{
   (e: 'rate', rating: number, feedback?: string): void;
 }>();
 
-const phase = ref<'initial' | 'expanded' | 'submitted'>('initial');
+type Phase = 'initial' | 'expanded' | 'submitted';
+
+const phase = ref<Phase>('initial');
 const rating = ref(0);
 const hoverRating = ref(0);
 const feedback = ref('');
 const consentChecked = ref(true);
+const submitting = ref(false);
+const errorMessage = ref('');
+const submittedRating = ref(0);
 
 const handleStarClick = (value: number) => {
   rating.value = value;
   phase.value = 'expanded';
 };
 
-const handleSkip = () => {
+const doSubmit = (includeFeedback: boolean) => {
+  if (submitting.value) return;
+  errorMessage.value = '';
+
   if (!consentChecked.value) {
+    // User opted out — just dismiss the card, no API call
+    submittedRating.value = rating.value;
     phase.value = 'submitted';
     return;
   }
-  emit('rate', rating.value);
-  phase.value = 'submitted';
+
+  submitting.value = true;
+  submittedRating.value = rating.value;
+
+  const trimmed = includeFeedback ? feedback.value.trim() : undefined;
+  try {
+    emit('rate', rating.value, trimmed || undefined);
+    phase.value = 'submitted';
+  } catch {
+    errorMessage.value = 'Failed to submit rating. Please try again.';
+  } finally {
+    submitting.value = false;
+  }
 };
 
-const handleSubmit = () => {
-  if (!consentChecked.value) {
-    phase.value = 'submitted';
-    return;
-  }
-  const trimmed = feedback.value.trim();
-  emit('rate', rating.value, trimmed || undefined);
-  phase.value = 'submitted';
-};
+const handleSkip = () => doSubmit(false);
+const handleSubmit = () => doSubmit(true);
 </script>
 
 <style scoped>
@@ -269,6 +303,11 @@ const handleSubmit = () => {
 
 .star-btn:hover {
   opacity: 0.85;
+}
+
+.star-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .star-btn:focus-visible {
@@ -379,6 +418,24 @@ const handleSubmit = () => {
   box-shadow: none;
 }
 
+.comment-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Error bar ───────────────────────────────── */
+.error-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--function-danger, #ef4444);
+  font-size: 13px;
+  line-height: 18px;
+}
+
 /* ── Footer: consent + buttons ───────────────── */
 .rating-card-footer {
   display: flex;
@@ -410,6 +467,10 @@ const handleSubmit = () => {
   cursor: pointer;
 }
 
+.consent-checkbox-input:disabled {
+  cursor: not-allowed;
+}
+
 .consent-checkbox-icon {
   display: flex;
   align-items: center;
@@ -438,10 +499,12 @@ const handleSubmit = () => {
   margin-left: auto;
 }
 
-.btn-skip {
+.btn-skip,
+.btn-submit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   white-space: nowrap;
   font-weight: 500;
   font-size: 14px;
@@ -452,44 +515,40 @@ const handleSubmit = () => {
   border-radius: 8px;
   cursor: pointer;
   transition: opacity 0.16s ease;
+}
+
+.btn-skip:disabled,
+.btn-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-skip {
   background: var(--Button-primary-white);
   color: var(--text-primary);
   border: 1px solid var(--border-btn-main);
   box-shadow: none;
 }
 
-.btn-skip:hover {
+.btn-skip:hover:not(:disabled) {
   opacity: 0.7;
 }
 
-.btn-skip:active {
+.btn-skip:active:not(:disabled) {
   opacity: 0.6;
 }
 
 .btn-submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  font-weight: 500;
-  font-size: 14px;
-  line-height: 18px;
-  min-height: 32px;
-  min-width: 64px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: opacity 0.16s ease;
   background: var(--Button-primary-black);
   color: var(--text-onblack);
   border: none;
 }
 
-.btn-submit:hover {
+.btn-submit:hover:not(:disabled) {
   opacity: 0.9;
 }
 
-.btn-submit:active {
+.btn-submit:active:not(:disabled) {
   opacity: 0.8;
 }
 
@@ -497,15 +556,59 @@ const handleSubmit = () => {
 .submitted-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 4px 12px;
   border-radius: 8px;
   background: var(--fill-tsp-gray-main);
-  color: var(--function-success);
+  color: var(--text-tertiary);
   font-size: 13px;
   font-weight: 500;
   line-height: 18px;
   margin-left: auto;
+}
+
+.submitted-star {
+  fill: var(--function-warning);
+  stroke: none;
+}
+
+/* ── Spinner ─────────────────────────────────── */
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Transitions ─────────────────────────────── */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-expand-enter-active {
+  transition: all 0.25s ease-out;
+}
+
+.slide-expand-leave-active {
+  transition: all 0.2s ease-in;
+}
+
+.slide-expand-enter-from {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.slide-expand-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* ── Responsive ──────────────────────────────── */
