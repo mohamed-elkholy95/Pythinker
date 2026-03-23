@@ -7,10 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import Message
-from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from pathlib import Path
 
 from app.application.errors.exceptions import BadRequestError
 from app.core.config import get_settings
@@ -18,29 +16,18 @@ from app.domain.external.cache import Cache
 
 logger = logging.getLogger(__name__)
 
-_LOGO_PATH = Path(__file__).parent / "email_assets" / "logo.png"
-_LOGO_CID = "pythinker-logo"
+# Logo served by the frontend at the public domain.
+# Hosted URLs are the industry standard for email images:
+# - data: URIs are blocked by Gmail/Outlook/Yahoo
+# - CID attachments show a paperclip/attachment indicator in Gmail
+# - Hosted URLs are proxied by Gmail (googleusercontent.com) for fast loading
+_LOGO_URL = "https://pythinker.com/logo.png"
 
 
 def _mask_email(email: str) -> str:
     """Mask email for safe logging: 'user@example.com' -> 'use***@example.com'."""
     local, _, domain = email.partition("@")
     return f"{local[:3]}***@{domain}" if domain else f"{email[:3]}***"
-
-
-def _build_logo_attachment() -> MIMEImage | None:
-    """Build an inline MIMEImage attachment for the logo.
-
-    Uses CID (Content-ID) embedding — the only method that works reliably
-    across all email clients. data: URIs are blocked by Gmail/Outlook/Yahoo.
-    """
-    if not _LOGO_PATH.exists():
-        logger.debug("Logo not found at %s, skipping", _LOGO_PATH)
-        return None
-    img = MIMEImage(_LOGO_PATH.read_bytes(), _subtype="png")
-    img.add_header("Content-ID", f"<{_LOGO_CID}>")
-    img.add_header("Content-Disposition", "inline", filename="logo.png")
-    return img
 
 
 def _build_code_email_text(
@@ -64,7 +51,7 @@ def _build_code_email_html(
     ignore_note: str,
 ) -> str:
     logo_html = (
-        f'<img src="cid:{_LOGO_CID}" alt="Pythinker" width="64" height="64" '
+        f'<img src="{_LOGO_URL}" alt="Pythinker" width="64" height="64" '
         f'style="display:block; margin:0 auto; border:0; border-radius:18px;" />'
     )
     return f"""\
@@ -306,16 +293,9 @@ class EmailService:
             ignore_note=ignore_note,
         )
 
-        alt_part = MIMEMultipart("alternative")
-        alt_part.attach(MIMEText(plain, "plain"))
-        alt_part.attach(MIMEText(html, "html"))
-
-        msg = MIMEMultipart("related")
-        msg.attach(alt_part)
-
-        logo = _build_logo_attachment()
-        if logo:
-            msg.attach(logo)
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(plain, "plain"))
+        msg.attach(MIMEText(html, "html"))
 
         msg["From"] = f"Pythinker <{from_addr}>"
         msg["To"] = email
