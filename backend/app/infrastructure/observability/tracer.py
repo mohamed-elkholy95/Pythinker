@@ -20,6 +20,7 @@ Usage:
             span.set_token_usage(prompt_tokens=100, completion_tokens=50)
 """
 
+import collections
 import logging
 import uuid
 from collections import defaultdict
@@ -204,6 +205,7 @@ class Tracer:
         service_name: str = "pythinker-agent",
         export_to_log: bool = True,
         on_trace_complete: Callable[[TraceContext], None] | None = None,
+        max_completed_traces: int = 100,
     ):
         """Initialize the tracer.
 
@@ -211,12 +213,18 @@ class Tracer:
             service_name: Name of the service for trace identification
             export_to_log: Whether to log completed traces
             on_trace_complete: Callback for custom trace processing
+            max_completed_traces: Maximum number of completed traces retained
+                in memory.  Oldest entries are evicted automatically when the
+                deque is full (default 100).
         """
         self.service_name = service_name
         self.export_to_log = export_to_log
         self.on_trace_complete = on_trace_complete
+        self._max_completed_traces: int = max_completed_traces
         self._active_traces: dict[str, TraceContext] = {}
-        self._completed_traces: list[TraceContext] = []
+        self._completed_traces: collections.deque[TraceContext] = collections.deque(
+            maxlen=max_completed_traces
+        )
         self._metrics_by_agent: dict[str, TraceMetrics] = defaultdict(TraceMetrics)
 
     @contextmanager
@@ -267,10 +275,8 @@ class Tracer:
         if trace_id in self._active_traces:
             del self._active_traces[trace_id]
 
-        # Store in completed (with limit)
+        # Store in completed — deque(maxlen=_max_completed_traces) evicts oldest automatically
         self._completed_traces.append(trace_ctx)
-        if len(self._completed_traces) > 100:
-            self._completed_traces = self._completed_traces[-50:]
 
         # Update agent metrics
         agent_id = trace_ctx.root_span.attributes.get("agent.id")
