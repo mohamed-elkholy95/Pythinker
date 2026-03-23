@@ -1843,14 +1843,19 @@ const loadFileContent = async () => {
     if (inlineContent) {
       fileContent.value = inlineContent;
     }
-    if (!props.live || !filePath || !props.sessionId) return;
+    // Skip sandbox file reads for completed sessions — sandbox is gone
+    if (!props.live || !filePath || !props.sessionId || isSessionComplete.value) return;
     if (!filePath.startsWith('/')) return;
 
     try {
       const response = await viewFile(props.sessionId, filePath);
       fileContent.value = response.content;
-    } catch {
-      // File content load failed - UI shows last known content
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 404 || status === 409) {
+        fileContent.value = fileContent.value || '// File no longer available (session sandbox was recycled)';
+      }
+      // Other errors: UI shows last known content
     }
     return;
   }
@@ -1864,7 +1869,8 @@ const loadFileContent = async () => {
     return;
   }
 
-  if (!filePath || !props.sessionId) return;
+  // Skip sandbox file reads for completed sessions — sandbox is gone
+  if (!filePath || !props.sessionId || isSessionComplete.value) return;
 
   try {
     const response = await viewFile(props.sessionId, filePath);
@@ -1873,8 +1879,14 @@ const loadFileContent = async () => {
       originalContent.value = fileContent.value;
     }
     fileContent.value = nextContent;
-  } catch {
-    // File content load failed - UI shows last known content
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404 || status === 409) {
+      if (!fileContent.value) {
+        fileContent.value = '// File no longer available (session sandbox was recycled)';
+      }
+    }
+    // Other errors: UI shows last known content
   }
 };
 
