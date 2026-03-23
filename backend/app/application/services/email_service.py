@@ -16,12 +16,14 @@ from app.domain.external.cache import Cache
 
 logger = logging.getLogger(__name__)
 
-# Logo served by the frontend at the public domain.
+# Square icon served by the frontend at the public domain.
+# Uses icon-192.png (192x192 square) instead of logo.png (822x1025 portrait)
+# to avoid distortion when rendered at small sizes in email clients.
 # Hosted URLs are the industry standard for email images:
 # - data: URIs are blocked by Gmail/Outlook/Yahoo
 # - CID attachments show a paperclip/attachment indicator in Gmail
 # - Hosted URLs are proxied by Gmail (googleusercontent.com) for fast loading
-_LOGO_URL = "https://pythinker.com/logo.png"
+_LOGO_URL = "https://pythinker.com/icon-192.png"
 
 
 def _mask_email(email: str) -> str:
@@ -50,57 +52,66 @@ def _build_code_email_html(
     detail: str,
     ignore_note: str,
 ) -> str:
-    logo_html = (
-        f'<img src="{_LOGO_URL}" alt="Pythinker" width="64" height="64" '
-        f'style="display:block; margin:0 auto; border:0; border-radius:18px;" />'
-    )
     return f"""\
 <html>
 <body style="margin:0; padding:24px 12px; background:#eef4fb; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
   <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
     {intro}
   </div>
-  <div style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #d9e4f2; border-radius:22px; overflow:hidden;">
-    <div style="padding:32px 32px 24px; text-align:center; background:linear-gradient(135deg, #0f172a 0%, #2563eb 100%);">
-      <div style="display:inline-block; width:88px; height:88px; border-radius:24px; background:rgba(255,255,255,0.14); padding:12px; box-sizing:border-box;">
-        {logo_html}
-      </div>
-      <p style="margin:16px 0 0; color:#dbeafe; font-size:13px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;">
-        Pythinker
-      </p>
-    </div>
-    <div style="padding:32px;">
-      <p style="margin:0 0 12px; color:#2563eb; font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;">
-        {eyebrow}
-      </p>
-      <h1 style="margin:0 0 14px; color:#0f172a; font-size:30px; line-height:1.2;">
-        {heading}
-      </h1>
-      <p style="margin:0; color:#475569; font-size:16px; line-height:1.7;">
-        {intro}
-      </p>
-      <div style="margin:28px 0 20px; padding:24px; border-radius:20px; background:#f5f8ff; border:1px solid #c7d7fe; text-align:center;">
-        <p style="margin:0 0 10px; color:#64748b; font-size:12px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;">
-          Verification code
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #d9e4f2; border-radius:22px; border-collapse:collapse; overflow:hidden;">
+    <tr>
+      <td align="center" style="padding:32px 32px 24px; background:#1a3a6e;">
+        <!--[if gte mso 9]>
+        <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:560px;">
+        <v:fill type="gradient" color="#0f172a" color2="#2563eb" angle="135" />
+        <v:textbox inset="0,0,0,0">
+        <![endif]-->
+        <div style="background:linear-gradient(135deg, #0f172a 0%, #2563eb 100%); padding:32px 32px 24px; text-align:center;">
+          <img src="{_LOGO_URL}" alt="Pythinker" width="64" height="64" style="display:block; margin:0 auto; border:0; border-radius:16px; background:rgba(255,255,255,0.14); padding:8px;" />
+          <p style="margin:16px 0 0; color:#dbeafe; font-size:13px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;">
+            Pythinker
+          </p>
+        </div>
+        <!--[if gte mso 9]>
+        </v:textbox>
+        </v:rect>
+        <![endif]-->
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:32px;">
+        <p style="margin:0 0 12px; color:#2563eb; font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;">
+          {eyebrow}
         </p>
-        <p style="margin:0; color:#0f172a; font-size:34px; font-weight:700; letter-spacing:0.34em; font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
-          {code}
+        <h1 style="margin:0 0 14px; color:#0f172a; font-size:30px; line-height:1.2;">
+          {heading}
+        </h1>
+        <p style="margin:0; color:#475569; font-size:16px; line-height:1.7;">
+          {intro}
         </p>
-      </div>
-      <div style="padding:18px 20px; border-radius:16px; background:#f8fafc; border:1px solid #e2e8f0;">
-        <p style="margin:0; color:#475569; font-size:14px; line-height:1.7;">
-          {detail}
+        <div style="margin:28px 0 20px; padding:24px; border-radius:20px; background:#f5f8ff; border:1px solid #c7d7fe; text-align:center;">
+          <p style="margin:0 0 10px; color:#64748b; font-size:12px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;">
+            Verification code
+          </p>
+          <p style="margin:0; color:#0f172a; font-size:34px; font-weight:700; letter-spacing:0.34em; font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
+            {code}
+          </p>
+        </div>
+        <div style="padding:18px 20px; border-radius:16px; background:#f8fafc; border:1px solid #e2e8f0;">
+          <p style="margin:0; color:#475569; font-size:14px; line-height:1.7;">
+            {detail}
+          </p>
+        </div>
+        <p style="margin:20px 0 0; color:#64748b; font-size:13px; line-height:1.7;">
+          {ignore_note}
         </p>
-      </div>
-      <p style="margin:20px 0 0; color:#64748b; font-size:13px; line-height:1.7;">
-        {ignore_note}
-      </p>
-      <hr style="margin:28px 0 18px; border:none; border-top:1px solid #e2e8f0;" />
-      <p style="margin:0; color:#94a3b8; font-size:12px; line-height:1.6; text-align:center;">
-        Pythinker • Secure account access
-      </p>
-    </div>
-  </div>
+        <hr style="margin:28px 0 18px; border:none; border-top:1px solid #e2e8f0;" />
+        <p style="margin:0; color:#94a3b8; font-size:12px; line-height:1.6; text-align:center;">
+          Pythinker &bull; Secure account access
+        </p>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>"""
 
