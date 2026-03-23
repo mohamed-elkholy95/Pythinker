@@ -2328,32 +2328,45 @@ class PlaywrightBrowser:
     async def _head_precheck(self, url: str) -> ToolResult | None:
         """Lightweight HEAD request to detect dead URLs before full navigation.
 
-        Returns a ToolResult error if the URL is unreachable (404, 5xx, timeout),
+        Returns a ToolResult error if the URL is unreachable (404, 403, 5xx),
         or None if the URL looks valid and full navigation should proceed.
         Saves 5-6s per dead URL by avoiding full Playwright navigation.
         """
-        import httpx as _httpx
+        from app.infrastructure.external.http_pool import get_http_client
 
         try:
-            async with _httpx.AsyncClient(
+            client = get_http_client(
+                name="head-precheck",
+                base_url="",
+                timeout=2.0,
                 follow_redirects=True,
-                timeout=_httpx.Timeout(2.0, connect=1.5),
-            ) as client:
-                resp = await client.head(url, headers={"User-Agent": self._current_user_agent})
-                if resp.status_code == 404:
-                    logger.info("HEAD pre-check: %s returned 404, skipping navigation", url[:80])
-                    return ToolResult(
-                        success=False,
-                        message=(f"URL returned HTTP 404 (page not found): {url}. Use a different source."),
-                        data={"url": url, "status_code": 404},
-                    )
-                if resp.status_code >= 500:
-                    logger.info("HEAD pre-check: %s returned %d, skipping navigation", url[:80], resp.status_code)
-                    return ToolResult(
-                        success=False,
-                        message=f"URL returned HTTP {resp.status_code} (server error): {url}. Use a different source.",
-                        data={"url": url, "status_code": resp.status_code},
-                    )
+            )
+            resp = await client.request(
+                "HEAD",
+                url,
+                headers={"User-Agent": self._current_user_agent},
+            )
+            if resp.status_code == 404:
+                logger.info("HEAD pre-check: %s returned 404, skipping navigation", url[:80])
+                return ToolResult(
+                    success=False,
+                    message=f"URL returned HTTP 404 (page not found): {url}. Use a different source.",
+                    data={"url": url, "status_code": 404},
+                )
+            if resp.status_code == 403:
+                logger.info("HEAD pre-check: %s returned 403, skipping navigation", url[:80])
+                return ToolResult(
+                    success=False,
+                    message=f"Navigation to {url} returned HTTP 403. Treat this source as unavailable and use an alternative URL.",
+                    data={"url": url, "status_code": 403},
+                )
+            if resp.status_code >= 500:
+                logger.info("HEAD pre-check: %s returned %d, skipping navigation", url[:80], resp.status_code)
+                return ToolResult(
+                    success=False,
+                    message=f"URL returned HTTP {resp.status_code} (server error): {url}. Use a different source.",
+                    data={"url": url, "status_code": resp.status_code},
+                )
         except Exception:
             # HEAD failed (timeout, DNS, connection refused) — let full navigation try.
             # Some servers reject HEAD but accept GET; don't block on HEAD failure.
