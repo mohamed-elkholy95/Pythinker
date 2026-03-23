@@ -987,7 +987,7 @@ class PlanActFlow(BaseFlow):
             return
 
         total_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        if total_chars < 60_000:
+        if total_chars < 40_000:
             return  # Context is small enough, skip compaction
 
         truncated_count = 0
@@ -1608,7 +1608,10 @@ class PlanActFlow(BaseFlow):
             "browse": _browse_tools,
             "execute": _exec_tools,
             "run": _exec_tools,
-            "benchmark": _exec_tools,
+            # NOTE: "benchmark" removed — in research contexts it means
+            # "look up benchmark data", not "run a benchmark script".
+            # Mapping it to exec_tools caused false-positive audit failures
+            # on cross-validation steps that mention benchmark comparisons.
             "test": _exec_tools,
             "write": _write_tools,
             "create": _write_tools,
@@ -1639,9 +1642,25 @@ class PlanActFlow(BaseFlow):
         if not step.success or not step.description:
             return False
 
+        # Tier C: If planner declared expected_tools, validate against those
+        # (skips keyword-based inference entirely — no false positives)
+        if step.expected_tools:
+            expected_set = set(step.expected_tools)
+            if tools_used & expected_set:
+                return False  # Audit passes — used at least one expected tool
+            # None of the expected tools were used
+            step.success = False
+            step.status = ExecutionStatus.FAILED
+            step.error = f"Step did not use any declared tools: {', '.join(sorted(expected_set))}"
+            step.notes = (
+                (step.notes or "")
+                + f"\n[Audit failure: expected tools {sorted(expected_set)}, used {sorted(tools_used)}]"
+            ).strip()
+            return True
+
         desc_lower = step.description.lower()
         exec_tools = cls._step_action_tool_map()["execute"]
-        exec_verbs = {"execute", "run", "benchmark", "test"}
+        exec_verbs = {"execute", "run", "test"}
         has_exec_verb = any(re.search(rf"\b{re.escape(verb)}\b", desc_lower) for verb in exec_verbs)
         did_write = bool(tools_used & {"file_write", "file_create", "file"})
         did_exec = bool(tools_used & exec_tools)
@@ -3452,9 +3471,7 @@ class PlanActFlow(BaseFlow):
                     if hasattr(self.executor, "_stuck_detector"):
                         self.executor._stuck_detector.reset_for_new_step()
                     if hasattr(self.executor, "_pipeline"):
-                        for mw in getattr(self.executor._pipeline, "_middlewares", []):
-                            if hasattr(mw, "reset_browser_budget"):
-                                mw.reset_browser_budget()
+                        self.executor._pipeline.reset_for_new_step()
 
                     # Per-step context compaction: truncate old tool results from prior
                     # steps to prevent context from growing beyond the hard cap.
