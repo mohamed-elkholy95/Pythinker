@@ -73,6 +73,7 @@ class OutputVerifier:
         "_research_depth",
         "_resolve_feature_flags_fn",
         "_source_tracker",
+        "_step_sources",
         "_user_request",
     )
 
@@ -97,6 +98,7 @@ class OutputVerifier:
         self._resolve_feature_flags_fn = resolve_feature_flags_fn
         self._hallucination_verification_enabled: bool = hallucination_verification_enabled
         self._research_depth: str | None = None
+        self._step_sources: list[str] = []
 
         # Mutable state (set per-run by the caller)
         self._user_request: str | None = None
@@ -105,6 +107,19 @@ class OutputVerifier:
 
     def set_user_request(self, request: str | None) -> None:
         self._user_request = request
+
+    # ── Per-Step Source Accumulation ────────────────────────────────────
+
+    def add_step_source(self, title: str, url: str, snippet: str) -> None:
+        """Add a source discovered during step execution for grounding context."""
+        if not snippet or not snippet.strip():
+            return
+        entry = f"Source: {title} ({url})\n{snippet[:500]}"
+        self._step_sources.append(entry)
+
+    def clear_step_sources(self) -> None:
+        """Clear per-step sources after verification."""
+        self._step_sources.clear()
 
     # ── Feature Flags ──────────────────────────────────────────────────
 
@@ -130,6 +145,10 @@ class OutputVerifier:
         collected = self._source_tracker._collected_sources
 
         chunks: list[str] = []
+
+        # Per-step sources (highest priority — direct tool output from this step)
+        chunks.extend(self._step_sources)
+
         for source in collected:
             snippet = source.snippet or ""
             # Prepend title and URL so the grounding verifier can ground entity
