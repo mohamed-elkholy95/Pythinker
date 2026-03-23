@@ -18,6 +18,7 @@ Usage:
         trace.set_token_usage(prompt_tokens=100, completion_tokens=50)
 """
 
+import collections
 import logging
 import time
 import uuid
@@ -358,12 +359,18 @@ class LLMTracerInterface(ABC):
 
 
 class NoOpLLMTracer(LLMTracerInterface):
-    """No-op tracer that stores traces locally for metrics but doesn't export."""
+    """No-op tracer that stores traces locally for metrics but doesn't export.
 
-    def __init__(self):
-        self._traces: list[LLMTrace] = []
-        self._tool_traces: list[ToolTrace] = []
-        self._max_history = 1000
+    Trace history is bounded by *max_history* (default 100).  Both LLM traces
+    and tool traces share the same limit.  A ``collections.deque`` with
+    ``maxlen`` is used so that the oldest entry is evicted automatically on
+    each append — the list never grows beyond the limit even momentarily.
+    """
+
+    def __init__(self, max_history: int = 100) -> None:
+        self._max_history: int = max_history
+        self._traces: collections.deque[LLMTrace] = collections.deque(maxlen=max_history)
+        self._tool_traces: collections.deque[ToolTrace] = collections.deque(maxlen=max_history)
 
     async def trace_llm_call(
         self,
@@ -403,8 +410,6 @@ class NoOpLLMTracer(LLMTracerInterface):
             trace.latency_ms = latency_ms
 
         self._traces.append(trace)
-        if len(self._traces) > self._max_history:
-            self._traces = self._traces[-500:]
 
         return trace
 
@@ -435,8 +440,6 @@ class NoOpLLMTracer(LLMTracerInterface):
             trace.latency_ms = latency_ms
 
         self._tool_traces.append(trace)
-        if len(self._tool_traces) > self._max_history:
-            self._tool_traces = self._tool_traces[-500:]
 
         return trace
 
@@ -445,6 +448,15 @@ class NoOpLLMTracer(LLMTracerInterface):
 
     async def flush(self) -> None:
         pass
+
+    def get_traces(self) -> list[LLMTrace]:
+        """Return a snapshot of the currently retained LLM traces.
+
+        Callers (e.g. metrics routes) should use this method instead of
+        accessing the private ``_traces`` deque directly so that the
+        internal storage type can change without breaking callers.
+        """
+        return list(self._traces)
 
     def get_metrics_summary(self) -> dict[str, Any]:
         """Get aggregated metrics from stored traces."""

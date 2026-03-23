@@ -130,13 +130,14 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Gateway — Telegram / Channel Integration (reuses backend image)
+  # Gateway — Telegram / Channel Integration (lightweight, no browser deps) — opt-in via: --profile channels
   # ---------------------------------------------------------------------------
   gateway:
-    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
+    profiles: ["channels"]
+    image: ghcr.io/mohamed-elkholy95/pythinker-gateway:${IMAGE_TAG:-latest}
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     depends_on:
       backend:
@@ -209,7 +210,7 @@ services:
       - SETGID
       - SETUID
       - NET_BIND_SERVICE
-    shm_size: '2g'
+    shm_size: '${SANDBOX_SHM_SIZE:-256m}'
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -224,13 +225,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1'
+          memory: ${SANDBOX_MEM_LIMIT:-2G}
+          cpus: '${SANDBOX_CPU_LIMIT:-1}'
         reservations:
-          memory: 512M
+          memory: ${SANDBOX_MEM_RESERVATION:-512M}
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
-      - ENABLE_VNC=${ENABLE_VNC:-1}
+      - ENABLE_VNC=${ENABLE_VNC:-0}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD}
@@ -392,10 +393,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${REDIS_MEMORY_LIMIT:-1G}
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     healthcheck:
       test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 10s
@@ -422,10 +423,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-2G}
+          memory: ${QDRANT_MEMORY_LIMIT:-768M}
           cpus: '1'
         reservations:
-          memory: 512M
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
@@ -453,10 +454,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${MINIO_MEMORY_LIMIT:-1G}
+          memory: ${MINIO_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 10s

@@ -8,7 +8,7 @@
 
 services:
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.2.1
     container_name: pythinker-prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -35,7 +35,7 @@ services:
       start_period: 15s
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.5.2
     container_name: pythinker-grafana
     volumes:
       - grafana_data:/var/lib/grafana
@@ -106,6 +106,28 @@ services:
     command:
       - '--redis.addr=redis://redis:6379'
       - '--web.listen-address=:9121'
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.51.0
+    container_name: pythinker-cadvisor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "127.0.0.1:8085:8080"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    container_name: pythinker-node-exporter
+    ports:
+      - "127.0.0.1:9100:9100"
     restart: unless-stopped
     networks:
       - pythinker-network
