@@ -2696,22 +2696,19 @@ class BaseAgent:
                 total_chars,
                 _cap,
             )
-            # #region agent log
-            try:
-                import json, time as _t
-                _tool_msgs = [m for m in all_msgs if m.get("role") == "tool"]
-                with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
-                    _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H2A","location":"base.py:ask_with_messages","message":"Hard context cap hit","data":{"total_chars":total_chars,"cap":_cap,"is_deep_research":getattr(self,"_is_deep_research",False),"msg_count":len(all_msgs),"tool_msg_count":len(_tool_msgs),"agent_class":type(self).__name__},"timestamp":int(_t.time()*1000)}) + '\n')
-            except Exception:
-                pass
-            # #endregion
             # Graduated eviction: older tool results are truncated more
             # aggressively, recent ones are preserved with more context.
-            # This keeps the most relevant data the LLM needs for synthesis
-            # while still respecting the cap.
+            # Target 80% of cap to prevent re-triggering on the next turn
+            # (each tool result can add 5-10K chars).
+            _target = int(_cap * 0.80)
             tool_indices = [i for i, m in enumerate(all_msgs) if m.get("role") == "tool"]
             n_tools = len(tool_indices)
             trimmed = list(all_msgs)  # shallow copy
+
+            # Scale limits by overshoot ratio: more aggressive when further over cap
+            _overshoot = total_chars / _cap  # e.g. 1.3 means 30% over
+            _scale = max(0.3, 1.0 / _overshoot)
+
             for rank, idx in enumerate(tool_indices):
                 m = trimmed[idx]
                 content = m.get("content", "")
@@ -2720,14 +2717,25 @@ class BaseAgent:
                 # Determine limit based on recency (0.0 = oldest, 1.0 = newest)
                 age_ratio = 0.0 if n_tools <= 1 else rank / (n_tools - 1)
                 if age_ratio < 0.33:
-                    limit = 300  # oldest third: aggressive truncation
+                    limit = int(200 * _scale)  # oldest third: aggressive truncation
                 elif age_ratio < 0.66:
-                    limit = 800  # middle third: moderate truncation
+                    limit = int(600 * _scale)  # middle third: moderate truncation
                 else:
-                    limit = 2000  # newest third: preserve more context
+                    limit = int(1500 * _scale)  # newest third: preserve more context
+                limit = max(limit, 100)  # floor: never truncate below 100 chars
                 if len(content) > limit:
                     trimmed[idx] = {**m, "content": content[:limit] + "\n[... truncated ...]"}
             self.memory.messages = trimmed
+
+            # Verify we reached the target; if not, do a second pass
+            _after = sum(len(str(m.get("content", ""))) for m in trimmed)
+            if _after > _target and tool_indices:
+                for idx in tool_indices:
+                    m = trimmed[idx]
+                    content = m.get("content", "")
+                    if isinstance(content, str) and len(content) > 150:
+                        trimmed[idx] = {**m, "content": content[:150] + "\n[... truncated ...]"}
+                self.memory.messages = trimmed
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
         if self._efficiency_nudges:
