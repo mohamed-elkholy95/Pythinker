@@ -42,6 +42,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       sandbox: ${{ steps.filter.outputs.sandbox }}
+      gateway: ${{ steps.filter.outputs.backend }}
       deploy_config: ${{ steps.filter.outputs.deploy_config }}
       any_app: ${{ steps.check.outputs.any_app }}
     steps:
