@@ -18,9 +18,15 @@ class ResultAnalysis:
 
 
 class ResultAnalyzer:
-    """Detect anomalies in tool results."""
+    """Detect anomalies in tool results.
 
-    MAX_RESULT_CHARS = 10000
+    The threshold is intentionally generous — search results regularly return
+    15-20K chars of enriched content, and browser page extraction can exceed
+    20K chars for spec pages.  The ``oversized_result`` anomaly should only
+    fire for truly unexpected sizes, not normal search/browse output.
+    """
+
+    MAX_RESULT_CHARS = 30_000
 
     def analyze(self, result: ToolResult | None) -> ResultAnalysis:
         if result is None:
