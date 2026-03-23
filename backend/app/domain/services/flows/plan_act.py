@@ -517,8 +517,9 @@ class PlanActFlow(BaseFlow):
             self.executor._efficiency_monitor = ToolEfficiencyMonitor(
                 research_mode=self._research_mode,
             )
-        # Flag agents so they can select the higher context cap for deep_research
-        if self._research_mode == "deep_research":
+        # Flag agents so they can select the higher context cap for research flows
+        _research_modes = {"deep_research", "wide_research", "fast_search"}
+        if self._research_mode in _research_modes:
             self.executor._is_deep_research = True
             self.planner._is_deep_research = True
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
@@ -967,6 +968,43 @@ class PlanActFlow(BaseFlow):
         if self._url_failure_guard and hasattr(step_executor, "_url_failure_guard"):
             step_executor._url_failure_guard = self._url_failure_guard
         return step_executor
+
+    @staticmethod
+    def _compact_prior_step_context(executor: "BaseAgent") -> None:
+        """Truncate old tool results in the executor's memory between steps.
+
+        Deep research tasks accumulate 100K+ chars of tool results across steps.
+        At step boundaries we aggressively truncate older tool messages to keep
+        the conversation within the hard context cap, preserving only the most
+        recent results the next step needs.  Non-tool messages (system, user,
+        assistant) are left untouched.
+        """
+        if not hasattr(executor, "memory") or executor.memory is None:
+            return
+        messages = executor.memory.messages
+        if not messages:
+            return
+
+        # Find tool messages and truncate all except the last 3
+        tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+        if len(tool_indices) <= 3:
+            return  # Nothing to compact
+
+        truncated_count = 0
+        # Keep the last 3 tool messages, truncate the rest to 200 chars
+        for idx in tool_indices[:-3]:
+            m = messages[idx]
+            content = m.get("content", "")
+            if isinstance(content, str) and len(content) > 200:
+                messages[idx] = {**m, "content": content[:200] + "\n[... compacted at step boundary ...]"}
+                truncated_count += 1
+
+        if truncated_count > 0:
+            logger.debug(
+                "Per-step compaction: truncated %d old tool result(s) (%d total tool msgs)",
+                truncated_count,
+                len(tool_indices),
+            )
 
     def _infer_research_depth(self) -> str:
         """Infer research depth from plan step count and deal-finder presence.
@@ -3283,6 +3321,12 @@ class PlanActFlow(BaseFlow):
                         for mw in getattr(self.executor._pipeline, "_middlewares", []):
                             if hasattr(mw, "reset_browser_budget"):
                                 mw.reset_browser_budget()
+
+                    # Per-step context compaction: truncate old tool results from prior
+                    # steps to prevent context from growing beyond the hard cap.
+                    # Without this, 5-step research tasks accumulate 130K+ chars as
+                    # each step's search results persist in the conversation.
+                    self._compact_prior_step_context(self.executor)
 
                     # Execute step with tracing
                     logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
