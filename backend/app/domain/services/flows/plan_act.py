@@ -3258,6 +3258,7 @@ class PlanActFlow(BaseFlow):
                     # Check if step should be skipped (blocked by previous failures)
                     if step.status == ExecutionStatus.BLOCKED:
                         logger.info(f"Skipping blocked step {step.id}: {step.notes or 'blocked by dependency'}")
+                        yield StepEvent(status=StepStatus.FAILED, step=step)
                         await self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
@@ -3265,6 +3266,7 @@ class PlanActFlow(BaseFlow):
                     if not self._check_step_dependencies(step):
                         logger.warning(f"Step {step.id} has unsatisfied dependencies, marking as blocked")
                         step.mark_blocked("Unsatisfied dependencies")
+                        yield StepEvent(status=StepStatus.FAILED, step=step)
                         await self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
@@ -4118,9 +4120,12 @@ class PlanActFlow(BaseFlow):
 
                     # Reconcile: ensure every successful step carries COMPLETED status
                     # before emitting the final PlanEvent (guards against any missed updates).
+                    # Emit StepEvents for any steps whose status changed so the frontend
+                    # timeline stays in sync (prevents stale "running"/"pending" cards).
                     for s in self.plan.steps:
                         if s.success and s.status != ExecutionStatus.COMPLETED:
                             s.status = ExecutionStatus.COMPLETED
+                            yield StepEvent(status=StepStatus.COMPLETED, step=s)
                     self.plan.sync_phase_statuses()
                     self.plan.status = ExecutionStatus.COMPLETED
                     logger.info(f"Agent {self._agent_id} plan has been completed")
