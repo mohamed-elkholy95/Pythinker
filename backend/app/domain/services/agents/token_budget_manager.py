@@ -485,23 +485,55 @@ class TokenBudgetManager:
     ) -> list[dict[str, Any]]:
         """Stage 1: Collapse verbose tool outputs to key results.
 
-        Preserves the last 4 tool results intact; summarizes older ones
-        by truncating to the first 500 characters + a continuation marker.
+        Two tiers of preservation:
+        - Last 2 tool results: kept up to 3000 chars (enough for current work)
+        - Tool results 3-4: truncated to 1000 chars (recent context)
+        - Older tool results: truncated to 300 chars (summary only)
+
+        This prevents the 60-79s LLM calls caused by 4+ untruncated search
+        results (8K+ chars each) saturating the context window.
         """
         result = []
         tool_results = [(i, msg) for i, msg in enumerate(messages) if msg.get("role") == "tool"]
-        # Keep the last 4 tool results intact
-        recent_tool_indices = {idx for idx, _ in tool_results[-4:]}
+        # Tier 1: last 2 tool results — preserve most content
+        tier1_indices = {idx for idx, _ in tool_results[-2:]}
+        # Tier 2: tool results 3-4 — moderate truncation
+        tier2_indices = {idx for idx, _ in tool_results[-4:-2]}
 
         for i, msg in enumerate(messages):
-            if msg.get("role") == "tool" and i not in recent_tool_indices:
-                content = msg.get("content", "")
-                if isinstance(content, str) and len(content) > 500:
+            if msg.get("role") != "tool":
+                result.append(msg)
+                continue
+
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                result.append(msg)
+                continue
+
+            if i in tier1_indices:
+                # Tier 1: keep up to 3000 chars
+                if len(content) > 3000:
                     summarized = dict(msg)
-                    summarized["content"] = content[:500] + "\n\n[... truncated for context budget ...]"
+                    summarized["content"] = content[:3000] + "\n\n[... truncated for context budget ...]"
                     result.append(summarized)
-                    continue
-            result.append(msg)
+                else:
+                    result.append(msg)
+            elif i in tier2_indices:
+                # Tier 2: keep up to 1000 chars
+                if len(content) > 1000:
+                    summarized = dict(msg)
+                    summarized["content"] = content[:1000] + "\n\n[... truncated for context budget ...]"
+                    result.append(summarized)
+                else:
+                    result.append(msg)
+            else:
+                # Tier 3: older results — aggressive truncation
+                if len(content) > 300:
+                    summarized = dict(msg)
+                    summarized["content"] = content[:300] + "\n\n[... older result truncated ...]"
+                    result.append(summarized)
+                else:
+                    result.append(msg)
 
         return result
 

@@ -1218,7 +1218,7 @@ class AgentService:
 
     async def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
         """Get a session by ID (lightweight — excludes events/files)."""
-        logger.info(f"Getting session {session_id} for user {user_id}")
+        logger.debug(f"Getting session {session_id} for user {user_id}")
         if not user_id:
             session = await self._session_repository.find_by_id(session_id)
         else:
@@ -1229,7 +1229,7 @@ class AgentService:
 
     async def get_session_full(self, session_id: str, user_id: str | None = None) -> Session | None:
         """Get a session by ID with full payload (includes events/files)."""
-        logger.info(f"Getting full session {session_id} for user {user_id}")
+        logger.debug(f"Getting full session {session_id} for user {user_id}")
         if not user_id:
             session = await self._session_repository.find_by_id_full(session_id)
         else:
