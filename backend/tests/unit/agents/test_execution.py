@@ -13,6 +13,7 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     StepEvent,
+    StepStatus,
     ToolEvent,
     ToolStatus,
 )
@@ -237,6 +238,38 @@ class TestExecutionAgent:
         assert step_events[-1].step.success is False
         assert step_events[-1].step.result is None
         assert step_events[-1].step.error is not None
+
+    @pytest.mark.asyncio
+    async def test_execute_step_marks_structured_failure_payload_failed(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Schema-valid failure payloads must fail the step instead of completing it."""
+        message = mock_message(message="Run task that fails cleanly")
+
+        async def fake_execute(*_args, **_kwargs):
+            yield MessageEvent(
+                message='{"success": false, "result": null, "attachments": [], "error": "Step missed required search action"}'
+            )
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(
+            return_value={
+                "success": False,
+                "result": None,
+                "attachments": [],
+                "error": "Step missed required search action",
+            }
+        )
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        step_events = [e for e in events if isinstance(e, StepEvent)]
+        assert step_events
+        assert step_events[-1].status == StepStatus.FAILED
+        assert step_events[-1].step.status == ExecutionStatus.FAILED
+        assert step_events[-1].step.success is False
+        assert step_events[-1].step.error == "Step missed required search action"
+        assert all(event.status != StepStatus.COMPLETED for event in step_events)
 
     @pytest.mark.asyncio
     async def test_execute_step_uses_json_repair_fallback_when_parser_fails(
