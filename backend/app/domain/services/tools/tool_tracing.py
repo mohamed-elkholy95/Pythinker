@@ -21,10 +21,15 @@ _metrics: MetricsPort = get_null_metrics()
 
 # Tools whose results are expected to exceed MAX_RESULT_CHARS.
 # oversized_result anomalies are suppressed in logs for these tools.
-_LARGE_RESULT_TOOLS = frozenset({
-    "info_search_web", "wide_research", "search",
-    "browser_get_content", "browser_navigate",
-})
+_LARGE_RESULT_TOOLS = frozenset(
+    {
+        "info_search_web",
+        "wide_research",
+        "search",
+        "browser_get_content",
+        "browser_navigate",
+    }
+)
 
 
 def set_metrics(metrics: MetricsPort) -> None:
@@ -166,11 +171,23 @@ class ToolTracer:
     # for injection.  Bulk content fields (file body, report text) are
     # excluded to avoid false positives — a cybersecurity report mentioning
     # "bypass" or "system prompt injection" is normal, not an attack.
-    _INJECTION_CHECK_KEYS = frozenset({
-        "command", "cmd", "query", "path", "url", "name",
-        "working_directory", "session_id", "tool_name",
-        "search_query", "input", "selector", "text",
-    })
+    _INJECTION_CHECK_KEYS = frozenset(
+        {
+            "command",
+            "cmd",
+            "query",
+            "path",
+            "url",
+            "name",
+            "working_directory",
+            "session_id",
+            "tool_name",
+            "search_query",
+            "input",
+            "selector",
+            "text",
+        }
+    )
 
     def _detect_injection(self, arguments: dict[str, Any]) -> bool:
         patterns = [
