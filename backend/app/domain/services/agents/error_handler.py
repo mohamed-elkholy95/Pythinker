@@ -197,11 +197,23 @@ class ErrorHandler:
 
         self._record_error(error_context)
 
-        # Key exhaustion is already warned once by the pool — don't re-warn per call
-        if isinstance(exception, LLMKeysExhaustedError):
+        # Deduplicate: only log the first classification of each exception instance.
+        # The same exception propagates through multiple layers (base.py, error_recovery,
+        # middleware), each calling classify_error — without dedup this produces 2-3x logs.
+        _exc_id = id(exception)
+        if not hasattr(self, "_classified_exc_ids"):
+            self._classified_exc_ids: set[int] = set()
+        if _exc_id in self._classified_exc_ids:
+            pass  # already logged
+        elif isinstance(exception, LLMKeysExhaustedError):
             logger.debug("Classified error as %s: %s", error_type.value, error_message[:100])
+            self._classified_exc_ids.add(_exc_id)
         else:
             logger.warning(f"Classified error as {error_type.value}: {error_message[:100]}")
+            self._classified_exc_ids.add(_exc_id)
+        # Prevent unbounded growth: cap dedup set
+        if len(self._classified_exc_ids) > 200:
+            self._classified_exc_ids.clear()
         if "unsupported operand" in error_message:
             import traceback
 
