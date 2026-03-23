@@ -153,9 +153,10 @@ class AgentSafetySettingsMixin:
     planner_research_step_cap: int = 10  # Max steps for research-heavy tasks
 
     # Hard context cap: last-resort safety valve against 60-80s LLM calls.
-    # When total conversation chars exceed this, all tool results are truncated to 500 chars.
+    # When total conversation chars exceed this, BaseAgent applies graduated truncation
+    # to tool messages (older = shorter) — see BaseAgent.ask_with_messages.
     hard_context_char_cap: int = 50_000  # Default cap for standard tasks
-    hard_context_char_cap_deep_research: int = 100_000  # Higher cap for deep_research flows
+    hard_context_char_cap_deep_research: int = 100_000  # Research modes (deep/wide/fast_search via _is_deep_research)
     # Browser navigation budget per execution step (prevents infinite browsing loops)
     max_browser_navigations_per_step: int = 6
 
@@ -415,9 +416,14 @@ class FeatureFlagsSettingsMixin:
     # too narrow to contain the source passage for a cited statistic. E2E testing showed
     # all 4 research tasks hitting 65-68% unsupported despite correct citations.
     hallucination_annotate_spans: bool = False  # Annotate flagged claims in output
-    hallucination_grounding_context_size: int = 24000  # Chars of source context for grounding verifier (raised from 16K)
+    hallucination_grounding_context_size: int = (
+        24000  # Chars of source context for grounding verifier (raised from 16K)
+    )
     hallucination_grounding_context_deep: int = 48000  # Expanded context for DEEP research (raised from 32K)
     hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
+    hallucination_verifier_timeout: float = (
+        30.0  # Seconds — shorter than main LLM timeout (verification is a side-task)
+    )
     hallucination_max_claims: int = 25  # Cap extracted claims (raised from 20 for more thorough checking)
     reranker_provider: str = "jina"  # "jina" (API) or "none" (skip reranking)
 
