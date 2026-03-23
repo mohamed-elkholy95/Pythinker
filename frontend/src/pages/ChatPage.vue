@@ -2822,7 +2822,6 @@ const handleStepEvent = (stepData: StepEventData) => {
   } else if (stepData.status === 'completed') {
     activeReasoningState.value = 'quality_checking';
   }
-  const lastStep = getLastStep();
   if (stepData.status === 'running' || stepData.status === 'started') {
     // Check if a running step with the same ID already exists (progressive update pattern)
     // Used by finalization steps that emit multiple RUNNING events with changing descriptions
@@ -2872,9 +2871,6 @@ const handleStepEvent = (stepData: StepEventData) => {
       .find(s => s.id === stepData.id);
     if (matchingStep) {
       matchingStep.status = stepData.status;
-    } else if (lastStep) {
-      // Fallback: update last step if no ID match
-      lastStep.status = stepData.status;
     }
     // Also update in phase
     if (stepData.phase_id) {
@@ -3010,6 +3006,22 @@ const handlePlanEvent = (planData: PlanEventData) => {
   planningProgress.value = null;  // Clear progress - plan is ready
   startPlanningHandoff(handoffComplexity);
   plan.value = planData;
+
+  // Reconcile: sync authoritative plan step statuses into the message timeline.
+  // This catches steps whose status changed without a dedicated StepEvent
+  // (e.g. auto-completed, blocked, or reconciled at the end of execution).
+  if (planData.steps?.length) {
+    const stepStatusMap = new Map(planData.steps.map(s => [s.id, s.status]));
+    for (const msg of messages.value) {
+      if (msg.type === 'step') {
+        const stepContent = msg.content as StepContent;
+        const authoritative = stepStatusMap.get(stepContent.id);
+        if (authoritative && authoritative !== stepContent.status) {
+          stepContent.status = authoritative;
+        }
+      }
+    }
+  }
 }
 
 // Handle stream event (thinking text streaming or summary streaming)
