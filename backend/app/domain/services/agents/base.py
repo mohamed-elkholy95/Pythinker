@@ -1757,6 +1757,7 @@ class BaseAgent:
         self._step_start_time = time.monotonic()
         self._recent_truncation_count = 0  # Prevent stale count from prior step
         self._stuck_recovery_exhausted = False
+        self._json_nudge_sent = False  # Proactive JSON nudge gate (one per step)
 
         # ── Middleware context for this execution ──
         from app.core.config import get_settings as _get_mw_settings
@@ -1794,6 +1795,34 @@ class BaseAgent:
         try:
             while iteration_spent < iteration_budget:
                 if not message.get("tool_calls"):
+                    # ── Proactive JSON nudge ──────────────────────────────
+                    # If the LLM stopped calling tools but produced no text,
+                    # nudge it once *inside* the loop to produce JSON before
+                    # we fall through to the heavier recovery pipeline.
+                    _exit_text = (message.get("content") or "").strip()
+                    if (
+                        has_tools
+                        and format == "json_object"
+                        and not _exit_text
+                        and step_iteration_count > 0
+                        and not getattr(self, "_json_nudge_sent", False)
+                    ):
+                        self._json_nudge_sent = True
+                        logger.info("Proactive JSON nudge: tool loop ended with empty content")
+                        message = await self.ask_with_messages(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Now summarize your findings as a JSON object. "
+                                        'Format: {"success": true, "result": "your summary", "attachments": []}. '
+                                        "Respond with ONLY the JSON."
+                                    ),
+                                }
+                            ],
+                            format="json_object",
+                        )
+                        continue  # Re-enter loop to check if LLM now has content
                     break
 
                 tool_calls = message["tool_calls"]
@@ -2424,131 +2453,113 @@ class BaseAgent:
         # Re-enforce JSON format after tool-calling loop completes.
         # The while-loop ran without format enforcement (initial_format=None) to
         # avoid empty-response bugs with some LLM providers.  Now that the loop
-        # has exited we must verify the response is valid JSON and, if not, make
-        # one extra ask_with_messages() call with format="json_object".
-        # _final_text captures pre-enforcement content for salvage if re-enforcement fails.
+        # has exited we must verify the response is valid JSON and, if not,
+        # salvage the prose directly (cheaper than an extra LLM call).
         _final_text = (message.get("content") or "").strip()
         if has_tools and format == "json_object":
-            _needs_format_fix = False
+            _is_valid_json = False
             if _final_text:
                 try:
                     json.loads(_final_text)
+                    _is_valid_json = True
                 except (ValueError, TypeError):
-                    _needs_format_fix = True
-            else:
-                _needs_format_fix = True
+                    pass
 
-            if _needs_format_fix:
+            if not _is_valid_json and _final_text and len(_final_text) > 10:
+                # ── Fast-path: wrap prose directly as JSON ─────────────────
+                # Skip the extra LLM round-trip — the pre-enforcement text
+                # is the actual answer, just not JSON-formatted.  Wrapping it
+                # immediately avoids 2-3 recovery LLM calls that GLM-class
+                # providers often fail anyway (empty response / non-JSON).
+                _stripped = _final_text.lstrip()
+                if _stripped.startswith("{") or _stripped.startswith("["):
+                    try:
+                        _parsed = json.loads(_final_text)
+                        if isinstance(_parsed, dict):
+                            logger.info("Post-tool response was already valid JSON (%d chars)", len(_final_text))
+                            _is_valid_json = True
+                    except (ValueError, TypeError):
+                        pass
+
+                if not _is_valid_json:
+                    logger.info(
+                        "Wrapping %d-char prose response as JSON (skipping re-enforcement LLM call)",
+                        len(_final_text),
+                    )
+                    _salvage_summary = _final_text[:500].split("\n")[0].strip()
+                    _final_text = json.dumps({"success": True, "result": _salvage_summary, "attachments": []})
+                    message["content"] = _final_text
+                    _is_valid_json = True
+
+            if not _is_valid_json:
+                # ── Fallback: one LLM call with explicit schema example ───
                 logger.info("Re-enforcing JSON format on post-tool-loop response")
                 message = await self.ask_with_messages(
                     [
                         {
                             "role": "user",
                             "content": (
-                                "Your previous response was not in the required JSON format. "
-                                "Restate your response as ONLY a valid JSON object matching the "
-                                "expected schema. No prose, no markdown fencing."
+                                "Respond with ONLY a valid JSON object. "
+                                'Example: {"success": true, "result": "brief summary", "attachments": []}. '
+                                "No prose, no markdown fencing, no explanation."
                             ),
                         }
                     ],
                     format="json_object",
                 )
 
-        final_content = message.get("content")
+        final_content = (message.get("content") or "").strip() or None
+        if not final_content and not wall_clock_exceeded:
+            # ── Summarization recovery via LLM ────────────────────────────
+            # The tool loop produced no text at all (not even prose).  This
+            # usually means context saturation.  Truncate tool results and
+            # ask the LLM for a summary in one shot.
+            logger.info("Attempting summarization recovery for empty final message")
+            await self._ensure_memory()
+            for msg in self.memory.messages:
+                if msg.get("role") == "tool":
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and len(content) > 300:
+                        msg["content"] = content[:300] + "\n[... truncated for recovery ...]"
+            recovery_message = await self.ask_with_messages(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Respond with ONLY a JSON object summarizing what you accomplished. "
+                            'Example: {"success": true, "result": "summary here", "attachments": []}. '
+                            "No other text."
+                        ),
+                    }
+                ],
+                format="json_object",
+            )
+            recovery_content = (recovery_message.get("content") or "").strip()
+            if recovery_content and len(recovery_content) > 10:
+                try:
+                    json.loads(recovery_content)
+                    logger.info("Summarization recovery succeeded (%d chars)", len(recovery_content))
+                    final_content = recovery_content
+                except (ValueError, TypeError):
+                    logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
+                    final_content = json.dumps({"success": True, "result": recovery_content[:500], "attachments": []})
+
+        # ── Final fallback — guarantees non-None final_content ─────────
         if not final_content:
-            # ── Stage 1: Salvage pre-enforcement prose or JSON ────────────
-            # The LLM sometimes writes its answer as plain text or returns a
-            # JSON object whose "content" key was empty despite having _final_text.
-            _stripped = (_final_text or "").lstrip()
-            if _final_text and len(_final_text) > 20:
-                if _stripped.startswith("{") or _stripped.startswith("["):
-                    # Attempt to salvage valid JSON from pre-enforcement text
-                    try:
-                        _parsed = json.loads(_final_text)
-                        if isinstance(_parsed, dict):
-                            # Extract the most useful field as the result
-                            _result = _parsed.get("result") or _parsed.get("summary") or _parsed.get("content")
-                            if _result and isinstance(_result, str) and len(_result) > 10:
-                                logger.info("Salvaging %d-char JSON response via result extraction", len(_final_text))
-                                final_content = _final_text
-                    except (ValueError, TypeError):
-                        pass
-                else:
-                    # Wrap raw prose as JSON
-                    logger.info(
-                        "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
-                        len(_final_text),
-                    )
-                    _salvage_summary = _final_text[:300].split("\n")[0].strip()
-                    final_content = json.dumps(
-                        {
-                            "success": True,
-                            "result": _salvage_summary,
-                            "attachments": [],
-                        }
-                    )
-
-            # ── Stage 2: Summarization recovery via LLM ──────────────────
-            # Ask the LLM to summarize what it did during the tool loop.
-            # First aggressively truncate context — the empty response likely
-            # means the context is saturated and the LLM couldn't generate output.
-            if not final_content and not wall_clock_exceeded:
-                logger.info("Attempting summarization recovery for empty final message")
-                # Force-truncate all tool results to free context for recovery
-                await self._ensure_memory()
-                for msg in self.memory.messages:
-                    if msg.get("role") == "tool":
-                        content = msg.get("content", "")
-                        if isinstance(content, str) and len(content) > 300:
-                            msg["content"] = content[:300] + "\n[... truncated for recovery ...]"
-                recovery_message = await self.ask_with_messages(
-                    [
-                        {
-                            "role": "user",
-                            "content": (
-                                "You completed tool calls but did not provide a text response. "
-                                "Respond with ONLY a JSON object: "
-                                '{"success": true, "result": "<brief summary of what you accomplished>", "attachments": []}. '
-                                "No markdown, no extra text."
-                            ),
-                        }
-                    ],
-                    format="json_object",
-                )
-                recovery_content = (recovery_message.get("content") or "").strip()
-                if recovery_content and len(recovery_content) > 10:
-                    try:
-                        json.loads(recovery_content)
-                        logger.info(
-                            "Summarization recovery succeeded as JSON (%d chars)",
-                            len(recovery_content),
-                        )
-                        final_content = recovery_content
-                    except (ValueError, TypeError):
-                        logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
-                        final_content = json.dumps(
-                            {
-                                "success": True,
-                                "result": recovery_content[:500],
-                                "attachments": [],
-                            }
-                        )
-
-                if not final_content:
-                    logger.warning("Agent produced empty final message — yielding fallback")
-                    fallback_error = (
-                        "Step time limit exceeded. No result produced."
-                        if wall_clock_exceeded
-                        else "I was unable to produce a complete response. Please try again or rephrase your request."
-                    )
-                    final_content = json.dumps(
-                        {
-                            "success": False,
-                            "result": None,
-                            "attachments": [],
-                            "error": fallback_error,
-                        }
-                    )
+            logger.warning("Agent produced empty final message — yielding fallback")
+            fallback_error = (
+                "Step time limit exceeded. No result produced."
+                if wall_clock_exceeded
+                else "I was unable to produce a complete response. Please try again or rephrase your request."
+            )
+            final_content = json.dumps(
+                {
+                    "success": False,
+                    "result": None,
+                    "attachments": [],
+                    "error": fallback_error,
+                }
+            )
         yield MessageEvent(message=final_content)
 
         # Cleanup background tasks on normal exit (e.g. background memory saves)
