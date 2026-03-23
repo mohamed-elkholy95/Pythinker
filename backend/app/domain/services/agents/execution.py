@@ -952,6 +952,22 @@ class ExecutionAgent(BaseAgent):
 
         await self._add_to_memory([{"role": "user", "content": summarize_prompt}])
 
+        # Recency reinforcement: LLMs in large contexts attend most to the
+        # last few messages.  Without this, the "write report NOW" instruction
+        # gets lost in 100K+ chars of conversation and the LLM produces
+        # meta-commentary like "I'll write the report now..." instead of
+        # the actual report.  This short assistant+user turn pins attention
+        # on the output format requirement.
+        await self._add_to_memory(
+            [
+                {"role": "assistant", "content": "I'll begin writing the report now."},
+                {
+                    "role": "user",
+                    "content": "No — do NOT narrate. Start DIRECTLY with `# ` (a markdown heading). Write the report content, not a description of it.",
+                },
+            ]
+        )
+
         # Snapshot file_write content BEFORE token trimming.  If memory is
         # aggressively pruned the original report markdown (written to the
         # workspace via file_write) would be lost — caching it here allows
@@ -1771,6 +1787,18 @@ class ExecutionAgent(BaseAgent):
                         "delivery_gate_downgraded_total",
                         labels={"reason": "all_steps_completed", "channel": delivery_channel or "web"},
                     )
+                    # When hallucination rewrite failed and we're downgrading,
+                    # add a prominent user-facing warning so the user knows the
+                    # content may be unreliable.
+                    if "hallucination_ratio_critical" in issue_text:
+                        _halluc_notice = (
+                            "\n\n> **⚠️ Content Advisory:** Parts of this report could not "
+                            "be fully verified against available sources. Automated "
+                            "fact-checking flagged some claims as unverifiable. Please "
+                            "cross-reference critical data points independently."
+                        )
+                        message_content += _halluc_notice
+                        logger.info("Added hallucination downgrade advisory to report")
                     # Enhance disclaimer if unexecuted scripts detected (write-without-execute audit)
                     if "hallucination" in issue_text and getattr(self, "_has_unexecuted_scripts", False):
                         _bench_notice = (
