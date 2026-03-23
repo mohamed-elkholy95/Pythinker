@@ -404,10 +404,26 @@ class TaskStateManager:
                         found = True
                         break
                 self._state.last_updated = datetime.now(UTC)
+            else:
+                # Catch-all for unhandled statuses (e.g. "terminated", "running")
+                # Map to a valid status rather than silently dropping.
+                mapped = "failed" if status in ("terminated", "error") else status
+                for step in self._state.steps:
+                    if str(step["id"]) == step_id:
+                        step["status"] = mapped
+                        if result:
+                            step["result"] = result
+                        found = True
+                        break
+                if found:
+                    logger.debug(f"Step {step_id} updated with unmapped status '{status}' → '{mapped}'")
+                self._state.last_updated = datetime.now(UTC)
 
             if not found:
                 available_ids = [str(s["id"]) for s in self._state.steps]
-                logger.warning(f"Step {step_id} not found in task state. Available step IDs: {available_ids}")
+                logger.warning(
+                    f"Step {step_id!r} (status={status!r}) not found in task state. Available step IDs: {available_ids}"
+                )
 
             if findings:
                 for finding in findings:
