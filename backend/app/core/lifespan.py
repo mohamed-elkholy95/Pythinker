@@ -536,25 +536,38 @@ async def lifespan(app: FastAPI):
             _os.makedirs(settings.knowledge_base_storage_dir, exist_ok=True)
             logger.info("Knowledge base storage ready: %s", settings.knowledge_base_storage_dir)
 
-        # Pre-load sandbox context with retry (sandbox may still be starting)
+        # Pre-load sandbox context: await sandbox health first, then load.
+        # Previously used a blind 10x6s polling loop (up to 60s wasted).  Now
+        # waits for the sandbox /health endpoint, then loads context in one shot.
         sandbox_reload_task = None
         try:
             from app.domain.services.prompts.sandbox_context import SandboxContextManager
 
-            await SandboxContextManager.load_context_with_retry()
+            ctx = await SandboxContextManager.load_context_with_retry()
 
-            # Background task: reload sandbox context once sandbox is healthy
-            async def _reload_sandbox_context_on_ready():
-                """Background task: reload sandbox context once sandbox is healthy."""
-                for _ in range(10):
-                    await asyncio.sleep(6)
-                    result = await SandboxContextManager.load_context_with_retry()
-                    if result is not None:
-                        logger.info("Sandbox context loaded after delayed retry")
-                        return
-                logger.warning("Sandbox context never became available")
+            if ctx is None:
+                # Sandbox not ready yet: wait for /health then load.
+                async def _reload_sandbox_context_on_ready():
+                    """Wait for sandbox health, then load context once."""
+                    import httpx as _httpx
 
-            sandbox_reload_task = asyncio.create_task(_reload_sandbox_context_on_ready())
+                    sandbox_url = _os.environ.get("SANDBOX_API_URL", "http://sandbox:8080")
+                    health_url = f"{sandbox_url}/health"
+                    for _attempt in range(15):  # 15 x 2s = 30s max
+                        await asyncio.sleep(2)
+                        try:
+                            async with _httpx.AsyncClient() as client:
+                                resp = await client.get(health_url, timeout=3.0)
+                            if resp.status_code == 200:
+                                result = await SandboxContextManager.load_context_with_retry()
+                                if result is not None:
+                                    logger.info("Sandbox context loaded after delayed retry")
+                                    return
+                        except Exception:
+                            logger.debug("Sandbox health check not ready yet")
+                    logger.warning("Sandbox context never became available")
+
+                sandbox_reload_task = asyncio.create_task(_reload_sandbox_context_on_ready())
         except Exception as e:
             logger.warning(f"Sandbox context pre-load failed (non-critical): {e}")
 
