@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -94,10 +95,12 @@ class LLMGroundingVerifier:
         llm: LLM,
         min_response_length: int = 200,
         max_claims: int = 20,
+        timeout: float = 30.0,
     ) -> None:
         self._llm = llm
         self._min_response_length = min_response_length
         self._max_claims = max_claims
+        self._timeout = timeout
 
     async def verify(
         self,
@@ -132,9 +135,21 @@ class LLMGroundingVerifier:
 
         try:
             messages = self._build_verification_prompt(response_text, source_context)
-            llm_response = await self._llm.ask(messages, tools=None, tool_choice=None)
+            # Use a dedicated timeout shorter than the main LLM timeout — grounding
+            # is a validation side-task and should not consume the full 90s budget.
+            llm_response = await asyncio.wait_for(
+                self._llm.ask(messages, tools=None, tool_choice=None),
+                timeout=self._timeout,
+            )
             content = llm_response.get("content", "")
             return self._parse_verdict(content)
+        except TimeoutError:
+            logger.warning("LLM grounding verification timed out after %.0fs", self._timeout)
+            return VerificationResult(
+                hallucination_score=0.0,
+                skipped=True,
+                skip_reason=f"Verification timed out after {self._timeout:.0f}s",
+            )
         except Exception as e:
             logger.warning("LLM grounding verification failed: %s", e)
             return VerificationResult(

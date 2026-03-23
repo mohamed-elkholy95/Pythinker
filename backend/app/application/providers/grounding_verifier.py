@@ -35,5 +35,6 @@ def get_llm_grounding_verifier() -> LLMGroundingVerifier:
         _instance = LLMGroundingVerifier(
             llm=llm,
             max_claims=settings.hallucination_max_claims,
+            timeout=getattr(settings, "hallucination_verifier_timeout", 30.0),
         )
     return _instance
