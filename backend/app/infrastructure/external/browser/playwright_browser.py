@@ -2335,7 +2335,7 @@ class PlaywrightBrowser:
         from app.infrastructure.external.http_pool import get_http_client
 
         try:
-            client = get_http_client(
+            client = await get_http_client(
                 name="head-precheck",
                 base_url="",
                 timeout=2.0,
