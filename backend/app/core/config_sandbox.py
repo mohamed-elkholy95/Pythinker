@@ -12,7 +12,7 @@ anti-bot stealth, connection pooling, crash detection, screenshots, and stuck de
 #   SANDBOX_POOL_ENABLED=false
 #   SANDBOX_MEM_LIMIT=4G        (docker-compose.yml default)
 #   SANDBOX_CPU_LIMIT=1.5       (docker-compose.yml default)
-#   SANDBOX_SHM_SIZE=256m       (docker-compose.yml default)
+#   SANDBOX_SHM_SIZE=1g         (docker-compose.yml default)
 #   ENABLE_VNC=0
 #   One static sandbox, no pre-warmed pool; lowest host resource footprint.
 #
@@ -23,7 +23,7 @@ anti-bot stealth, connection pooling, crash detection, screenshots, and stuck de
 #   SANDBOX_POOL_MAX_SIZE=10
 #   SANDBOX_MEM_LIMIT=2G        (docker-compose-deploy.yml default)
 #   SANDBOX_CPU_LIMIT=1         (docker-compose-deploy.yml default)
-#   SANDBOX_SHM_SIZE=256m
+#   SANDBOX_SHM_SIZE=1g
 #   Pre-warmed pool reduces cold-start from ~30 s to 2-5 s; each sandbox
 #   uses up to 2 GB RAM, so size pool_max to available host memory.
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class SandboxSettingsMixin:
     sandbox_seccomp_profile: str | None = None
     sandbox_seccomp_profile_mode: str = "compat"  # compat | hardened; default compat (Phase A)
     security_critic_allow_medium_risk: bool = False  # Allow MEDIUM risk in dev; default block
-    sandbox_shm_size: str | None = "256m"  # CDP screencast mode; override via SANDBOX_SHM_SIZE
+    sandbox_shm_size: str | None = "1g"  # CDP screencast mode; override via SANDBOX_SHM_SIZE
     sandbox_mem_limit: str | None = "2g"  # Aligned with production compose default
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
