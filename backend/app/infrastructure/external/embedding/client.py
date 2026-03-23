@@ -237,12 +237,15 @@ class EmbeddingClient:
                 return await self.embed_batch(texts, _attempt=_attempt + 1)
             raise
 
-        except _httpx.TimeoutException:
+        except (_httpx.TimeoutException, _httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError):
+            # Connection-level failures: rotate key and let caller retry.
+            # Log at warning (not error) since these are transient network issues.
+            logger.warning("Embedding network error (key %s), rotating", key[:8] if key else "?")
             await self._key_pool.handle_error(key, is_network_error=True)
             raise
 
         except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
+            logger.error("Embedding generation failed: %s", e)
             raise
 
     def _parse_rate_limit_ttl(self, headers: dict) -> int:
