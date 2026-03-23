@@ -213,6 +213,17 @@ class TestPostPromptAppendages:
         result = build_execution_prompt_from_context(ctx)
         assert "Active Blockers" not in result
 
+    @patch("app.domain.services.prompts.execution.get_current_date_signal", return_value="[DATE]")
+    def test_report_write_signal_uses_explicit_report_output_path(self, _mock_date):
+        """Report-writing steps should target the active scoped report directory."""
+        ctx = _make_ctx(
+            step_description="Compile the final report",
+            report_output_path="/workspace/test-session/runs/run-2/output/reports",
+        )
+        result = build_execution_prompt_from_context(ctx)
+        assert "/workspace/test-session/runs/run-2/output/reports" in result
+        assert "/workspace/deliverables" not in result
+
 
 class TestSignalConfigToggles:
     """Test that individual signal config toggles work correctly."""
