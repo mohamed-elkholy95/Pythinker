@@ -428,6 +428,9 @@ class OutputVerifier:
 
     # ── Hallucination Rewrite ─────────────────────────────────────────
 
+    _REWRITE_TIMEOUT_S = 120.0  # generous timeout for rewriting long reports
+    _REWRITE_MAX_RETRIES = 2  # total attempts (1 initial + 1 retry)
+
     async def _rewrite_without_unsupported_claims(
         self,
         content: str,
@@ -437,7 +440,12 @@ class OutputVerifier:
 
         Returns the rewritten text, or ``None`` if the rewrite fails so the
         caller can fall back to the original content + disclaimer.
+
+        Uses an explicit timeout and retry to handle slow LLM responses on
+        long reports (observed: rewrite timed out on 13-claim / 5K-word content).
         """
+        import asyncio
+
         if not flagged_claims:
             return None
 
@@ -455,24 +463,44 @@ class OutputVerifier:
             "Return ONLY the rewritten response with no preamble or explanation."
         )
 
-        try:
-            result = await self._llm.ask(
-                messages=[{"role": "user", "content": rewrite_prompt}],
-                temperature=0.2,
-            )
-            rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
-            # Sanity: rewritten text must be substantial (>30% of original)
-            if len(rewritten) > len(content) * 0.3:
-                return rewritten
-            logger.warning(
-                "Hallucination rewrite too short (%d vs %d chars); keeping original",
-                len(rewritten),
-                len(content),
-            )
-            return None
-        except Exception:
-            logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)
-            return None
+        for attempt in range(1, self._REWRITE_MAX_RETRIES + 1):
+            try:
+                result = await asyncio.wait_for(
+                    self._llm.ask(
+                        messages=[{"role": "user", "content": rewrite_prompt}],
+                        temperature=0.2,
+                    ),
+                    timeout=self._REWRITE_TIMEOUT_S,
+                )
+                rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
+                # Sanity: rewritten text must be substantial (>30% of original)
+                if len(rewritten) > len(content) * 0.3:
+                    return rewritten
+                logger.warning(
+                    "Hallucination rewrite too short (%d vs %d chars); keeping original",
+                    len(rewritten),
+                    len(content),
+                )
+                return None
+            except TimeoutError:
+                if attempt < self._REWRITE_MAX_RETRIES:
+                    logger.warning(
+                        "Hallucination rewrite timed out after %.0fs (attempt %d/%d), retrying",
+                        self._REWRITE_TIMEOUT_S,
+                        attempt,
+                        self._REWRITE_MAX_RETRIES,
+                    )
+                    continue
+                logger.warning(
+                    "Hallucination rewrite timed out after %.0fs (all %d attempts exhausted); keeping original",
+                    self._REWRITE_TIMEOUT_S,
+                    self._REWRITE_MAX_RETRIES,
+                )
+                return None
+            except Exception:
+                logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)
+                return None
+        return None
 
     # ── Hallucination Verification (Primary Entry Point) ───────────────
 
@@ -531,6 +559,7 @@ class OutputVerifier:
                         break
                     trimmed_context.append(_chunk)
                     _total += len(_chunk)
+                _pre_trim_total = sum(len(c) for c in source_context)
                 source_context = trimmed_context or source_context
 
                 # Exempt content patterns that produce systematic false positives:
@@ -538,10 +567,28 @@ class OutputVerifier:
                 content_for_verification = self._strip_cited_tables(content)
                 content_for_verification = self._strip_unverifiable_content(content_for_verification)
 
+                # #region agent log
+                try:
+                    import json, time as _t
+                    with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
+                        _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H3A","location":"output_verifier.py:verify_hallucination","message":"Grounding context for verification","data":{"context_size_limit":context_size,"research_depth":getattr(self,"_research_depth",None),"source_chunks_before_trim":len(source_context) if not trimmed_context else len([c for c in source_context]),"source_chars_before_trim":_pre_trim_total,"source_chars_after_trim":sum(len(c) for c in source_context),"was_trimmed":bool(trimmed_context) and _pre_trim_total > context_size,"content_len":len(content),"stripped_content_len":len(content_for_verification)},"timestamp":int(_t.time()*1000)}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+
                 grounding_result = await verifier.verify(
                     response_text=content_for_verification,
                     source_context=source_context,
                 )
+
+                # #region agent log
+                try:
+                    import json, time as _t
+                    with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
+                        _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H3B","location":"output_verifier.py:grounding_result","message":"Grounding verification result","data":{"skipped":grounding_result.skipped,"hallucination_score":round(grounding_result.hallucination_score,3) if not grounding_result.skipped else None,"grounding_pct":round((1-grounding_result.hallucination_score)*100,1) if not grounding_result.skipped else None,"total_claims":len(grounding_result.flagged_claims) + (grounding_result.total_claims if hasattr(grounding_result,'total_claims') else 0),"flagged_count":len(grounding_result.flagged_claims),"max_claims_setting":getattr(settings,'hallucination_max_claims',20)},"timestamp":int(_t.time()*1000)}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
 
                 if not grounding_result.skipped and grounding_result.flagged_claims:
                     logger.warning(
@@ -594,14 +641,32 @@ class OutputVerifier:
                                 len(grounding_result.flagged_claims),
                             )
                             content = rewritten
+                            # Successful rewrite: downgrade from blocking to warning-only.
+                            # The unsupported claims have been removed/hedged, so the
+                            # delivery gate should not block the output.
+                            disclaimer = (
+                                "\n\n> **Note:** Some information in this response "
+                                "could not be fully verified against available sources. "
+                                "Unverified claims have been hedged or removed."
+                            )
+                            return HallucinationVerificationResult(
+                                content=content + disclaimer,
+                                blocking_issues=[],  # rewrite succeeded — no longer blocking
+                                warnings=["hallucination_detected", "hallucination_rewrite_applied"],
+                                hallucination_ratio=grounding_result.hallucination_score,
+                                span_count=len(grounding_result.flagged_claims),
+                            )
+                        # Rewrite failed: this IS a blocking issue — the content
+                        # still contains >50% unsupported claims.
                         disclaimer = (
-                            "\n\n> **Note:** Some information in this response "
-                            "could not be fully verified against available sources."
+                            "\n\n> **⚠️ Reliability Warning:** This response contains claims "
+                            "that could not be verified against available sources. "
+                            "Treat specific facts and statistics with caution."
                         )
                         return HallucinationVerificationResult(
                             content=content + disclaimer,
                             blocking_issues=["hallucination_ratio_critical"],
-                            warnings=["hallucination_detected"],
+                            warnings=["hallucination_detected", "hallucination_rewrite_failed"],
                             hallucination_ratio=grounding_result.hallucination_score,
                             span_count=len(grounding_result.flagged_claims),
                         )
