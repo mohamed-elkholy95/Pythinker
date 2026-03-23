@@ -11,6 +11,8 @@ import {
   mockAssistantMessage,
   mockToolMessage,
   mockStepMessage,
+  mockAssistantAttachmentsMessage,
+  mockUserAttachmentsMessage,
 } from '../mocks/api'
 
 const structuredSummaryText = `I have completed a comprehensive comparison of GLM-5 against Claude Sonnet 4.5 and Opus 4.6.
@@ -576,6 +578,30 @@ describe('ChatMessage', () => {
 
       expect(wrapper.find('.step-compact-title').exists()).toBe(true)
       expect(wrapper.find('.step-compact-title').text()).toBe(mockStepMessage.content.description)
+    })
+  })
+
+  describe('Attachments messages', () => {
+    it('should render AttachmentsInlineGrid for assistant attachments', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockAssistantAttachmentsMessage,
+        },
+      })
+
+      expect(wrapper.findComponent({ name: 'AttachmentsInlineGrid' }).exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'AttachmentsMessage' }).exists()).toBe(false)
+    })
+
+    it('should render AttachmentsMessage for user attachments', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockUserAttachmentsMessage,
+        },
+      })
+
+      expect(wrapper.findComponent({ name: 'AttachmentsMessage' }).exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'AttachmentsInlineGrid' }).exists()).toBe(false)
     })
   })
 })

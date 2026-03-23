@@ -292,3 +292,37 @@ export function createMockSettingsAPI() {
 export function resetAllMocks() {
   vi.resetAllMocks()
 }
+
+// Mock attachments messages for role-based rendering
+export const mockAssistantAttachmentsMessage = {
+  type: 'attachments' as const,
+  content: {
+    role: 'assistant' as const,
+    attachments: [
+      {
+        file_id: 'chart-png-1',
+        filename: 'chart-sales.png',
+        size: 12345,
+        upload_date: new Date().toISOString(),
+        metadata: { is_chart: true, chart_engine: 'plotly' },
+      },
+    ],
+    timestamp: Date.now(),
+  },
+}
+
+export const mockUserAttachmentsMessage = {
+  type: 'attachments' as const,
+  content: {
+    role: 'user' as const,
+    attachments: [
+      {
+        file_id: 'user-file-1',
+        filename: 'document.pdf',
+        size: 54321,
+        upload_date: new Date().toISOString(),
+      },
+    ],
+    timestamp: Date.now(),
+  },
+}
