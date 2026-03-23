@@ -3279,6 +3279,8 @@ class PlanActFlow(BaseFlow):
                                 f"Agent {self._agent_id} plan failed validation before execution "
                                 f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
                             )
+                            # Compact before replan to prevent context spiral
+                            self._compact_prior_step_context(self.executor)
                             self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
                         continue
 
@@ -3322,6 +3324,9 @@ class PlanActFlow(BaseFlow):
                                     self._zero_progress_dead_end_replans,
                                     self._max_zero_progress_dead_end_replans,
                                 )
+                                # Aggressive compaction before replan — clear accumulated tool results
+                                # from failed steps to prevent context spiral across replans
+                                self._compact_prior_step_context(self.executor)
                                 yield ProgressEvent(
                                     phase=PlanningPhase.ANALYZING,
                                     message=(
@@ -3828,6 +3833,8 @@ class PlanActFlow(BaseFlow):
                             f"Agent {self._agent_id} plan update failed validation, replanning "
                             f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
                         )
+                        # Compact before replan to prevent context spiral
+                        self._compact_prior_step_context(self.executor)
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan update validation failed")
                         continue
                     self._transition_to(AgentStatus.EXECUTING)
