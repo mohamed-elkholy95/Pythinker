@@ -2433,6 +2433,27 @@ class BaseAgent:
                         logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
 
                 message = await self.ask_with_messages(tool_responses)
+
+                # Intra-step context pressure check — compact immediately if growing too fast
+                if hasattr(self, "memory") and self.memory and self.memory.messages:
+                    _total = sum(len(str(m.get("content", ""))) for m in self.memory.messages)
+                    if _total > 50_000:  # 50% of hard cap — proactive compaction
+                        _tool_msgs = [i for i, m in enumerate(self.memory.messages) if m.get("role") == "tool"]
+                        _compacted = 0
+                        for idx in _tool_msgs[:-1]:  # keep only the most recent tool result intact
+                            _c = self.memory.messages[idx].get("content", "")
+                            if isinstance(_c, str) and len(_c) > 300:
+                                self.memory.messages[idx] = {
+                                    **self.memory.messages[idx],
+                                    "content": _c[:300] + "\n[...compacted mid-step...]",
+                                }
+                                _compacted += 1
+                        if _compacted:
+                            logger.info(
+                                "Intra-step compaction: truncated %d tool results (context was %d chars)",
+                                _compacted,
+                                _total,
+                            )
             else:
                 # Budget exhausted - provide informative error with context
                 logger.error(
