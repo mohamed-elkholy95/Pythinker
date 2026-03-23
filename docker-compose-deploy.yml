@@ -451,7 +451,7 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # MinIO Init — Create Service User (one-shot)
+  # MinIO Init — Create Buckets and Service User (one-shot)
   # ---------------------------------------------------------------------------
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
@@ -463,12 +463,17 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
       - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-pythinker}
+      - MINIO_BUCKET_SNAPSHOTS=${MINIO_BUCKET_SNAPSHOTS:-sandbox-snapshots}
     entrypoint: /bin/sh
     command:
       - -c
       - |
         sleep 3 && \
         mc alias set myminio http://pythinker-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc mb myminio/"$${MINIO_BUCKET_NAME}" --ignore-existing && \
+        mc mb myminio/"$${MINIO_BUCKET_SNAPSHOTS}" --ignore-existing && \
+        echo "Buckets ready: $${MINIO_BUCKET_NAME}, $${MINIO_BUCKET_SNAPSHOTS}" && \
         mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>&1 || echo "User may already exist (OK)" && \
         mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>&1 || echo "Policy may already be attached (OK)" && \
         mc admin user info myminio "$${MINIO_SERVICE_USER}" && \
