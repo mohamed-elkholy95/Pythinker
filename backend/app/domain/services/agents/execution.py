@@ -338,6 +338,7 @@ class ExecutionAgent(BaseAgent):
         # Populated as tool events arrive (immune to memory compaction/validation).
         self._file_write_report_cache: str | None = None
         self._delivery_channel: str | None = None
+        self._report_output_path: str | None = None
         self._artifact_references: list[dict[str, str]] = []
         self._has_unexecuted_scripts: bool = False
 
@@ -356,6 +357,10 @@ class ExecutionAgent(BaseAgent):
     def set_delivery_channel(self, delivery_channel: str | None) -> None:
         """Set the active delivery channel for final delivery policy decisions."""
         self._delivery_channel = delivery_channel
+
+    def set_report_output_path(self, report_output_path: str | None) -> None:
+        """Set the preferred report output directory for execution prompts."""
+        self._report_output_path = report_output_path.rstrip("/") if report_output_path else None
 
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
@@ -577,6 +582,7 @@ class ExecutionAgent(BaseAgent):
             request_contract=self._request_contract,
             profile_patch_text=profile_patch_text,
             mcp_context=mcp_context,
+            report_output_path=self._report_output_path,
         )
 
         # Build execution prompt from assembled context (includes all appendages)
@@ -668,6 +674,12 @@ class ExecutionAgent(BaseAgent):
                         logger.warning("Step response payload missing/invalid schema; marking step as unsuccessful")
                         step.status = ExecutionStatus.FAILED
                         yield StepEvent(status=StepStatus.FAILED, step=step)
+                        continue
+
+                    if not step.success:
+                        step.status = ExecutionStatus.FAILED
+                        _step_duration_ms = (time.monotonic() - _step_start_time) * 1000
+                        yield StepEvent(status=StepStatus.FAILED, step=step, duration_ms=_step_duration_ms)
                         continue
 
                     step.status = ExecutionStatus.COMPLETED

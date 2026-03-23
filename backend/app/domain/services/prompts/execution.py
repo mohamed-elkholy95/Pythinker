@@ -619,34 +619,48 @@ DATES AND TEMPORAL CLAIMS:
 ---
 """
 
-REPORT_FILE_WRITE_SIGNAL = """
+
+def build_report_file_write_signal(report_output_path: str | None = None) -> str:
+    """Build a scoped report-writing signal.
+
+    Avoids the legacy shared ``/workspace/deliverables`` path so report files stay
+    inside the active run/session workspace.
+    """
+    report_dir = (report_output_path or "").rstrip("/")
+    report_target = report_dir or "the active session workspace described elsewhere in the prompt"
+    example_report = f"{report_dir}/report.md" if report_dir else "<workspace>/report.md"
+    mkdir_example = f"mkdir -p {report_dir}" if report_dir else "mkdir -p <workspace>"
+    wc_example = f"wc -w {example_report}" if report_dir else "wc -w <workspace>/report.md"
+    ls_example = f"ls -lh {report_dir}/" if report_dir else "ls -lh <workspace>/"
+
+    return f"""
 ---
 ## MANDATORY: Professional Deliverable Workflow
 
 This step produces a deliverable. Follow this professional workflow:
 
 ### 1. Save the Report (REQUIRED)
-- Call `file_write` to save the report as a .md file in /workspace/deliverables/
+- Call `file_write` to save the report as a .md file in {report_target}
 - Include the file path in your "attachments" array
 - Keep "result" as a 1-2 sentence summary, NOT the full report content
 
 ### 2. Use Terminal for Organization (RECOMMENDED)
-- Use `execute_shell_command` to create organized output:
-  - `mkdir -p /workspace/deliverables` — ensure output directory exists
-  - `wc -w /workspace/deliverables/report.md` — verify word count
-  - `zip -j /workspace/deliverables/report.zip /workspace/deliverables/*.md` — package deliverables
-  - `ls -lh /workspace/deliverables/` — show final deliverable listing
+- Use `execute_shell_command` to verify the output directory and report file:
+  - `{mkdir_example}` — ensure output directory exists
+  - `{wc_example}` — verify word count
+  - `{ls_example}` — show final deliverable listing
 - Terminal commands are visible in the live preview and show professional execution
 
 ### 3. Return JSON Response
 ```json
-{"success": true, "result": "Compiled comprehensive report (X words)", "attachments": ["/workspace/deliverables/report.md"]}
+{{"success": true, "result": "Compiled comprehensive report (X words)", "attachments": ["{example_report}"]}}
 ```
 
 DO NOT write report content directly into the "result" field.
 DO NOT skip file_write — reports MUST be saved as files the user can download.
 ---
 """
+
 
 DIAGNOSTIC_TASK_SIGNAL = """
 ---
@@ -1673,7 +1687,7 @@ def build_execution_prompt_from_context(
             re.IGNORECASE,
         )
         if _compile_re.search(step):
-            prompt = REPORT_FILE_WRITE_SIGNAL + prompt
+            prompt = build_report_file_write_signal(ctx.report_output_path) + prompt
 
         # Inject full anti-hallucination protocol for high-risk tasks
         high_risk_indicators = ["benchmark", "metric", "statistic", "price", "specification", "rating"]
