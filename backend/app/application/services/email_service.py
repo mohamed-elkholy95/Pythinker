@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 
 from app.application.errors.exceptions import BadRequestError
 from app.core.config import get_settings
@@ -375,7 +376,8 @@ class EmailService:
         username = self.settings.email_username
         password = self.settings.email_password
         text = msg.as_string()
-        from_addr = msg["From"]
+        # Extract bare email for SMTP envelope (MAIL FROM expects "user@domain", not "Name <user@domain>")
+        _, from_addr = parseaddr(msg["From"])
 
         def _smtp_send() -> None:
             server = None
