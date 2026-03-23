@@ -9,7 +9,7 @@ ask_with_messages() call that passes format="json_object" explicitly.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

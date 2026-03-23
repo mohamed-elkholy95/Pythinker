@@ -222,9 +222,7 @@ class Tracer:
         self.on_trace_complete = on_trace_complete
         self._max_completed_traces: int = max_completed_traces
         self._active_traces: dict[str, TraceContext] = {}
-        self._completed_traces: collections.deque[TraceContext] = collections.deque(
-            maxlen=max_completed_traces
-        )
+        self._completed_traces: collections.deque[TraceContext] = collections.deque(maxlen=max_completed_traces)
         self._metrics_by_agent: dict[str, TraceMetrics] = defaultdict(TraceMetrics)
 
     @contextmanager

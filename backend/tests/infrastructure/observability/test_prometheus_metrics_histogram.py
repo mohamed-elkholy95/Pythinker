@@ -55,9 +55,9 @@ def _collect_for_labels(h: Histogram, labels: dict[str, str]) -> dict:
 def test_observe_basic_bucket_counts() -> None:
     """Values are placed in the correct buckets."""
     h = _make_histogram(buckets=[1.0, 5.0, 10.0])
-    h.observe({"env": "test"}, 0.5)   # <= 1, <= 5, <= 10, +Inf
-    h.observe({"env": "test"}, 3.0)   # > 1,  <= 5, <= 10, +Inf
-    h.observe({"env": "test"}, 7.0)   # > 1,  > 5,  <= 10, +Inf
+    h.observe({"env": "test"}, 0.5)  # <= 1, <= 5, <= 10, +Inf
+    h.observe({"env": "test"}, 3.0)  # > 1,  <= 5, <= 10, +Inf
+    h.observe({"env": "test"}, 7.0)  # > 1,  > 5,  <= 10, +Inf
     h.observe({"env": "test"}, 15.0)  # > 1,  > 5,  > 10,  +Inf
 
     entry = _collect_for_labels(h, {"env": "test"})
@@ -125,8 +125,7 @@ def test_no_raw_observation_list_stored() -> None:
         # A list longer than the number of buckets (6) is unacceptable —
         # it means raw samples are still being stored.
         assert len(obs) <= len(h.buckets) + 2, (
-            f"Raw observation list has {len(obs)} entries; "
-            "expected bounded storage (max ~buckets count)"
+            f"Raw observation list has {len(obs)} entries; expected bounded storage (max ~buckets count)"
         )
 
     # Positive check: the internal state for this label must be compact.
@@ -159,14 +158,10 @@ def test_internal_state_size_does_not_grow() -> None:
             h.observe({"env": "size_test"}, 2.0)
         size_after = sys.getsizeof(h._states[label_tuple].bucket_counts)
         assert size_before == size_after, (
-            f"bucket_counts grew from {size_before} to {size_after} bytes; "
-            "expected fixed-size storage"
+            f"bucket_counts grew from {size_before} to {size_after} bytes; expected fixed-size storage"
         )
     elif hasattr(h, "_observations"):
-        pytest.fail(
-            "Histogram still uses _observations list storage — "
-            "bounded storage refactor has not been applied"
-        )
+        pytest.fail("Histogram still uses _observations list storage — bounded storage refactor has not been applied")
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +264,8 @@ def test_observe_exact_bucket_boundary() -> None:
     h.observe({"env": "boundary"}, 5.0)
 
     entry = _collect_for_labels(h, {"env": "boundary"})
-    assert entry["buckets"][1.0] == 1   # 1.0 <= 1.0
-    assert entry["buckets"][5.0] == 2   # both <= 5.0
+    assert entry["buckets"][1.0] == 1  # 1.0 <= 1.0
+    assert entry["buckets"][5.0] == 2  # both <= 5.0
     assert entry["buckets"][float("inf")] == 2
 
 
