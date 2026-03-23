@@ -88,10 +88,17 @@ jobs:
         include:
           - component: backend
             changed: ${{ needs.changes.outputs.backend }}
+            dockerfile: Dockerfile
           - component: frontend
             changed: ${{ needs.changes.outputs.frontend }}
+            dockerfile: Dockerfile
           - component: sandbox
             changed: ${{ needs.changes.outputs.sandbox }}
+            dockerfile: Dockerfile
+          - component: gateway
+            context: backend
+            changed: ${{ needs.changes.outputs.gateway }}
+            dockerfile: Dockerfile.gateway
     steps:
       - name: Skip unchanged component
         if: matrix.changed != 'true' && inputs.force_build_all != true
@@ -132,8 +139,8 @@ jobs:
         if: matrix.changed == 'true' || inputs.force_build_all == true
         uses: docker/build-push-action@v7
         with:
-          context: ./${{ matrix.component }}
-          file: ./${{ matrix.component }}/Dockerfile
+          context: ./${{ matrix.context || matrix.component }}
+          file: ./${{ matrix.context || matrix.component }}/${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

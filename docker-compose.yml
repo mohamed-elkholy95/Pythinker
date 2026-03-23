@@ -146,7 +146,7 @@ services:
     profiles: ["channels"]
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
