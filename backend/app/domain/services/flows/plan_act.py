@@ -971,13 +971,12 @@ class PlanActFlow(BaseFlow):
 
     @staticmethod
     def _compact_prior_step_context(executor: "BaseAgent") -> None:
-        """Truncate old tool results in the executor's memory between steps.
+        """Truncate old tool results and large assistant messages between steps.
 
-        Deep research tasks accumulate 100K+ chars of tool results across steps.
-        At step boundaries we aggressively truncate older tool messages to keep
-        the conversation within the hard context cap, preserving only the most
-        recent results the next step needs.  Non-tool messages (system, user,
-        assistant) are left untouched.
+        Deep research tasks accumulate 100K+ chars across steps as tool results,
+        assistant echoes, and search content pile up.  At step boundaries we
+        aggressively compact everything except the system prompt and the most
+        recent messages, keeping the conversation within the hard context cap.
         """
         if not hasattr(executor, "memory") or executor.memory is None:
             return
@@ -985,25 +984,35 @@ class PlanActFlow(BaseFlow):
         if not messages:
             return
 
-        # Find tool messages and truncate all except the last 3
-        tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
-        if len(tool_indices) <= 3:
-            return  # Nothing to compact
+        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        if total_chars < 60_000:
+            return  # Context is small enough, skip compaction
 
         truncated_count = 0
-        # Keep the last 3 tool messages, truncate the rest to 200 chars
-        for idx in tool_indices[:-3]:
-            m = messages[idx]
-            content = m.get("content", "")
-            if isinstance(content, str) and len(content) > 200:
-                messages[idx] = {**m, "content": content[:200] + "\n[... compacted at step boundary ...]"}
+        # Compact tool messages: keep only the last 2, truncate the rest
+        tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+        for idx in tool_indices[:-2]:
+            content = messages[idx].get("content", "")
+            if isinstance(content, str) and len(content) > 150:
+                messages[idx] = {**messages[idx], "content": content[:150] + "\n[...compacted...]"}
+                truncated_count += 1
+
+        # Compact large assistant messages (>3K chars) that aren't the last one
+        # — these often contain echoed search results or interim analysis
+        assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+        for idx in assistant_indices[:-1]:
+            content = messages[idx].get("content", "")
+            if isinstance(content, str) and len(content) > 3000:
+                messages[idx] = {**messages[idx], "content": content[:500] + "\n[...compacted...]"}
                 truncated_count += 1
 
         if truncated_count > 0:
+            new_total = sum(len(str(m.get("content", ""))) for m in messages)
             logger.debug(
-                "Per-step compaction: truncated %d old tool result(s) (%d total tool msgs)",
+                "Per-step compaction: truncated %d message(s), %dK → %dK chars",
                 truncated_count,
-                len(tool_indices),
+                total_chars // 1000,
+                new_total // 1000,
             )
 
     def _infer_research_depth(self) -> str:
