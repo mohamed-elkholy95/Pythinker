@@ -525,6 +525,7 @@ async def test_start_registers_callback_handler_and_polls_callback_updates(monke
     channel = _make_channel()
     fake_app, add_handler_calls = _make_fake_application(channel)
     fake_app.bot.get_updates.side_effect = [
+        (),  # force-claim call (offset=-1, timeout=1)
         (SimpleNamespace(update_id=101),),
         asyncio.CancelledError(),
     ]
@@ -542,6 +543,7 @@ async def test_start_registers_callback_handler_and_polls_callback_updates(monke
 
     fake_app.updater.start_polling.assert_not_awaited()
     fake_app.bot.get_updates.assert_awaited()
+    # Skip force-claim call (index 0) — check last poll call for allowed_updates
     allowed_updates = fake_app.bot.get_updates.await_args.kwargs["allowed_updates"]
     assert "message" in allowed_updates
     assert "callback_query" in allowed_updates
@@ -554,6 +556,7 @@ async def test_start_registers_custom_primary_commands_in_telegram_menu(monkeypa
     channel = _make_channel()
     fake_app, _add_handler_calls = _make_fake_application(channel)
     fake_app.bot.get_updates.side_effect = [
+        (),  # force-claim call (offset=-1, timeout=1)
         (),
         asyncio.CancelledError(),
     ]
@@ -577,6 +580,7 @@ async def test_commands_command_uses_paginated_help_menu(monkeypatch: pytest.Mon
     channel = _make_channel()
     fake_app, add_handler_calls = _make_fake_application(channel)
     fake_app.bot.get_updates.side_effect = [
+        (),  # force-claim call (offset=-1, timeout=1)
         (),
         asyncio.CancelledError(),
     ]
@@ -605,6 +609,7 @@ async def test_start_polling_resumes_from_persisted_offset_and_persists_processe
     first_update = SimpleNamespace(update_id=101)
     second_update = SimpleNamespace(update_id=102)
     fake_app.bot.get_updates.side_effect = [
+        (),  # force-claim call (offset=-1, timeout=1)
         (first_update, second_update),
         asyncio.CancelledError(),
     ]
@@ -616,7 +621,10 @@ async def test_start_polling_resumes_from_persisted_offset_and_persists_processe
 
     await channel.start()
 
-    first_poll_kwargs = fake_app.bot.get_updates.await_args_list[0].kwargs
+    # First call is the force-claim (offset=-1), second is the actual poll
+    force_claim_kwargs = fake_app.bot.get_updates.await_args_list[0].kwargs
+    assert force_claim_kwargs["offset"] == -1
+    first_poll_kwargs = fake_app.bot.get_updates.await_args_list[1].kwargs
     assert first_poll_kwargs["offset"] == 101
     fake_app.process_update.assert_has_awaits(
         [
@@ -647,6 +655,9 @@ async def test_polling_stall_timeout_cancels_hung_get_updates(monkeypatch: pytes
         nonlocal call_count
         call_count += 1
         if call_count == 1:
+            # First call is the force-claim (offset=-1, timeout=1) — return fast
+            return ()
+        if call_count == 2:
             try:
                 await asyncio.sleep(3600)
             except asyncio.CancelledError:
@@ -663,7 +674,7 @@ async def test_polling_stall_timeout_cancels_hung_get_updates(monkeypatch: pytes
     await channel.start()
 
     assert cancelled.is_set()
-    assert fake_app.bot.get_updates.await_count >= 2
+    assert fake_app.bot.get_updates.await_count >= 3  # force-claim + hung + recovery
 
 
 @pytest.mark.asyncio
