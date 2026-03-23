@@ -177,13 +177,10 @@ class TestFormatContractRecovery:
             }
         )
 
-        # Round 2 (after tool result): prose — triggers re-enforcement
-        # Round 3 (re-enforcement): proper JSON
+        # Round 2 (after tool result): prose — fast-path wraps as JSON directly
+        prose_response = "I searched the web and found relevant information about the topic."
         agent.ask_with_messages = AsyncMock(
-            side_effect=[
-                {"content": "I searched the web and found relevant information about the topic."},
-                {"content": valid_json},
-            ]
+            return_value={"content": prose_response},
         )
 
         events = [event async for event in agent.execute("Search for test data")]
@@ -191,20 +188,14 @@ class TestFormatContractRecovery:
 
         assert len(message_events) == 1, f"Expected exactly 1 MessageEvent, got {len(message_events)}: {message_events}"
 
-        # The final message must be valid JSON from the re-enforcement call
+        # Fast-path wraps prose as JSON without a re-enforcement LLM call
         parsed = json.loads(message_events[0].message)
         assert parsed["success"] is True
-        assert "Search complete" in parsed["result"]
+        assert prose_response in parsed["result"]
 
-        # Two calls: one for the post-tool response, one for re-enforcement
-        assert agent.ask_with_messages.await_count == 2, (
-            f"Expected 2 ask_with_messages calls, got {agent.ask_with_messages.await_count}"
-        )
-
-        # Verify the second call carried format="json_object"
-        _, kwargs = agent.ask_with_messages.call_args_list[1]
-        assert kwargs.get("format") == "json_object", (
-            f"Re-enforcement call must use format='json_object', got: {kwargs}"
+        # Only one ask_with_messages call (the post-tool response) — no re-enforcement
+        assert agent.ask_with_messages.await_count == 1, (
+            f"Expected 1 ask_with_messages call (fast-path), got {agent.ask_with_messages.await_count}"
         )
 
     @pytest.mark.asyncio
@@ -353,15 +344,14 @@ class TestFormatContractRecovery:
 
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_then_recovery(self, agent: BaseAgent) -> None:
-        """Two sequential tool-call rounds followed by a non-JSON response triggers recovery.
+        """Two sequential tool-call rounds followed by a non-JSON response.
 
         Simulates a more realistic multi-hop tool loop:
           Round 1: LLM calls web_search
           Round 2: LLM calls web_search again (chained tool use)
-          Round 3: LLM returns prose (non-JSON) — re-enforcement fires
-          Round 4: Re-enforcement call returns valid JSON
+          Round 3: LLM returns prose (non-JSON) — fast-path wraps as JSON
         """
-        valid_json = json.dumps({"success": True, "result": "Multi-hop complete", "attachments": []})
+        prose_text = "After searching twice, here is what I found..."
 
         tool_call_response = {
             "tool_calls": [
@@ -378,8 +368,7 @@ class TestFormatContractRecovery:
         agent.ask_with_messages = AsyncMock(
             side_effect=[
                 tool_call_response,  # Round 2: another tool call
-                {"content": "After searching twice, here is what I found..."},  # prose
-                {"content": valid_json},  # re-enforcement response
+                {"content": prose_text},  # prose — fast-path wraps directly
             ]
         )
 
@@ -388,7 +377,8 @@ class TestFormatContractRecovery:
 
         assert len(message_events) == 1
         parsed = json.loads(message_events[0].message)
-        assert parsed["result"] == "Multi-hop complete"
+        assert parsed["success"] is True
+        assert prose_text in parsed["result"]
 
-        # 3 calls: tool-result-1, tool-result-2 (prose), re-enforcement
-        assert agent.ask_with_messages.await_count == 3
+        # 2 calls: tool-result-1, tool-result-2 (prose wrapped) — no re-enforcement
+        assert agent.ask_with_messages.await_count == 2
