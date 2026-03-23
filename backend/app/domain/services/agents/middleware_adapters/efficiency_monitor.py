@@ -60,12 +60,20 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
     def name(self) -> str:
         return "efficiency_monitor"
 
+    def on_step_boundary(self) -> None:
+        """Lifecycle hook: reset all per-step state at step boundaries."""
+        self.reset_browser_budget()
+
     def reset_browser_budget(self) -> None:
-        """Reset browser navigation budget for a new step."""
+        """Reset browser navigation budget and efficiency state for a new step."""
         self._browser_nav_count = 0
         self._browser_nav_urls.clear()
         self._browser_nav_signatures.clear()
         self._duplicate_skip_count = 0
+        self._last_step_iteration = -1
+        # Also reset the efficiency monitor's read/write counters so
+        # analysis-paralysis state from a prior step doesn't bleed over.
+        self._monitor.reset()
 
     @staticmethod
     def _browser_signature(tool_call: ToolCallInfo) -> str | None:
@@ -167,7 +175,15 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
 
     async def before_step(self, ctx: MiddlewareContext) -> MiddlewareResult:
         """Check efficiency and inject nudge if imbalanced."""
-        if self._duplicate_skip_count >= 2:
+        # Defensive reset: if step_iteration_count dropped, a new step started
+        # but our reset_browser_budget() wasn't called (e.g. caller forgot).
+        if ctx.step_iteration_count < self._last_step_iteration:
+            self.reset_browser_budget()
+            self._last_step_iteration = ctx.step_iteration_count
+
+        # Don't FORCE on the very first iteration of a step — give the LLM
+        # at least one full iteration to produce tool calls before blocking.
+        if self._duplicate_skip_count >= 3 and ctx.step_iteration_count > 0:
             return MiddlewareResult(
                 signal=MiddlewareSignal.FORCE,
                 message=(
