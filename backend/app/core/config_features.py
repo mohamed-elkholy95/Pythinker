@@ -415,7 +415,7 @@ class FeatureFlagsSettingsMixin:
     # too narrow to contain the source passage for a cited statistic. E2E testing showed
     # all 4 research tasks hitting 65-68% unsupported despite correct citations.
     hallucination_annotate_spans: bool = False  # Annotate flagged claims in output
-    hallucination_grounding_context_size: int = 16000  # Chars of source context for grounding verifier
+    hallucination_grounding_context_size: int = 24000  # Chars of source context for grounding verifier (raised from 16K)
     hallucination_grounding_context_deep: int = 48000  # Expanded context for DEEP research (raised from 32K)
     hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
     hallucination_max_claims: int = 25  # Cap extracted claims (raised from 20 for more thorough checking)
