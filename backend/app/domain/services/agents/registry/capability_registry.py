@@ -145,6 +145,8 @@ class AgentRegistry:
     enabling intelligent task routing based on requirements.
     """
 
+    _MAX_ASSIGNMENTS: int = 200  # Evict oldest assignments to prevent unbounded growth
+
     def __init__(self) -> None:
         """Initialize the agent registry."""
         self._profiles: dict[str, AgentProfile] = {}
@@ -316,6 +318,9 @@ class AgentRegistry:
         agent.last_active = datetime.now(UTC)
 
         self._assignments.append(assignment)
+        # Evict oldest completed assignments to prevent unbounded memory growth
+        if len(self._assignments) > self._MAX_ASSIGNMENTS:
+            self._assignments = self._assignments[-self._MAX_ASSIGNMENTS :]
         logger.info(f"Routed task {task_id} to {agent.agent_name} (capability={capability_name}, score={score:.2f})")
 
         return assignment
