@@ -51,6 +51,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypedDict
 
+try:
+    import plotly  # noqa: F401
+except ImportError:
+    print(
+        "Error: plotly is not installed. Build sandbox with ENABLE_SANDBOX_ADDONS=1",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
 # Constants and type definitions
