@@ -157,10 +157,30 @@ class RedisStreamTask(Task):
         """Called when the task is done."""
         self._task_done = True
         if self._runner:
-            task = asyncio.create_task(self._runner.on_done(self))
+            async def _finalize_runner() -> None:
+                try:
+                    await self._runner.on_done(self)
+                except Exception as e:
+                    logger.warning("Runner on_done failed for task %s: %s", self._id, e)
+                try:
+                    await self._runner.destroy()
+                except Exception as e:
+                    logger.warning("Runner destroy failed for task %s: %s", self._id, e)
+
+            task = asyncio.create_task(_finalize_runner())
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
         self._cleanup_registry()
+        # #region agent log
+        try:
+            import json, os, time as _t, sys
+            _proc = __import__('psutil').Process(os.getpid()) if 'psutil' in sys.modules or __import__('psutil') else None
+            _mem_mb = _proc.memory_info().rss / 1024 / 1024 if _proc else -1
+            with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
+                _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H1A","location":"redis_task.py:_on_task_done","message":"Task done - destroy() now chained after on_done()","data":{"task_id":self._id,"process_mem_mb":round(_mem_mb,1),"runner_alive":self._runner is not None,"registry_size":len(RedisStreamTask._task_registry)},"timestamp":int(_t.time()*1000)}) + '\n')
+        except Exception:
+            pass
+        # #endregion
 
     def _cleanup_registry(self) -> None:
         """Remove this task from the registry and cleanup Redis streams."""
