@@ -224,6 +224,8 @@ class AgentTaskRunner(TaskRunner):
         # Screenshot capture service (created after sandbox init if enabled)
         self._screenshot_service: ScreenshotCaptureService | None = screenshot_service
         self._background_tasks: set[asyncio.Task[object]] = set()
+        # True after release_task_resources() — avoids double-clear and lets destroy() add session teardown
+        self._task_resources_released: bool = False
 
         # Current task description for attention manipulation
         self.current_task: str | None = None
@@ -2103,18 +2105,18 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
 
-        # Eagerly release flow agent memory after task completion.
-        # In dev sandbox mode, destroy() is never called because the sandbox is
-        # shared across sessions.  Without this, conversation histories (~50K+
-        # tokens per agent) leak until the backend process restarts.
-        try:
-            await self._cleanup_flow_agents()
-        except Exception as e:
-            logger.warning("Agent %s: Eager flow cleanup failed: %s", self._agent_id, e)
+    async def release_task_resources(self) -> None:
+        """Release memory after a single task completes without tearing down the sandbox.
 
-    async def destroy(self) -> None:
-        """Destroy the task and release resources"""
-        logger.info("Starting to destroy agent task")
+        Call this when the Redis task finishes so planner/executor/verifier memory is freed.
+        Does **not** destroy the sandbox, MCP, or Pythinker factory session — those may be
+        shared across follow-up tasks in the same chat session.
+        """
+        if self._task_resources_released:
+            return
+        self._task_resources_released = True
+
+        logger.info("Releasing agent task memory after run (session=%s)", self._session_id)
 
         # Finalize LeadAgentRuntime (runs AFTER_RUN hook on all middlewares)
         if self._lead_agent_runtime is not None and self._lead_agent_runtime.context is not None:
@@ -2153,7 +2155,6 @@ class AgentTaskRunner(TaskRunner):
                 )
 
         # ORPHANED TASK FIX: Cancel all background tasks (fire-and-forget tasks)
-        # Prevents orphaned tasks from continuing after session ends
         if self._background_tasks:
             logger.debug(f"Cancelling {len(self._background_tasks)} background tasks for session {self._session_id}")
             for task in list(self._background_tasks):
@@ -2162,15 +2163,34 @@ class AgentTaskRunner(TaskRunner):
                     try:
                         await asyncio.wait_for(task, timeout=2.0)
                     except (asyncio.CancelledError, TimeoutError):
-                        pass  # Expected - task was cancelled
+                        pass
                     except Exception as e:
                         logger.warning(f"Background task cleanup raised exception: {e}")
             self._background_tasks.clear()
 
-        # Cleanup background tasks and release memory on ALL flow agents
-        # (planner, executor, verifier, reflection) — not just the executor.
-        # This prevents conversation histories (~50K+ tokens each) from leaking.
         await self._cleanup_flow_agents()
+
+        # Clean up tool metadata caches to prevent unbounded growth
+        self._tool_start_times.clear()
+        self._file_before_cache.clear()
+        self._pending_tool_calls.clear()
+
+        # Release flow reference to allow GC of all sub-agents
+        self._plan_act_flow = None
+        self._discuss_flow = None
+        self._fast_search_flow = None
+
+        import gc
+
+        gc.collect()
+
+        logger.debug("Agent %s: task memory released (sandbox retained for session reuse)", self._agent_id)
+
+    async def destroy(self) -> None:
+        """Full teardown: session stop, app shutdown, or forced cleanup. Destroys sandbox and MCP."""
+        logger.info("Starting to destroy agent task")
+
+        await self.release_task_resources()
 
         # Cleanup Pythinker agent factory session if available
         if self._agent_factory:
@@ -2184,7 +2204,6 @@ class AgentTaskRunner(TaskRunner):
 
         # Destroy sandbox environment with timeout to avoid hanging on container cleanup
         if self._sandbox:
-            # Release pooled browser connection before sandbox cleanup to prevent pool exhaustion
             if self._browser and hasattr(self._sandbox, "release_pooled_browser"):
                 try:
                     await self._sandbox.release_pooled_browser(self._browser, had_error=False)
@@ -2199,7 +2218,6 @@ class AgentTaskRunner(TaskRunner):
                 logger.warning(f"Sandbox destroy failed for Agent {self._agent_id}: {e}")
 
         if self._mcp_tool:
-            # Unregister from global MCP registry before cleanup
             get_mcp_registry().unregister(self._user_id)
             logger.debug(f"Destroying Agent {self._agent_id}'s MCP tool")
             try:
@@ -2209,17 +2227,6 @@ class AgentTaskRunner(TaskRunner):
             except Exception as e:
                 logger.warning(f"MCP tool cleanup failed for Agent {self._agent_id}: {e}")
 
-        # Clean up tool metadata caches to prevent unbounded growth
-        self._tool_start_times.clear()
-        self._file_before_cache.clear()
-        self._pending_tool_calls.clear()
-
-        # Release flow reference to allow GC of all sub-agents
-        self._plan_act_flow = None
-        self._discuss_flow = None
-        self._fast_search_flow = None
-
-        # Force GC to reclaim cyclic references from agent object graphs
         import gc
 
         gc.collect()
@@ -2232,7 +2239,11 @@ class AgentTaskRunner(TaskRunner):
         PlanActFlow creates planner, executor, verifier, and reflection agents,
         each holding ~50K+ token conversation histories. Without explicit cleanup
         these accumulate across sequential tasks, causing ~500MB+ growth per task.
+
+        Idempotent: safe to call from both on_done() and destroy().
         """
+        if getattr(self, "_flow_agents_cleaned", False):
+            return
         flow = self._flow
         if flow is None:
             return
@@ -2249,7 +2260,8 @@ class AgentTaskRunner(TaskRunner):
                     await agent.cleanup_background_tasks(timeout=3.0)
 
                 # 2. Clear conversation history — the biggest memory consumer
-                if hasattr(agent, "memory"):
+                # Guard against None (agent may be partially initialized after hot reload)
+                if hasattr(agent, "memory") and agent.memory is not None:
                     msg_count = len(getattr(agent.memory, "messages", []))
                     agent.memory.messages = []
                     logger.debug(
@@ -2266,6 +2278,13 @@ class AgentTaskRunner(TaskRunner):
                 # 4. Clear tool result caches
                 if hasattr(agent, "_tool_result_store") and agent._tool_result_store:
                     agent._tool_result_store = None
+
+                # 5. Drop execution-scoped context (SourceTracker, StepExecutor) — no prior callers
+                if attr_name == "executor" and hasattr(agent, "clear_context"):
+                    try:
+                        agent.clear_context()
+                    except Exception as _ctx_err:
+                        logger.debug("Executor clear_context skipped: %s", _ctx_err)
 
                 _agents_cleaned += 1
             except Exception as e:
@@ -2284,6 +2303,7 @@ class AgentTaskRunner(TaskRunner):
         if hasattr(flow, "_task_state_manager"):
             flow._task_state_manager = None
 
+        self._flow_agents_cleaned = True
         if _agents_cleaned > 0:
             logger.info(
                 "Released memory from %d flow agent(s) for session %s",
