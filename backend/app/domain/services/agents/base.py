@@ -420,12 +420,12 @@ class BaseAgent:
         )
 
     # Tool result compaction limits for memory writes.
-    # Reduced from 12K→8K to cut LLM latency on search-heavy steps (12.1s→~7s).
-    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 8000
-    _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 2000
-    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 5000
+    # Tightened from 8K→4K to prevent context overflow on research-heavy sessions.
+    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 4000  # was 8000
+    _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 1000  # was 2000
+    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 2500  # was 5000
     # Max search results to keep in LLM context (rest is compacted).
-    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 10
+    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 8  # was 10
 
     def set_token_budget(self, budget: Any) -> None:
         """Inject a TokenBudget for proactive phase-level token management.
