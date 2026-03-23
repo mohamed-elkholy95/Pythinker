@@ -130,9 +130,10 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Gateway — Telegram / Channel Integration (reuses backend image)
+  # Gateway — Telegram / Channel Integration (reuses backend image) — opt-in via: --profile channels
   # ---------------------------------------------------------------------------
   gateway:
+    profiles: ["channels"]
     image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
@@ -230,7 +231,7 @@ services:
           memory: 512M
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
-      - ENABLE_VNC=${ENABLE_VNC:-1}
+      - ENABLE_VNC=${ENABLE_VNC:-0}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD}
