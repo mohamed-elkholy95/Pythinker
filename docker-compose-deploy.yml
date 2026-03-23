@@ -393,10 +393,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${REDIS_MEMORY_LIMIT:-1G}
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     healthcheck:
       test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 10s
@@ -423,10 +423,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-2G}
+          memory: ${QDRANT_MEMORY_LIMIT:-768M}
           cpus: '1'
         reservations:
-          memory: 512M
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
@@ -454,10 +454,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${MINIO_MEMORY_LIMIT:-1G}
+          memory: ${MINIO_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 10s

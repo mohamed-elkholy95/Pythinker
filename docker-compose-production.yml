@@ -323,10 +323,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${REDIS_MEMORY_LIMIT:-1G}
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -358,10 +358,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-2G}
+          memory: ${QDRANT_MEMORY_LIMIT:-768M}
           cpus: '1'
         reservations:
-          memory: 512M
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
       interval: 10s
@@ -391,10 +391,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${MINIO_MEMORY_LIMIT:-1G}
+          memory: ${MINIO_MEMORY_LIMIT:-512M}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
     # Production: no host port exposure -- backend accesses via internal network.
     # Access console via Traefik if needed (add labels).
     healthcheck:
