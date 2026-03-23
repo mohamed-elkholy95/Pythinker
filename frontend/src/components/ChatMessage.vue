@@ -291,6 +291,14 @@
     :isLoading="isLoading"
     @toolClick="handleToolClick"
   />
+  <!-- Assistant attachments: inline chart/image previews -->
+  <AttachmentsInlineGrid
+    v-else-if="message.type === 'attachments' && attachmentsContent.role === 'assistant'"
+    :attachments="attachmentsContent.attachments"
+    @openFile="handleReportFileOpen"
+    @showAllFiles="$emit('showAllFiles')"
+  />
+  <!-- User attachments: keep existing right-aligned file cards -->
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
   <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-5">
     <!-- Main Report Card -->
@@ -356,7 +364,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, TaskCompletedFooter } from './report';
+import { ReportCard, TaskCompletedFooter, AttachmentsInlineGrid } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
 import type { ReasoningStage } from '@/types/reasoning';
 import type { ReportData } from './report';
