@@ -4734,6 +4734,10 @@ const handleFileListShow = () => {
   color: #374151;
 }
 
+.dark .header-model-title-label {
+  color: #e5e7eb;
+}
+
 .header-model-title-icon {
   width: 14px;
   height: 14px;
