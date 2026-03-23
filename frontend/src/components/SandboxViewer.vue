@@ -442,9 +442,14 @@ async function connect(): Promise<void> {
         isLoading.value = true
 
         reconnectTimeout = window.setTimeout(() => {
+          reconnectTimeout = null
+          // Re-check session status — may have completed during the delay window.
+          // Without this guard, in-flight reconnect timers fire 409 requests.
+          if (props.isSessionComplete) {
+            return
+          }
           // Refresh signed URL for each reconnect attempt to avoid stale links.
           screencastWsUrl.value = null
-          reconnectTimeout = null
           debouncedInitConnection()
         }, delay)
       } else {
