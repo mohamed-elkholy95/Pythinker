@@ -211,7 +211,7 @@ class QdrantStorage:
 
         # Create payload indexes for filtered search (server Qdrant only)
         # In-memory/local Qdrant does not support payload indexes — skip silently.
-        if self._using_local_fallback:
+        if getattr(self, "_using_local_fallback", False):
             logger.debug("Skipping payload index creation (in-memory Qdrant)")
             return
 
