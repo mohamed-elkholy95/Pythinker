@@ -180,7 +180,7 @@ services:
     restart: always
     read_only: true
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=768
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
@@ -189,7 +189,7 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=1
       - ENABLE_VNC=${ENABLE_VNC:-0}
     # Production: no host port exposure -- backend accesses via internal network
-    shm_size: ${SANDBOX_SHM_SIZE:-256m}
+    shm_size: ${SANDBOX_SHM_SIZE:-1g}
     security_opt:
       - no-new-privileges:true
       - seccomp=./sandbox/seccomp-sandbox.hardened.json
