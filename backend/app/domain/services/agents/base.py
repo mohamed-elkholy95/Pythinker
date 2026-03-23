@@ -2518,9 +2518,7 @@ class BaseAgent:
                             len(_final_text),
                         )
                         _salvage_summary = _final_text[:500].split("\n")[0].strip()
-                        _final_text = json.dumps(
-                            {"success": True, "result": _salvage_summary, "attachments": []}
-                        )
+                        _final_text = json.dumps({"success": True, "result": _salvage_summary, "attachments": []})
                         message["content"] = _final_text
                         _is_valid_json = True
 
