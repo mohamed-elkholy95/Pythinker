@@ -2344,10 +2344,7 @@ class PlaywrightBrowser:
                     logger.info("HEAD pre-check: %s returned 404, skipping navigation", url[:80])
                     return ToolResult(
                         success=False,
-                        message=(
-                            f"URL returned HTTP 404 (page not found): {url}. "
-                            f"Use a different source."
-                        ),
+                        message=(f"URL returned HTTP 404 (page not found): {url}. Use a different source."),
                         data={"url": url, "status_code": 404},
                     )
                 if resp.status_code >= 500:
@@ -2360,7 +2357,7 @@ class PlaywrightBrowser:
         except Exception:
             # HEAD failed (timeout, DNS, connection refused) — let full navigation try.
             # Some servers reject HEAD but accept GET; don't block on HEAD failure.
-            pass
+            logger.debug("HEAD pre-check failed for %s (non-blocking)", url[:80])
         return None
 
     async def navigate(
