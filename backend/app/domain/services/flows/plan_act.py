@@ -517,6 +517,10 @@ class PlanActFlow(BaseFlow):
             self.executor._efficiency_monitor = ToolEfficiencyMonitor(
                 research_mode=self._research_mode,
             )
+        # Flag agents so they can select the higher context cap for deep_research
+        if self._research_mode == "deep_research":
+            self.executor._is_deep_research = True
+            self.planner._is_deep_research = True
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
         # URL Failure Guard: session-scoped, shared across all steps

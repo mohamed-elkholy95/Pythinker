@@ -2661,7 +2661,22 @@ class BaseAgent:
     # combined exceed this, aggressively truncate every tool result to 500 chars.
     # This is the last-resort safety valve against 60-80s LLM calls caused by
     # context window saturation (observed: 78.7s at ~80K chars).
-    _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000
+    # Now configurable via settings: hard_context_char_cap / hard_context_char_cap_deep_research
+    _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000  # Fallback if settings unavailable
+
+    @property
+    def _effective_context_char_cap(self) -> int:
+        """Return the effective hard context cap, respecting per-flow settings."""
+        try:
+            from app.core.config import get_settings
+
+            settings = get_settings()
+            # If this agent is part of a deep_research flow, use the higher cap
+            if getattr(self, "_is_deep_research", False):
+                return getattr(settings, "hard_context_char_cap_deep_research", 100_000)
+            return getattr(settings, "hard_context_char_cap", 50_000)
+        except Exception:
+            return self._HARD_CONTEXT_CHAR_CAP
 
     async def ask_with_messages(self, messages: list[dict[str, Any]], format: str | None = None) -> dict[str, Any]:
         await self._add_to_memory(messages)
@@ -2674,19 +2689,35 @@ class BaseAgent:
         await self._ensure_memory()
         all_msgs = self.memory.get_messages()
         total_chars = sum(len(str(m.get("content", ""))) for m in all_msgs)
-        if total_chars > self._HARD_CONTEXT_CHAR_CAP:
+        _cap = self._effective_context_char_cap
+        if total_chars > _cap:
             logger.warning(
-                "Hard context cap hit (%d > %d chars), truncating all tool results",
+                "Hard context cap hit (%d > %d chars), applying graduated truncation",
                 total_chars,
-                self._HARD_CONTEXT_CHAR_CAP,
+                _cap,
             )
-            trimmed = []
-            for m in all_msgs:
-                if m.get("role") == "tool":
-                    content = m.get("content", "")
-                    if isinstance(content, str) and len(content) > 500:
-                        m = {**m, "content": content[:500] + "\n[... hard-truncated ...]"}
-                trimmed.append(m)
+            # Graduated eviction: older tool results are truncated more
+            # aggressively, recent ones are preserved with more context.
+            # This keeps the most relevant data the LLM needs for synthesis
+            # while still respecting the cap.
+            tool_indices = [i for i, m in enumerate(all_msgs) if m.get("role") == "tool"]
+            n_tools = len(tool_indices)
+            trimmed = list(all_msgs)  # shallow copy
+            for rank, idx in enumerate(tool_indices):
+                m = trimmed[idx]
+                content = m.get("content", "")
+                if not isinstance(content, str):
+                    continue
+                # Determine limit based on recency (0.0 = oldest, 1.0 = newest)
+                age_ratio = 0.0 if n_tools <= 1 else rank / (n_tools - 1)
+                if age_ratio < 0.33:
+                    limit = 300  # oldest third: aggressive truncation
+                elif age_ratio < 0.66:
+                    limit = 800  # middle third: moderate truncation
+                else:
+                    limit = 2000  # newest third: preserve more context
+                if len(content) > limit:
+                    trimmed[idx] = {**m, "content": content[:limit] + "\n[... truncated ...]"}
             self.memory.messages = trimmed
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
