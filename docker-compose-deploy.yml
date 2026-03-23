@@ -29,6 +29,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+        restart: true
     restart: always
     networks:
       - dokploy-network
@@ -65,14 +66,18 @@ services:
     depends_on:
       sandbox:
         condition: service_healthy
+        restart: true
       mongodb:
         condition: service_healthy
+        restart: true
       redis:
         condition: service_healthy
+        restart: true
       qdrant:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+        restart: true
+      minio-init:
+        condition: service_completed_successfully
     restart: always
     deploy:
       replicas: ${BACKEND_REPLICAS:-1}
@@ -134,16 +139,21 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+        restart: true
       mongodb:
         condition: service_healthy
+        restart: true
       redis:
         condition: service_healthy
+        restart: true
       qdrant:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+        restart: true
+      minio-init:
+        condition: service_completed_successfully
       sandbox:
         condition: service_healthy
+        restart: true
     restart: always
     logging:
       driver: json-file
