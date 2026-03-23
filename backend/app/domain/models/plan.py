@@ -154,6 +154,7 @@ class Step(BaseModel):
     # Execution control
     expected_output: str | None = None  # Description of what this step should produce
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)  # Per-step retry config
+    expected_tools: list[str] = Field(default_factory=list)  # Declared tool categories for action audit
 
     @field_validator("status", mode="before")
     @classmethod

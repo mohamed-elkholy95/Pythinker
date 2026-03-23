@@ -58,3 +58,45 @@ def test_apply_step_action_audit_leaves_valid_step_unchanged() -> None:
     assert changed is False
     assert step.success is True
     assert step.status == ExecutionStatus.COMPLETED
+
+
+def test_expected_tools_research_step_passes_with_search() -> None:
+    """Step with expected_tools=['search', 'browser'] passes when search was used."""
+    step = Step(
+        id="3",
+        description="Cross-validate benchmark data",
+        success=True,
+        expected_tools=["search", "browser", "file_read", "file_write"],
+    )
+    tools_used = {"search", "browser", "file_read", "file_write", "info_search_web"}
+    result = PlanActFlow._apply_step_action_audit(step, tools_used)
+    assert result is False
+    assert step.success is True
+
+
+def test_expected_tools_overrides_keyword_inference() -> None:
+    """When expected_tools is set, keyword inference is skipped entirely."""
+    step = Step(
+        id="1",
+        description="Execute benchmark script and run tests",
+        success=True,
+        expected_tools=["shell_exec"],
+    )
+    tools_used = {"shell_exec"}
+    result = PlanActFlow._apply_step_action_audit(step, tools_used)
+    assert result is False
+
+
+def test_expected_tools_fails_when_none_used() -> None:
+    """When none of the expected tools were used, audit fails."""
+    step = Step(
+        id="1",
+        description="Execute script",
+        success=True,
+        expected_tools=["shell_exec", "code_execute_python"],
+    )
+    tools_used = {"file_write"}
+    result = PlanActFlow._apply_step_action_audit(step, tools_used)
+    assert result is True
+    assert step.success is False
+    assert "declared tools" in step.error
