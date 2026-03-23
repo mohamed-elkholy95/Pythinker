@@ -911,7 +911,7 @@ class AgentTaskRunner(TaskRunner):
                 preferred_font=settings.telegram_pdf_unicode_font,
             )
         except Exception as e:
-            logger.warning("PDF generation failed for report %s: %s", event.id, e)
+            logger.warning("PDF generation failed for report %s: %s", event.id, e, exc_info=True)
             return None
 
         # Build a human-readable filename from the report title
@@ -2103,6 +2103,15 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
 
+        # Eagerly release flow agent memory after task completion.
+        # In dev sandbox mode, destroy() is never called because the sandbox is
+        # shared across sessions.  Without this, conversation histories (~50K+
+        # tokens per agent) leak until the backend process restarts.
+        try:
+            await self._cleanup_flow_agents()
+        except Exception as e:
+            logger.warning("Agent %s: Eager flow cleanup failed: %s", self._agent_id, e)
+
     async def destroy(self) -> None:
         """Destroy the task and release resources"""
         logger.info("Starting to destroy agent task")
@@ -2209,6 +2218,11 @@ class AgentTaskRunner(TaskRunner):
         self._plan_act_flow = None
         self._discuss_flow = None
         self._fast_search_flow = None
+
+        # Force GC to reclaim cyclic references from agent object graphs
+        import gc
+
+        gc.collect()
 
         logger.debug(f"Agent {self._agent_id} has been fully closed and resources cleared")
 
