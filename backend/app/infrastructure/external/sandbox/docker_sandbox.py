@@ -1520,7 +1520,7 @@ class DockerSandbox(Sandbox):
 
     async def _get_pooled_browser(
         self,
-        block_resources: bool = False,
+        block_resources: bool = True,
         clear_session: bool = False,
         session_id: str | None = None,
     ) -> Browser:

@@ -213,6 +213,13 @@ const MAX_RECONNECT_ATTEMPTS = 5
 const NON_RETRYABLE_WS_CODES = new Set([1002, 1003, 1007, 1008])
 let intentionalClose = false
 
+// Session-scoped circuit breaker: stops all reconnect attempts when sandbox
+// is confirmed dead (e.g., Chrome PID exhaustion, container crash).
+// Unlike connectionAttempts which resets on tab visibility, this persists
+// for the lifetime of the component and only resets on manual reconnect().
+let sessionFailureCount = 0
+const MAX_SESSION_FAILURES = 8
+
 // Connection liveness watchdog — detects dead streams
 // (e.g., Chrome hung, proxy died, backend crashed)
 // NOTE: Chrome's Page.startScreencast only sends frames when the compositor
@@ -405,6 +412,20 @@ async function connect(): Promise<void> {
         normalizedReason.includes('screencast unavailable')
       const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
 
+      // Session-scoped circuit breaker: track total failures across all
+      // reconnect cycles (persists even when connectionAttempts resets on
+      // tab visibility).  Prevents infinite reconnect loops when sandbox
+      // Chrome is dead (PID exhaustion, OOM, container crash).
+      sessionFailureCount++
+
+      const circuitBroken = sessionFailureCount >= MAX_SESSION_FAILURES
+      if (circuitBroken) {
+        error.value = 'Live preview unavailable (sandbox browser not responding)'
+        isLoading.value = false
+        emit('error', 'screencast circuit breaker: too many failures')
+        return
+      }
+
       if (props.enabled && shouldRetry && !props.isSessionComplete && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
         // Don't attempt reconnect while tab is hidden — save resources
         // and avoid thundering herd on tab refocus. The visibility handler
@@ -470,6 +491,7 @@ function disconnect(): void {
 
 function reconnect(): void {
   connectionAttempts = 0
+  sessionFailureCount = 0  // Reset circuit breaker on manual reconnect
   error.value = null
   debouncedInitConnection()
 }

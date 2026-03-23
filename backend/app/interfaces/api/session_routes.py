@@ -109,6 +109,11 @@ def _sandbox_ws_connect_kwargs() -> dict:
         # If no pong received within timeout of a ping, consider connection dead.
         "ping_timeout": settings.sse_ws_ping_timeout_seconds,
         "max_size": None,
+        # Handshake timeout: fail fast when sandbox Chrome is dead (PID exhaustion,
+        # crash, etc.) instead of hanging for the default 10s+ timeout.
+        # When Chrome crashes, this prevents an infinite reconnect loop of 10s
+        # timeout → close → reconnect → 10s timeout → ...
+        "open_timeout": 5,
     }
 
 
@@ -2138,16 +2143,18 @@ async def screencast_websocket(
             logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")
         else:
             logger.error(f"Unable to connect to screencast: {error_text}")
+        # Use "screencast unavailable" reason so frontend stops retrying
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {error_text}")
+            await websocket.close(code=1011, reason="screencast unavailable")
     except Exception as e:
         error_text = _safe_exc_text(e)
         if "No such container" in error_text or "404 Client Error" in error_text:
             logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")
         else:
             logger.error(f"Screencast WebSocket error: {error_text}")
+        # Use "screencast unavailable" reason so frontend stops retrying
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Screencast error: {error_text}")
+            await websocket.close(code=1011, reason="screencast unavailable")
     finally:
         if stream_key:
             with contextlib.suppress(Exception):

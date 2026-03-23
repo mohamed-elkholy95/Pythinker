@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import os
+import signal
 import time
 import xmlrpc.client
 
@@ -213,7 +215,7 @@ class ChromeLifecycleManager:
             raise RuntimeError(f"Failed to start Chrome: {e}") from e
 
     async def _stop_chrome(self) -> None:
-        """Stop Chrome via supervisord RPC."""
+        """Stop Chrome via supervisord RPC, then reap zombie processes."""
         self._state = ChromeState.STOPPING
         try:
             await asyncio.to_thread(
@@ -228,6 +230,30 @@ class ChromeLifecycleManager:
                 logger.error("Failed to stop Chrome: %s", e)
         finally:
             self._state = ChromeState.STOPPED
+            # Reap any zombie (defunct) child processes left by Chrome.
+            # Without this, zombie PIDs accumulate and eventually hit the
+            # container PID limit, causing pthread_create EAGAIN errors.
+            await asyncio.to_thread(self._reap_zombies)
+
+    @staticmethod
+    def _reap_zombies() -> int:
+        """Reap zombie child processes via waitpid(WNOHANG).
+
+        Returns the number of zombies reaped.  Safe to call even when no
+        children exist — os.waitpid raises ChildProcessError which we catch.
+        """
+        reaped = 0
+        while True:
+            try:
+                pid, _ = os.waitpid(-1, os.WNOHANG)
+                if pid == 0:
+                    break
+                reaped += 1
+            except ChildProcessError:
+                break
+        if reaped:
+            logger.info("Reaped %d zombie process(es)", reaped)
+        return reaped
 
     async def _wait_for_cdp(self) -> None:
         """Poll Chrome's CDP endpoint until responsive or timeout."""
@@ -309,10 +335,18 @@ class ChromeLifecycleManager:
             return True  # Can't determine — assume active (safe default)
 
     async def _idle_check_loop(self) -> None:
-        """Background loop that stops Chrome after idle timeout."""
+        """Background loop that stops Chrome after idle timeout.
+
+        Also reaps zombie processes periodically to prevent PID exhaustion.
+        """
         while True:
             try:
                 await asyncio.sleep(self._idle_check_interval)
+
+                # Reap zombies on every tick regardless of Chrome state.
+                # The xdotool window-pinning loop and Chrome crash handlers
+                # can leave defunct processes even while Chrome is running.
+                await asyncio.to_thread(self._reap_zombies)
 
                 if self._state != ChromeState.RUNNING:
                     continue
