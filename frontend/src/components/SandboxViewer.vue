@@ -218,7 +218,7 @@ let intentionalClose = false
 // Unlike connectionAttempts which resets on tab visibility, this persists
 // for the lifetime of the component and only resets on manual reconnect().
 let sessionFailureCount = 0
-const MAX_SESSION_FAILURES = 8
+const MAX_SESSION_FAILURES = 5
 
 // Connection liveness watchdog — detects dead streams
 // (e.g., Chrome hung, proxy died, backend crashed)
