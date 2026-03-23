@@ -58,6 +58,7 @@ class SearchSettingsMixin:
 
     # Search API budget limits (per agent task)
     max_search_api_calls_per_task: int = 15  # Hard cap on API calls per task
+    max_search_api_calls_deep_research: int = 25  # Higher budget for deep_research flows
     max_wide_research_queries: int = 3  # Max queries in a single wide_research call (default for simple/medium)
     max_wide_research_queries_complex: int = 5  # Max queries for very_complex tasks (complexity >= 0.8)
     max_wide_research_calls_per_task: int = 2  # Max wide_research invocations per task
@@ -150,6 +151,13 @@ class AgentSafetySettingsMixin:
     agent_checkpoint_interval: int = 5  # Write checkpoint every N completed steps
     planner_max_steps: int = 4  # Default max plan steps (overridden by complexity)
     planner_research_step_cap: int = 10  # Max steps for research-heavy tasks
+
+    # Hard context cap: last-resort safety valve against 60-80s LLM calls.
+    # When total conversation chars exceed this, all tool results are truncated to 500 chars.
+    hard_context_char_cap: int = 50_000  # Default cap for standard tasks
+    hard_context_char_cap_deep_research: int = 100_000  # Higher cap for deep_research flows
+    # Browser navigation budget per execution step (prevents infinite browsing loops)
+    max_browser_navigations_per_step: int = 6
 
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
@@ -401,12 +409,16 @@ class FeatureFlagsSettingsMixin:
     # have 20-30% false-positive rates on paraphrased content.
     # Env override: HALLUCINATION_WARN_THRESHOLD, HALLUCINATION_BLOCK_THRESHOLD
     hallucination_warn_threshold: float = 0.15  # 15% -> reliability notice appended
-    hallucination_block_threshold: float = 0.50  # 50% -> block delivery, re-summarize
+    hallucination_block_threshold: float = 0.60  # 60% -> block delivery, re-summarize
+    # Raised from 0.50 to 0.60: claim-level verifiers have 20-30% false-positive rates
+    # on paraphrased research statistics, and the 16-32K char grounding context is often
+    # too narrow to contain the source passage for a cited statistic. E2E testing showed
+    # all 4 research tasks hitting 65-68% unsupported despite correct citations.
     hallucination_annotate_spans: bool = False  # Annotate flagged claims in output
     hallucination_grounding_context_size: int = 16000  # Chars of source context for grounding verifier
-    hallucination_grounding_context_deep: int = 32000  # Expanded context for DEEP research
+    hallucination_grounding_context_deep: int = 48000  # Expanded context for DEEP research (raised from 32K)
     hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
-    hallucination_max_claims: int = 20  # Cap extracted claims to control LLM cost
+    hallucination_max_claims: int = 25  # Cap extracted claims (raised from 20 for more thorough checking)
     reranker_provider: str = "jina"  # "jina" (API) or "none" (skip reranking)
 
     # Context compression thresholds
