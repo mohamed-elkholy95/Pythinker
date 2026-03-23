@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import time
 from typing import Any
 
 from loguru import logger
@@ -12,6 +14,60 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
 
+# Redis-based distributed lock for Telegram polling.
+# Prevents the expensive 10-attempt retry loop when multiple gateway
+# instances compete for the same bot token.
+_REDIS_LOCK_KEY = "pythinker:telegram:polling_lock"
+_REDIS_LOCK_TTL = 90  # seconds — must exceed Telegram long-poll timeout (30s)
+
+
+def _try_acquire_redis_lock(channel_name: str, ttl: int = _REDIS_LOCK_TTL) -> bool:
+    """Attempt to acquire a Redis-based distributed lock for polling.
+
+    Returns True if the lock was acquired or Redis is unavailable (graceful
+    degradation — fall back to Telegram's native conflict detection).
+    """
+    try:
+        import redis as _redis
+
+        redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+        client = _redis.from_url(redis_url, socket_connect_timeout=2, decode_responses=True)
+        lock_value = f"{os.getpid()}:{time.monotonic()}"
+        acquired = client.set(
+            f"{_REDIS_LOCK_KEY}:{channel_name}",
+            lock_value,
+            nx=True,
+            ex=ttl,
+        )
+        if acquired:
+            logger.info("Acquired Redis polling lock for channel {}", channel_name)
+            return True
+        holder = client.get(f"{_REDIS_LOCK_KEY}:{channel_name}")
+        logger.warning(
+            "Channel {} polling lock held by {} (TTL {}s) — skipping start",
+            channel_name,
+            holder,
+            client.ttl(f"{_REDIS_LOCK_KEY}:{channel_name}"),
+        )
+        return False
+    except Exception as exc:
+        # Redis unavailable — degrade gracefully to Telegram conflict detection
+        logger.debug("Redis lock unavailable ({}), falling back to native conflict detection", exc)
+        return True
+
+
+def _release_redis_lock(channel_name: str) -> None:
+    """Release the Redis polling lock on shutdown."""
+    try:
+        import redis as _redis
+
+        redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+        client = _redis.from_url(redis_url, socket_connect_timeout=2, decode_responses=True)
+        client.delete(f"{_REDIS_LOCK_KEY}:{channel_name}")
+        logger.info("Released Redis polling lock for channel {}", channel_name)
+    except Exception as exc:
+        logger.debug("Redis lock release failed (non-critical): {}", exc)
+
 
 class ChannelManager:
     """
@@ -19,7 +75,7 @@ class ChannelManager:
 
     Responsibilities:
     - Initialize enabled channels (Telegram, WhatsApp, etc.)
-    - Start/stop channels
+    - Start/stop channels with Redis-based distributed locking
     - Route outbound messages
     """
 
@@ -28,6 +84,7 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self._held_locks: set[str] = set()  # Track acquired locks for cleanup
 
         self._init_channels()
 
@@ -38,6 +95,7 @@ class ChannelManager:
         if self.config.channels.telegram.enabled:
             try:
                 from nanobot.channels.telegram import TelegramChannel
+
                 self.channels["telegram"] = TelegramChannel(
                     self.config.channels.telegram,
                     self.bus,
@@ -51,9 +109,8 @@ class ChannelManager:
         if self.config.channels.whatsapp.enabled:
             try:
                 from nanobot.channels.whatsapp import WhatsAppChannel
-                self.channels["whatsapp"] = WhatsAppChannel(
-                    self.config.channels.whatsapp, self.bus
-                )
+
+                self.channels["whatsapp"] = WhatsAppChannel(self.config.channels.whatsapp, self.bus)
                 logger.info("WhatsApp channel enabled")
             except ImportError as e:
                 logger.warning("WhatsApp channel not available: {}", e)
@@ -62,9 +119,8 @@ class ChannelManager:
         if self.config.channels.discord.enabled:
             try:
                 from nanobot.channels.discord import DiscordChannel
-                self.channels["discord"] = DiscordChannel(
-                    self.config.channels.discord, self.bus
-                )
+
+                self.channels["discord"] = DiscordChannel(self.config.channels.discord, self.bus)
                 logger.info("Discord channel enabled")
             except ImportError as e:
                 logger.warning("Discord channel not available: {}", e)
@@ -73,9 +129,8 @@ class ChannelManager:
         if self.config.channels.feishu.enabled:
             try:
                 from nanobot.channels.feishu import FeishuChannel
-                self.channels["feishu"] = FeishuChannel(
-                    self.config.channels.feishu, self.bus
-                )
+
+                self.channels["feishu"] = FeishuChannel(self.config.channels.feishu, self.bus)
                 logger.info("Feishu channel enabled")
             except ImportError as e:
                 logger.warning("Feishu channel not available: {}", e)
@@ -85,9 +140,7 @@ class ChannelManager:
             try:
                 from nanobot.channels.mochat import MochatChannel
 
-                self.channels["mochat"] = MochatChannel(
-                    self.config.channels.mochat, self.bus
-                )
+                self.channels["mochat"] = MochatChannel(self.config.channels.mochat, self.bus)
                 logger.info("Mochat channel enabled")
             except ImportError as e:
                 logger.warning("Mochat channel not available: {}", e)
@@ -96,9 +149,8 @@ class ChannelManager:
         if self.config.channels.dingtalk.enabled:
             try:
                 from nanobot.channels.dingtalk import DingTalkChannel
-                self.channels["dingtalk"] = DingTalkChannel(
-                    self.config.channels.dingtalk, self.bus
-                )
+
+                self.channels["dingtalk"] = DingTalkChannel(self.config.channels.dingtalk, self.bus)
                 logger.info("DingTalk channel enabled")
             except ImportError as e:
                 logger.warning("DingTalk channel not available: {}", e)
@@ -107,9 +159,8 @@ class ChannelManager:
         if self.config.channels.email.enabled:
             try:
                 from nanobot.channels.email import EmailChannel
-                self.channels["email"] = EmailChannel(
-                    self.config.channels.email, self.bus
-                )
+
+                self.channels["email"] = EmailChannel(self.config.channels.email, self.bus)
                 logger.info("Email channel enabled")
             except ImportError as e:
                 logger.warning("Email channel not available: {}", e)
@@ -118,9 +169,8 @@ class ChannelManager:
         if self.config.channels.slack.enabled:
             try:
                 from nanobot.channels.slack import SlackChannel
-                self.channels["slack"] = SlackChannel(
-                    self.config.channels.slack, self.bus
-                )
+
+                self.channels["slack"] = SlackChannel(self.config.channels.slack, self.bus)
                 logger.info("Slack channel enabled")
             except ImportError as e:
                 logger.warning("Slack channel not available: {}", e)
@@ -129,6 +179,7 @@ class ChannelManager:
         if self.config.channels.qq.enabled:
             try:
                 from nanobot.channels.qq import QQChannel
+
                 self.channels["qq"] = QQChannel(
                     self.config.channels.qq,
                     self.bus,
@@ -141,6 +192,7 @@ class ChannelManager:
         if self.config.channels.matrix.enabled:
             try:
                 from nanobot.channels.matrix import MatrixChannel
+
                 self.channels["matrix"] = MatrixChannel(
                     self.config.channels.matrix,
                     self.bus,
@@ -162,16 +214,26 @@ class ChannelManager:
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel with auto-restart on failure.
 
-        Retries with exponential backoff (5s → 10s → 20s → ... → 120s max).
-        Gives up after 10 consecutive failures to avoid infinite restart loops.
+        Uses a Redis distributed lock to prevent concurrent polling conflicts
+        (falls back to Telegram's native detection if Redis is unavailable).
 
-        For Telegram "terminated by other getUpdates" conflicts, uses a longer
-        back-off (60s) since the other instance must be stopped or timed out first.
+        Retries with exponential backoff (5s → 10s → 20s → ... → 120s max).
+        Gives up after 5 consecutive conflict failures to avoid the expensive
+        20-minute retry loop that was observed in production.
         """
-        max_retries = 10
+        max_retries = 5  # Reduced from 10 — conflicts won't self-resolve with retries
         base_delay = 5.0
         max_delay = 120.0
         conflict_marker = "terminated by other getUpdates"
+
+        # Attempt Redis lock before starting (prevents conflict entirely)
+        if not _try_acquire_redis_lock(name):
+            logger.error(
+                "Channel {} skipped: another instance holds the polling lock. This instance will not poll Telegram.",
+                name,
+            )
+            return
+        self._held_locks.add(name)
 
         for attempt in range(max_retries + 1):
             try:
@@ -187,27 +249,36 @@ class ChannelManager:
                             "Channel {} giving up after {} attempts: another bot "
                             "instance is using the same token. Stop the other "
                             "instance and restart this container to recover.",
-                            name, max_retries,
+                            name,
+                            max_retries,
                         )
                     else:
                         logger.error(
                             "Channel {} failed after {} restart attempts, giving up: {}",
-                            name, max_retries, e,
+                            name,
+                            max_retries,
+                            e,
                         )
                     return
 
                 if is_telegram_conflict:
-                    delay = max(60.0, min(max_delay, base_delay * (2 ** attempt)))
+                    delay = max(60.0, min(max_delay, base_delay * (2**attempt)))
                     logger.warning(
-                        "Channel {} conflict: another bot instance is polling "
-                        "(attempt {}/{}), retrying in {:.0f}s",
-                        name, attempt + 1, max_retries, delay,
+                        "Channel {} conflict: another bot instance is polling (attempt {}/{}), retrying in {:.0f}s",
+                        name,
+                        attempt + 1,
+                        max_retries,
+                        delay,
                     )
                 else:
-                    delay = min(max_delay, base_delay * (2 ** attempt))
+                    delay = min(max_delay, base_delay * (2**attempt))
                     logger.warning(
                         "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
-                        name, attempt + 1, max_retries, delay, e,
+                        name,
+                        attempt + 1,
+                        max_retries,
+                        delay,
+                        e,
                     )
                 await asyncio.sleep(delay)
 
@@ -230,7 +301,7 @@ class ChannelManager:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def stop_all(self) -> None:
-        """Stop all channels and the dispatcher."""
+        """Stop all channels, the dispatcher, and release distributed locks."""
         logger.info("Stopping all channels...")
 
         # Stop dispatcher
@@ -247,16 +318,18 @@ class ChannelManager:
             except Exception as e:
                 logger.error("Error stopping {}: {}", name, e)
 
+        # Release Redis polling locks
+        for lock_name in self._held_locks:
+            _release_redis_lock(lock_name)
+        self._held_locks.clear()
+
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""
         logger.info("Outbound dispatcher started")
 
         while True:
             try:
-                msg = await asyncio.wait_for(
-                    self.bus.consume_outbound(),
-                    timeout=1.0
-                )
+                msg = await asyncio.wait_for(self.bus.consume_outbound(), timeout=1.0)
 
                 if msg.metadata.get("_progress"):
                     if msg.metadata.get("_tool_hint") and not self.config.channels.send_tool_hints:
@@ -284,13 +357,7 @@ class ChannelManager:
 
     def get_status(self) -> dict[str, Any]:
         """Get status of all channels."""
-        return {
-            name: {
-                "enabled": True,
-                "running": channel.is_running
-            }
-            for name, channel in self.channels.items()
-        }
+        return {name: {"enabled": True, "running": channel.is_running} for name, channel in self.channels.items()}
 
     @property
     def enabled_channels(self) -> list[str]:
