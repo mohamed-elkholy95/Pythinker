@@ -70,15 +70,26 @@ class TestBeforeStep:
 
     @pytest.mark.asyncio
     async def test_repeated_duplicate_searches_force_progress(self, mw, ctx):
+        """FORCE fires after 3 consecutive duplicate skips and step_iteration_count > 0."""
         tool = ToolCallInfo(call_id="1", function_name="search", arguments={"query": "python agents"})
         result_obj = ToolResult(success=True, message="ok")
 
         assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.CONTINUE
         await mw.after_tool_call(ctx, tool, result_obj)
 
+        # 3 consecutive skips needed (threshold raised from 2 to 3)
+        assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.SKIP_TOOL
         assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.SKIP_TOOL
         assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.SKIP_TOOL
 
+        # FORCE only fires when step_iteration_count > 0 (not on first iteration)
+        ctx.step_iteration_count = 0
+        result = await mw.before_step(ctx)
+        # On first iteration: duplicate FORCE suppressed; may get INJECT from
+        # efficiency monitor (soft nudge) or CONTINUE — but never FORCE.
+        assert result.signal != MiddlewareSignal.FORCE
+
+        ctx.step_iteration_count = 1
         result = await mw.before_step(ctx)
         assert result.signal == MiddlewareSignal.FORCE
         assert "duplicate" in (result.message or "").lower()
