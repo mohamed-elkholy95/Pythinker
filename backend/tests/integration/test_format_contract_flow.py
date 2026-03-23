@@ -159,8 +159,6 @@ class TestFormatContractRecovery:
           - Its content is the valid JSON from the re-enforcement call.
           - ask_with_messages was called exactly twice.
         """
-        valid_json = json.dumps({"success": True, "result": "Search complete", "attachments": []})
-
         # Round 1 (initial ask): LLM requests a tool call
         agent.ask = AsyncMock(
             return_value={
