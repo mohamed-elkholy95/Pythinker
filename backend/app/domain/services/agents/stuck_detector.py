@@ -249,6 +249,16 @@ class StuckDetector:
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
         self._stuck_analysis: StuckAnalysis | None = None
 
+    def reset_for_new_step(self) -> None:
+        """Clear tool action history at step boundaries.
+
+        Without this, browser_navigate calls from step 1 remain in the sliding
+        window and trigger false 'excessive_same_tool' during step 2-3 when
+        the agent uses file_read/file_write (different tools entirely).
+        """
+        self._tool_action_history.clear()
+        self._stuck_analysis = None
+
     def track_response(self, response: dict[str, Any]) -> tuple[bool, float]:
         """
         Track a new LLM response and check if agent is stuck (Phase 4 P1).
