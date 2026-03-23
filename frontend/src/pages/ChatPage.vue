@@ -372,6 +372,7 @@
         </div>
 
         <div
+          v-show="!(isMobileViewport && isToolPanelOpen)"
           ref="_chatBottomDockRef"
           class="chat-bottom-dock flex flex-col sticky bottom-0 mt-auto"
           :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
@@ -1812,6 +1813,11 @@ watch(
   },
   { immediate: true }
 );
+
+// Recalculate dock position after sidebar transition completes (280ms)
+watch(() => uiStore.isLeftPanelShow, () => {
+  setTimeout(updateChatBottomDockMetrics, 300);
+});
 
 watch(filePreviewOpen, (isOpen) => {
   if (!isOpen) {
