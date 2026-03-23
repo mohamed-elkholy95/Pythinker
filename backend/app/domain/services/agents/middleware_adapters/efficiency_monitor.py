@@ -25,8 +25,18 @@ logger = logging.getLogger(__name__)
 # Max browser navigations per execution step.  After this limit the agent
 # is told to synthesize what it has.  Research tasks typically need 3-5 URLs;
 # 6 gives headroom without allowing runaway browsing loops.
-_MAX_BROWSER_NAVIGATIONS_PER_STEP = 6
+# Now configurable via settings.max_browser_navigations_per_step (default 6).
 _BROWSER_NAV_TOOLS = frozenset({"browser_navigate", "browser_get_content", "search"})
+
+
+def _get_browser_nav_budget() -> int:
+    """Return the browser navigation budget from settings (cached per-process)."""
+    try:
+        from app.core.config import get_settings
+
+        return getattr(get_settings(), "max_browser_navigations_per_step", 6)
+    except Exception:
+        return 6
 
 
 class EfficiencyMonitorMiddleware(BaseMiddleware):
@@ -80,17 +90,17 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
             )
 
         # Check navigation budget
-        if self._browser_nav_count >= _MAX_BROWSER_NAVIGATIONS_PER_STEP:
+        if self._browser_nav_count >= _get_browser_nav_budget():
             logger.info(
                 "Browser navigation budget exhausted (%d/%d) — blocking %s",
                 self._browser_nav_count,
-                _MAX_BROWSER_NAVIGATIONS_PER_STEP,
+                _get_browser_nav_budget(),
                 tool_call.function_name,
             )
             return MiddlewareResult(
                 signal=MiddlewareSignal.SKIP_TOOL,
                 message=(
-                    f"Browser navigation budget reached ({_MAX_BROWSER_NAVIGATIONS_PER_STEP} "
+                    f"Browser navigation budget reached ({_get_browser_nav_budget()} "
                     f"pages visited this step). You have enough information — synthesize "
                     f"your findings and produce output instead of visiting more pages."
                 ),
