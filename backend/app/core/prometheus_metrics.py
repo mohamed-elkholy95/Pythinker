@@ -151,49 +151,78 @@ class Gauge:
 
 
 @dataclass
+class _HistogramState:
+    """Per-label histogram state with bounded memory.
+
+    Stores only the pre-aggregated bucket counters, running sum, and total
+    count — never individual observations.  Memory usage is O(buckets),
+    independent of the number of observe() calls.
+    """
+
+    bucket_counts: dict[float, int]  # bucket_le -> cumulative count (value <= le)
+    total_sum: float = 0.0
+    total_count: int = 0
+
+
+@dataclass
 class Histogram:
-    """Prometheus-style histogram metric."""
+    """Prometheus-style histogram metric.
+
+    Uses bounded bucket aggregation instead of raw observation storage.
+    Memory usage is O(label_sets * buckets) regardless of observation volume.
+    """
 
     name: str
     help_text: str
     labels: list[str]
     buckets: list[float] = field(default_factory=lambda: [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
-    _observations: dict[tuple, list[float]] = field(default_factory=lambda: defaultdict(list))
+    _states: dict[tuple, _HistogramState] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock)
 
+    def _get_or_create_state(self, label_tuple: tuple) -> _HistogramState:
+        """Return existing state for label_tuple, creating it if absent.
+
+        Must be called with _lock already held.
+        """
+        if label_tuple not in self._states:
+            self._states[label_tuple] = _HistogramState(
+                bucket_counts=dict.fromkeys(self.buckets, 0) | {float("inf"): 0}
+            )
+        return self._states[label_tuple]
+
     def observe(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
-        """Record an observation."""
+        """Record an observation by updating bucket counters in-place."""
         if labels is None:
             labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
-            self._observations[label_tuple].append(value)
+            state = self._get_or_create_state(label_tuple)
+            state.total_count += 1
+            state.total_sum += value
+            for bucket in self.buckets:
+                if value <= bucket:
+                    state.bucket_counts[bucket] += 1
+            # +Inf bucket always receives every observation
+            state.bucket_counts[float("inf")] += 1
 
     def collect(self) -> list[dict[str, Any]]:
-        """Collect all metric values for export."""
+        """Collect all metric values for export.
+
+        Reads directly from pre-aggregated state — O(label_sets * buckets),
+        no scanning of raw observations required.
+        """
         result = []
         with self._lock:
-            for label_tuple, values in self._observations.items():
+            for label_tuple, state in self._states.items():
                 label_dict = dict(zip(self.labels, label_tuple, strict=False))
-
-                # Calculate bucket counts
-                bucket_counts = {}
-                for bucket in self.buckets:
-                    bucket_counts[bucket] = sum(1 for v in values if v <= bucket)
-                bucket_counts[float("inf")] = len(values)
-
-                # Calculate sum and count
-                total_sum = sum(values)
-                total_count = len(values)
-
                 result.append(
                     {
                         "name": self.name,
                         "type": "histogram",
                         "labels": label_dict,
-                        "buckets": bucket_counts,
-                        "sum": total_sum,
-                        "count": total_count,
+                        "buckets": dict(state.bucket_counts),
+                        "sum": state.total_sum,
+                        "count": state.total_count,
                     }
                 )
         return result
@@ -2442,7 +2471,7 @@ def reset_all_metrics() -> None:
         with metric._lock:
             if hasattr(metric, "_values"):
                 metric._values.clear()
-            if hasattr(metric, "_observations"):
-                metric._observations.clear()
+            if hasattr(metric, "_states"):
+                metric._states.clear()
     _token_budget_last_used_by_session.clear()
     _token_budget_warned_sessions.clear()
