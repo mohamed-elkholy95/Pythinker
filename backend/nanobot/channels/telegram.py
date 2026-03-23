@@ -1338,6 +1338,16 @@ class TelegramChannel(BaseChannel):
         except Exception as exc:
             logger.debug("Telegram delete_webhook before polling failed: {}", exc)
 
+        # Force-claim the polling session: a short getUpdates call evicts any
+        # stale long-poll held by a previous container/instance.  Without this,
+        # the new instance detects "terminated by other getUpdates" ~60s later
+        # and enters a costly 10-attempt retry loop (up to 13+ minutes).
+        try:
+            await self._app.bot.get_updates(offset=-1, timeout=1)
+            logger.debug("Telegram polling session force-claimed via getUpdates(offset=-1)")
+        except Exception as exc:
+            logger.debug("Telegram force-claim getUpdates failed (non-critical): {}", exc)
+
         last_update_id = await read_telegram_update_offset(bot_token=self.config.token)
         retry_attempt = 0
 
