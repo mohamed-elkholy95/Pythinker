@@ -530,6 +530,7 @@ watch(() => route.path, async (newPath, oldPath) => {
 .left-panel-container {
   --left-panel-width-expanded: 264px;
   --left-panel-width-collapsed: 64px;
+  flex-shrink: 0;
 }
 
 .left-panel-expanded {
