@@ -3,7 +3,7 @@
 set -euo pipefail
 
 reload_flag="${BACKEND_ENABLE_RELOAD:-1}"
-timeout_graceful="${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-3}"
+timeout_graceful="${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-120}"
 
 uvicorn_args=(
   app.main:app

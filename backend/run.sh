@@ -8,7 +8,7 @@ exec uvicorn app.main:app \
   --host 0.0.0.0 \
   --port 8000 \
   --workers "${WEB_CONCURRENCY:-1}" \
-  --timeout-graceful-shutdown 30 \
+  --timeout-graceful-shutdown "${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-120}" \
   --timeout-keep-alive "${UVICORN_KEEP_ALIVE:-30}" \
   --limit-max-requests "${UVICORN_MAX_REQUESTS:-10000}" \
   --proxy-headers \
