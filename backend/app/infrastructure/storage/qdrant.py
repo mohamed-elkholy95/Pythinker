@@ -209,17 +209,18 @@ class QdrantStorage:
             else:
                 logger.info(f"Qdrant collection '{name}' already exists")
 
-        # Create payload indexes for filtered search
-        # Note: create_payload_index is idempotent - safe to call even if index exists
+        # Create payload indexes for filtered search (server Qdrant only)
+        # In-memory/local Qdrant does not support payload indexes — skip silently.
+        if self._using_local_fallback:
+            logger.debug("Skipping payload index creation (in-memory Qdrant)")
+            return
+
         for collection_name, fields in COLLECTION_INDEXES.items():
-            # Skip collections that aren't in our COLLECTIONS list
             if collection_name not in COLLECTIONS:
                 continue
 
             for field in fields:
                 with contextlib.suppress(Exception):
-                    # Index may already exist — suppress duplicates
-                    # Use INTEGER index for numeric fields, KEYWORD for everything else
                     field_schema = (
                         models.PayloadSchemaType.INTEGER
                         if field in INTEGER_INDEX_FIELDS
