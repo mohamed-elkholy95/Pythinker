@@ -2546,6 +2546,15 @@ class PlaywrightBrowser:
                         content = await self._extract_page_content()
                         title = await self.page.title()
 
+                        # Cap extracted content to prevent context overflow
+                        # (full content available in browser, only summary enters LLM context)
+                        _max_extract_chars = 5000
+                        if len(content) > _max_extract_chars:
+                            content = (
+                                content[:_max_extract_chars]
+                                + f"\n\n[... content truncated at {_max_extract_chars} chars, "
+                                f"{len(content) - _max_extract_chars} chars omitted ...]"
+                            )
                         result_data["content"] = content
                         result_data["title"] = title
 
