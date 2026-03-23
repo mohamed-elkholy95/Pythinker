@@ -173,6 +173,26 @@ def _resolve_tool_timeout(function_name: str) -> float:
     return _DEFAULT_TOOL_TIMEOUT
 
 
+def _extract_embedded_json(text: str) -> str | None:
+    """Extract a JSON object embedded in mixed prose+JSON text.
+
+    Scans each line for a standalone JSON object (``{...}``).  Returns the
+    first valid JSON string found, or ``None`` if no embedded JSON exists.
+    This handles the common LLM pattern of wrapping valid JSON in prose:
+
+        "Here is the result:\\n{\"success\": true, ...}\\nDone."
+    """
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                json.loads(stripped)
+                return stripped
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
 class BaseAgent:
     """
     Base agent class, defining the basic behavior of the agent
@@ -2482,14 +2502,27 @@ class BaseAgent:
                         pass
 
                 if not _is_valid_json:
-                    logger.info(
-                        "Wrapping %d-char prose response as JSON (skipping re-enforcement LLM call)",
-                        len(_final_text),
-                    )
-                    _salvage_summary = _final_text[:500].split("\n")[0].strip()
-                    _final_text = json.dumps({"success": True, "result": _salvage_summary, "attachments": []})
-                    message["content"] = _final_text
-                    _is_valid_json = True
+                    # Try to extract embedded JSON from mixed prose+JSON output
+                    # e.g. "Here is the result:\n{...valid json...}\nDone."
+                    _embedded_json = _extract_embedded_json(_final_text)
+                    if _embedded_json is not None:
+                        logger.info(
+                            "Extracted embedded JSON from %d-char mixed prose response",
+                            len(_final_text),
+                        )
+                        message["content"] = _embedded_json
+                        _is_valid_json = True
+                    else:
+                        logger.info(
+                            "Wrapping %d-char prose response as JSON (skipping re-enforcement LLM call)",
+                            len(_final_text),
+                        )
+                        _salvage_summary = _final_text[:500].split("\n")[0].strip()
+                        _final_text = json.dumps(
+                            {"success": True, "result": _salvage_summary, "attachments": []}
+                        )
+                        message["content"] = _final_text
+                        _is_valid_json = True
 
             if not _is_valid_json:
                 # ── Fallback: one LLM call with explicit schema example ───
