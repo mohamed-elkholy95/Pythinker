@@ -39,8 +39,8 @@ class HTTPClientConfig:
     write_timeout: float = 30.0
     pool_timeout: float = 10.0
 
-    max_connections: int = 100
-    max_keepalive_connections: int = 40  # Scaled for multi-user concurrent API calls
+    max_connections: int = 40  # Sufficient for 8 concurrent agents x 3 APIs; was 100
+    max_keepalive_connections: int = 15  # Matches realistic concurrent usage; was 40
     keepalive_expiry: float = 30.0  # 30s keeps connections warm between rapid LLM calls
 
     headers: dict[str, str] = field(default_factory=dict)
@@ -230,7 +230,7 @@ class HTTPClientPool:
 
     _clients: ClassVar[dict[str, ManagedHTTPClient]] = {}
     _lock: ClassVar[asyncio.Lock | None] = None
-    _max_pool_size: ClassVar[int] = 100  # Maximum number of pooled clients
+    _max_pool_size: ClassVar[int] = 50  # Global pool of named clients; was 100
 
     @classmethod
     def _get_lock(cls) -> asyncio.Lock:

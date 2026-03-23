@@ -376,7 +376,7 @@ async def get_token_timeline(
         bucket_size = 5 * 60  # 5 minutes in seconds
         buckets: dict[int, dict[str, Any]] = {}
 
-        for trace in llm_tracer._traces:
+        for trace in llm_tracer.get_traces():
             trace_time = trace.start_time.timestamp()
             if trace_time < cutoff:
                 continue

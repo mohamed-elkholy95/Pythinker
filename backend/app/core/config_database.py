@@ -41,7 +41,7 @@ class RedisSettingsMixin:
     redis_db: int = 0
     redis_password: str | None = None
     # Connection pooling and timeouts
-    redis_max_connections: int = 200  # Max connections in pool (scaled for multi-replica + SSE)
+    redis_max_connections: int = 50  # Sufficient for 1 backend + SSE streams; was 200
     redis_socket_timeout: float = 30.0  # 30s socket timeout for long-running operations like xread
     redis_socket_connect_timeout: float = 5.0  # 5s connection timeout
     redis_health_check_interval: int = 30  # 30s health check interval
@@ -53,7 +53,7 @@ class RedisSettingsMixin:
     redis_cache_port: int = 6379
     redis_cache_db: int = 0
     redis_cache_password: str | None = None
-    redis_cache_max_connections: int = 200
+    redis_cache_max_connections: int = 30  # Cache Redis is read-heavy, low concurrency; was 200
     redis_scan_count: int = 1000  # SCAN batch size for pattern operations (replaces KEYS)
     redis_stream_max_len: int = 10000  # Stream retention cap per stream (0 disables auto-trim)
     redis_stream_poll_block_ms: int = 1000  # Blocking read window for SSE Redis stream polling

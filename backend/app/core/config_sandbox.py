@@ -2,6 +2,31 @@
 
 Contains configuration for Docker sandbox lifecycle, pool management, browser agent,
 anti-bot stealth, connection pooling, crash detection, screenshots, and stuck detection.
+
+# ---------------------------------------------------------------------------
+# Sandbox Operating Modes (set via environment variables)
+# ---------------------------------------------------------------------------
+#
+# COST mode (default for development — single static sandbox, no pool):
+#   SANDBOX_LIFECYCLE_MODE=static
+#   SANDBOX_POOL_ENABLED=false
+#   SANDBOX_MEM_LIMIT=4G        (docker-compose.yml default)
+#   SANDBOX_CPU_LIMIT=1.5       (docker-compose.yml default)
+#   SANDBOX_SHM_SIZE=256m       (docker-compose.yml default)
+#   ENABLE_VNC=0
+#   One static sandbox, no pre-warmed pool; lowest host resource footprint.
+#
+# PERFORMANCE mode (for production with concurrent users):
+#   SANDBOX_LIFECYCLE_MODE=pool
+#   SANDBOX_POOL_ENABLED=true
+#   SANDBOX_POOL_MIN_SIZE=2
+#   SANDBOX_POOL_MAX_SIZE=10
+#   SANDBOX_MEM_LIMIT=2G        (docker-compose-deploy.yml default)
+#   SANDBOX_CPU_LIMIT=1         (docker-compose-deploy.yml default)
+#   SANDBOX_SHM_SIZE=256m
+#   Pre-warmed pool reduces cold-start from ~30 s to 2-5 s; each sandbox
+#   uses up to 2 GB RAM, so size pool_max to available host memory.
+# ---------------------------------------------------------------------------
 """
 
 from pydantic import Field, field_validator
