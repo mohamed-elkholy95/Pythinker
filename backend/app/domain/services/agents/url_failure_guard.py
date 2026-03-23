@@ -14,6 +14,7 @@ URL until StuckDetector killed the session.
 """
 
 import logging
+import time as _time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -22,6 +23,40 @@ logger = logging.getLogger(__name__)
 
 # Maximum alternative URLs to suggest
 _MAX_ALTERNATIVES = 5
+
+# ── Cross-session URL failure cache ─────────────────────────────────────
+# Module-level LRU cache of URLs that returned 404/403 in any session.
+# New sessions pre-check this cache so the agent never wastes a HEAD
+# request on a URL that was already confirmed dead.
+# TTL: 6 hours (URLs that were 404 might return if the site deploys).
+_CROSS_SESSION_CACHE_TTL_S = 6 * 3600  # 6 hours
+_CROSS_SESSION_CACHE_MAX = 500  # max cached URLs
+
+# Mapping: normalized_url → (error_message, timestamp_monotonic)
+_cross_session_failures: dict[str, tuple[str, float]] = {}
+
+
+def _cross_session_check(normalized_url: str) -> str | None:
+    """Return the cached error message if the URL is known-bad, else None."""
+    entry = _cross_session_failures.get(normalized_url)
+    if entry is None:
+        return None
+    error, ts = entry
+    if _time.monotonic() - ts > _CROSS_SESSION_CACHE_TTL_S:
+        _cross_session_failures.pop(normalized_url, None)
+        return None
+    return error
+
+
+def _cross_session_record(normalized_url: str, error: str) -> None:
+    """Record a URL failure in the cross-session cache."""
+    # Evict oldest entries if at capacity
+    if len(_cross_session_failures) >= _CROSS_SESSION_CACHE_MAX:
+        # Remove the oldest 20% by timestamp
+        sorted_entries = sorted(_cross_session_failures.items(), key=lambda kv: kv[1][1])
+        for url, _ in sorted_entries[: _CROSS_SESSION_CACHE_MAX // 5]:
+            _cross_session_failures.pop(url, None)
+    _cross_session_failures[normalized_url] = (error, _time.monotonic())
 
 
 def normalize_url(url: str) -> str:
@@ -102,6 +137,27 @@ class UrlFailureGuard:
         record = self._failures.get(normalized)
 
         if record is None:
+            # Check cross-session cache before allowing first attempt
+            cached_error = _cross_session_check(normalized)
+            if cached_error:
+                alternatives = self._get_alternatives(normalized)
+                alt_text = self._format_alternatives(alternatives)
+                logger.info(
+                    "URL blocked by cross-session cache: %s (%s)",
+                    url[:80],
+                    cached_error[:80],
+                )
+                return GuardDecision(
+                    action="block",
+                    tier=3,
+                    message=(
+                        f"BLOCKED: {url} failed in a previous session "
+                        f"({cached_error}). Tool call was not executed. "
+                        f"{alt_text}"
+                        f"Pick a different URL."
+                    ),
+                    alternative_urls=alternatives,
+                )
             # Tier 1: First attempt — allow
             return GuardDecision(action="allow", tier=1)
 
@@ -141,6 +197,9 @@ class UrlFailureGuard:
     def record_failure(self, url: str, error: str, tool: str) -> None:
         """Record a URL failure after tool execution.
 
+        Updates both the session-scoped tracker and the cross-session cache
+        so future sessions skip this URL immediately.
+
         Args:
             url: The URL that failed
             error: Error description (e.g., "HTTP 404 Not Found")
@@ -160,6 +219,12 @@ class UrlFailureGuard:
                 error=error,
                 source_tool=tool,
             )
+
+        # Persist to cross-session cache (404/403 errors only — transient
+        # errors like timeouts should not be cached across sessions)
+        error_lower = error.lower()
+        if "404" in error_lower or "403" in error_lower or "not found" in error_lower:
+            _cross_session_record(normalized, error[:120])
 
         logger.info(
             "URL failure recorded: %s (attempts=%d, error=%s, tool=%s)",
