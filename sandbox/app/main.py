@@ -42,6 +42,16 @@ def setup_logging():
     log_level = getattr(logging, settings.LOG_LEVEL)
     root_logger.setLevel(log_level)
 
+    # Suppress noisy uvicorn access logs for health checks (every 30s)
+    class _HealthCheckFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return '"GET /health ' not in msg
+
+    for _name in ("uvicorn.access", "uvicorn"):
+        _logger = logging.getLogger(_name)
+        _logger.addFilter(_HealthCheckFilter())
+
     # Log setup completion
     logging.info(
         "Sandbox logging system initialized with level: %s", settings.LOG_LEVEL
