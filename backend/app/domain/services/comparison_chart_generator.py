@@ -90,6 +90,51 @@ class ComparisonChartGenerator:
     )
     _LOWER_IS_BETTER_HINTS = ("latency", "cost", "price", "time", "delay", "error", "memory")
 
+    # Labels that indicate a spec-sheet row (single-product attribute list), not a
+    # comparison between multiple products.  When 40 %+ of labels match, the table
+    # is a spec sheet and should NOT produce a bar chart.
+    _SPEC_SHEET_LABEL_HINTS = (
+        "price",
+        "cost",
+        "storage",
+        "memory",
+        "ram",
+        "cpu",
+        "gpu",
+        "core",
+        "cores",
+        "bandwidth",
+        "display",
+        "screen",
+        "battery",
+        "weight",
+        "resolution",
+        "ssd",
+        "hdd",
+        "engine",
+        "neural",
+        "chip",
+        "processor",
+        "clock",
+        "watt",
+        "tdp",
+        "port",
+        "camera",
+        "dimension",
+        "thickness",
+        "size",
+    )
+
+    # Markdown formatting patterns to strip from labels
+    _MARKDOWN_PATTERN = re.compile(
+        r"\*\*(.+?)\*\*"  # **bold**
+        r"|__(.+?)__"  # __bold__
+        r"|\*(.+?)\*"  # *italic*
+        r"|_(.+?)_"  # _italic_
+        r"|`(.+?)`"  # `code`
+        r"|\[([^\]]+)\]\([^)]*\)"  # [link](url)
+    )
+
     def generate_chart(
         self,
         report_title: str,
@@ -232,6 +277,75 @@ class ComparisonChartGenerator:
         hits = sum(1 for hint in self._COMPARISON_HINTS if hint in context)
         return hits >= 2
 
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _strip_markdown(cls, text: str) -> str:
+        """Remove markdown formatting (bold, italic, code, links) from text."""
+
+        def _pick_group(m: re.Match) -> str:
+            # Return the first non-None capturing group
+            for g in m.groups():
+                if g is not None:
+                    return g
+            return m.group(0)
+
+        cleaned = cls._MARKDOWN_PATTERN.sub(_pick_group, text)
+        return re.sub(r"\s+", " ", cleaned).strip()
+
+    @classmethod
+    def _is_heterogeneous_data(cls, points: list[_NumericPoint]) -> bool:
+        """Detect spec-sheet-like data that should NOT produce a bar chart.
+
+        A spec sheet lists different attributes of a *single item* (e.g.
+        price, storage, memory, cores) — each with wildly different units
+        and magnitudes.  Plotting them on the same axis is meaningless.
+
+        Returns True if the data looks heterogeneous (= skip chart).
+        """
+        if len(points) < 3:
+            return False
+
+        # --- 1. Magnitude spread check ---
+        values = [p.value for p in points if p.value > 0]
+        if values:
+            ratio = max(values) / min(values)
+            if ratio > 100:
+                logger.debug(
+                    "Heterogeneous data: magnitude ratio %.1f (max=%.1f, min=%.1f)",
+                    ratio,
+                    max(values),
+                    min(values),
+                )
+                return True
+
+        # --- 2. Spec-label keyword check ---
+        labels_lower = [p.label.lower() for p in points]
+        spec_hits = sum(1 for label in labels_lower if any(hint in label for hint in cls._SPEC_SHEET_LABEL_HINTS))
+        threshold = len(points) * 0.4
+        if spec_hits >= threshold:
+            logger.debug(
+                "Heterogeneous data: %d/%d labels match spec-sheet keywords",
+                spec_hits,
+                len(points),
+            )
+            return True
+
+        # --- 3. Unit diversity check (from display_values) ---
+        unit_pattern = re.compile(r"[A-Za-z/%°]+$")
+        units: set[str] = set()
+        for p in points:
+            m = unit_pattern.search(p.display_value.strip())
+            if m:
+                units.add(m.group(0).lower())
+        if len(units) >= 3:
+            logger.debug("Heterogeneous data: %d distinct units found: %s", len(units), units)
+            return True
+
+        return False
+
     def _build_numeric_chart_spec(self, table: _MarkdownTable, report_title: str) -> _NumericChartSpec | None:
         label_column = 0
         best_metric_index: int | None = None
@@ -241,7 +355,8 @@ class ComparisonChartGenerator:
             points: list[_NumericPoint] = []
             seen_labels: set[str] = set()
             for row in table.rows:
-                label = row[label_column].strip() or f"Item {len(points) + 1}"
+                raw_label = row[label_column].strip() or f"Item {len(points) + 1}"
+                label = self._strip_markdown(raw_label)
                 normalized_label = label.lower()
                 if normalized_label in seen_labels:
                     continue
@@ -258,6 +373,11 @@ class ComparisonChartGenerator:
                 best_points = points
 
         if best_metric_index is None or len(best_points) < 2:
+            return None
+
+        # Reject spec-sheet-like data (heterogeneous units/magnitudes)
+        if self._is_heterogeneous_data(best_points):
+            logger.info("Skipping chart: data appears to be a spec sheet (heterogeneous units/magnitudes)")
             return None
 
         metric_name = table.headers[best_metric_index].strip() or "Score"
@@ -279,8 +399,11 @@ class ComparisonChartGenerator:
             return None
 
         max_columns = min(len(table.headers), 5)
-        headers = table.headers[:max_columns]
-        rows = [self._normalize_row(row[:max_columns], max_columns) for row in table.rows[:8]]
+        headers = [self._strip_markdown(h) for h in table.headers[:max_columns]]
+        rows = [
+            [self._strip_markdown(cell) for cell in self._normalize_row(row[:max_columns], max_columns)]
+            for row in table.rows[:8]
+        ]
 
         title = table.heading or report_title or "Comparison Matrix"
         return _MatrixChartSpec(title=title, headers=headers, rows=rows)
