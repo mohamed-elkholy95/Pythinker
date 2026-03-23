@@ -1667,7 +1667,7 @@ wide_research(
             query=topic,
             date_range=date_range,
             total_results=len(all_items),
-            results=all_items[:20],  # Top 20 results
+            results=all_items[:10],  # was :20; cap to reduce context injection
         )
 
         # Return failure if no results found — distinguish error types
@@ -1701,8 +1701,8 @@ wide_research(
         )
 
         # Add result summaries to message for the LLM context
-        for i, item in enumerate(all_items[:15], 1):
-            message += f"{i}. [{item.title}]({item.link})\n   {item.snippet[:200]}\n\n"
+        for i, item in enumerate(all_items[:8], 1):  # was :15; fewer summaries for LLM context
+            message += f"{i}. [{item.title}]({item.link})\n   {item.snippet[:150]}\n\n"  # was :200
 
         if errors:
             message += f"\n{len(errors)} queries had errors."
