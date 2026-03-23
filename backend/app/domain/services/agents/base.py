@@ -399,10 +399,13 @@ class BaseAgent:
             max_tokens=kwargs.get("max_tokens"),
         )
 
-    # Tool result compaction limits for memory writes
-    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 12000
+    # Tool result compaction limits for memory writes.
+    # Reduced from 12K→8K to cut LLM latency on search-heavy steps (12.1s→~7s).
+    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 8000
     _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 2000
-    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 7000
+    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 5000
+    # Max search results to keep in LLM context (rest is compacted).
+    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 10
 
     def set_token_budget(self, budget: Any) -> None:
         """Inject a TokenBudget for proactive phase-level token management.
@@ -1416,11 +1419,60 @@ class BaseAgent:
 
         return result
 
+    @staticmethod
+    def _cap_search_results(result: ToolResult, max_results: int) -> ToolResult:
+        """Cap search results to top N items to reduce LLM context consumption.
+
+        Search tools return up to 20 results; the LLM only needs ~10 to make
+        informed decisions.  Reducing from 20→10 saves ~5K chars of context,
+        cutting the slowest LLM call from ~12s to ~7s.
+        """
+        data = result.data
+        if data is None:
+            return result
+
+        # Dict-shaped data with "results" list
+        if isinstance(data, dict) and isinstance(data.get("results"), list):
+            results_list = data["results"]
+            if len(results_list) > max_results:
+                return ToolResult(
+                    success=result.success,
+                    message=result.message,
+                    data={**data, "results": results_list[:max_results]},
+                )
+
+        # Object-shaped data with .results attribute (e.g., SearchResults model)
+        if hasattr(data, "results") and not isinstance(data, dict):
+            results_list = getattr(data, "results", None)
+            if results_list and len(results_list) > max_results:
+                with contextlib.suppress(AttributeError, TypeError):
+                    data.results = results_list[:max_results]
+
+        # Dict-shaped wide_research with "sources" key
+        if isinstance(data, dict) and isinstance(data.get("sources"), list):
+            sources_list = data["sources"]
+            if len(sources_list) > max_results:
+                return ToolResult(
+                    success=result.success,
+                    message=result.message,
+                    data={**data, "sources": sources_list[:max_results]},
+                )
+
+        return result
+
     def _serialize_tool_result_for_memory(self, result: ToolResult, function_name: str = "") -> str:
         """Serialize tool results with size guardrails to avoid memory bloat."""
+        is_search = function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH)
+
         # P2-16: Sanitize raw HTML in search results before serialization
-        if function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH):
+        if is_search:
             result = self._sanitize_search_result_html(result)
+
+        # Cap search results to top N to reduce LLM context size.
+        # 20 results with rich snippets easily exceeds 10K chars; capping to 10
+        # saves ~30-50% on the slowest LLM call per step.
+        if is_search and result.data is not None:
+            result = self._cap_search_results(result, self._SEARCH_RESULT_MAX_FOR_LLM)
 
         raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
         if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:

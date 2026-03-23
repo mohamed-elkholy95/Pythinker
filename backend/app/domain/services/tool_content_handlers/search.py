@@ -23,7 +23,7 @@ async def handle_search_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
         and isinstance(event.tool_content, SearchToolContent)
         and event.tool_content.results
     ):
-        logger.info(
+        logger.debug(
             "Search tool content already populated with %d results, skipping handler",
             len(event.tool_content.results),
         )

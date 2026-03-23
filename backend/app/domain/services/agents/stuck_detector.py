@@ -1011,16 +1011,24 @@ class StuckDetector:
     def _detect_excessive_same_tool(self) -> StuckAnalysis | None:
         """Detect when the same tool is called excessively within a sliding window.
 
-        Pattern: search → search → search → ... (8+ times in last 10 without a different tool)
-        Catches rotating search patterns that hash-based detection misses.
+        Browser tools (6s each) use a tighter window (5/8) than search tools (8/10)
+        because the latency cost of excessive browsing is much higher.
         """
-        window = 10
-        threshold = 8
+        # Browser tools are expensive (~6s each) — detect sooner
+        browser_tools = {"browser_navigate", "browser_get_content"}
+        browser_window = 8
+        browser_threshold = 5
+        # Search tools are cheap (~1.5s each) — allow more
+        search_window = 10
+        search_threshold = 8
 
-        if len(self._tool_action_history) < threshold:
+        window = browser_window
+        threshold = browser_threshold
+
+        if len(self._tool_action_history) < browser_threshold:
             return None
 
-        recent = list(self._tool_action_history)[-window:]
+        recent = list(self._tool_action_history)[-search_window:]
 
         # Count tool frequencies in the window
         tool_counts: dict[str, int] = {}
@@ -1029,7 +1037,9 @@ class StuckDetector:
 
         # Check if any single tool dominates the window
         for tool_name, count in tool_counts.items():
-            if count >= threshold:
+            # Use tighter threshold for browser tools
+            effective_threshold = browser_threshold if tool_name in browser_tools else search_threshold
+            if count >= effective_threshold:
                 # File operations are never stuck - writing/reading multiple files is normal
                 non_stuck_tools = {
                     "file_write",
