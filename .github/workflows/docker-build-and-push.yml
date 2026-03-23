@@ -25,7 +25,16 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     strategy:
       matrix:
-        component: [frontend, backend, sandbox]
+        include:
+          - component: frontend
+            dockerfile: Dockerfile
+          - component: backend
+            dockerfile: Dockerfile
+          - component: sandbox
+            dockerfile: Dockerfile
+          - component: gateway
+            context: backend
+            dockerfile: Dockerfile.gateway
 
     steps:
       - name: Checkout code
@@ -92,8 +101,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
-          context: ./${{ matrix.component }}
-          file: ./${{ matrix.component }}/Dockerfile
+          context: ./${{ matrix.context || matrix.component }}
+          file: ./${{ matrix.context || matrix.component }}/${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: ${{ steps.push_targets.outputs.push }}
           tags: ${{ steps.meta.outputs.tags }}

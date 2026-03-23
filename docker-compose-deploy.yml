@@ -130,14 +130,14 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Gateway — Telegram / Channel Integration (reuses backend image) — opt-in via: --profile channels
+  # Gateway — Telegram / Channel Integration (lightweight, no browser deps) — opt-in via: --profile channels
   # ---------------------------------------------------------------------------
   gateway:
     profiles: ["channels"]
-    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/mohamed-elkholy95/pythinker-gateway:${IMAGE_TAG:-latest}
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     depends_on:
       backend:
