@@ -727,6 +727,9 @@ class ExecutionAgent(BaseAgent):
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
 
+                        # Feed search evidence to verifier for grounding context
+                        self._feed_search_evidence_to_verifier(func_name, event)
+
                         # Track multimodal findings (P5.2 - Pythinker pattern)
                         self._track_multimodal_findings(event)
 
@@ -2446,6 +2449,24 @@ class ExecutionAgent(BaseAgent):
     def _track_sources_from_tool_event(self, event: ToolEvent) -> None:
         """Extract and track source citations from tool events."""
         self._source_tracker.track_tool_event(event)
+
+    def _feed_search_evidence_to_verifier(self, tool_name: str, event: ToolEvent) -> None:
+        """Extract search snippets from tool results and feed to verifier for grounding."""
+        if self._output_verifier is None:
+            return
+        if tool_name not in ("info_search_web", "wide_research"):
+            return
+        # Search results are in event.function_result.message as text with embedded snippets
+        result = event.function_result
+        if result is None:
+            return
+        output_text = str(getattr(result, "message", "") or "")
+        if len(output_text) > 100:  # Only meaningful results
+            self._output_verifier.add_step_source(
+                title=f"Search results: {tool_name}",
+                url="",
+                snippet=output_text[:2000],
+            )
 
     def _build_numbered_source_list(self) -> str:
         """Build a numbered source list for citation-aware summarization."""

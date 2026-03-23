@@ -3472,6 +3472,9 @@ class PlanActFlow(BaseFlow):
                         self.executor._stuck_detector.reset_for_new_step()
                     if hasattr(self.executor, "_pipeline"):
                         self.executor._pipeline.reset_for_new_step()
+                    # Clear verifier per-step sources
+                    if hasattr(self.executor, "_output_verifier") and self.executor._output_verifier:
+                        self.executor._output_verifier.clear_step_sources()
 
                     # Per-step context compaction: truncate old tool results from prior
                     # steps to prevent context from growing beyond the hard cap.
@@ -3703,6 +3706,10 @@ class PlanActFlow(BaseFlow):
                                     step_executor, "_has_unexecuted_scripts"
                                 ):
                                     step_executor._has_unexecuted_scripts = True
+
+                        # Clear per-step verifier sources for next step
+                        if hasattr(step_executor, "_output_verifier") and step_executor._output_verifier:
+                            step_executor._output_verifier.clear_step_sources()
 
                         # Belt-and-suspenders: sync step.status with step.success.
                         if step.success:
