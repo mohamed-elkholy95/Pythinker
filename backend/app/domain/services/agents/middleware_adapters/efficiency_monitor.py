@@ -52,6 +52,8 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         # drops (indicating a new step started in the plan_act flow).
         self._browser_nav_count = 0
         self._browser_nav_urls: set[str] = set()
+        self._browser_nav_signatures: set[str] = set()
+        self._duplicate_skip_count = 0
         self._last_step_iteration: int = -1
 
     @property
@@ -62,6 +64,23 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         """Reset browser navigation budget for a new step."""
         self._browser_nav_count = 0
         self._browser_nav_urls.clear()
+        self._browser_nav_signatures.clear()
+        self._duplicate_skip_count = 0
+
+    @staticmethod
+    def _browser_signature(tool_call: ToolCallInfo) -> str | None:
+        """Normalize duplicate-detection keys for browser/search calls."""
+        arguments = tool_call.arguments or {}
+        url = str(arguments.get("url", "") or "").strip()
+        if url:
+            return f"url:{url}"
+
+        if tool_call.function_name == "search":
+            query = str(arguments.get("query") or arguments.get("q") or arguments.get("text") or "").strip().lower()
+            if query:
+                return "query:" + " ".join(query.split())
+
+        return None
 
     async def before_tool_call(self, ctx: MiddlewareContext, tool_call: ToolCallInfo) -> MiddlewareResult:
         """Enforce browser navigation budget before expensive browser calls."""
@@ -77,6 +96,8 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         # Check for duplicate URL visits (same URL already visited this step)
         url = (tool_call.arguments or {}).get("url", "")
         if url and url in self._browser_nav_urls:
+            self._duplicate_skip_count += 1
+            self._monitor.record(tool_call.function_name)
             logger.info(
                 "Browser budget: skipping duplicate URL visit: %s",
                 url[:80],
@@ -87,6 +108,23 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
                     "Already visited this URL in the current step. "
                     "Use the content you already have instead of revisiting."
                 ),
+            )
+
+        signature = self._browser_signature(tool_call)
+        if signature and signature in self._browser_nav_signatures:
+            self._duplicate_skip_count += 1
+            self._monitor.record(tool_call.function_name)
+            logger.info("Browser budget: skipping duplicate navigation/search signature: %s", signature[:80])
+            duplicate_message = (
+                "Already used this search in the current step. Use the results you already gathered instead of "
+                "repeating the same query."
+                if signature.startswith("query:")
+                else "Already visited this target in the current step. Use the content you already have instead "
+                "of repeating the same navigation."
+            )
+            return MiddlewareResult(
+                signal=MiddlewareSignal.SKIP_TOOL,
+                message=duplicate_message,
             )
 
         # Check navigation budget
@@ -120,11 +158,24 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
             url = (tool_call.arguments or {}).get("url", "")
             if url:
                 self._browser_nav_urls.add(url)
+            signature = self._browser_signature(tool_call)
+            if signature:
+                self._browser_nav_signatures.add(signature)
+            self._duplicate_skip_count = 0
 
         return MiddlewareResult.ok()
 
     async def before_step(self, ctx: MiddlewareContext) -> MiddlewareResult:
         """Check efficiency and inject nudge if imbalanced."""
+        if self._duplicate_skip_count >= 2:
+            return MiddlewareResult(
+                signal=MiddlewareSignal.FORCE,
+                message=(
+                    "Repeated duplicate browser/search attempts detected. Stop retrying the same URL or query and "
+                    "synthesize what you already have."
+                ),
+            )
+
         signal = self._monitor.check_efficiency()
 
         if signal.hard_stop:
