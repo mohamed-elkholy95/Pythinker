@@ -457,7 +457,10 @@ class MaintenanceService:
                     len(stats["sessions_skipped"]),
                 )
             else:
-                logger.info(
+                # Suppress noise when nothing was cleaned — use debug level for zero-action runs
+                _total_actions = stats["sessions_cleaned"] + stats["sandboxes_destroyed"]
+                _log = logger.info if _total_actions > 0 else logger.debug
+                _log(
                     "Cleaned %d stale sessions (%d failed, %d pending-reset, %d skipped), "
                     "destroyed %d orphaned sandboxes",
                     stats["sessions_cleaned"],
