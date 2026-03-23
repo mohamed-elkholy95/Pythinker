@@ -147,7 +147,10 @@ class StepExecutor:
             if step_result.success and step.result is None:
                 step.result = raw_message
             step.attachments = list(step_result.attachments)
-            step.error = None if step_result.success else (step.error or "Step reported failure")
+            current_error = getattr(step, "error", None)
+            step.error = (
+                None if step_result.success else (step_result.error or current_error or "Step reported failure")
+            )
             return True
         except ValidationError as validation_err:
             logger.warning("Step response validation failed: %s", validation_err)
@@ -173,7 +176,8 @@ class StepExecutor:
 
             if not step.success:
                 error_value = parsed_response.get("error")
-                step.error = str(error_value) if error_value else "Step payload validation failed"
+                existing_error = getattr(step, "error", None)
+                step.error = str(error_value) if error_value else existing_error or "Step payload validation failed"
             return False
 
         step.success = False

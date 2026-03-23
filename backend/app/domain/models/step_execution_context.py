@@ -56,6 +56,7 @@ class StepExecutionContext:
     blocker_warnings: list[str] = field(default_factory=list)
     error_pattern_signal: str | None = None
     locked_entity_reminder: str | None = None
+    report_output_path: str | None = None
 
     # Signal configuration
     signal_config: PromptSignalConfig = field(default_factory=PromptSignalConfig)

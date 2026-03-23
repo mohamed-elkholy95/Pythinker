@@ -1559,6 +1559,77 @@ class PlanActFlow(BaseFlow):
         return 0
 
     @staticmethod
+    def _step_action_tool_map() -> dict[str, set[str]]:
+        """Map action verbs in step descriptions to acceptable tool names."""
+        return {
+            "search": {
+                "search",
+                "info_search_web",
+                "wide_research",
+                "deal_scraper",
+                "deal_search",
+                "deal_find_coupons",
+                "deal_compare_prices",
+            },
+            "browse": {"browser_navigate", "browser_agent", "browser_get_content"},
+            "execute": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
+            "run": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
+            "benchmark": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
+            "test": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
+            "write": {"file_write", "file_create", "file"},
+            "create": {"file_write", "file_create", "file"},
+            "read": {"file_read", "file"},
+        }
+
+    @classmethod
+    def _evaluate_step_actions(cls, description: str, tools_used: set[str]) -> dict[str, set[str]]:
+        """Evaluate expected vs fulfilled actions for a step description."""
+        desc_lower = description.lower()
+        verb_tool_map = cls._step_action_tool_map()
+        expected = {verb for verb in verb_tool_map if re.search(rf"\b{re.escape(verb)}\b", desc_lower)}
+        fulfilled = {verb for verb in expected if tools_used & verb_tool_map[verb]}
+        return {
+            "expected": expected,
+            "fulfilled": fulfilled,
+            "missed": expected - fulfilled,
+        }
+
+    @classmethod
+    def _apply_step_action_audit(cls, step: Step, tools_used: set[str]) -> bool:
+        """Fail steps that claim actions they did not actually perform."""
+        if not step.success or not step.description:
+            return False
+
+        desc_lower = step.description.lower()
+        exec_tools = cls._step_action_tool_map()["execute"]
+        exec_verbs = {"execute", "run", "benchmark", "test"}
+        has_exec_verb = any(re.search(rf"\b{re.escape(verb)}\b", desc_lower) for verb in exec_verbs)
+        did_write = bool(tools_used & {"file_write", "file_create", "file"})
+        did_exec = bool(tools_used & exec_tools)
+
+        if has_exec_verb and did_write and not did_exec:
+            step.success = False
+            step.status = ExecutionStatus.FAILED
+            step.error = "Step required execution but no execution tool ran"
+            step.notes = (
+                (step.notes or "") + "\n[Audit failure: script or output was written, but no execution tool ran]"
+            ).strip()
+            return True
+
+        audit = cls._evaluate_step_actions(step.description, tools_used)
+        missed = audit["missed"]
+        if not missed:
+            return False
+
+        step.success = False
+        step.status = ExecutionStatus.FAILED
+        step.error = f"Step completed without required actions: {', '.join(sorted(missed))}"
+        step.notes = (
+            (step.notes or "") + f"\n[Audit failure: missing required actions: {', '.join(sorted(missed))}]"
+        ).strip()
+        return True
+
+    @staticmethod
     def _filter_files_for_delivery_scope(
         files: list[FileInfo],
         delivery_scope_id: str | None,
@@ -1620,6 +1691,14 @@ class PlanActFlow(BaseFlow):
         self._delivery_scope_root = f"/workspace/{self._session_id}/runs/{scope_id}"
         if self._scope_callback:
             self._scope_callback(scope_id, self._delivery_scope_root)
+
+    def _resolve_report_output_path(self) -> str:
+        """Return the preferred directory for report file writes during execution."""
+        if self._workspace_output_path:
+            if self._workspace_output_path.endswith("/output"):
+                return f"{self._workspace_output_path}/reports"
+            return self._workspace_output_path
+        return self._delivery_scope_root or f"/workspace/{self._session_id}"
 
     async def _prune_old_delivery_scopes(self, keep_latest: int = 3) -> None:
         """Bound delivery-scope retention for long-lived reused sessions."""
@@ -2123,6 +2202,7 @@ class PlanActFlow(BaseFlow):
         await self._check_cancelled()
         self._initialize_delivery_scope()
         await self._prune_old_delivery_scopes()
+        self.executor.set_report_output_path(self._resolve_report_output_path())
 
         # Phase 2: Initialize proactive token budget at flow start
         self._initialize_token_budget()
@@ -2179,6 +2259,7 @@ class PlanActFlow(BaseFlow):
             from app.domain.services.prompts.execution import build_workspace_context
 
             self.executor.system_prompt += build_workspace_context(self._workspace_output_path)
+            self.executor.set_report_output_path(self._resolve_report_output_path())
 
         original_message = message.message
         settings = get_settings()
@@ -3534,113 +3615,41 @@ class PlanActFlow(BaseFlow):
 
                         step_span.set_attribute("step.attempts", attempt + 1)
 
-                        # Belt-and-suspenders: sync step.status with step.success.
-                        # Respect the executor's explicit COMPLETED status even if
-                        # step.success was not set (e.g. LLM didn't return structured
-                        # JSON but tools ran successfully).
-                        if step.success:
-                            step.status = ExecutionStatus.COMPLETED
-                            await self._task_state_manager.update_step_status(str(step.id), "completed")
-                        elif step.status == ExecutionStatus.COMPLETED:
-                            # Executor marked COMPLETED — trust it, fix the inconsistency
-                            step.success = True
-                            await self._task_state_manager.update_step_status(str(step.id), "completed")
-                            logger.info(
-                                "Step %s status was COMPLETED but success=False; "
-                                "corrected to success=True (executor completed normally)",
-                                step.id,
-                            )
-                        else:
-                            step.status = ExecutionStatus.FAILED
-                            await self._task_state_manager.update_step_status(str(step.id), "failed")
-                        step_span.set_attribute("step.success", step.success)
-
                         # ── Tool completeness audit ──────────────────────────
-                        # Maps step description verbs to expected tool categories.
-                        # Logs which expected actions were fulfilled vs missed.
                         if step.success and step.description:
-                            _desc_lower = step.description.lower()
                             _tools_used = set(self._recent_tools[-20:]) if self._recent_tools else set()
-
-                            # Verb → tool mapping for audit
-                            _verb_tool_map = {
-                                "search": {
-                                    "info_search_web",
-                                    "wide_research",
-                                    # DealFinder tools — scraping/searching counts as search
-                                    "deal_scraper",
-                                    "deal_search",
-                                    "deal_find_coupons",
-                                    "deal_compare_prices",
-                                },
-                                "browse": {"browser_navigate", "browser_agent"},
-                                "execute": {
-                                    "shell_exec",
-                                    "terminal_exec",
-                                    "code_exec",
-                                    "code_execute_python",
-                                    "code_executor",
-                                },
-                                "run": {
-                                    "shell_exec",
-                                    "terminal_exec",
-                                    "code_exec",
-                                    "code_execute_python",
-                                    "code_executor",
-                                },
-                                "benchmark": {
-                                    "shell_exec",
-                                    "terminal_exec",
-                                    "code_exec",
-                                    "code_execute_python",
-                                    "code_executor",
-                                },
-                                "test": {
-                                    "shell_exec",
-                                    "terminal_exec",
-                                    "code_exec",
-                                    "code_execute_python",
-                                    "code_executor",
-                                },
-                                "write": {"file_write", "file_create", "file"},
-                                "create": {"file_write", "file_create", "file"},
-                                "read": {"file_read", "file"},
-                            }
-                            _expected = {v for v, tools in _verb_tool_map.items() if v in _desc_lower}
-                            _fulfilled = {v for v in _expected if _tools_used & _verb_tool_map[v]}
-                            _missed = _expected - _fulfilled
-                            if _missed:
+                            _audit = self._evaluate_step_actions(step.description, _tools_used)
+                            if _audit["missed"]:
                                 logger.info(
                                     "Step %s action audit: expected=%s fulfilled=%s missed=%s tools_used=%s",
                                     step.id,
-                                    sorted(_expected),
-                                    sorted(_fulfilled),
-                                    sorted(_missed),
+                                    sorted(_audit["expected"]),
+                                    sorted(_audit["fulfilled"]),
+                                    sorted(_audit["missed"]),
                                     sorted(_tools_used),
                                 )
-
-                            # Specific check: "write-without-execute"
-                            _exec_verbs = {"execute", "run", "benchmark", "test"}
-                            _has_exec_verb = any(v in _desc_lower for v in _exec_verbs)
-                            _did_write = bool(_tools_used & {"file_write", "file_create", "file"})
-                            _did_exec = bool(
-                                _tools_used
-                                & {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"}
-                            )
-                            if _has_exec_verb and _did_write and not _did_exec:
-                                logger.warning(
-                                    "Step %s description mentions execution but only file_write was used "
-                                    "(no shell_exec). Script may not have been executed. Step: %s",
-                                    step.id,
-                                    step.description[:80],
-                                )
-                                step.notes = (
-                                    (step.notes or "") + "\n[Audit: script written but not executed — "
-                                    "benchmark data may be inferred, not measured]"
-                                )
-                                # Signal to ExecutionAgent for disclaimer enhancement
-                                if hasattr(step_executor, "_has_unexecuted_scripts"):
+                            if self._apply_step_action_audit(step, _tools_used):
+                                logger.warning("Step %s failed action audit: %s", step.id, step.error)
+                                if step.error == "Step required execution but no execution tool ran" and hasattr(
+                                    step_executor, "_has_unexecuted_scripts"
+                                ):
                                     step_executor._has_unexecuted_scripts = True
+
+                        # Belt-and-suspenders: sync step.status with step.success.
+                        if step.success:
+                            step.status = ExecutionStatus.COMPLETED
+                            await self._task_state_manager.update_step_status(str(step.id), "completed")
+                        elif step.status in (ExecutionStatus.BLOCKED, ExecutionStatus.TERMINATED):
+                            await self._task_state_manager.update_step_status(str(step.id), step.status.value)
+                        else:
+                            if step.status == ExecutionStatus.COMPLETED:
+                                logger.warning(
+                                    "Step %s reported COMPLETED status with success=False; treating it as failed",
+                                    step.id,
+                                )
+                            step.status = ExecutionStatus.FAILED
+                            await self._task_state_manager.update_step_status(str(step.id), "failed")
+                        step_span.set_attribute("step.success", step.success)
 
                         # Emit PlanEvent so frontend progress bar reflects step completion immediately
                         self.plan.sync_phase_statuses()
