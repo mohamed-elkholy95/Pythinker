@@ -498,7 +498,14 @@ class SearchTool(BaseTool):
         from app.core.config import get_settings
 
         settings = get_settings()
-        max_api_calls = getattr(settings, "max_search_api_calls_per_task", 30)
+        # Use higher search budget for deep_research flows when configured
+        _deep_override = getattr(settings, "max_search_api_calls_deep_research", None)
+        _base_budget = getattr(settings, "max_search_api_calls_per_task", 30)
+        max_api_calls = (
+            _deep_override
+            if (_deep_override and complexity_score is not None and complexity_score >= 0.8)
+            else _base_budget
+        )
         max_wide_research = getattr(settings, "max_wide_research_calls_per_task", 3)
         max_wide_queries = getattr(settings, "max_wide_research_queries", 5)
         max_wide_queries_complex = getattr(settings, "max_wide_research_queries_complex", max_wide_queries)
