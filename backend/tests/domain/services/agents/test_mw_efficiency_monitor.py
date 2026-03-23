@@ -36,6 +36,19 @@ class TestAfterToolCall:
         result = await mw.after_tool_call(ctx, tool, result_obj)
         assert result.signal == MiddlewareSignal.CONTINUE
 
+    @pytest.mark.asyncio
+    async def test_duplicate_search_query_is_skipped(self, mw, ctx):
+        first = ToolCallInfo(call_id="1", function_name="search", arguments={"query": "python agents"})
+        result_obj = ToolResult(success=True, message="ok")
+
+        first_result = await mw.before_tool_call(ctx, first)
+        assert first_result.signal == MiddlewareSignal.CONTINUE
+        await mw.after_tool_call(ctx, first, result_obj)
+
+        duplicate_result = await mw.before_tool_call(ctx, first)
+        assert duplicate_result.signal == MiddlewareSignal.SKIP_TOOL
+        assert "Already used this search" in (duplicate_result.message or "")
+
 
 class TestBeforeStep:
     @pytest.mark.asyncio
@@ -54,3 +67,18 @@ class TestBeforeStep:
         result = await mw.before_step(ctx)
         # Should be either INJECT (nudge) or FORCE (hard stop) depending on threshold
         assert result.signal in (MiddlewareSignal.INJECT, MiddlewareSignal.FORCE)
+
+    @pytest.mark.asyncio
+    async def test_repeated_duplicate_searches_force_progress(self, mw, ctx):
+        tool = ToolCallInfo(call_id="1", function_name="search", arguments={"query": "python agents"})
+        result_obj = ToolResult(success=True, message="ok")
+
+        assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.CONTINUE
+        await mw.after_tool_call(ctx, tool, result_obj)
+
+        assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.SKIP_TOOL
+        assert (await mw.before_tool_call(ctx, tool)).signal == MiddlewareSignal.SKIP_TOOL
+
+        result = await mw.before_step(ctx)
+        assert result.signal == MiddlewareSignal.FORCE
+        assert "duplicate" in (result.message or "").lower()
