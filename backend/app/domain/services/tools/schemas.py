@@ -107,68 +107,58 @@ class ShellBackgroundArgs(ShellExecuteArgs):
 
 
 class FileReadArgs(BaseModel):
-    """Arguments for file read operations."""
+    """Arguments for file read operations.
 
-    path: str = Field(
+    Aligned with the actual ``file_read`` tool signature in ``file.py``.
+    The parameter is ``file`` (not ``path``), matching the LLM function schema.
+    """
+
+    file: str = Field(
         ...,
         min_length=1,
         max_length=4096,
-        description="File path to read",
-    )
-    encoding: str = Field(
-        default="utf-8",
-        description="File encoding",
-    )
-    max_lines: int | None = Field(
-        None,
-        ge=1,
-        le=100000,
-        description="Maximum lines to read",
+        description="Absolute path of the file to read",
     )
     start_line: int | None = Field(
         None,
-        ge=1,
-        description="Line number to start reading from",
+        ge=0,
+        description="Starting line to read from (0-based)",
     )
-
-    @field_validator("encoding")
-    @classmethod
-    def validate_encoding(cls, v: str) -> str:
-        """Validate encoding is supported."""
-        valid_encodings = {"utf-8", "utf-16", "utf-32", "ascii", "latin-1", "iso-8859-1", "cp1252", "utf-8-sig"}
-        if v.lower() not in valid_encodings:
-            raise ValueError(f"Unsupported encoding: {v}")
-        return v.lower()
+    end_line: int | None = Field(
+        None,
+        ge=0,
+        description="Ending line number (exclusive)",
+    )
+    sudo: bool | None = Field(
+        default=False,
+        description="Whether to use sudo privileges",
+    )
 
 
 class FileWriteArgs(BaseModel):
     """Arguments for file write operations."""
 
-    path: str = Field(
+    file: str = Field(
         ...,
         min_length=1,
         max_length=4096,
-        description="File path to write",
+        description="Absolute path of the file to write to",
     )
     content: str = Field(
         ...,
         max_length=10_000_000,  # 10MB limit
-        description="Content to write",
+        description="Text content to write",
     )
-    encoding: str = Field(
-        default="utf-8",
-        description="File encoding",
-    )
-    create_directories: bool = Field(
+    append: bool = Field(
         default=False,
-        description="Create parent directories if they don't exist",
+        description="Whether to use append mode",
     )
-    overwrite: bool = Field(
-        default=True,
-        description="Whether to overwrite existing file",
+    sudo: bool | None = Field(
+        default=False,
+        description="Whether to use sudo privileges",
     )
 
-    @field_validator("path")
+    @field_validator("file")
     @classmethod
     def validate_path(cls, v: str) -> str:
         """Validate path doesn't target sensitive locations."""
