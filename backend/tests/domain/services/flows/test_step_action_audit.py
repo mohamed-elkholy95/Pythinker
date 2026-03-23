@@ -22,7 +22,8 @@ def test_apply_step_action_audit_fails_step_when_required_action_missing() -> No
         success=True,
     )
 
-    changed = PlanActFlow._apply_step_action_audit(step, {"browser_navigate"})
+    # file_write is a write tool — it should NOT satisfy the "search" requirement
+    changed = PlanActFlow._apply_step_action_audit(step, {"file_write"})
 
     assert changed is True
     assert step.success is False

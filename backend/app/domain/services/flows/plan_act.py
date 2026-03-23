@@ -665,6 +665,8 @@ class PlanActFlow(BaseFlow):
         self._iteration_count = 0
         self._recent_tools: list[str] = []
         self._max_recent_tools = 10
+        # Per-step tool tracking for action audit (not limited by sliding window)
+        self._step_tools_used: set[str] = set()
 
         # Cache complexity score for skip-update optimization
         self._cached_complexity: float | None = None
@@ -1560,30 +1562,67 @@ class PlanActFlow(BaseFlow):
 
     @staticmethod
     def _step_action_tool_map() -> dict[str, set[str]]:
-        """Map action verbs in step descriptions to acceptable tool names."""
+        """Map action verbs in step descriptions to acceptable tool names.
+
+        IMPORTANT: ``_recent_tools`` tracks ``tool.name`` (the tool *object*
+        name, e.g. ``"browser"``, ``"search"``) **not** the LLM function name
+        (``"browser_navigate"``, ``"info_search_web"``).  This map must include
+        *both* naming conventions so that the set-intersection in
+        ``_evaluate_step_actions`` works regardless of which form appears.
+        """
+        _search_tools = {
+            # Tool object names (what _recent_tools actually stores)
+            "search",
+            "browser",  # browsing research pages counts as search/research
+            # LLM function names (forward-compat if tracking changes)
+            "info_search_web",
+            "wide_research",
+            "deal_scraper",
+            "deal_search",
+            "deal_find_coupons",
+            "deal_compare_prices",
+            "browser_navigate",
+            "browser_agent",
+            "browser_get_content",
+        }
+        _browse_tools = {
+            "browser",
+            "browser_navigate",
+            "browser_agent",
+            "browser_get_content",
+        }
+        _exec_tools = {
+            "shell",
+            "code",
+            "shell_exec",
+            "terminal_exec",
+            "code_exec",
+            "code_execute_python",
+            "code_executor",
+        }
+        _write_tools = {"file", "file_write", "file_create"}
+        _read_tools = {"file", "file_read"}
         return {
-            "search": {
-                "search",
-                "info_search_web",
-                "wide_research",
-                "deal_scraper",
-                "deal_search",
-                "deal_find_coupons",
-                "deal_compare_prices",
-            },
-            "browse": {"browser_navigate", "browser_agent", "browser_get_content"},
-            "execute": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-            "run": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-            "benchmark": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-            "test": {"shell_exec", "terminal_exec", "code_exec", "code_execute_python", "code_executor"},
-            "write": {"file_write", "file_create", "file"},
-            "create": {"file_write", "file_create", "file"},
-            "read": {"file_read", "file"},
+            "research": _search_tools,
+            "search": _search_tools,
+            "browse": _browse_tools,
+            "execute": _exec_tools,
+            "run": _exec_tools,
+            "benchmark": _exec_tools,
+            "test": _exec_tools,
+            "write": _write_tools,
+            "create": _write_tools,
+            "read": _read_tools,
         }
 
     @classmethod
     def _evaluate_step_actions(cls, description: str, tools_used: set[str]) -> dict[str, set[str]]:
-        """Evaluate expected vs fulfilled actions for a step description."""
+        """Evaluate expected vs fulfilled actions for a step description.
+
+        ``tools_used`` contains tool *object* names (e.g. ``"browser"``,
+        ``"search"``).  The verb→tool map includes both object names and
+        function names so the set intersection works correctly.
+        """
         desc_lower = description.lower()
         verb_tool_map = cls._step_action_tool_map()
         expected = {verb for verb in verb_tool_map if re.search(rf"\b{re.escape(verb)}\b", desc_lower)}
@@ -3419,6 +3458,8 @@ class PlanActFlow(BaseFlow):
                     self._compact_prior_step_context(self.executor)
 
                     # Execute step with tracing
+                    # Reset per-step tool tracking for action audit
+                    self._step_tools_used.clear()
                     logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
 
                     with trace_ctx.span(
@@ -3529,6 +3570,10 @@ class PlanActFlow(BaseFlow):
                                     # Phase 3: Track tool usage for proactive compaction
                                     if isinstance(event, ToolEvent) and event.tool_name:
                                         self._track_tool_usage(event.tool_name)
+                                        # Per-step tracking for action audit (unbounded, reset each step)
+                                        self._step_tools_used.add(event.tool_name)
+                                        if event.function_name:
+                                            self._step_tools_used.add(event.function_name)
                                         # Emit WideResearchEvent to drive frontend live overlay
                                         if event.tool_name == "wide_research":
                                             _wr_args = event.function_args
@@ -3617,7 +3662,9 @@ class PlanActFlow(BaseFlow):
 
                         # ── Tool completeness audit ──────────────────────────
                         if step.success and step.description:
-                            _tools_used = set(self._recent_tools[-20:]) if self._recent_tools else set()
+                            # Use per-step tool set (tracks both tool_name and function_name)
+                            # instead of sliding _recent_tools window which loses early tools
+                            _tools_used = set(self._step_tools_used)
                             _audit = self._evaluate_step_actions(step.description, _tools_used)
                             if _audit["missed"]:
                                 logger.info(
