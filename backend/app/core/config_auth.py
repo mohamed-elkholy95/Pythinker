@@ -41,7 +41,7 @@ class EmailSettingsMixin:
     email_username: str | None = None
     email_password: str | None = None
     email_from: str | None = None
-    rating_notification_email: str | None = None
+    rating_notification_email: str | None = "admin@pythinker.com"
 
 
 class JWTSettingsMixin:
