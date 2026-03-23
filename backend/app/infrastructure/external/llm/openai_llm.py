@@ -1994,36 +1994,68 @@ To extract data from a webpage:
 
                 llm_call_start = time.monotonic()
 
-                if request_tools:
-                    # OpenAI API mode with native tool support
-                    logger.debug(f"Sending request with tools, model: {effective_model}, attempt: {attempt + 1}")
-                    # Some providers (DeepSeek, etc.) don't support response_format with tools
-                    # Only pass response_format for official OpenAI endpoints
-                    use_response_format = response_format if self._supports_response_format_with_tools() else None
-                    tool_call = client.chat.completions.create(
-                        **params,
-                        tools=request_tools,
-                        response_format=use_response_format,
-                        tool_choice=tool_choice,
-                        parallel_tool_calls=self._supports_parallel_tool_calls(),
-                    )
-                    if call_timeout > 0:
-                        response = await asyncio.wait_for(tool_call, timeout=call_timeout)
+                # ── In-flight watchdog ────────────────────────────────
+                # Logs a warning every 30s while the LLM call is pending
+                # so hangs are visible in real-time instead of silent.
+                _watchdog_interval = 30.0
+                _watchdog_task: asyncio.Task | None = None
+
+                async def _watchdog(
+                    *,
+                    _interval: float = _watchdog_interval,
+                    _start: float = llm_call_start,
+                    _model: str = effective_model,
+                    _has_tools: bool = bool(request_tools),
+                    _attempt: int = attempt,
+                ) -> None:
+                    while True:
+                        await asyncio.sleep(_interval)
+                        _elapsed = time.monotonic() - _start
+                        logger.warning(
+                            "LLM call in-flight for %.0fs (model=%s, tools=%s, attempt=%s) — still waiting",
+                            _elapsed,
+                            _model,
+                            "yes" if _has_tools else "no",
+                            _attempt + 1,
+                        )
+
+                _watchdog_task = asyncio.create_task(_watchdog())
+
+                try:
+                    if request_tools:
+                        # OpenAI API mode with native tool support
+                        logger.debug(f"Sending request with tools, model: {effective_model}, attempt: {attempt + 1}")
+                        # Some providers (DeepSeek, etc.) don't support response_format with tools
+                        # Only pass response_format for official OpenAI endpoints
+                        use_response_format = response_format if self._supports_response_format_with_tools() else None
+                        tool_call = client.chat.completions.create(
+                            **params,
+                            tools=request_tools,
+                            response_format=use_response_format,
+                            tool_choice=tool_choice,
+                            parallel_tool_calls=self._supports_parallel_tool_calls(),
+                        )
+                        if call_timeout > 0:
+                            response = await asyncio.wait_for(tool_call, timeout=call_timeout)
+                        else:
+                            response = await tool_call
                     else:
-                        response = await tool_call
-                else:
-                    # MLX mode or no tools
-                    logger.debug(
-                        f"Sending request without native tools, model: {effective_model}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
-                    )
-                    completion_call = client.chat.completions.create(
-                        **params,
-                        response_format=response_format if not self._is_mlx_mode else None,
-                    )
-                    if call_timeout > 0:
-                        response = await asyncio.wait_for(completion_call, timeout=call_timeout)
-                    else:
-                        response = await completion_call
+                        # MLX mode or no tools
+                        logger.debug(
+                            f"Sending request without native tools, model: {effective_model}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
+                        )
+                        completion_call = client.chat.completions.create(
+                            **params,
+                            response_format=response_format if not self._is_mlx_mode else None,
+                        )
+                        if call_timeout > 0:
+                            response = await asyncio.wait_for(completion_call, timeout=call_timeout)
+                        else:
+                            response = await completion_call
+                finally:
+                    _watchdog_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await _watchdog_task
 
                 llm_call_duration = time.monotonic() - llm_call_start
                 self._record_tool_call_latency(
