@@ -2696,6 +2696,15 @@ class BaseAgent:
                 total_chars,
                 _cap,
             )
+            # #region agent log
+            try:
+                import json, time as _t
+                _tool_msgs = [m for m in all_msgs if m.get("role") == "tool"]
+                with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
+                    _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H2A","location":"base.py:ask_with_messages","message":"Hard context cap hit","data":{"total_chars":total_chars,"cap":_cap,"is_deep_research":getattr(self,"_is_deep_research",False),"msg_count":len(all_msgs),"tool_msg_count":len(_tool_msgs),"agent_class":type(self).__name__},"timestamp":int(_t.time()*1000)}) + '\n')
+            except Exception:
+                pass
+            # #endregion
             # Graduated eviction: older tool results are truncated more
             # aggressively, recent ones are preserved with more context.
             # This keeps the most relevant data the LLM needs for synthesis
