@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 # Module-level metrics instance (can be overridden for testing)
 _metrics: MetricsPort = get_null_metrics()
 
+# Tools whose results are expected to exceed MAX_RESULT_CHARS.
+# oversized_result anomalies are suppressed in logs for these tools.
+_LARGE_RESULT_TOOLS = frozenset({
+    "info_search_web", "wide_research", "search",
+    "browser_get_content", "browser_navigate",
+})
+
 
 def set_metrics(metrics: MetricsPort) -> None:
     """Set the metrics instance for this module."""
@@ -106,20 +113,28 @@ class ToolTracer:
             _record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly)
 
         if trace.anomalies:
-            # Use warning for validation failures (indicates LLM generating bad
-            # tool args), info for oversized_result (expected for large web pages).
-            has_validation_failure = any(a == "args_validation_failed" for a in trace.anomalies)
-            log_fn = logger.warning if has_validation_failure else logger.info
-            log_fn(
-                "Tool tracing anomalies: %s on %s",
-                ", ".join(trace.anomalies),
-                tool_name,
-                extra={
-                    "tool_name": tool_name,
-                    "anomalies": trace.anomalies,
-                    "validation_errors": trace.validation_errors,
-                },
-            )
+            # Filter out expected anomalies for specific tool categories
+            # to reduce log noise.  Search/research tools legitimately
+            # return 10K-30K chars of enriched results.
+            log_anomalies = trace.anomalies
+            if tool_name in _LARGE_RESULT_TOOLS:
+                log_anomalies = [a for a in trace.anomalies if a != "oversized_result"]
+
+            if log_anomalies:
+                # Use warning for validation failures (indicates LLM generating bad
+                # tool args), info for oversized_result (expected for large web pages).
+                has_validation_failure = any(a == "args_validation_failed" for a in log_anomalies)
+                log_fn = logger.warning if has_validation_failure else logger.info
+                log_fn(
+                    "Tool tracing anomalies: %s on %s",
+                    ", ".join(log_anomalies),
+                    tool_name,
+                    extra={
+                        "tool_name": tool_name,
+                        "anomalies": log_anomalies,
+                        "validation_errors": trace.validation_errors,
+                    },
+                )
 
         return trace
 
@@ -147,16 +162,44 @@ class ToolTracer:
                 summary[key] = value_str
         return summary
 
+    # Argument keys that carry instructions/commands and should be checked
+    # for injection.  Bulk content fields (file body, report text) are
+    # excluded to avoid false positives — a cybersecurity report mentioning
+    # "bypass" or "system prompt injection" is normal, not an attack.
+    _INJECTION_CHECK_KEYS = frozenset({
+        "command", "cmd", "query", "path", "url", "name",
+        "working_directory", "session_id", "tool_name",
+        "search_query", "input", "selector", "text",
+    })
+
     def _detect_injection(self, arguments: dict[str, Any]) -> bool:
         patterns = [
             "ignore previous",
+            "ignore all previous instructions",
             "system prompt",
             "developer message",
             "instruction override",
-            "bypass",
             "jailbreak",
+            "disregard above",
+            "forget your instructions",
         ]
-        serialized = " ".join(str(value).lower() for value in arguments.values())
+        # Only check instruction-carrying arguments, not bulk content fields
+        # like file body.  This eliminates false positives from cybersecurity
+        # reports, AI discussions, etc. that naturally contain these terms.
+        values_to_check: list[str] = []
+        for key, value in arguments.items():
+            key_lower = key.lower()
+            if key_lower in self._INJECTION_CHECK_KEYS:
+                values_to_check.append(str(value).lower())
+            elif key_lower not in {"content", "body", "data", "file_content", "text_content"}:
+                # For unknown keys, check short values only (instructions tend
+                # to be short; large blobs are likely content).
+                val_str = str(value)
+                if len(val_str) <= 500:
+                    values_to_check.append(val_str.lower())
+        if not values_to_check:
+            return False
+        serialized = " ".join(values_to_check)
         return any(pattern in serialized for pattern in patterns)
 
 
