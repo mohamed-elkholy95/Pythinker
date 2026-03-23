@@ -2158,13 +2158,10 @@ class AgentTaskRunner(TaskRunner):
                         logger.warning(f"Background task cleanup raised exception: {e}")
             self._background_tasks.clear()
 
-        # Cleanup background tasks on the execution agent (e.g. background memory saves)
-        agent = self._get_tool_execution_agent()
-        if agent and hasattr(agent, "cleanup_background_tasks"):
-            try:
-                await agent.cleanup_background_tasks(timeout=5.0)
-            except Exception as e:
-                logger.warning(f"Background task cleanup failed for Agent {self._agent_id}: {e}")
+        # Cleanup background tasks and release memory on ALL flow agents
+        # (planner, executor, verifier, reflection) — not just the executor.
+        # This prevents conversation histories (~50K+ tokens each) from leaking.
+        await self._cleanup_flow_agents()
 
         # Cleanup Pythinker agent factory session if available
         if self._agent_factory:
@@ -2208,4 +2205,74 @@ class AgentTaskRunner(TaskRunner):
         self._file_before_cache.clear()
         self._pending_tool_calls.clear()
 
+        # Release flow reference to allow GC of all sub-agents
+        self._plan_act_flow = None
+        self._discuss_flow = None
+        self._fast_search_flow = None
+
         logger.debug(f"Agent {self._agent_id} has been fully closed and resources cleared")
+
+    async def _cleanup_flow_agents(self) -> None:
+        """Release memory held by all sub-agents in the current flow.
+
+        PlanActFlow creates planner, executor, verifier, and reflection agents,
+        each holding ~50K+ token conversation histories. Without explicit cleanup
+        these accumulate across sequential tasks, causing ~500MB+ growth per task.
+        """
+        flow = self._flow
+        if flow is None:
+            return
+
+        _agents_cleaned = 0
+        _agent_names = ["planner", "executor", "verifier", "_reflection_agent"]
+        for attr_name in _agent_names:
+            agent = getattr(flow, attr_name, None)
+            if agent is None:
+                continue
+            try:
+                # 1. Cancel pending background tasks (memory saves, etc.)
+                if hasattr(agent, "cleanup_background_tasks"):
+                    await agent.cleanup_background_tasks(timeout=3.0)
+
+                # 2. Clear conversation history — the biggest memory consumer
+                if hasattr(agent, "memory"):
+                    msg_count = len(getattr(agent.memory, "messages", []))
+                    agent.memory.messages = []
+                    logger.debug(
+                        "Cleared %d messages from %s.memory for session %s",
+                        msg_count,
+                        attr_name,
+                        self._session_id,
+                    )
+
+                # 3. Clear efficiency nudges list
+                if hasattr(agent, "_efficiency_nudges"):
+                    agent._efficiency_nudges.clear()
+
+                # 4. Clear tool result caches
+                if hasattr(agent, "_tool_result_store") and agent._tool_result_store:
+                    agent._tool_result_store = None
+
+                _agents_cleaned += 1
+            except Exception as e:
+                logger.warning(
+                    "Cleanup failed for %s agent in session %s: %s",
+                    attr_name,
+                    self._session_id,
+                    e,
+                )
+
+        # 5. Clear flow-level caches
+        if hasattr(flow, "_url_failure_guard"):
+            flow._url_failure_guard = None
+        if hasattr(flow, "_background_tasks"):
+            flow._background_tasks.clear()
+        if hasattr(flow, "_task_state_manager"):
+            flow._task_state_manager = None
+
+        if _agents_cleaned > 0:
+            logger.info(
+                "Released memory from %d flow agent(s) for session %s",
+                _agents_cleaned,
+                self._session_id,
+            )
