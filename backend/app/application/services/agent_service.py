@@ -872,6 +872,17 @@ class AgentService:
                 resume_state_recorded = True
                 pm.record_sse_resume_cursor_state(endpoint="chat", state="redis_cursor")
                 # No gap warning — domain service reads from this position; events flow normally
+            elif event_id.startswith("seq-"):
+                # Synthetic sequence ID emitted by the backend for discuss-mode
+                # events.  These are not Redis stream positions but are a normal
+                # part of the SSE protocol — no gap warning needed.
+                logger.debug(
+                    "Resume cursor %s is a synthetic sequence ID; starting fresh (no skip mode)",
+                    event_id,
+                )
+                skip_until_resume_point = False
+                resume_state_recorded = True
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="seq_cursor")
             else:
                 # Non-Redis cursor (UUID or other format) — skip mode would search
                 # event.event_id fields that carry Redis stream IDs, guaranteeing a
@@ -891,7 +902,9 @@ class AgentService:
         # Emit gap warning upfront for non-Redis cursors (UUID format).
         # This must happen before the event loop so the client knows events may
         # have been missed and can update its UI accordingly.
-        if event_id and not re.match(r"^\d+-\d+$", event_id) and not skip_until_resume_point:
+        # Exclude seq- cursors — these are synthetic IDs we emitted ourselves.
+        _is_seq_cursor = event_id.startswith("seq-") if event_id else False
+        if event_id and not re.match(r"^\d+-\d+$", event_id) and not skip_until_resume_point and not _is_seq_cursor:
             pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="non_redis_cursor")
             emitted_events += 1
             yield _build_resume_gap_warning(
