@@ -261,13 +261,14 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_ratio_above_block_threshold_uses_critical_path(self):
-        """Ratios above the 50% critical threshold must block delivery."""
+        """Ratios above the configured block threshold (default 60%) must block delivery when rewrite fails."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 55% is above the 50% block threshold → critical path
-        grounding_result = _make_grounding_result(score=0.55, claim_count=3)
+        # 62% is above block threshold (0.60) → rewrite attempted; empty rewrite → critical path
+        grounding_result = _make_grounding_result(score=0.62, claim_count=3)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(return_value={"content": ""})
 
         with patch(
             "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
@@ -276,14 +277,14 @@ class TestHallucinationDisclaimerNotRedaction:
             result = await ov.verify_hallucination(content, "query")
 
         assert "hallucination_ratio_critical" in result.blocking_issues
-        assert "could not be fully verified" in result.content
+        assert "could not be verified against available sources" in result.content
 
     @pytest.mark.asyncio
     async def test_ratio_between_warn_and_block_is_moderate(self):
-        """Ratios between 15-50% get disclaimer treatment, not blocking."""
+        """Ratios between warn and block thresholds get disclaimer treatment, not blocking."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 25% is above warn (15%) but below block (50%) → moderate
+        # 25% is above warn (15%) but below block (60%) → moderate
         grounding_result = _make_grounding_result(score=0.25, claim_count=1)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
@@ -300,12 +301,13 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_block_uses_critical_path(self):
-        """Ratio > 50% triggers blocking — likely genuine hallucination."""
+        """Ratio above block threshold with failed rewrite triggers blocking."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        grounding_result = _make_grounding_result(score=0.55, claim_count=5)
+        grounding_result = _make_grounding_result(score=0.65, claim_count=5)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(return_value={"content": ""})
 
         with patch(
             "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
@@ -735,13 +737,11 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
-        """Critical hallucination ratio is downgraded to warning when all steps completed.
+    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
+        """Critical hallucination ratio blocks final delivery even when all steps completed.
 
-        hallucination_ratio_critical is soft-non-downgradable — it blocks delivery
-        only when steps are incomplete. When all steps completed, the report file
-        is already saved so blocking the summary just frustrates the user.
-        A reliability disclaimer is appended instead.
+        Fail-closed grounding: unsupported-claim ratio above the block threshold
+        with rewrite failure must not ship as a normal report completion.
         """
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -779,10 +779,8 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        # hallucination_ratio_critical is downgraded when all steps completed —
-        # the report is delivered with a disclaimer instead of being blocked
-        assert not any(isinstance(event, ErrorEvent) for event in events)
-        assert any(isinstance(event, ReportEvent) for event in events)
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_hallucination_ratio_critical_blocks_when_steps_incomplete(self):

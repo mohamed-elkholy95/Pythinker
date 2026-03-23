@@ -1781,9 +1781,7 @@ class ExecutionAgent(BaseAgent):
 
             if not gate_passed:
                 issue_text = "; ".join(gate_issues)
-                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(
-                    gate_issues, all_steps_completed=all_steps_completed
-                ):
+                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(gate_issues):
                     # All plan steps succeeded — blocking the report is worse than
                     # delivering it with minor integrity gaps.  Downgrade to warning
                     # and proceed with delivery so the user sees their completed work.
@@ -2163,33 +2161,28 @@ class ExecutionAgent(BaseAgent):
             delivery_channel=delivery_channel,
         )
 
-    def _can_downgrade_delivery_integrity_issues(self, issues: list[str], *, all_steps_completed: bool = False) -> bool:
+    def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
         """Allow downgrade only for non-critical integrity failures.
 
         When all plan steps completed, minor structural gaps can still be
         downgraded so users receive their completed work.  Structural
         failures (truncation, broken citations) remain non-downgradable.
 
-        hallucination_ratio_critical IS downgradable when all plan steps
-        completed, because the report file is already saved to the
-        workspace — blocking the summary just frustrates the user.  A
-        reliability disclaimer is appended instead (handled by the caller).
+        Critical grounding failure (``hallucination_ratio_critical``) is always
+        non-downgradable: fact-checking found a high unsupported-claim ratio
+        and rewrite failed — delivering anyway would ship materially unreliable
+        answers. The user sees an error and can retry; this matches fail-closed
+        grounding policy (2026-03 monitoring report).
         """
-        # Hard non-downgradable: these indicate structurally broken output
+        # Hard non-downgradable: structurally broken output or unsafe to ship
         hard_non_downgradable = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
-        }
-        # Soft non-downgradable: these can be downgraded when all steps
-        # completed, since the report file exists and is accessible
-        soft_non_downgradable = {
             "hallucination_ratio_critical",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()
             if token in hard_non_downgradable:
-                return False
-            if token in soft_non_downgradable and not all_steps_completed:
                 return False
         return True
 
