@@ -3268,11 +3268,13 @@ class PlanActFlow(BaseFlow):
                         await self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
-                    # Reset per-step state in reliability components
-                    if hasattr(step_executor, "_stuck_detector"):
-                        step_executor._stuck_detector.reset_for_new_step()
-                    if hasattr(step_executor, "_pipeline"):
-                        for mw in getattr(step_executor._pipeline, "_middlewares", []):
+                    # Reset per-step state in reliability components.
+                    # Use self.executor (default agent) which owns the stuck detector
+                    # and middleware pipeline. step_executor is resolved later per step.
+                    if hasattr(self.executor, "_stuck_detector"):
+                        self.executor._stuck_detector.reset_for_new_step()
+                    if hasattr(self.executor, "_pipeline"):
+                        for mw in getattr(self.executor._pipeline, "_middlewares", []):
                             if hasattr(mw, "reset_browser_budget"):
                                 mw.reset_browser_budget()
 
