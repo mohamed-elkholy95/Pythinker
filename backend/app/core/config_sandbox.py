@@ -71,8 +71,8 @@ class SandboxSettingsMixin:
     sandbox_seccomp_profile: str | None = None
     sandbox_seccomp_profile_mode: str = "compat"  # compat | hardened; default compat (Phase A)
     security_critic_allow_medium_risk: bool = False  # Allow MEDIUM risk in dev; default block
-    sandbox_shm_size: str | None = "2g"  # Playwright/Selenium: 2GB prevents Chrome /dev/shm OOM
-    sandbox_mem_limit: str | None = "4g"  # Increased from 3g to reduce OOM kills
+    sandbox_shm_size: str | None = "256m"  # CDP screencast mode; override via SANDBOX_SHM_SIZE
+    sandbox_mem_limit: str | None = "2g"  # Aligned with production compose default
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
     sandbox_framework_port: int = 8082
@@ -121,7 +121,7 @@ class SandboxPoolSettingsMixin:
     """Sandbox pool pre-warming, idle management, and lifecycle optimization."""
 
     # Sandbox Pool Pre-warming (Phase 3)
-    sandbox_pool_enabled: bool = True  # Enable sandbox pool (20-32s → 2-5s cold start)
+    sandbox_pool_enabled: bool = False  # Cost mode default; set True for performance mode
     sandbox_pool_min_size: int = 2  # Pre-warm 2 sandboxes for faster cold start
     sandbox_pool_max_size: int = 10  # Scale: ~2GB RAM per sandbox, adjust to host capacity
     max_concurrent_agents: int = 8  # In-process concurrency guard; scale with pool_max_size
