@@ -65,6 +65,7 @@ class ExecutionStepResult(BaseModel):
     success: bool = Field(description="Whether the step completed successfully")
     result: str | None = Field(default=None, description="Summary of what was accomplished in this step")
     attachments: list[str] = Field(default_factory=list, description="List of file paths created or modified")
+    error: str | None = Field(default=None, description="Failure reason when success is false")
 
 
 class SummarizeResponse(BaseModel):
