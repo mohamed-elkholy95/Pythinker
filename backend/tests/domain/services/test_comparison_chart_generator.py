@@ -191,3 +191,115 @@ def test_build_numeric_chart_spec():
     # Should be sorted by latency (lower first)
     assert spec.points[0].label == "Claude"
     assert spec.points[0].value == 95
+
+
+def test_build_numeric_chart_spec_strips_markdown_from_labels():
+    """Labels with markdown formatting should be cleaned."""
+    generator = ComparisonChartGenerator()
+
+    markdown = """## Score Comparison
+| Product | Score |
+|---------|-------|
+| **Alpha** | 95 |
+| **Beta** | 87 |
+| `Gamma` | 81 |
+"""
+
+    tables = generator._extract_tables(markdown)
+    spec = generator._build_numeric_chart_spec(tables[0], "Score Comparison")
+
+    assert spec is not None
+    labels = [p.label for p in spec.points]
+    assert "Alpha" in labels
+    assert "Beta" in labels
+    assert "Gamma" in labels
+    # No markdown syntax should remain
+    assert all("**" not in label and "`" not in label for label in labels)
+
+
+def test_build_numeric_chart_spec_rejects_spec_sheet():
+    """A single-product spec sheet (heterogeneous units) should NOT produce a chart."""
+    generator = ComparisonChartGenerator()
+
+    # This is the exact pattern from the bug: a MacBook spec table
+    markdown = """## Technical Specifications
+| **Spec** | **Value** |
+|----------|-----------|
+| **Starting Price** | ~$2,499 |
+| **Storage (base config)** | 512 GB SSD |
+| **Memory Bandwidth** | 273 GB/s |
+| **Unified Memory** | 24 GB |
+| **GPU Cores** | 20-core |
+| **Neural Engine** | 16-core (enhanced) |
+| **CPU Cores** | 15-core (11P + 4E) |
+| **Display Size Options** | 14" Liquid Retina XDR |
+"""
+
+    tables = generator._extract_tables(markdown)
+    assert len(tables) >= 1
+
+    spec = generator._build_numeric_chart_spec(tables[0], "MacBook Pro M5 Pro Specs")
+    # Should return None — this is a spec sheet, not a comparison
+    assert spec is None
+
+
+def test_build_numeric_chart_spec_accepts_valid_comparison():
+    """A valid comparison (same metric, comparable items) should still produce a chart."""
+    generator = ComparisonChartGenerator()
+
+    markdown = """## Price Comparison
+| Laptop | Price ($) |
+|--------|-----------|
+| MacBook Pro | 2499 |
+| ThinkPad X1 | 1899 |
+| Dell XPS 15 | 1799 |
+"""
+
+    tables = generator._extract_tables(markdown)
+    spec = generator._build_numeric_chart_spec(tables[0], "Price Comparison")
+
+    assert spec is not None
+    assert len(spec.points) == 3
+    # Magnitude ratio is ~1.4 — well under threshold
+    assert spec.metric_name == "Price ($)"
+
+
+def test_strip_markdown():
+    """Test markdown stripping helper."""
+    gen = ComparisonChartGenerator()
+
+    assert gen._strip_markdown("**bold text**") == "bold text"
+    assert gen._strip_markdown("*italic*") == "italic"
+    assert gen._strip_markdown("`code`") == "code"
+    assert gen._strip_markdown("__underline bold__") == "underline bold"
+    assert gen._strip_markdown("[link](http://example.com)") == "link"
+    assert gen._strip_markdown("no formatting") == "no formatting"
+    assert gen._strip_markdown("**Starting Price**") == "Starting Price"
+
+
+def test_is_heterogeneous_data_magnitude_spread():
+    """Values with >100x magnitude spread should be rejected."""
+    from app.domain.services.comparison_chart_generator import _NumericPoint
+
+    gen = ComparisonChartGenerator()
+
+    points = [
+        _NumericPoint(label="Price", value=2499, display_value="$2,499"),
+        _NumericPoint(label="Memory", value=24, display_value="24 GB"),
+        _NumericPoint(label="Cores", value=20, display_value="20-core"),
+    ]
+    assert gen._is_heterogeneous_data(points) is True
+
+
+def test_is_heterogeneous_data_uniform_values():
+    """Values with similar magnitudes should NOT be rejected."""
+    from app.domain.services.comparison_chart_generator import _NumericPoint
+
+    gen = ComparisonChartGenerator()
+
+    points = [
+        _NumericPoint(label="Model A", value=92, display_value="92%"),
+        _NumericPoint(label="Model B", value=87, display_value="87%"),
+        _NumericPoint(label="Model C", value=81, display_value="81%"),
+    ]
+    assert gen._is_heterogeneous_data(points) is False
