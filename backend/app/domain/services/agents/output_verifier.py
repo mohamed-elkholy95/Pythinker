@@ -559,7 +559,6 @@ class OutputVerifier:
                         break
                     trimmed_context.append(_chunk)
                     _total += len(_chunk)
-                _pre_trim_total = sum(len(c) for c in source_context)
                 source_context = trimmed_context or source_context
 
                 # Exempt content patterns that produce systematic false positives:
@@ -567,28 +566,10 @@ class OutputVerifier:
                 content_for_verification = self._strip_cited_tables(content)
                 content_for_verification = self._strip_unverifiable_content(content_for_verification)
 
-                # #region agent log
-                try:
-                    import json, time as _t
-                    with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
-                        _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H3A","location":"output_verifier.py:verify_hallucination","message":"Grounding context for verification","data":{"context_size_limit":context_size,"research_depth":getattr(self,"_research_depth",None),"source_chunks_before_trim":len(source_context) if not trimmed_context else len([c for c in source_context]),"source_chars_before_trim":_pre_trim_total,"source_chars_after_trim":sum(len(c) for c in source_context),"was_trimmed":bool(trimmed_context) and _pre_trim_total > context_size,"content_len":len(content),"stripped_content_len":len(content_for_verification)},"timestamp":int(_t.time()*1000)}) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-
                 grounding_result = await verifier.verify(
                     response_text=content_for_verification,
                     source_context=source_context,
                 )
-
-                # #region agent log
-                try:
-                    import json, time as _t
-                    with open('/Users/panda/Desktop/Projects/Pythinker/.cursor/debug-7c8cd4.log', 'a') as _f:
-                        _f.write(json.dumps({"sessionId":"7c8cd4","hypothesisId":"H3B","location":"output_verifier.py:grounding_result","message":"Grounding verification result","data":{"skipped":grounding_result.skipped,"hallucination_score":round(grounding_result.hallucination_score,3) if not grounding_result.skipped else None,"grounding_pct":round((1-grounding_result.hallucination_score)*100,1) if not grounding_result.skipped else None,"total_claims":len(grounding_result.flagged_claims) + (grounding_result.total_claims if hasattr(grounding_result,'total_claims') else 0),"flagged_count":len(grounding_result.flagged_claims),"max_claims_setting":getattr(settings,'hallucination_max_claims',20)},"timestamp":int(_t.time()*1000)}) + '\n')
-                except Exception:
-                    pass
-                # #endregion
 
                 if not grounding_result.skipped and grounding_result.flagged_claims:
                     logger.warning(
