@@ -135,52 +135,58 @@ export const getFileIconComponent = (filename: string): Component => {
 export const getFileIconColor = (filename: string): string => {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
 
-  // PDF — red
-  if (ext === 'pdf') return '#ef4444';
+  // PDF — Google red
+  if (ext === 'pdf') return '#EA4335';
 
-  // Spreadsheets / CSV — green
-  if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return '#22c55e';
+  // Spreadsheets / CSV — Google green
+  if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return '#0F9D58';
 
-  // Word documents — blue
-  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '#3b82f6';
+  // Word documents — Google blue
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '#4285F4';
 
-  // Presentations — orange
-  if (['ppt', 'pptx', 'odp'].includes(ext)) return '#f97316';
+  // Presentations — Google yellow
+  if (['ppt', 'pptx', 'odp'].includes(ext)) return '#F4B400';
 
   // Images — purple
-  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif'].includes(ext)) return '#a855f7';
+  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif'].includes(ext)) return '#A855F7';
 
   // Video — rose
-  if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp', 'ogv'].includes(ext)) return '#f43f5e';
+  if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp', 'ogv'].includes(ext)) return '#F43F5E';
 
   // Audio — violet
-  if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus'].includes(ext)) return '#8b5cf6';
+  if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus'].includes(ext)) return '#8B5CF6';
 
-  // Archives — amber
-  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma'].includes(ext)) return '#f59e0b';
+  // Archives — Google amber
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma'].includes(ext)) return '#F9AB00';
 
-  // JSON / config / data — yellow
-  if (['json', 'yaml', 'yml', 'toml', 'xml'].includes(ext)) return '#eab308';
+  // JSON / config / data — Google blue
+  if (['json', 'yaml', 'yml', 'toml', 'xml'].includes(ext)) return '#4285F4';
 
-  // Code — cyan
+  // HTML — Google orange (distinct from code)
+  if (['html', 'htm'].includes(ext)) return '#FF6D01';
+
+  // Code — Google blue
   const codeExts = [
     'js', 'ts', 'jsx', 'tsx', 'vue', 'py', 'java', 'c', 'cpp',
     'h', 'hpp', 'go', 'rs', 'php', 'rb', 'swift', 'kt', 'scala',
-    'html', 'css', 'scss', 'sh', 'bash', 'sql',
+    'css', 'scss', 'sh', 'bash', 'sql',
   ];
-  if (codeExts.includes(ext)) return '#06b6d4';
+  if (codeExts.includes(ext)) return '#4285F4';
 
   // Interactive chart
   if (ext === 'chart') return '#6366f1';
 
-  // Markdown / reports — blue
-  if (['md', 'markdown'].includes(ext)) return '#3b82f6';
+  // Markdown / reports — Google blue
+  if (['md', 'markdown'].includes(ext)) return '#4285F4';
 
-  // Plain text / logs — slate
-  if (['txt', 'log', 'text'].includes(ext)) return '#64748b';
+  // Link files — cyan
+  if (['url', 'webloc', 'link'].includes(ext)) return '#06B6D4';
 
-  // Fallback — theme icon colour
-  return 'var(--icon-secondary)';
+  // Plain text / logs — Google gray
+  if (['txt', 'log', 'text'].includes(ext)) return '#5F6368';
+
+  // Fallback — Google gray
+  return '#5F6368';
 };
 
 /**
