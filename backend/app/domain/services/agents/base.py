@@ -2490,8 +2490,17 @@ class BaseAgent:
 
             # ── Stage 2: Summarization recovery via LLM ──────────────────
             # Ask the LLM to summarize what it did during the tool loop.
+            # First aggressively truncate context — the empty response likely
+            # means the context is saturated and the LLM couldn't generate output.
             if not final_content and not wall_clock_exceeded:
                 logger.info("Attempting summarization recovery for empty final message")
+                # Force-truncate all tool results to free context for recovery
+                await self._ensure_memory()
+                for msg in self.memory.messages:
+                    if msg.get("role") == "tool":
+                        content = msg.get("content", "")
+                        if isinstance(content, str) and len(content) > 300:
+                            msg["content"] = content[:300] + "\n[... truncated for recovery ...]"
                 recovery_message = await self.ask_with_messages(
                     [
                         {
@@ -2648,11 +2657,37 @@ class BaseAgent:
         ]
         return filtered or None
 
+    # Hard character cap for total conversation context.  If all messages
+    # combined exceed this, aggressively truncate every tool result to 500 chars.
+    # This is the last-resort safety valve against 60-80s LLM calls caused by
+    # context window saturation (observed: 78.7s at ~80K chars).
+    _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000
+
     async def ask_with_messages(self, messages: list[dict[str, Any]], format: str | None = None) -> dict[str, Any]:
         await self._add_to_memory(messages)
 
         # Check and handle token limits before making LLM call
         await self._ensure_within_token_limit()
+
+        # Hard safety valve: if total context still exceeds cap after budget
+        # management, force-truncate all tool results to prevent 60s+ LLM calls.
+        await self._ensure_memory()
+        all_msgs = self.memory.get_messages()
+        total_chars = sum(len(str(m.get("content", ""))) for m in all_msgs)
+        if total_chars > self._HARD_CONTEXT_CHAR_CAP:
+            logger.warning(
+                "Hard context cap hit (%d > %d chars), truncating all tool results",
+                total_chars,
+                self._HARD_CONTEXT_CHAR_CAP,
+            )
+            trimmed = []
+            for m in all_msgs:
+                if m.get("role") == "tool":
+                    content = m.get("content", "")
+                    if isinstance(content, str) and len(content) > 500:
+                        m = {**m, "content": content[:500] + "\n[... hard-truncated ...]"}
+                trimmed.append(m)
+            self.memory.messages = trimmed
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
         if self._efficiency_nudges:
