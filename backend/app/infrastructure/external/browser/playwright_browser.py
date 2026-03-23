@@ -2325,6 +2325,44 @@ class PlaywrightBrowser:
         # Format element information
         return [f"{el['index']}:<{el['tag']}>{el['text']}</{el['tag']}>" for el in interactive_elements]
 
+    async def _head_precheck(self, url: str) -> ToolResult | None:
+        """Lightweight HEAD request to detect dead URLs before full navigation.
+
+        Returns a ToolResult error if the URL is unreachable (404, 5xx, timeout),
+        or None if the URL looks valid and full navigation should proceed.
+        Saves 5-6s per dead URL by avoiding full Playwright navigation.
+        """
+        import httpx as _httpx
+
+        try:
+            async with _httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=_httpx.Timeout(2.0, connect=1.5),
+            ) as client:
+                resp = await client.head(url, headers={"User-Agent": self._current_user_agent})
+                if resp.status_code == 404:
+                    logger.info("HEAD pre-check: %s returned 404, skipping navigation", url[:80])
+                    return ToolResult(
+                        success=False,
+                        message=(
+                            f"URL returned HTTP 404 (page not found): {url}. "
+                            f"Use a different source."
+                        ),
+                        data={"url": url, "status_code": 404},
+                    )
+                if resp.status_code >= 500:
+                    logger.info("HEAD pre-check: %s returned %d, skipping navigation", url[:80], resp.status_code)
+                    return ToolResult(
+                        success=False,
+                        message=f"URL returned HTTP {resp.status_code} (server error): {url}. Use a different source.",
+                        data={"url": url, "status_code": resp.status_code},
+                    )
+        except Exception:
+            # HEAD failed (timeout, DNS, connection refused) — let full navigation try.
+            # Some servers reject HEAD but accept GET; don't block on HEAD failure.
+            pass
+        return None
+
     async def navigate(
         self,
         url: str,
@@ -2361,6 +2399,13 @@ class PlaywrightBrowser:
                 message=f"Skipped video URL (YouTube, TikTok, etc. are blocked to save time): {url}",
                 data={"skipped_video_url": url, "reason": "Video sites are blocked for efficiency"},
             )
+
+        # HEAD pre-validation: detect 404/5xx before expensive full navigation.
+        # Each failed navigation wastes 5-6s; a HEAD check takes <1s.
+        if url.startswith(("http://", "https://")):
+            head_failed = await self._head_precheck(url)
+            if head_failed:
+                return head_failed
 
         # Serialize navigation — concurrent page.goto() causes ERR_ABORTED race conditions
         async with self._navigation_lock:
