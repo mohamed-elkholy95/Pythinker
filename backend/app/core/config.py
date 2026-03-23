@@ -367,8 +367,13 @@ class Settings(
 
         # === WARNINGS ===
 
-        # Auth provider "none" warning
+        # Auth provider "none" — block in production, warn in development
         if self.auth_provider == "none":
+            if self.is_production:
+                raise ValueError(
+                    "AUTH_PROVIDER='none' is forbidden in production. "
+                    "Set AUTH_PROVIDER to 'password' or 'local' and configure credentials."
+                )
             security_warnings.append(
                 "AUTH_PROVIDER is set to 'none' - authentication is disabled. "
                 "This should only be used for development/testing."
@@ -378,11 +383,11 @@ class Settings(
         if self.debug and self.is_production:
             security_warnings.append("DEBUG mode is enabled in production - this may expose sensitive information")
 
-        # Metrics auth validation
+        # Metrics auth validation — warn loudly in production
         if not self.metrics_password and self.is_production:
             security_warnings.append(
-                "METRICS_PASSWORD not set - metrics endpoint is unprotected. "
-                "Set a strong password for Prometheus scraping."
+                "[SECURITY] METRICS_PASSWORD not set in production — /metrics endpoint "
+                "is unauthenticated. Set METRICS_PASSWORD in .env to enforce HTTP Basic Auth."
             )
         elif self.metrics_password in ["changeme", "password", "admin"]:
             security_warnings.append("METRICS_PASSWORD is using an insecure default value")
