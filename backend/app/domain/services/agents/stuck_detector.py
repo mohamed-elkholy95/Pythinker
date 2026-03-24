@@ -233,6 +233,12 @@ class StuckDetector:
         self._stuck_count = 0
         self._recovery_attempts = 0
         self._max_recovery_attempts = 3  # Align with prompt retry guidance
+
+        # Cooldown hysteresis: after a stuck pattern breaks, suppress
+        # detection for N iterations to prevent the fire→reset→fire
+        # oscillation observed in production (11 firings, 0 triggers).
+        self._cooldown_remaining: int = 0
+        self._cooldown_iterations: int = 3  # iterations to suppress after reset
         self._semantic_stuck_detected = False
 
         # Session-level escalation: survives brief pattern breaks.
@@ -320,12 +326,23 @@ class StuckDetector:
         confidence += 0.4 * (tool_pattern_conf or 0.0)
         confidence = min(confidence, 1.0)
 
-        # Trigger only if confidence exceeds threshold
+        # Trigger only if confidence exceeds threshold AND cooldown has expired.
+        # Cooldown prevents the fire→reset→fire oscillation where the detector
+        # fires, resets because the next action is slightly different, then
+        # immediately re-fires on the same iteration.
         is_stuck = confidence >= 0.7
+        if is_stuck and self._cooldown_remaining > 0:
+            self._cooldown_remaining -= 1
+            logger.debug(
+                "Stuck detection suppressed by cooldown (%d remaining)",
+                self._cooldown_remaining,
+            )
+            is_stuck = False
 
         if is_stuck:
             self._stuck_count += 1
             self._session_stuck_triggers += 1
+            self._cooldown_remaining = 0  # clear cooldown on confirmed stuck
             stuck_type = "hash-based" if is_hash_stuck else "semantic"
             logger.warning(
                 f"Stuck pattern detected ({stuck_type}, count: {self._stuck_count}, "
@@ -345,6 +362,8 @@ class StuckDetector:
                 self._stuck_count = 0
                 self._semantic_stuck_detected = False
                 self._stuck_analysis = None
+                # Start cooldown to suppress immediate re-firing
+                self._cooldown_remaining = self._cooldown_iterations
                 # NOTE: _recovery_attempts and _session_stuck_triggers are
                 # intentionally NOT reset here — they accumulate across the
                 # session to enforce escalating pressure.
@@ -724,9 +743,16 @@ class StuckDetector:
 
         self._tool_action_history.append(record)
 
-        # Check for action-based patterns
+        # Check for action-based patterns (suppressed during cooldown)
         analysis = self._detect_action_patterns()
         if analysis:
+            if self._cooldown_remaining > 0:
+                self._cooldown_remaining -= 1
+                logger.debug(
+                    "Action stuck detection suppressed by cooldown (%d remaining)",
+                    self._cooldown_remaining,
+                )
+                return None
             self._stuck_analysis = analysis
             self._stuck_count += 1
             logger.warning(
