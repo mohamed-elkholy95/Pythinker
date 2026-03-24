@@ -444,7 +444,7 @@ describe('ToolPanelContent', () => {
     expect(wrapper.find('[data-testid="plan-overlay"]').exists()).toBe(false);
   });
 
-  it('planning header shows "Creating plan..." while streaming', () => {
+  it('planning header shows "Planning" while streaming', () => {
     const wrapper = mountToolPanelContent({
       planPresentationText: '# Plan...',
       isPlanStreaming: true,
@@ -452,7 +452,7 @@ describe('ToolPanelContent', () => {
       summaryStreamText: '',
     });
 
-    expect(wrapper.text()).toContain('Creating plan...');
+    expect(wrapper.text()).toContain('Planning');
   });
 
   it('planning header shows "Plan ready" after final chunk', () => {
@@ -482,7 +482,7 @@ describe('ToolPanelContent', () => {
     });
 
     expect(wrapper.find('[data-testid="plan-overlay"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Creating plan...');
+    expect(wrapper.text()).toContain('Planning');
   });
 
   it('bumps the CanvasLiveView refresh token for same-project canvas updates', async () => {

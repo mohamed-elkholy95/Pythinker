@@ -152,7 +152,7 @@ describe('LiveMiniPreview', () => {
     })
 
     expect(wrapper.find('.dc-panel').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Creating plan')
+    expect(wrapper.text()).toContain('Planning')
   })
 
   it('shows "Plan ready" when isPlanStreaming=false with plan text', () => {
