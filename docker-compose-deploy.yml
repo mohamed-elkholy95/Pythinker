@@ -4,12 +4,12 @@
 #
 # Single compose file that works ANYWHERE:
 #
-#   VPS (pre-built):   docker compose -f docker-compose-deploy.yml pull && \
-#                      docker compose -f docker-compose-deploy.yml up -d
+#   VPS (1-click):     docker compose -f docker-compose-deploy.yml up -d
+#                      (pull_policy: always auto-pulls all images)
 #
 #   Local (from source): docker compose -f docker-compose-deploy.yml up --build -d
 #
-#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull && up -d
+#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml up -d
 #
 # CI auto-deploys on push to main via SSH (see .github/workflows/deploy.yml).
 # First-time VPS setup: ./scripts/vps-bootstrap.sh
@@ -23,6 +23,7 @@ services:
   # ---------------------------------------------------------------------------
   frontend:
     image: ghcr.io/mohamed-elkholy95/pythinker-frontend:${IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -60,6 +61,7 @@ services:
   # ---------------------------------------------------------------------------
   backend:
     image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -135,6 +137,7 @@ services:
   gateway:
     profiles: ["channels"]
     image: ghcr.io/mohamed-elkholy95/pythinker-gateway:${IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ./backend
       dockerfile: Dockerfile.gateway
@@ -192,6 +195,7 @@ services:
   # ---------------------------------------------------------------------------
   sandbox:
     image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
+    pull_policy: always
     build:
       context: ./sandbox
       dockerfile: Dockerfile
@@ -272,6 +276,7 @@ services:
   # ---------------------------------------------------------------------------
   mongodb-keyfile-init:
     image: mongo:7.0.31
+    pull_policy: always
     entrypoint: /bin/bash
     command:
       - -c
@@ -295,6 +300,7 @@ services:
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0.31
+    pull_policy: always
     hostname: pythinker-mongodb
     restart: always
     depends_on:
@@ -344,6 +350,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:8.4-alpine
+    pull_policy: always
     hostname: pythinker-redis
     restart: always
     command:
@@ -408,6 +415,7 @@ services:
   # ---------------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:v1.17.0
+    pull_policy: always
     hostname: pythinker-qdrant
     restart: always
     volumes:
@@ -438,6 +446,7 @@ services:
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    pull_policy: always
     hostname: pythinker-minio
     restart: always
     command: server /data --console-address ":9001"
@@ -470,6 +479,7 @@ services:
   # ---------------------------------------------------------------------------
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    pull_policy: always
     depends_on:
       minio:
         condition: service_healthy
