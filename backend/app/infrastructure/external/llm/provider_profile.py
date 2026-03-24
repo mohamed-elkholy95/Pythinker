@@ -91,6 +91,12 @@ _PROFILES: dict[str, ProviderProfile] = {
         needs_thinking_suppression=True,
         strict_schema=True,
     ),
+    "minimax": ProviderProfile(
+        name="minimax",
+        connect_timeout=10.0,
+        read_timeout=180.0,
+        tool_read_timeout=120.0,
+    ),
 }
 
 
@@ -103,6 +109,7 @@ _URL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"api\.openai\.com", re.IGNORECASE), "openai"),
     (re.compile(r"anthropic\.com", re.IGNORECASE), "anthropic"),
     (re.compile(r"kimi\.(com|ai)", re.IGNORECASE), "kimi"),
+    (re.compile(r"minimax\.io|minimaxi\.com", re.IGNORECASE), "minimax"),
     (re.compile(r"localhost|127\.0\.0\.1|host\.docker\.internal|:11434", re.IGNORECASE), "ollama"),
 ]
 
@@ -113,6 +120,7 @@ _MODEL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^claude-", re.IGNORECASE), "anthropic"),
     (re.compile(r"^gpt-|^o[134]-", re.IGNORECASE), "openai"),
     (re.compile(r"^kimi-", re.IGNORECASE), "kimi"),
+    (re.compile(r"^minimax-", re.IGNORECASE), "minimax"),
     (re.compile(r"^llama|^mistral|^phi-|^gemma", re.IGNORECASE), "ollama"),
 ]
 
