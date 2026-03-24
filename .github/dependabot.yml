@@ -9,6 +9,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    commit-message:
+      prefix: "chore(deps)"
     labels:
       - "dependencies"
       - "python"
@@ -27,6 +29,9 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
     labels:
       - "dependencies"
       - "javascript"
@@ -44,6 +49,8 @@ updates:
     directory: "/backend"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore(docker)"
     labels:
       - "dependencies"
       - "type: infrastructure"
@@ -54,6 +61,8 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore(docker)"
     labels:
       - "dependencies"
       - "type: infrastructure"
@@ -64,6 +73,8 @@ updates:
     directory: "/sandbox"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore(docker)"
     labels:
       - "dependencies"
       - "type: infrastructure"
@@ -75,6 +86,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore(ci)"
     labels:
       - "dependencies"
       - "ci/cd"
