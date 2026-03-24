@@ -224,10 +224,7 @@ class TestBrowseTopResultsResilience:
         # Should keep trying all candidates instead of stopping after 2 failures.
         # navigate_for_display is called once per candidate URL; the about:blank
         # cleanup is NOT reached because all navigations failed.
-        real_calls = [
-            c for c in search_tool._browser.navigate_for_display.call_args_list
-            if c.args[0] != "about:blank"
-        ]
+        real_calls = [c for c in search_tool._browser.navigate_for_display.call_args_list if c.args[0] != "about:blank"]
         assert len(real_calls) == 5
 
     @pytest.mark.asyncio
@@ -250,10 +247,7 @@ class TestBrowseTopResultsResilience:
         await search_tool._browse_top_results(search_data, count=3)
 
         # 3 result navigations + 1 about:blank cleanup (from successful first nav)
-        real_calls = [
-            c for c in search_tool._browser.navigate_for_display.call_args_list
-            if c.args[0] != "about:blank"
-        ]
+        real_calls = [c for c in search_tool._browser.navigate_for_display.call_args_list if c.args[0] != "about:blank"]
         assert len(real_calls) == 3
 
     @pytest.mark.asyncio
@@ -304,10 +298,7 @@ class TestBrowseTopResultsResilience:
 
         # First call navigates to the real URL + about:blank cleanup.
         # Second call should skip entirely (URL already previewed).
-        real_calls = [
-            c for c in search_tool._browser.navigate_for_display.call_args_list
-            if c.args[0] != "about:blank"
-        ]
+        real_calls = [c for c in search_tool._browser.navigate_for_display.call_args_list if c.args[0] != "about:blank"]
         assert len(real_calls) == 1
 
 
