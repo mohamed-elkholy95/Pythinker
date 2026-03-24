@@ -739,11 +739,26 @@ class AgentDomainService:
                     saw_wait_event = True
                     break
 
-            # If the main loop didn't consume events (e.g. task finished before
-            # the loop started — a fast error/completion race), drain any
-            # remaining events from the output stream so they aren't lost.
-            if not received_events and task is not None:
-                logger.debug(f"Session {session_id}: task done before event loop; draining remaining events")
+            # Drain remaining events from the output stream when the main loop
+            # exited without seeing a terminal event.  Two scenarios:
+            #  (a) task finished before the loop consumed any events
+            #  (b) task finished DURING the loop — we read partial events but
+            #      the DoneEvent/ErrorEvent is still queued (race between
+            #      task.done check and output_stream.put on the runner side)
+            _need_drain = (
+                task is not None
+                and terminal_status is None
+                and not saw_wait_event
+                and (not received_events or (received_events and task.done))
+            )
+            if _need_drain:
+                _drain_reason = "pre-event" if not received_events else "post-partial"
+                logger.debug(
+                    "Session %s: draining output stream (%s, task.done=%s)",
+                    session_id,
+                    _drain_reason,
+                    task.done if task else "N/A",
+                )
                 while True:
                     event_id, event_str = await task.output_stream.get(
                         start_id=latest_event_id,
