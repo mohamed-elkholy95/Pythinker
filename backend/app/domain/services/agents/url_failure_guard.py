@@ -146,7 +146,9 @@ class UrlFailureGuard:
             except Exception:
                 domain = ""
             if domain and self._domain_failures.get(domain, 0) >= self._domain_block_threshold:
-                logger.info("URL blocked by domain-level failure: %s (%d URLs failed)", domain, self._domain_failures[domain])
+                logger.info(
+                    "URL blocked by domain-level failure: %s (%d URLs failed)", domain, self._domain_failures[domain]
+                )
                 return GuardDecision(
                     action="block",
                     tier=3,
