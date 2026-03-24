@@ -234,6 +234,16 @@ class BrowserSettingsMixin:
     browser_block_resources_default: bool = True  # Enable resource blocking by default
     browser_blocked_resource_types: str = "media,font"  # Comma-separated (images allowed)
 
+    # Browser Page Lifecycle Management
+    # Caps open Playwright pages to prevent unbounded Chromium renderer process accumulation.
+    # Each cross-origin navigation spawns a new renderer (~140-390 MiB); without eviction,
+    # a single research task can accumulate 12+ renderers consuming 3+ GiB.
+    browser_page_eviction_enabled: bool = True  # Master toggle for page lifecycle manager
+    browser_max_pages: int = 3  # Hard ceiling: 1 active + 2 buffer (popups, browser-use)
+    browser_page_idle_ttl_seconds: int = 120  # Close pages inactive beyond this TTL
+    browser_page_idle_check_interval_seconds: int = 30  # How often the idle-check loop runs
+    browser_preview_cleanup_enabled: bool = True  # Navigate to about:blank after background preview
+
     # Chrome on-demand lifecycle (sandbox-side feature)
     # When enabled, backend calls /api/v1/browser/ensure before browser operations
     chrome_on_demand: bool = True
