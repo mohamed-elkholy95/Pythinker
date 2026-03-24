@@ -1612,7 +1612,10 @@ class PlanActFlow(BaseFlow):
             # "look up benchmark data", not "run a benchmark script".
             # Mapping it to exec_tools caused false-positive audit failures
             # on cross-validation steps that mention benchmark comparisons.
-            "test": _exec_tools,
+            # NOTE: "test" removed — too ambiguous. "DMV permit test",
+            # "benchmark test results", "test scores" are all research contexts.
+            # Only explicit "run tests" or "execute test" should map to exec tools,
+            # but those are caught by "run" and "execute" already.
             "write": _write_tools,
             "create": _write_tools,
             "read": _read_tools,
@@ -1660,7 +1663,7 @@ class PlanActFlow(BaseFlow):
 
         desc_lower = step.description.lower()
         exec_tools = cls._step_action_tool_map()["execute"]
-        exec_verbs = {"execute", "run", "test"}
+        exec_verbs = {"execute", "run"}
         has_exec_verb = any(re.search(rf"\b{re.escape(verb)}\b", desc_lower) for verb in exec_verbs)
         did_write = bool(tools_used & {"file_write", "file_create", "file"})
         did_exec = bool(tools_used & exec_tools)
