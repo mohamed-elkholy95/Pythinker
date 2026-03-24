@@ -131,18 +131,84 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
     from dataclasses import dataclass as _dataclass
     from dataclasses import field as _dc_field
 
+    # -- Thin wrapper around AsyncOpenAI to strip <think> tags from LLM
+    #    responses *before* browser-use's structured-output parser runs.
+    #    This is necessary because browser-use's ChatOpenAI.ainvoke() calls
+    #    `output_format.model_validate_json(choice.message.content)` internally,
+    #    so our post-hoc sanitisation via _sanitize_response never gets to run
+    #    when a model (e.g. MiniMax-M2.7) wraps JSON in reasoning tags.
+
+    _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+    class _ThinkStrippingCompletions:
+        """Proxies ``chat.completions`` and strips ``<think>`` blocks."""
+
+        __slots__ = ("_inner",)
+
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+
+        async def create(self, **kwargs: Any) -> Any:
+            response = await self._inner.create(**kwargs)
+            for choice in getattr(response, "choices", ()):
+                msg = getattr(choice, "message", None)
+                if msg and isinstance(getattr(msg, "content", None), str):
+                    original = msg.content
+                    stripped = _THINK_TAG_RE.sub("", original).strip()
+                    if stripped != original:
+                        msg.content = stripped
+                        logger.debug(
+                            "Stripped <think> block (%d chars) from LLM response",
+                            len(original) - len(stripped),
+                        )
+            return response
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
+    class _ThinkStrippingChat:
+        """Proxies ``client.chat`` with think-stripping completions."""
+
+        __slots__ = ("_inner", "completions")
+
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+            self.completions = _ThinkStrippingCompletions(inner.completions)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
+    class _ThinkStrippingClient:
+        """Thin proxy around ``AsyncOpenAI`` that strips ``<think>`` tags."""
+
+        __slots__ = ("_inner", "chat")
+
+        def __init__(self, inner: Any) -> None:
+            self._inner = inner
+            self.chat = _ThinkStrippingChat(inner.chat)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
     @_dataclass
     class SanitizedChatOpenAI(ChatOpenAI):
         """ChatOpenAI wrapper with JSON sanitisation and provider compatibility.
 
-        Extends browser-use's ``ChatOpenAI`` (a ``@dataclass``) with two
+        Extends browser-use's ``ChatOpenAI`` (a ``@dataclass``) with three
         concerns:
 
-        1. **JSON sanitisation** — intercepts responses and extracts the first
-           valid JSON object so that models returning trailing characters or
-           multiple objects don't break browser-use's parser.
+        1. **Think-tag stripping** (client-level) — wraps the ``AsyncOpenAI``
+           client returned by ``get_client()`` so that ``<think>...</think>``
+           reasoning blocks emitted by models like MiniMax-M2.7 are removed
+           from ``choice.message.content`` *before* browser-use's internal
+           ``model_validate_json`` call.  This fixes 100 % JSON-parse failure
+           rates when such models are used.
 
-        2. **Provider compatibility** (``compat_mode``) — when the LLM endpoint
+        2. **JSON sanitisation** (response-level) — intercepts ``ainvoke`` /
+           ``invoke`` results and extracts the first valid JSON object so that
+           trailing characters or multiple objects don't break the caller.
+
+        3. **Provider compatibility** (``compat_mode``) — when the LLM endpoint
            is *not* native OpenAI (GLM, Kimi, DeepSeek, OpenRouter, Ollama …),
            automatically configures browser-use's built-in flags to avoid
            sending OpenAI-specific parameters that those providers reject:
@@ -175,6 +241,15 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
                     "SanitizedChatOpenAI compat_mode enabled — "
                     "disabled response_format, frequency_penalty, max_completion_tokens"
                 )
+
+        # -- Client-level interception ------------------------------------
+
+        def get_client(self) -> Any:
+            """Return a wrapped AsyncOpenAI client that strips <think> tags."""
+            raw_client = super().get_client()
+            return _ThinkStrippingClient(raw_client)
+
+        # -- Response-level sanitisation ----------------------------------
 
         def _sanitize_response(self, response: Any) -> Any:
             """Sanitize a response object by cleaning its content.
