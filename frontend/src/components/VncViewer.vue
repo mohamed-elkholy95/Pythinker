@@ -77,6 +77,7 @@ const error = ref<string | null>(null)
 
 let rfb: RFBInstance | null = null
 let RFBClass: RFBConstructor | null = null
+let hasConnectedOnce = false
 
 async function loadRFB(): Promise<RFBConstructor> {
   if (RFBClass) return RFBClass
@@ -96,6 +97,7 @@ async function connect() {
 
   isConnecting.value = true
   error.value = null
+  hasConnectedOnce = false
 
   try {
     const wsUrl = await getVncUrl(props.sessionId)
@@ -143,6 +145,7 @@ function disconnect() {
 
 function handleConnect() {
   isConnecting.value = false
+  hasConnectedOnce = true
   error.value = null
   emit('connected')
 }
@@ -150,10 +153,19 @@ function handleConnect() {
 function handleDisconnect(e: unknown) {
   isConnecting.value = false
   const detail = (e as { detail?: { clean?: boolean } })?.detail
-  const reason = detail?.clean ? 'Clean disconnect' : 'Connection lost'
   rfb = null
 
-  if (!detail?.clean && props.enabled) {
+  if (detail?.clean) {
+    emit('disconnected', 'Clean disconnect')
+    return
+  }
+
+  // If we never connected, VNC is likely not running in the sandbox
+  const reason = hasConnectedOnce
+    ? 'Connection lost'
+    : 'VNC is not available in the sandbox. Set ENABLE_VNC=1 and restart the sandbox.'
+
+  if (props.enabled) {
     error.value = reason
   }
   emit('disconnected', reason)
