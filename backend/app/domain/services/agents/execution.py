@@ -602,6 +602,23 @@ class ExecutionAgent(BaseAgent):
                 "</citation_policy>"
             )
 
+        # Source-grounding constraint for report/deliverable steps.
+        # Prevents the LLM from fabricating data when composing final output.
+        # Triggered when the step description indicates writing a report, summary,
+        # comparison, or deliverable.
+        _step_desc_lower = step.description.lower()
+        _report_keywords = {"write", "report", "compile", "compose", "summarize", "comparison", "deliverable", "draft"}
+        if any(kw in _step_desc_lower for kw in _report_keywords):
+            base_prompt += (
+                "\n\n<source_grounding>"
+                "CRITICAL: When writing your output, ONLY include facts, statistics, features, "
+                "and pricing that you found in your search results and tool outputs during this session. "
+                "Do NOT invent, fabricate, or guess any data. If specific information was not found "
+                "in your research, explicitly state 'information not confirmed in available sources' "
+                "rather than guessing. Accuracy is more important than completeness."
+                "</source_grounding>"
+            )
+
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():
             execution_message = self._prompt_adapter.adapt_prompt(base_prompt)
@@ -1904,6 +1921,10 @@ class ExecutionAgent(BaseAgent):
                 )
                 message_content = self._clean_report_content(self._pre_trim_report_cache)
 
+            # Layer 2: Richness fallback — if the LLM produced a shallow summary
+            # but the pre-trim cache contains a much richer report, prefer the cache.
+            message_content = self._richness_fallback(message_content, self._pre_trim_report_cache)
+
             # Emit final report/message event
             is_substantial = len(message_content) > 500
             has_title = bool(message_title)
@@ -2105,14 +2126,17 @@ class ExecutionAgent(BaseAgent):
         all_steps_completed: bool,
         delivery_channel: str | None = None,
     ) -> bool:
-        """Return whether the cached draft can bypass the summarize LLM call."""
+        """Return whether the cached draft can bypass the summarize LLM call.
+
+        Previously restricted to Telegram-only; now any channel can use the
+        pre-trim cache when all quality gates pass.  The coverage validator
+        and delivery integrity gate already enforce structural quality.
+        """
         pretrim_report = self._pre_trim_report_cache or ""
         pretrim_report_stripped = pretrim_report.strip()
         if not pretrim_report_stripped:
             return False
         if not all_steps_completed:
-            return False
-        if (delivery_channel or "").strip().lower() != "telegram":
             return False
         if len(pretrim_report_stripped) < self.MIN_DIRECT_DELIVERY_REPORT_LENGTH:
             return False
@@ -2211,6 +2235,35 @@ class ExecutionAgent(BaseAgent):
         _FUNCTION_CALL_RE,
         _TOOL_CALL_RE,
     )
+
+    def _richness_fallback(
+        self,
+        llm_content: str,
+        pre_trim_cache: str | None,
+    ) -> str:
+        """Prefer the pre-trim cache when the LLM output is significantly shorter.
+
+        Returns the richer content (cache or llm_content).  The cache must be
+        at least 2.5x longer AND at least 2000 characters to qualify — this
+        prevents replacing a good summary with a tiny or partial cache.
+        """
+        if not pre_trim_cache:
+            return llm_content
+
+        cache_len = len(pre_trim_cache.strip())
+        llm_len = len(llm_content.strip()) or 1  # avoid division by zero
+
+        if cache_len >= 2000 and cache_len >= llm_len * 2.5:
+            logger.info(
+                "Richness fallback: pre-trim cache (%d chars) is %.1fx longer "
+                "than LLM summary (%d chars) — substituting cached report",
+                cache_len,
+                cache_len / llm_len,
+                llm_len,
+            )
+            return pre_trim_cache
+
+        return llm_content
 
     def _is_meta_commentary(self, content: str) -> bool:
         """Detect meta-commentary (delegated to ResponseGenerator)."""

@@ -821,11 +821,30 @@ class ResponseGenerator:
     # ── Quality Detection ──────────────────────────────────────────────
 
     def is_meta_commentary(self, content: str) -> bool:
-        """Detect when the LLM produced meta-commentary instead of actual content."""
+        """Detect when the LLM produced meta-commentary instead of actual content.
+
+        Also catches short summaries that merely reference an artifact file
+        (e.g. "See the full report in `guide.md`") without containing the
+        actual report body — these are deferral responses, not deliverables.
+        """
         if not content:
             return False
         probe = content if len(content) <= 6000 else f"{content[:2000]}\n{content[-3000:]}"
-        return bool(_META_COMMENTARY_RE.search(probe))
+        if _META_COMMENTARY_RE.search(probe):
+            return True
+
+        # Layer 3: Detect artifact-referencing deferral summaries.
+        # If the content is short (<3000 chars) and contains a backtick-quoted
+        # filename reference pattern, the LLM deferred to the file instead of
+        # embedding the content.  Long reports (>=3000 chars) that happen to
+        # mention an artifact are genuine and should not be flagged.
+        return len(content) < 3000 and bool(
+            re.search(
+                r"(?:See|see|check|refer to|available in|full (?:report|guide|details?) in)\s+"
+                r"(?:the )?(?:full (?:report|guide|details?) in\s+)?`[^`]+\.(?:md|txt|pdf|html)`",
+                content,
+            )
+        )
 
     def is_low_quality_summary(self, content: str, research_depth: str = "STANDARD") -> bool:
         """Structural quality gate for summarization output.
