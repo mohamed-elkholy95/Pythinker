@@ -309,7 +309,7 @@ services:
   # MongoDB
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0.28
+    image: mongo:7.0.31
     command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
@@ -428,7 +428,7 @@ services:
   # Qdrant (Vector database)
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.16.3
+    image: qdrant/qdrant:v1.17.0
     container_name: pythinker-qdrant
     mem_limit: 1g
     ports:

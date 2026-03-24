@@ -231,7 +231,7 @@ services:
   # MongoDB (Single-node Replica Set for oplog/change streams)
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0.28
+    image: mongo:7.0.31
     container_name: pythinker-mongodb
     command:
       - mongod
@@ -338,7 +338,7 @@ services:
   # Qdrant (Vector search with gRPC)
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.16.3
+    image: qdrant/qdrant:v1.17.0
     container_name: pythinker-qdrant
     volumes:
       - qdrant_data:/qdrant/storage
