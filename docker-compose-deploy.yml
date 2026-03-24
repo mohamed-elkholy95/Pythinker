@@ -271,7 +271,7 @@ services:
   # MongoDB Keyfile Init — Generate auth keyfile for replica set (one-shot)
   # ---------------------------------------------------------------------------
   mongodb-keyfile-init:
-    image: mongo:7.0.28
+    image: mongo:7.0.31
     entrypoint: /bin/bash
     command:
       - -c
@@ -294,7 +294,7 @@ services:
   # MongoDB — Single-Node Replica Set (for oplog/change streams)
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0.28
+    image: mongo:7.0.31
     hostname: pythinker-mongodb
     restart: always
     depends_on:
@@ -407,7 +407,7 @@ services:
   # Qdrant — Vector Search with gRPC
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.16.3
+    image: qdrant/qdrant:v1.17.0
     hostname: pythinker-qdrant
     restart: always
     volumes:
