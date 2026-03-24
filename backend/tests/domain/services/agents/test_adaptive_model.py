@@ -123,21 +123,29 @@ class TestExecutionAgentModelSelection:
     @patch("app.domain.services.agents.execution._metrics")
     def test_select_model_returns_model_name(self, mock_metrics, mock_get_settings):
         """_select_model_for_step returns a model name string."""
+        import app.domain.services.agents.model_router as mr_module
+
         from app.domain.services.agents.execution import ExecutionAgent
         from app.domain.services.agents.step_executor import StepExecutor
 
         mock_get_settings.return_value = _mock_settings()
 
-        agent = MagicMock(spec=ExecutionAgent)
-        agent._step_executor = StepExecutor(
-            context_manager=MagicMock(),
-            source_tracker=MagicMock(),
-            metrics=mock_metrics,
-        )
-        agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
-        agent._user_thinking_mode = None
-        agent.name = "execution"
+        # Reset ModelRouter singleton so it picks up mocked settings
+        saved_router = mr_module._model_router
+        mr_module._model_router = None
+        try:
+            agent = MagicMock(spec=ExecutionAgent)
+            agent._step_executor = StepExecutor(
+                context_manager=MagicMock(),
+                source_tracker=MagicMock(),
+                metrics=mock_metrics,
+            )
+            agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
+            agent._user_thinking_mode = None
+            agent.name = "execution"
 
-        result = agent._select_model_for_step("Check status")
-        assert isinstance(result, str)
-        assert result == "claude-haiku-4-5"
+            result = agent._select_model_for_step("Check status")
+            assert isinstance(result, str)
+            assert result == "claude-haiku-4-5"
+        finally:
+            mr_module._model_router = saved_router
