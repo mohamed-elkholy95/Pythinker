@@ -574,12 +574,21 @@ class ResponseGenerator:
                     issues.append("missing_references_section")
 
         # Graduated severity (design 4C)
+        # Also promote gate to "yellow" when hallucination verification was
+        # skipped (e.g. due to timeout) — the user should know the output
+        # was delivered without fact-checking.
+        severity_promoting_warnings = {
+            "hallucination_verification_skipped",
+            "hallucination_verification_ungrounded",
+        }
+        has_severity_promoting_warning = bool(severity_promoting_warnings & set(warnings))
+
         critical_count = (
             sum(1 for i in issues if i.get("severity") == "critical") if issues and isinstance(issues[0], dict) else 0
         )
         if critical_count > 0 or len(issues) >= 3:
             gate_severity = "red"
-        elif len(issues) > 0:
+        elif len(issues) > 0 or has_severity_promoting_warning:
             gate_severity = "yellow"
         else:
             gate_severity = "green"
