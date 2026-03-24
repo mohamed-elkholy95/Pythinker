@@ -1,9 +1,9 @@
 """
-Plotly Chart Orchestrator (Phase 4)
+Plotly Chart Orchestrator (Phase 5 — LLM-powered)
 
-Orchestrates comparison chart generation using the Plotly sandbox script.
-Reuses table detection logic from ComparisonChartGenerator and runs
-the Plotly chart generator script in the sandbox.
+Uses a single LLM structured call to decide whether a chart is appropriate
+for a report and extract properly typed, comparable data points.
+Replaces the legacy heuristic pipeline (regex + table parsing).
 """
 
 from __future__ import annotations
@@ -14,16 +14,91 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-from app.domain.external.sandbox import Sandbox
-from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
+from pydantic import BaseModel, Field
+
 from app.domain.utils.text import extract_json_from_shell_output
+
+if TYPE_CHECKING:
+    from app.domain.external.llm import LLM
+    from app.domain.external.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)
 
 # Sandbox venv python path (plotly is installed in the runtime venv)
 _VENV_PYTHON = "/opt/base-python-venv/bin/python3"
 _CHART_SCRIPT = "/app/scripts/generate_comparison_chart_plotly.py"
+
+# Maximum report length sent to LLM for chart analysis (tokens ≈ chars / 4)
+_MAX_ANALYSIS_CONTENT = 12000
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schema for LLM chart decision
+# ---------------------------------------------------------------------------
+
+
+class ChartAnalysisResult(BaseModel):
+    """LLM-generated chart decision and data specification.
+
+    When should_generate is False, all other fields are optional/empty.
+    When True, chart_type/title/metric_name/points must be populated.
+    """
+
+    should_generate: bool = Field(description="Whether a meaningful chart can be generated from this report.")
+    chart_type: str | None = Field(
+        default=None,
+        description="Chart type: 'bar', 'line', 'pie', or 'grouped_bar'. Only when should_generate=True.",
+    )
+    title: str | None = Field(
+        default=None,
+        description="Chart title. Only when should_generate=True.",
+    )
+    metric_name: str | None = Field(
+        default=None,
+        description="Name of the metric being charted (e.g. 'Latency (ms)', 'Price ($)'). Only when should_generate=True.",
+    )
+    lower_is_better: bool = Field(
+        default=False,
+        description="True if lower values are better (e.g. latency, cost, fees).",
+    )
+    points: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Data points: [{label: str, value: float, display_value?: str}, ...]. Only when should_generate=True.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Brief explanation of the decision (for logging/debugging).",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chart analysis prompt
+# ---------------------------------------------------------------------------
+
+_CHART_ANALYSIS_PROMPT = """\
+Analyze this report and decide if a meaningful data visualization chart should be generated.
+
+GENERATE a chart when:
+- The report COMPARES 2+ distinct items on the SAME numeric metric (e.g., latencies, prices, scores, ratings)
+- Values are directly comparable on a single axis with one unit
+- A bar chart would help the reader understand relative differences at a glance
+
+DO NOT generate a chart when:
+- The report is a guide, tutorial, how-to, or qualitative overview
+- The data lists features/specs of a SINGLE product (e.g., one credit card's fee + rewards + bonus — these are different attributes, not comparable items)
+- Values have incompatible units (e.g., "$0 fee" vs "3% cash back" vs "None")
+- Numbers are citation references like [23], page numbers, or IDs — NOT data
+- There are fewer than 2 comparable numeric data points
+- The table is informational (test format, eligibility docs, study tips) rather than a ranking or benchmark
+
+If should_generate is True:
+- Extract ONLY genuinely numeric, comparable data points on the SAME metric
+- Each point needs: label (item name), value (number), optional display_value (formatted string)
+- Set lower_is_better=True for metrics where low values are desirable (fees, latency, cost, error rate, price)
+- Choose chart_type: "bar" for rankings/comparisons, "line" for time series, "pie" for part-of-whole (max 7 slices)
+- Limit to 8 data points maximum (pick the most important if more exist)"""
 
 
 @dataclass(frozen=True)
@@ -40,25 +115,26 @@ class PlotlyChartResult:
 
 
 class PlotlyChartOrchestrator:
-    """Orchestrates Plotly chart generation in the sandbox.
+    """LLM-powered Plotly chart orchestrator.
 
-    Uses the sandbox ``exec_command`` API to:
-    1. Write the chart specification JSON to a temporary file in the sandbox.
-    2. Execute the Plotly generation script piping that file as stdin.
-    3. Parse the JSON result from the script's stdout.
+    1. Asks the LLM to analyze the report and produce a chart spec.
+    2. Writes the spec as JSON to the sandbox.
+    3. Executes the Plotly generation script.
+    4. Parses the result.
+
+    When no LLM is provided (e.g., in tests or degraded mode),
+    generate_chart() returns None — no chart is generated.
     """
 
-    def __init__(self, sandbox: Sandbox, session_id: str):
-        """Initialize orchestrator.
-
-        Args:
-            sandbox: Sandbox instance for running chart generation script
-            session_id: Session ID for sandbox command execution
-        """
+    def __init__(
+        self,
+        sandbox: Sandbox,
+        session_id: str,
+        llm: LLM | None = None,
+    ):
         self._sandbox = sandbox
         self._session_id = session_id
-        # Reuse existing table detection logic
-        self._legacy_generator = ComparisonChartGenerator()
+        self._llm = llm
 
     async def generate_chart(
         self,
@@ -68,67 +144,116 @@ class PlotlyChartOrchestrator:
         *,
         force_generation: bool = False,
     ) -> PlotlyChartResult | None:
-        """Generate Plotly chart from report markdown if it contains comparison data.
+        """Generate Plotly chart from report markdown via LLM analysis.
 
-        Args:
-            report_title: Report title
-            markdown_content: Markdown content to analyze
-            report_id: Report event ID (for filename)
-            force_generation: Force generation even if not detected as comparison
-
-        Returns:
-            PlotlyChartResult if chart was generated, None otherwise
+        Returns None when no LLM is available, when the LLM decides a chart
+        is not appropriate, or when generation fails.
         """
         if not markdown_content.strip():
             return None
 
-        # Reuse legacy table extraction logic
-        tables = self._legacy_generator._extract_tables(markdown_content)
-        if not tables:
-            logger.debug("No tables found in report markdown")
+        if self._llm is None:
+            logger.debug("No LLM available for chart analysis, skipping chart generation")
             return None
 
-        best_table = self._legacy_generator._select_best_table(tables)
-        if best_table is None:
-            logger.debug("No suitable table found for chart generation")
+        spec = await self._analyze_with_llm(report_title, markdown_content, force=force_generation)
+        if spec is None:
             return None
 
-        # Check if this is a comparison context (unless forced)
-        if not force_generation and not self._legacy_generator._is_comparison_context(
-            report_title, markdown_content, best_table
-        ):
-            logger.debug("Report does not appear to be a comparison (no force flag)")
+        if not spec.should_generate:
+            logger.info(
+                "LLM chart analysis: skip (reason: %s)",
+                spec.reason or "not chartable",
+            )
             return None
 
-        # Try to build numeric chart spec (bar chart)
-        numeric_spec = self._legacy_generator._build_numeric_chart_spec(best_table, report_title)
-        if numeric_spec is None:
-            logger.warning("Could not extract numeric data from comparison table")
+        if not spec.points or len(spec.points) < 2:
+            logger.info("LLM chart analysis: should_generate=True but <2 points, skipping")
             return None
 
-        # Build JSON payload for sandbox script
-        # Create simple filename from title (slugified)
+        return await self._execute_chart(spec, report_title, report_id)
+
+    # ------------------------------------------------------------------
+    # LLM analysis
+    # ------------------------------------------------------------------
+
+    async def _analyze_with_llm(
+        self, report_title: str, markdown_content: str, *, force: bool = False
+    ) -> ChartAnalysisResult | None:
+        """Ask the LLM whether a chart is appropriate and what data to chart."""
+        try:
+            content = markdown_content
+            if len(content) > _MAX_ANALYSIS_CONTENT:
+                content = content[:_MAX_ANALYSIS_CONTENT] + "\n\n[... content truncated for analysis ...]"
+
+            system = _CHART_ANALYSIS_PROMPT
+            if force:
+                system += (
+                    "\n\nIMPORTANT: The user has explicitly requested a chart. "
+                    "Try harder to find chartable data. If there are ANY numeric "
+                    "values that can be meaningfully compared, generate a chart."
+                )
+
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Report title: {report_title}\n\n{content}"},
+            ]
+
+            result = await self._llm.ask_structured(
+                messages=messages,
+                response_model=ChartAnalysisResult,
+                max_tokens=1024,
+                temperature=0.1,
+            )
+            logger.info(
+                "LLM chart analysis complete: should_generate=%s, chart_type=%s, points=%d, reason=%s",
+                result.should_generate,
+                result.chart_type,
+                len(result.points),
+                result.reason or "-",
+            )
+            return result
+
+        except Exception:
+            logger.warning("LLM chart analysis failed", exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Sandbox execution
+    # ------------------------------------------------------------------
+
+    async def _execute_chart(
+        self,
+        spec: ChartAnalysisResult,
+        report_title: str,
+        report_id: str,
+    ) -> PlotlyChartResult | None:
+        """Execute the Plotly chart script in the sandbox from an LLM-produced spec."""
         simple_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in report_title[:50].lower())
         simple_name = simple_name.strip("_") or "chart"
-
-        # Use /workspace as the chart output directory — it is always within the allowed
-        # sandbox path policy (/home/ubuntu, /workspace) and avoids transient
-        # /home/ubuntu path-traversal rejections seen in production (HTTP 400).
         chart_dir = "/workspace"
+
+        points = []
+        for p in spec.points:
+            point = {"label": str(p.get("label", "")), "value": float(p.get("value", 0))}
+            point["display_value"] = str(p.get("display_value", point["value"]))
+            points.append(point)
+
         script_input = {
-            "title": numeric_spec.title,
-            "metric_name": numeric_spec.metric_name,
-            "lower_is_better": numeric_spec.lower_is_better,
-            "points": [
-                {"label": p.label, "value": p.value, "display_value": p.display_value} for p in numeric_spec.points
-            ],
+            "title": spec.title or report_title,
+            "metric_name": spec.metric_name or "Value",
+            "lower_is_better": spec.lower_is_better,
+            "points": points,
             "output_html": f"{chart_dir}/{simple_name}.html",
             "output_png": f"{chart_dir}/{simple_name}.png",
         }
 
-        # Run Plotly chart generator script in sandbox
+        return await self._run_sandbox_script(script_input, spec.metric_name)
+
+    async def _run_sandbox_script(self, script_input: dict, metric_name: str | None) -> PlotlyChartResult | None:
+        """Write input JSON, execute Plotly script, parse result."""
+        chart_dir = "/workspace"
         try:
-            # Write chart input JSON to a temp file in the sandbox
             tmp_input = f"{chart_dir}/plotly_input_{uuid.uuid4().hex[:8]}.json"
             write_result = await self._sandbox.file_write(
                 file=tmp_input,
@@ -138,7 +263,6 @@ class PlotlyChartOrchestrator:
                 logger.error("Failed to write Plotly input to sandbox: %s", write_result.message)
                 return None
 
-            # Execute the chart generation script, piping the temp file as stdin
             command = f"{_VENV_PYTHON} {_CHART_SCRIPT} < {tmp_input}"
             result = await self._sandbox.exec_command(
                 session_id=self._session_id,
@@ -148,44 +272,39 @@ class PlotlyChartOrchestrator:
 
             if not result.success:
                 logger.error("Plotly chart generation script failed: %s", result.message)
-                # Clean up temp file (best-effort)
                 with contextlib.suppress(Exception):
                     await self._sandbox.file_delete(path=tmp_input)
                 return None
 
-            # If the process is still running, wait for it to complete
+            # Handle async completion
             exec_status = result.data.get("status") if isinstance(result.data, dict) else None
             if exec_status == "running":
                 logger.debug("Plotly script still running — waiting up to 30s")
                 with contextlib.suppress(Exception):
                     await self._sandbox.wait_for_process(session_id=self._session_id, seconds=30)
-                # Fetch output via view_shell after waiting
                 with contextlib.suppress(Exception):
-                    view_result = await self._sandbox.exec_command(
-                        session_id=self._session_id,
-                        exec_dir="/home/ubuntu",
-                        command="true",  # no-op — retrieves buffered output
-                    )
-                    result = view_result
-
-            # If completed but output is empty, do a short retry
-            if isinstance(result.data, dict) and not result.data.get("output", "").strip():
-                logger.debug("Plotly script output empty — retrying after 0.5s")
-                await asyncio.sleep(0.5)
-                with contextlib.suppress(Exception):
-                    retry_result = await self._sandbox.exec_command(
+                    result = await self._sandbox.exec_command(
                         session_id=self._session_id,
                         exec_dir="/home/ubuntu",
                         command="true",
                     )
-                    result = retry_result
 
-            # Clean up temp file after output is captured (best-effort)
+            # Retry on empty output
+            if isinstance(result.data, dict) and not result.data.get("output", "").strip():
+                logger.debug("Plotly script output empty — retrying after 0.5s")
+                await asyncio.sleep(0.5)
+                with contextlib.suppress(Exception):
+                    result = await self._sandbox.exec_command(
+                        session_id=self._session_id,
+                        exec_dir="/home/ubuntu",
+                        command="true",
+                    )
+
+            # Clean up temp file
             with contextlib.suppress(Exception):
                 await self._sandbox.file_delete(path=tmp_input)
 
-            # Parse JSON output from script stdout
-            # Sandbox API returns data as dict with "output" key
+            # Parse output
             if isinstance(result.data, dict):
                 raw_output = result.data.get("output", "")
             elif isinstance(result.data, str):
@@ -210,7 +329,7 @@ class PlotlyChartOrchestrator:
                 html_size=output["html_size"],
                 png_size=output["png_size"],
                 data_points=output["data_points"],
-                metric_name=numeric_spec.metric_name,
+                metric_name=metric_name,
                 chart_kind="bar",
             )
 
