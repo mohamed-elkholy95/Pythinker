@@ -2871,6 +2871,22 @@ class BaseAgent:
             await self._add_to_memory([nudge_message])
             self._efficiency_nudges.clear()
 
+        # Inject blocked-domains context from URL failure guard so the LLM
+        # stops wasting cycles on domains that have been confirmed unreliable.
+        # Only inject when the set of blocked domains changes (not every turn).
+        if self._url_failure_guard is not None:
+            _blocked_ctx = self._url_failure_guard.get_blocked_domains_context()
+            if _blocked_ctx:
+                _injected_set: set[str] = getattr(self, "_injected_blocked_domains", set())
+                _current_blocked = frozenset(
+                    d
+                    for d, c in self._url_failure_guard._domain_failures.items()
+                    if c >= self._url_failure_guard._domain_block_threshold
+                )
+                if _current_blocked != _injected_set:
+                    await self._add_to_memory([{"role": "user", "content": _blocked_ctx}])
+                    self._injected_blocked_domains = _current_blocked  # type: ignore[attr-defined]
+
         response_format = None
         if format:
             response_format = {"type": format}
