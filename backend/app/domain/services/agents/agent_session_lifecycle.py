@@ -12,7 +12,7 @@ from typing import Any
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.task import Task
 from app.domain.models.event import MessageEvent
-from app.domain.models.session import Session, SessionStatus, TakeoverState
+from app.domain.models.session import Session, SessionStatus, TakeoverReason, TakeoverState
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.browser_login_state_store import BrowserLoginStateStore
 
@@ -325,7 +325,7 @@ NOTE: The browser state may have changed. When you next use the browser:
             return result
         return False
 
-    async def start_takeover(self, session_id: str, reason: str = "manual") -> bool:
+    async def start_takeover(self, session_id: str, reason: str | TakeoverReason = TakeoverReason.MANUAL) -> bool:
         """Start browser takeover by pausing the agent first.
 
         Transitions: idle -> takeover_requested -> takeover_active
@@ -333,7 +333,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
         Args:
             session_id: Session ID to take over
-            reason: Reason for takeover (manual|captcha|login|2fa|payment|verification)
+            reason: Reason for takeover (TakeoverReason enum or string)
 
         Returns:
             bool: True if takeover started successfully
@@ -351,7 +351,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
         # Transition: idle -> takeover_requested
         session.takeover_state = TakeoverState.TAKEOVER_REQUESTED
-        session.takeover_reason = reason
+        session.takeover_reason = TakeoverReason(reason) if isinstance(reason, str) else reason
         await self._session_repository.save(session)
 
         # Attempt to pause the agent — must succeed before granting takeover

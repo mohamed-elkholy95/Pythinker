@@ -731,7 +731,7 @@ async def start_takeover(
     Pauses the agent first, then transitions to takeover_active state.
     Idempotent: returns current state if takeover already active.
     """
-    await agent_service.start_takeover(session_id, current_user.id, reason=request.reason or "manual")
+    await agent_service.start_takeover(session_id, current_user.id, reason=request.validated_reason)
     status = await agent_service.get_takeover_status(session_id, current_user.id)
     return APIResponse.success(
         TakeoverStatusResponse(

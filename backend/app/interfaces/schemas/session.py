@@ -8,7 +8,7 @@ from app.application.schemas.session import (
 from app.application.schemas.session import (
     ShellViewResponse as ApplicationShellViewResponse,
 )
-from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, SessionStatus, TakeoverReason
 from app.domain.models.source_citation import SourceCitation
 from app.interfaces.schemas.event import AgentSSEEvent
 
@@ -87,6 +87,16 @@ class TakeoverStartRequest(BaseModel):
     """Start takeover request schema"""
 
     reason: str | None = "manual"  # manual|captcha|login|2fa|payment|verification
+
+    @property
+    def validated_reason(self) -> TakeoverReason:
+        """Coerce the reason string to a TakeoverReason enum."""
+        if self.reason is None:
+            return TakeoverReason.MANUAL
+        try:
+            return TakeoverReason(self.reason.strip().lower())
+        except ValueError:
+            return TakeoverReason.MANUAL
 
 
 class TakeoverEndRequest(BaseModel):

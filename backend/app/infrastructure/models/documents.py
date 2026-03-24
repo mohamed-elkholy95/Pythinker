@@ -23,6 +23,7 @@ from app.domain.models.session import (
     ResearchMode,
     Session,
     SessionStatus,
+    TakeoverReason,
     TakeoverState,
     ThinkingLevel,
 )
@@ -252,7 +253,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
     takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
-    takeover_reason: str | None = None  # Reason for current takeover
+    takeover_reason: TakeoverReason | None = None  # Reason for current takeover
 
     # Telegram option commands (channel-level state, not runtime behavior)
     reasoning_visibility: ReasoningVisibility | None = None
