@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Circle, CheckCircle2, Loader2, AlertCircle, SkipForward } from 'lucide-vue-next'
+import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue'
 import type { PlanEventData } from '@/types/event'
 
 const props = defineProps<{
@@ -180,17 +181,7 @@ function getStepNumberClass(status: string): string {
 
     <!-- Thinking indicator — shown before plan steps arrive -->
     <div v-if="isStreaming && parsedSteps.length === 0" class="plan-streaming">
-      <div class="plan-streaming-content">
-        <div class="thinking-bulb">
-          <svg width="40" height="40" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path class="lamp-bulb" d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z" />
-            <rect class="lamp-base" x="10" y="26" width="12" height="2" rx="1" />
-            <rect class="lamp-base" x="11" y="29" width="10" height="1.5" rx=".75" />
-          </svg>
-        </div>
-        <h2 class="plan-streaming-title">Thinking</h2>
-        <p class="plan-streaming-subtitle">Analyzing your request</p>
-      </div>
+      <ThinkingIndicator :show-text="true" />
     </div>
   </div>
 </template>
@@ -310,47 +301,5 @@ function getStepNumberClass(status: string): string {
   align-items: center;
   justify-content: center;
   padding: 64px 0;
-}
-
-.plan-streaming-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.thinking-bulb {
-  line-height: 1;
-  animation: bulb-glow 2.5s ease-in-out infinite;
-}
-
-.thinking-bulb .lamp-bulb {
-  fill: var(--text-tertiary);
-  transition: fill 0.3s;
-}
-
-.thinking-bulb .lamp-base {
-  fill: var(--text-quaternary, var(--text-tertiary));
-  opacity: 0.5;
-}
-
-@keyframes bulb-glow {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.06); }
-}
-
-.plan-streaming-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-}
-
-.plan-streaming-subtitle {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin: 0;
 }
 </style>
