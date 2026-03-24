@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.application.errors.exceptions import NotFoundError
-from app.domain.models.session import SessionStatus
+from app.domain.models.session import SessionStatus, TakeoverReason
 from app.domain.repositories.session_repository import SessionRepository
 
 if TYPE_CHECKING:
@@ -193,7 +193,9 @@ class SessionLifecycleService:
             logger.info(f"Session {session_id} resumed successfully")
         return result
 
-    async def start_takeover(self, session_id: str, user_id: str, reason: str = "manual") -> bool:
+    async def start_takeover(
+        self, session_id: str, user_id: str, reason: str | TakeoverReason = TakeoverReason.MANUAL
+    ) -> bool:
         """Start browser takeover, ensuring session belongs to the user.
 
         Args:

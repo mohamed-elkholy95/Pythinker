@@ -235,6 +235,29 @@ class Session(BaseModel):
             return None
         return v.value if isinstance(v, SandboxLifecycleMode) else str(v)
 
+    @field_validator("takeover_reason", mode="before")
+    @classmethod
+    def _coerce_takeover_reason(cls, v: object) -> TakeoverReason | None:
+        """Coerce plain string values to the TakeoverReason enum (MongoDB returns raw strings)."""
+        if v is None:
+            return None
+        if isinstance(v, TakeoverReason):
+            return v
+        if isinstance(v, str):
+            try:
+                return TakeoverReason(v.strip().lower())
+            except ValueError:
+                return TakeoverReason.MANUAL
+        return TakeoverReason.MANUAL
+
+    @field_serializer("takeover_reason")
+    @classmethod
+    def _serialize_takeover_reason(cls, v: TakeoverReason | str | None) -> str | None:
+        """Serialize TakeoverReason enum to string to prevent PydanticSerializationUnexpectedValue."""
+        if v is None:
+            return None
+        return v.value if isinstance(v, TakeoverReason) else str(v)
+
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
         for event in reversed(self.events):
