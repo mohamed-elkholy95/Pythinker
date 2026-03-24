@@ -157,7 +157,7 @@ describe('useStreamingPresentationState', () => {
     state.dispose();
   });
 
-  it('shows "Creating plan..." headline while isPlanStreaming=true', async () => {
+  it('shows "Planning" headline while isPlanStreaming=true', async () => {
     const state = useStreamingPresentationState({
       isInitializing: false,
       isSummaryStreaming: false,
@@ -175,7 +175,7 @@ describe('useStreamingPresentationState', () => {
     });
 
     await nextTick();
-    expect(state.headline.value).toBe('Creating plan...');
+    expect(state.headline.value).toBe('Planning');
 
     state.dispose();
   });
