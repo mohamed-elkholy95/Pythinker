@@ -206,7 +206,7 @@
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
           <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
-            <ThinkingIndicator :showText="true" />
+            <ThinkingIndicator :showText="true" :label="planningProgress ? 'Planning' : 'Thinking'" />
           </div>
           <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep && !isToolPanelOpen && !hasActiveToolCall" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
 
@@ -3008,9 +3008,11 @@ const handlePlanEvent = (planData: PlanEventData) => {
   // The plan event only fires in agent mode (discuss mode has no planning phase).
   if (!hasShownProgressToast.value) {
     hasShownProgressToast.value = true;
+    const complexity = planningProgress.value?.complexityCategory;
+    const timeRange = complexity === 'simple' ? '3\u20136' : complexity === 'complex' ? '10\u201318' : '5\u201310';
     showProgressToast(
       t('Research in progress'),
-      t('Estimated time: 8\u201315 minutes. You can safely close this tab \u2014 the agent will continue working.')
+      t(`Estimated time: ${timeRange} minutes. You can safely close this tab \u2014 the agent will continue working.`)
     );
   }
 

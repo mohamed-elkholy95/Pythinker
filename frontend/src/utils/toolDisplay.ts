@@ -107,6 +107,17 @@ export function cleanDisplayText(value: string): string {
     .trim();
 }
 
+/**
+ * Strip non-ASCII characters from path-like or URL-like strings.
+ * Some LLM providers (e.g. MiniMax M2.7) inject CJK characters into
+ * tool call arguments meant to be file paths, URLs, or resource IDs,
+ * producing garbled display text like "ev保存://trs-162a26da4366".
+ */
+function sanitizePathLike(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[^\x00-\x7F]+/g, '').replace(/\/{3,}/g, '//').replace(/\s{2,}/g, ' ').trim();
+}
+
 function formatUrl(url: string, maxLength = 60): string {
   try {
     const u = new URL(url);
@@ -138,13 +149,18 @@ function formatResource(argKey: string, args?: Record<string, unknown>): string 
   if (!value) return '';
 
   if (argKey === 'file' || argKey === 'file_path' || argKey === 'path') {
+    value = sanitizePathLike(value);
     value = value.replace(/^\/home\/ubuntu\//, '');
     value = value.replace(/^\/Users\/[^/]+\//, '');
     return truncate(value, 70);
   }
 
   if (argKey === 'url') {
-    return formatUrl(value, 70);
+    return formatUrl(sanitizePathLike(value), 70);
+  }
+
+  if (argKey === 'uri') {
+    return truncate(sanitizePathLike(value), 70);
   }
 
   if (argKey === 'skill_name') {

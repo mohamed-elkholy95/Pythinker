@@ -1226,7 +1226,7 @@ const contentHeaderLabel = computed(() => {
     return 'Report';
   }
   if (showPlanPresentation.value) {
-    if (props.isPlanStreaming) return 'Thinking';
+    if (props.isPlanStreaming) return 'Planning';
     return 'Editor';
   }
   // Browser: no label — the live preview speaks for itself
