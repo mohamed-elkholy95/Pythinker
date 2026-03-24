@@ -569,18 +569,29 @@ export function initializeAuth(): void {
   }
 }
 
-// Auth status cache with in-flight promise deduplication
+// Auth status cache with in-flight promise deduplication and negative caching.
+// Negative cache prevents thundering-herd retries when the backend is down
+// (e.g. 7+ rapid ECONNREFUSED during uvicorn --reload restarts).
 let authStatusCache: AuthStatusResponse | null = null;
 let isAuthStatusLoaded = false;
 let pendingAuthStatusPromise: Promise<AuthStatusResponse | null> | null = null;
+let _lastFailureTime = 0;
+const _NEGATIVE_CACHE_TTL_MS = 5000; // 5 seconds between retry attempts on failure
 
 /**
  * Get auth status configuration (cached after first call).
  * Concurrent callers share a single in-flight request to avoid duplicate API calls.
+ * Failed requests are negatively cached for 5 seconds to prevent request storms
+ * during backend restarts.
  */
 export async function getCachedAuthStatus(): Promise<AuthStatusResponse | null> {
   if (isAuthStatusLoaded) {
     return authStatusCache;
+  }
+
+  // Negative cache: if we failed recently, return null without retrying
+  if (_lastFailureTime > 0 && Date.now() - _lastFailureTime < _NEGATIVE_CACHE_TTL_MS) {
+    return null;
   }
 
   if (pendingAuthStatusPromise) {
@@ -591,10 +602,12 @@ export async function getCachedAuthStatus(): Promise<AuthStatusResponse | null> 
     .then((authStatus) => {
       authStatusCache = authStatus;
       isAuthStatusLoaded = true;
+      _lastFailureTime = 0; // Clear negative cache on success
       return authStatusCache;
     })
     .catch((error) => {
       console.warn('Failed to load auth status configuration:', error);
+      _lastFailureTime = Date.now();
       return null;
     })
     .finally(() => {
