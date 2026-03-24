@@ -42,12 +42,11 @@
               />
               <span class="panel-report-activity-accent"></span>
             </span>
-            <PencilLine
+            <span
               v-else-if="showPlanActivityIcon"
-              :size="13"
-              class="flex-shrink-0 text-[var(--icon-secondary)]"
+              class="flex-shrink-0 text-[13px] leading-none"
               :class="{ 'animate-pulse': isPlanStreaming }"
-            />
+            >💡</span>
             <Loader2
               v-else-if="showActivitySpinner"
               :size="13"
@@ -573,7 +572,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
+import { MonitorUp, X, Loader2, FileText, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -1213,7 +1212,7 @@ const contentHeaderLabel = computed(() => {
     return 'Report';
   }
   if (showPlanPresentation.value) {
-    if (props.isPlanStreaming) return 'Creating plan...';
+    if (props.isPlanStreaming) return 'Thinking';
     return 'Editor';
   }
   // Browser: no label — the live preview speaks for itself
