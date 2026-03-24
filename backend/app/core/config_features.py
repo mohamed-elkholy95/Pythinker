@@ -422,7 +422,7 @@ class FeatureFlagsSettingsMixin:
     hallucination_grounding_context_deep: int = 48000  # Expanded context for DEEP research (raised from 32K)
     hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
     hallucination_verifier_timeout: float = (
-        30.0  # Seconds — shorter than main LLM timeout (verification is a side-task)
+        60.0  # Must exceed degraded-mode timeout margin; 30s caused silent skips
     )
     hallucination_max_claims: int = 25  # Cap extracted claims (raised from 20 for more thorough checking)
     reranker_provider: str = "jina"  # "jina" (API) or "none" (skip reranking)
