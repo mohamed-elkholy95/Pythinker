@@ -313,7 +313,7 @@ services:
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0.31
-    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.125"]
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
