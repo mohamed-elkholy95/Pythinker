@@ -613,7 +613,7 @@ import CanvasViewerModal from '@/components/canvas/CanvasViewerModal.vue'
 import { ArrowDown, FileSearch, Lock, Globe, Link, Check, MessageSquareText, GitBranch, Send, ChevronDown } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { getServerConfig, getSettings } from '@/api/settings';
-import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
+import { showErrorToast, showSuccessToast, showInfoToast, showProgressToast } from '../utils/toast';
 import { downloadFile, fileApi } from '../api/file';
 import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel'
@@ -822,6 +822,9 @@ const createInitialState = () => ({
 
 // Create reactive state
 const state = reactive(createInitialState());
+
+// Track whether we've shown the progress toast for the current session
+const hasShownProgressToast = ref(false);
 const activeHeaderModelName = ref('')
 
 // Destructure refs from reactive state
@@ -1799,6 +1802,7 @@ const resetState = () => {
 
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
+  hasShownProgressToast.value = false;
 };
 
 // Auto-scroll is handled by the v-auto-follow-scroll directive on SimpleBar.
@@ -2998,6 +3002,16 @@ const handleTitleEvent = (titleData: TitleEventData) => {
 
 // Handle plan event
 const handlePlanEvent = (planData: PlanEventData) => {
+  // Show progress toast once per session when agent starts working.
+  // The plan event only fires in agent mode (discuss mode has no planning phase).
+  if (!hasShownProgressToast.value) {
+    hasShownProgressToast.value = true;
+    showProgressToast(
+      t('Research in progress'),
+      t('Estimated time: 8\u201315 minutes. You can safely close this tab \u2014 the agent will continue working.')
+    );
+  }
+
   // Clear thinking text and planning progress when plan arrives
   const handoffComplexity = planningProgress.value?.complexityCategory;
   thinkingText.value = '';

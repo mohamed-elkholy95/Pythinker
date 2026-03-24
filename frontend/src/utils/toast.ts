@@ -3,10 +3,11 @@
  * Provide global Toast message notification functionality
  */
 
-type ToastType = 'error' | 'info' | 'success';
+type ToastType = 'error' | 'info' | 'success' | 'progress';
 
 interface ToastOptions {
   message: string;
+  title?: string;
   type?: ToastType;
   duration?: number;
 }
@@ -17,23 +18,24 @@ interface ToastOptions {
  */
 export function showToast(options: ToastOptions | string): void {
   let config: ToastOptions;
-  
+
   if (typeof options === 'string') {
     config = { message: options };
   } else {
     config = options;
   }
-  
+
   // Default configuration
   const detail = {
     message: config.message,
+    title: config.title,
     type: config.type || 'info',
     duration: config.duration === undefined ? 3000 : config.duration
   };
-  
+
   // Create custom event
   const event = new CustomEvent('toast', { detail });
-  
+
   // Trigger event
   window.dispatchEvent(event);
 }
@@ -51,6 +53,10 @@ export function showSuccessToast(message: string, duration?: number): void {
   showToast({ message, type: 'success', duration });
 }
 
+export function showProgressToast(title: string, message: string, duration?: number): void {
+  showToast({ title, message, type: 'progress', duration: duration ?? 8000 });
+}
+
 // To support non-Vue page calls, add to global window object
 declare global {
   interface Window {
@@ -59,6 +65,7 @@ declare global {
       error: typeof showErrorToast;
       info: typeof showInfoToast;
       success: typeof showSuccessToast;
+      progress: typeof showProgressToast;
     };
   }
 }
@@ -69,6 +76,7 @@ if (typeof window !== 'undefined') {
     show: showToast,
     error: showErrorToast,
     info: showInfoToast,
-    success: showSuccessToast
+    success: showSuccessToast,
+    progress: showProgressToast
   };
 } 
