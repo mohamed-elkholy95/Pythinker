@@ -70,7 +70,6 @@ CHROME_FLAGS=(
     --disable-notifications
     --disable-popup-blocking
     --disable-prompt-on-repost
-    --disable-extensions
     --disable-component-extensions-with-background-pages
     --disable-component-update
     --disable-component-cloud-policy
@@ -88,7 +87,9 @@ CHROME_FLAGS=(
     --disable-translate
     --metrics-recording-only
     --renderer-process-limit=1
-    --disable-software-rasterizer
+    # NOTE: --disable-software-rasterizer removed — it causes black screen on PDF
+    # pages and breaks the Chrome built-in PDF viewer rendering pipeline.
+    # SwiftShader (--use-gl=swiftshader below) provides the GPU fallback.
     --mute-audio
     --no-pings
     --password-store=basic
