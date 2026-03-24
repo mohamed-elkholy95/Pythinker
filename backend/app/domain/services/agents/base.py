@@ -431,7 +431,9 @@ class BaseAgent:
     _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 1000  # was 2000
     _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 2500  # was 5000
     # Max search results to keep in LLM context (rest is compacted).
-    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 8  # was 10
+    # Reduced from 8→5 to cap context at ~35K chars (was ~56K), preventing
+    # LLM timeouts when the model chokes on oversized tool-call payloads.
+    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 5
 
     def set_token_budget(self, budget: Any) -> None:
         """Inject a TokenBudget for proactive phase-level token management.
@@ -2445,15 +2447,17 @@ class BaseAgent:
                 # Intra-step context pressure check — compact immediately if growing too fast
                 if hasattr(self, "memory") and self.memory and self.memory.messages:
                     _total = sum(len(str(m.get("content", ""))) for m in self.memory.messages)
-                    if _total > 50_000:  # 50% of hard cap — proactive compaction
+                    if _total > 40_000:  # ~40% of hard cap — proactive compaction (lowered from 50K)
                         _tool_msgs = [i for i, m in enumerate(self.memory.messages) if m.get("role") == "tool"]
                         _compacted = 0
-                        for idx in _tool_msgs[:-1]:  # keep only the most recent tool result intact
+                        # Keep last 2 tool results intact; aggressively truncate the rest
+                        _keep_intact = 2
+                        for idx in _tool_msgs[:-_keep_intact] if len(_tool_msgs) > _keep_intact else []:
                             _c = self.memory.messages[idx].get("content", "")
-                            if isinstance(_c, str) and len(_c) > 300:
+                            if isinstance(_c, str) and len(_c) > 200:
                                 self.memory.messages[idx] = {
                                     **self.memory.messages[idx],
-                                    "content": _c[:300] + "\n[...compacted mid-step...]",
+                                    "content": _c[:200] + "\n[...compacted mid-step...]",
                                 }
                                 _compacted += 1
                         if _compacted:
@@ -2954,6 +2958,32 @@ class BaseAgent:
                             insert_idx,
                             {"role": "user", "content": scratchpad_content},
                         )
+
+                # ── Pre-call token validation ───────────────────────────
+                # Prevent sending oversized payloads that cause LLM timeouts.
+                # If token count exceeds 70% of the effective limit, force
+                # emergency compaction BEFORE the call instead of timing out.
+                _pre_call_tokens = self._token_manager.count_messages_tokens(llm_messages)
+                _pre_call_limit = self._token_manager._effective_limit
+                if _pre_call_tokens > _pre_call_limit * 0.70:
+                    logger.warning(
+                        "Pre-call token validation: %d tokens (%.0f%% of %d limit), forcing emergency compaction",
+                        _pre_call_tokens,
+                        (_pre_call_tokens / _pre_call_limit) * 100,
+                        _pre_call_limit,
+                    )
+                    # Aggressively truncate all tool results except the last 2
+                    _tool_idxs = [i for i, m in enumerate(llm_messages) if m.get("role") == "tool"]
+                    _keep_n = 2
+                    for tidx in _tool_idxs[:-_keep_n] if len(_tool_idxs) > _keep_n else []:
+                        _tc = llm_messages[tidx].get("content", "")
+                        if isinstance(_tc, str) and len(_tc) > 150:
+                            llm_messages[tidx] = {
+                                **llm_messages[tidx],
+                                "content": _tc[:150] + "\n[...pre-call compacted...]",
+                            }
+                    # Persist the compacted state back to memory
+                    self.memory.messages = llm_messages
 
                 message = await self.llm.ask(
                     llm_messages,

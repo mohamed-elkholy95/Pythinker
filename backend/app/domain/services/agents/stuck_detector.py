@@ -132,6 +132,7 @@ class LoopType(Enum):
     EXCESSIVE_SAME_TOOL = "excessive_same_tool"
     URL_REVISIT_PATTERN = "url_revisit_pattern"
     NO_PROGRESS = "no_progress"
+    RESEARCH_WITHOUT_OUTPUT = "research_without_output"
 
 
 class RecoveryStrategy(Enum):
@@ -783,6 +784,9 @@ class StuckDetector:
         if analysis := self._detect_excessive_same_tool():
             return analysis
 
+        if analysis := self._detect_research_without_output():
+            return analysis
+
         if analysis := self._detect_no_progress():
             return analysis
 
@@ -1054,9 +1058,10 @@ class StuckDetector:
         browser_tools = {"browser_navigate", "browser_get_content"}
         browser_window = 8
         browser_threshold = 5
-        # Search tools are cheap (~1.5s each) — allow more
+        # Search tools: lowered from 8→6 threshold to catch research loops
+        # earlier before context bloat causes LLM timeouts.
         search_window = 10
-        search_threshold = 8
+        search_threshold = 6
 
         window = browser_window
         threshold = browser_threshold
@@ -1172,6 +1177,58 @@ class StuckDetector:
                     ),
                     affected_tools=[tool_name],
                 )
+
+        return None
+
+    def _detect_research_without_output(self) -> StuckAnalysis | None:
+        """Detect when agent is only searching/browsing without producing any output.
+
+        Cross-tool progress tracking: after 6+ consecutive search/browse tool calls
+        without any file_write, shell_exec, or message_notify_user, the agent is
+        stuck in a research loop without synthesizing findings.
+        """
+        research_only_threshold = 6
+
+        if len(self._tool_action_history) < research_only_threshold:
+            return None
+
+        recent = list(self._tool_action_history)[-research_only_threshold:]
+
+        # Tools that indicate "gathering" (not producing)
+        gathering_tools = {
+            "info_search_web",
+            "wide_research",
+            "search",
+            "browser_navigate",
+            "browser_get_content",
+            "file_read",
+            "file_list_directory",
+        }
+        # Tools that indicate "producing" (actual output)
+        producing_tools = {
+            "file_write",
+            "shell_exec",
+            "message_notify_user",
+            "generate_chart",
+            "browser_agent",
+        }
+
+        all_gathering = all(r.tool_name in gathering_tools for r in recent)
+        any_producing = any(r.tool_name in producing_tools for r in recent)
+
+        if all_gathering and not any_producing:
+            return StuckAnalysis(
+                loop_type=LoopType.RESEARCH_WITHOUT_OUTPUT,
+                confidence=0.80,
+                repeat_count=research_only_threshold,
+                recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
+                details=(
+                    f"Last {research_only_threshold} actions were all research/browsing with no output produced. "
+                    "You have enough information — stop searching and synthesize your findings into a deliverable. "
+                    "Write your results to a file or present them to the user."
+                ),
+                affected_tools=[r.tool_name for r in recent],
+            )
 
         return None
 
@@ -1332,6 +1389,14 @@ class StuckDetector:
                 "2. Write a summary of findings with what you have\n"
                 "3. Complete the current step — partial results are better than infinite loops\n"
                 "4. If truly stuck, skip this step and move to the next one"
+            ),
+            LoopType.RESEARCH_WITHOUT_OUTPUT: (
+                "You have been researching/browsing without producing any output.\n"
+                "RECOVERY STEPS:\n"
+                "1. STOP all search and browse operations immediately\n"
+                "2. You have enough information — synthesize it NOW\n"
+                "3. Use file_write to save your findings as a deliverable\n"
+                "4. Present results to the user — partial findings are valuable"
             ),
         }
 
