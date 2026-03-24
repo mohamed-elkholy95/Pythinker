@@ -16,6 +16,7 @@ Enhanced with OpenHands-inspired patterns:
 import hashlib
 import logging
 import math
+import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -255,6 +256,12 @@ class StuckDetector:
         # Enhanced: Tool action tracking for OpenHands-style pattern detection
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
         self._stuck_analysis: StuckAnalysis | None = None
+
+        # Time-based debounce for action-pattern warnings: prevents the same
+        # pattern type from being logged multiple times in rapid succession
+        # when several tool calls complete within seconds of each other.
+        self._last_action_warning_time: float = 0.0
+        self._action_debounce_seconds: float = 10.0
 
     def reset_for_new_step(self) -> None:
         """Clear tool action history at step boundaries.
@@ -744,7 +751,7 @@ class StuckDetector:
 
         self._tool_action_history.append(record)
 
-        # Check for action-based patterns (suppressed during cooldown)
+        # Check for action-based patterns (suppressed during cooldown or debounce)
         analysis = self._detect_action_patterns()
         if analysis:
             if self._cooldown_remaining > 0:
@@ -754,6 +761,16 @@ class StuckDetector:
                     self._cooldown_remaining,
                 )
                 return None
+            # Time-based debounce: suppress rapid-fire warnings for the same
+            # pattern type when multiple tool calls complete within seconds.
+            _now = time.monotonic()
+            if (_now - self._last_action_warning_time) < self._action_debounce_seconds:
+                logger.debug(
+                    "Action stuck detection suppressed by debounce (%.1fs since last)",
+                    _now - self._last_action_warning_time,
+                )
+                return analysis  # return analysis (callers may still use it) but don't escalate
+            self._last_action_warning_time = _now
             self._stuck_analysis = analysis
             self._stuck_count += 1
             logger.warning(
