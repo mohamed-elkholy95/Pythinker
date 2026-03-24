@@ -70,10 +70,10 @@ TIMEZONE_POOL = [
 ]
 
 # Resource types to block for faster page loads (configurable).
-# Agent extracts text content only — images, fonts, and media are unnecessary.
-# Blocking these reduces page load time by 40-60% and memory usage.
+# Block heavy non-essential resources; images are allowed for proper page rendering.
+# Blocking media/fonts reduces page load time and memory usage.
 # NOTE: stylesheet is NOT blocked — some sites use CSS for layout/visibility.
-BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font"}
+BLOCKABLE_RESOURCE_TYPES = {"media", "font"}
 
 # Ad/Tracker blocking disabled — was causing browsing issues
 BLOCKED_URL_PATTERNS: list[str] = []

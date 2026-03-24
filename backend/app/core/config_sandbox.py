@@ -227,11 +227,12 @@ class BrowserSettingsMixin:
     browser_heavy_page_dom_threshold: int = 3000  # DOM element count triggers lightweight mode
     browser_heavy_page_skip_scroll: bool = True  # Skip smart scroll on heavy pages
 
-    # Browser resource blocking — agent extracts text, not visual content.
-    # Blocking images/fonts/media reduces page load by 40-60% and cuts memory usage.
+    # Browser resource blocking — block heavy non-essential resources.
+    # Images are NOT blocked — essential for page rendering and CDP screencast visibility.
+    # Blocking media/fonts reduces page load and cuts memory usage.
     # Context7-validated: Playwright page.route() with route.abort() for resource_type.
     browser_block_resources_default: bool = True  # Enable resource blocking by default
-    browser_blocked_resource_types: str = "image,media,font"  # Comma-separated resource types
+    browser_blocked_resource_types: str = "media,font"  # Comma-separated (images allowed)
 
     # Chrome on-demand lifecycle (sandbox-side feature)
     # When enabled, backend calls /api/v1/browser/ensure before browser operations
