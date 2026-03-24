@@ -33,7 +33,7 @@
             v-if="citCard.faviconUrl"
             :src="citCard.faviconUrl"
             class="msg-cit-card-favicon"
-            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) _failedFaviconDomains.add(citCard.domain); }"
+            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) markFaviconFailed(`https://${citCard.domain}`); }"
           />
           <span class="msg-cit-card-domain">{{ citCard.domain }}</span>
           <svg class="msg-cit-card-arrow" viewBox="0 0 12 12" fill="none">
@@ -72,7 +72,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations, normalizeInlineAlerts } from './report/reportContentNormalizer';
 import { MermaidBlock } from './report/tiptapMermaidExtension';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, isFaviconFailed, markFaviconFailed } from '@/utils/toolDisplay';
 import type { SourceCitation } from '@/types/message';
 
 // Fragment root (div + Teleport) — disable auto attr-inheritance so $attrs go to the real div
@@ -103,7 +103,7 @@ const citCard = reactive({
   y: 0,
 });
 let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
-const _failedFaviconDomains = new Set<string>();
+// Favicon failure tracking now delegates to the shared persistent cache in toolDisplay.ts
 
 // Debug flag — enabled via ?debugCitations in URL or console: window.__citDebug = true
 const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
@@ -626,7 +626,7 @@ const _onBadgeOver = (e: MouseEvent) => {
   const rect = badge.getBoundingClientRect();
   citCard.title = title;
   citCard.domain = domain;
-  citCard.faviconUrl = domain && !_failedFaviconDomains.has(domain)
+  citCard.faviconUrl = domain && !isFaviconFailed(`https://${domain}`)
     ? (getFaviconUrl(`https://${domain}`) ?? '')
     : '';
   citCard.url = url;

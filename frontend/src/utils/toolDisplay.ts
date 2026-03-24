@@ -247,46 +247,136 @@ export function extractToolUrl(args?: Record<string, unknown>): string | null {
   return null;
 }
 
-/**
- * Session-scoped cache of hostnames whose favicons failed to load.
- * Prevents repeated 404 requests to DuckDuckGo's favicon service.
- */
-const failedFaviconHosts = new Set<string>();
+// ── Favicon persistent cache ────────────────────────────────────────────
+// Persists failed hostnames to localStorage so the same domain never
+// triggers a 404 console error more than once across sessions.
 
-/**
- * Get favicon URL for a domain using DuckDuckGo's favicon service.
- * Returns null if the hostname has previously failed, avoiding repeat 404s.
- */
-export function getFaviconUrl(url: string): string | null {
+const FAVICON_STORAGE_KEY = 'pythinker:failed-favicons';
+const FAVICON_CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const FAVICON_MAX_ENTRIES = 500;
+
+/** In-memory mirror of the localStorage cache. hostname → failure timestamp. */
+const failedFaviconHosts = new Map<string, number>();
+let _faviconCacheInitialized = false;
+
+function _initFaviconCache(): void {
+  if (_faviconCacheInitialized) return;
+  _faviconCacheInitialized = true;
   try {
-    const u = new URL(url);
-    const hostname = u.hostname.replace(/^www\./, '');
-    if (failedFaviconHosts.has(hostname)) return null;
-    return `https://icons.duckduckgo.com/ip3/${hostname}.ico`;
+    const raw = localStorage.getItem(FAVICON_STORAGE_KEY);
+    if (!raw) return;
+    const entries: Record<string, number> = JSON.parse(raw);
+    const now = Date.now();
+    for (const [host, ts] of Object.entries(entries)) {
+      if (now - ts < FAVICON_CACHE_EXPIRY_MS) {
+        failedFaviconHosts.set(host, ts);
+      }
+    }
+  } catch { /* corrupt/missing storage — start fresh */ }
+}
+
+function _persistFaviconCache(): void {
+  try {
+    // Evict oldest entries if over limit
+    const entries = [...failedFaviconHosts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, FAVICON_MAX_ENTRIES);
+    const obj: Record<string, number> = {};
+    for (const [host, ts] of entries) obj[host] = ts;
+    localStorage.setItem(FAVICON_STORAGE_KEY, JSON.stringify(obj));
+  } catch { /* storage full or disabled — degrade gracefully */ }
+}
+
+// Batch persist: debounce writes so rapid failures don't hammer localStorage
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+function _schedulePersist(): void {
+  if (_persistTimer) return;
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    _persistFaviconCache();
+  }, 1000);
+}
+
+/** Normalize a URL to its bare hostname (no www. prefix). */
+export function normalizeHostname(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return null;
   }
 }
 
-/** Mark a URL's hostname as having a failed favicon so future calls skip it. */
-export function markFaviconFailed(url: string): void {
-  try {
-    failedFaviconHosts.add(new URL(url).hostname.replace(/^www\./, ''));
-  } catch { /* invalid URL — ignore */ }
+/**
+ * Pre-filter hostnames unlikely to have favicons.
+ * Skips: IP addresses, localhost, single-label hosts, internal TLDs.
+ */
+function _isUnlikelyToHaveFavicon(hostname: string): boolean {
+  // IPv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
+  // IPv6 (bracketed or raw)
+  if (hostname.startsWith('[') || hostname.includes(':')) return true;
+  // localhost / single-label (no dot)
+  if (!hostname.includes('.')) return true;
+  // Internal/private TLDs
+  if (/\.(local|internal|localhost|test|invalid|example)$/i.test(hostname)) return true;
+  return false;
 }
+
+/** Check whether a hostname is known to have a failed favicon. */
+export function isFaviconFailed(url: string): boolean {
+  _initFaviconCache();
+  const hostname = normalizeHostname(url);
+  if (!hostname) return true;
+  if (_isUnlikelyToHaveFavicon(hostname)) return true;
+  return failedFaviconHosts.has(hostname);
+}
+
+/**
+ * Get favicon URL for a domain using DuckDuckGo's favicon service.
+ * Returns null if the hostname is pre-filtered or previously failed,
+ * preventing the browser from making a request that would 404.
+ */
+export function getFaviconUrl(url: string): string | null {
+  _initFaviconCache();
+  const hostname = normalizeHostname(url);
+  if (!hostname) return null;
+  if (_isUnlikelyToHaveFavicon(hostname)) return null;
+  if (failedFaviconHosts.has(hostname)) return null;
+  return `https://icons.duckduckgo.com/ip3/${hostname}.ico`;
+}
+
+/**
+ * Mark a URL's hostname as having a failed favicon.
+ * Persists to localStorage so the failure survives page reloads.
+ */
+export function markFaviconFailed(url: string): void {
+  _initFaviconCache();
+  const hostname = normalizeHostname(url);
+  if (!hostname) return;
+  failedFaviconHosts.set(hostname, Date.now());
+  _schedulePersist();
+}
+
+/** Well-known domain → letter mappings for favicon fallbacks. */
+const ICON_LETTER_MAP: [test: string, letter: string][] = [
+  ['wikipedia', 'W'],
+  ['github', 'G'],
+  ['stackoverflow', 'S'],
+  ['reddit', 'R'],
+  ['youtube', 'Y'],
+  ['twitter', 'X'],
+  ['x.com', 'X'],
+  ['linkedin', 'in'],
+  ['medium', 'M'],
+];
 
 /** Get a short letter icon for a URL (for favicon fallbacks). */
 export function getIconLetterFromUrl(url: string, title?: string): string {
   try {
-    const hostname = new URL(url).hostname.replace('www.', '');
-    if (hostname.includes('wikipedia')) return 'W';
-    if (hostname.includes('github')) return 'G';
-    if (hostname.includes('stackoverflow')) return 'S';
-    if (hostname.includes('reddit')) return 'R';
-    if (hostname.includes('youtube')) return 'Y';
-    if (hostname.includes('twitter') || hostname.includes('x.com')) return 'X';
-    if (hostname.includes('linkedin')) return 'in';
-    if (hostname.includes('medium')) return 'M';
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    for (const [test, letter] of ICON_LETTER_MAP) {
+      if (hostname.includes(test)) return letter;
+    }
     return hostname.charAt(0).toUpperCase();
   } catch {
     return title?.charAt(0).toUpperCase() || '?';

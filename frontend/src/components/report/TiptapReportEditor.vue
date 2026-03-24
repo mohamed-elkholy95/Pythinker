@@ -39,7 +39,7 @@
             v-if="citCard.faviconUrl"
             :src="citCard.faviconUrl"
             class="cit-card-favicon"
-            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) _failedFaviconDomains.add(citCard.domain); }"
+            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) markFaviconFailed(`https://${citCard.domain}`); }"
           />
           <span class="cit-card-domain">{{ citCard.domain }}</span>
           <svg class="cit-card-arrow" viewBox="0 0 12 12" fill="none">
@@ -58,7 +58,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations, normalizeInlineAlerts } from './reportContentNormalizer';
 import { createTiptapDocumentExtensions } from './tiptapDocumentExtensions';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, isFaviconFailed, markFaviconFailed } from '@/utils/toolDisplay';
 import type { SourceCitation } from '@/types/message';
 
 // Fragment root (div + Teleport) — disable auto attr-inheritance so $attrs go to the real div
@@ -84,8 +84,7 @@ const contentRef = ref<HTMLElement | null>(null);
 // ── Citation reference card state (declared early — template accesses this on first render) ──
 const citCard = reactive({ visible: false, title: '', domain: '', faviconUrl: '', url: '', x: 0, y: 0 });
 let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
-// Cache domains whose favicons failed to load — avoids repeated 404 requests on hover
-const _failedFaviconDomains = new Set<string>();
+// Favicon failure tracking now delegates to the shared persistent cache in toolDisplay.ts
 
 // Convert markdown to HTML, applying citation linkification before marked.parse()
 const htmlContent = computed(() => {
@@ -598,7 +597,7 @@ const _onBadgeOver = (e: MouseEvent) => {
   const rect = badge.getBoundingClientRect();
   citCard.title = title;
   citCard.domain = domain;
-  citCard.faviconUrl = domain && !_failedFaviconDomains.has(domain)
+  citCard.faviconUrl = domain && !isFaviconFailed(`https://${domain}`)
     ? (getFaviconUrl(`https://${domain}`) ?? '')
     : '';
   citCard.url = url;

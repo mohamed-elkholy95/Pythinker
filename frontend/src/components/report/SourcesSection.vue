@@ -16,7 +16,7 @@
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
             <img
-              v-if="!faviconErrors[source.url]"
+              v-if="!isFaviconError(source.url)"
               :src="getFaviconUrl(source.url)"
               :alt="getDomain(source.url)"
               class="w-4 h-4 flex-shrink-0 rounded"
@@ -25,7 +25,7 @@
             <span
               v-else
               class="w-4 h-4 flex-shrink-0 rounded bg-[var(--fill-tsp-gray-main)] text-[var(--text-tertiary)] text-[10px] font-semibold flex items-center justify-center"
-            >{{ getIconLetterFromUrl(source.url, source.title) }}</span>
+            >{{ getLetter(source.url, source.title) }}</span>
             <a
               :href="source.url"
               target="_blank"
@@ -64,9 +64,8 @@
 
 <script setup lang="ts">
 import { BookOpen, ExternalLink } from 'lucide-vue-next';
-import { getFaviconUrl as getSharedFaviconUrl, markFaviconFailed, getIconLetterFromUrl } from '@/utils/toolDisplay';
 import type { SourceCitation } from '@/types/message';
-import { reactive } from 'vue';
+import { useFavicon } from '@/composables/useFavicon';
 
 interface Props {
   sources?: SourceCitation[];
@@ -78,7 +77,7 @@ withDefaults(defineProps<Props>(), {
   showSnippets: false
 });
 
-const getFaviconUrl = (url: string): string => getSharedFaviconUrl(url) ?? '';
+const { getUrl: getFaviconUrl, isError: isFaviconError, handleError: handleFaviconError, getLetter } = useFavicon();
 
 const getDomain = (url: string): string => {
   try {
@@ -95,13 +94,6 @@ const formatSourceType = (type: string): string => {
     'file': 'File'
   };
   return typeMap[type] || type;
-};
-
-const faviconErrors: Record<string, boolean> = reactive({});
-
-const handleFaviconError = (url: string) => {
-  faviconErrors[url] = true;
-  markFaviconFailed(url);
 };
 </script>
 

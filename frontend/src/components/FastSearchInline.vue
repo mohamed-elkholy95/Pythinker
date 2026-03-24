@@ -52,7 +52,7 @@
             <div class="fsi-card-source">
               <div class="fsi-source-icon">
                 <img
-                  v-if="!faviconErrors[result.link]"
+                  v-if="!isFaviconError(result.link)"
                   :src="getFavicon(result.link)"
                   alt=""
                   class="fsi-source-favicon"
@@ -97,7 +97,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Loader2, ChevronDown } from 'lucide-vue-next';
-import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
+import { useFavicon } from '@/composables/useFavicon';
 import type { SearchResultItem } from '@/types/search';
 
 const props = withDefaults(
@@ -124,7 +124,7 @@ const { t } = useI18n();
 const INITIAL_VISIBLE = 4;
 
 const isExpanded = ref(false);
-const faviconErrors = ref<Record<string, boolean>>({});
+const { getUrl: getFavicon, isError: isFaviconError, handleError: handleFaviconError, getLetter } = useFavicon();
 const thumbErrors = ref<Record<string, boolean>>({});
 const progressLabel = ref('');
 
@@ -184,10 +184,6 @@ function getThumbStyle(result: SearchResultItem): { background: string; color: s
   return { background: bg, color: fg };
 }
 
-function getFavicon(link: string): string {
-  return getFaviconUrl(link) ?? '';
-}
-
 function getThumbFaviconUrl(link: string): string {
   try {
     const hostname = new URL(link).hostname;
@@ -202,18 +198,7 @@ function handleThumbError(link: string) {
 }
 
 function getIconLetter(result: SearchResultItem): string {
-  try {
-    const host = new URL(result.link).hostname.replace('www.', '');
-    if (host.includes('wikipedia')) return 'W';
-    if (host.includes('github')) return 'G';
-    if (host.includes('stackoverflow')) return 'S';
-    if (host.includes('reddit')) return 'R';
-    if (host.includes('youtube')) return 'Y';
-    if (host.includes('medium')) return 'M';
-    return host.charAt(0).toUpperCase();
-  } catch {
-    return result.title?.charAt(0).toUpperCase() || '?';
-  }
+  return getLetter(result.link, result.title);
 }
 
 function getDomain(link: string): string {
@@ -222,11 +207,6 @@ function getDomain(link: string): string {
   } catch {
     return link.slice(0, 30);
   }
-}
-
-function handleFaviconError(link: string) {
-  faviconErrors.value[link] = true;
-  markFaviconFailed(link);
 }
 
 function handleOpen(result: SearchResultItem) {

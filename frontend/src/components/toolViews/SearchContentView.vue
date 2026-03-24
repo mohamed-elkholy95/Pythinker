@@ -18,11 +18,11 @@
           >
             <div class="result-icon-wrapper">
               <img
-                v-if="!faviconErrors[result.link]"
+                v-if="!isFaviconError(result.link)"
                 :src="getFavicon(result.link)"
                 alt=""
                 class="result-favicon"
-                @error="handleFaviconError($event, result.link)"
+                @error="onFaviconError(result.link)"
               />
               <span v-else class="result-icon-fallback">{{ getIconLetter(result) }}</span>
             </div>
@@ -57,11 +57,11 @@
         >
           <div class="result-icon-wrapper">
             <img
-              v-if="!faviconErrors[result.link]"
+              v-if="!isFaviconError(result.link)"
               :src="getFavicon(result.link)"
               alt=""
               class="result-favicon"
-              @error="handleFaviconError($event, result.link)"
+              @error="onFaviconError(result.link)"
             />
             <span v-else class="result-icon-fallback">{{ getIconLetter(result) }}</span>
           </div>
@@ -82,11 +82,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, toRef } from 'vue';
+import { computed, toRef } from 'vue';
 import { Search } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
-import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
 import { useStaggeredResults } from '@/composables/useStaggeredResults';
+import { useFavicon } from '@/composables/useFavicon';
 
 export interface SearchResult {
   title: string;
@@ -126,30 +126,11 @@ const displayResults = computed(() => {
   return props.results || [];
 });
 
-// Track favicon load errors
-const faviconErrors = reactive<Record<string, boolean>>({});
-
-function getFavicon(link: string): string {
-  return getFaviconUrl(link) ?? '';
-}
+const { getUrl: getFavicon, isError: isFaviconError, handleError: onFaviconError, getLetter } = useFavicon();
 
 function getIconLetter(result: SearchResult): string {
   if (!result.link && !result.title) return '?';
-  try {
-    const url = new URL(result.link);
-    const hostname = url.hostname.replace('www.', '');
-    if (hostname.includes('wikipedia')) return 'W';
-    if (hostname.includes('github')) return 'G';
-    if (hostname.includes('stackoverflow')) return 'S';
-    if (hostname.includes('reddit')) return 'R';
-    if (hostname.includes('youtube')) return 'Y';
-    if (hostname.includes('twitter') || hostname.includes('x.com')) return 'X';
-    if (hostname.includes('linkedin')) return 'in';
-    if (hostname.includes('medium')) return 'M';
-    return hostname.charAt(0).toUpperCase();
-  } catch {
-    return result.title?.charAt(0).toUpperCase() || '?';
-  }
+  return getLetter(result.link, result.title);
 }
 
 function formatSnippet(snippet: string): string {
@@ -167,11 +148,6 @@ function formatSnippet(snippet: string): string {
     cleaned = cleaned.slice(0, 200).trim() + '...';
   }
   return cleaned;
-}
-
-function handleFaviconError(_event: Event, link: string) {
-  faviconErrors[link] = true;
-  markFaviconFailed(link);
 }
 
 function handleResultClick(result: SearchResult) {
