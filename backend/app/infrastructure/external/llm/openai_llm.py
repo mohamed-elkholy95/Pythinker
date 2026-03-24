@@ -190,6 +190,9 @@ class OpenAILLM(LLM):
         # Detect if using DeepSeek API — supports json_object, json_schema, and parallel tool calls
         self._is_deepseek = self._detect_deepseek()
 
+        # Detect if using MiniMax API — OpenAI-compatible with reasoning support
+        self._is_minimax = self._detect_minimax()
+
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
@@ -208,6 +211,8 @@ class OpenAILLM(LLM):
             tags.append("[OpenRouter]")
         if self._is_deepseek:
             tags.append("[DeepSeek]")
+        if self._is_minimax:
+            tags.append("[MiniMax]")
         tag_str = " " + " ".join(tags) if tags else ""
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
@@ -607,6 +612,23 @@ class OpenAILLM(LLM):
             return False
         return "api.deepseek.com" in self._api_base.lower()
 
+    def _detect_minimax(self) -> bool:
+        """Detect if using MiniMax API.
+
+        MiniMax M2.7 supports:
+        - OpenAI-compatible chat completions at https://api.minimax.io/v1
+        - Tool / function calling with parallel tool calls
+        - Reasoning/thinking mode (reasoning_split parameter)
+        - 1M context window
+
+        Base URLs: https://api.minimax.io/v1 (international)
+                   https://api.minimaxi.com/v1 (China)
+        """
+        if not self._api_base:
+            return False
+        base = self._api_base.lower()
+        return "minimax.io" in base or "minimaxi.com" in base
+
     def _resolve_model_override(self, model: str | None) -> str:
         """Resolve a model override, falling back to default if incompatible with provider.
 
@@ -639,6 +661,10 @@ class OpenAILLM(LLM):
 
         if getattr(self, "_is_thinking_api", False) and "kimi" not in model:
             logger.debug("Model override '%s' incompatible with Kimi API, using '%s'", model, self._model_name)
+            return self._model_name
+
+        if getattr(self, "_is_minimax", False) and not model.lower().startswith("minimax"):
+            logger.debug("Model override '%s' incompatible with MiniMax API, using '%s'", model, self._model_name)
             return self._model_name
 
         # For standard OpenAI API (api.openai.com), reject non-OpenAI model names
@@ -1986,6 +2012,13 @@ To extract data from a webpage:
                 if self._is_thinking_api:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
 
+                # MiniMax: separate thinking into reasoning_details field
+                # to keep content clean for JSON extraction and user display
+                if getattr(self, "_is_minimax", False):
+                    extra = params.get("extra_body", {})
+                    extra["reasoning_split"] = True
+                    params["extra_body"] = extra
+
                 # OpenRouter: ensure routing to providers that honour response_format
                 if getattr(self, "_is_openrouter", False) and response_format:
                     extra = params.get("extra_body", {})
@@ -2486,6 +2519,12 @@ To extract data from a webpage:
                     if disable_thinking:
                         params["extra_body"] = {"thinking": {"type": "disabled"}}
 
+                    # MiniMax: separate thinking into reasoning_details field
+                    if getattr(self, "_is_minimax", False):
+                        extra = params.get("extra_body", {})
+                        extra["reasoning_split"] = True
+                        params["extra_body"] = extra
+
                     if supports_strict_schema:
                         # Use native structured output with strict schema
                         params["response_format"] = {
@@ -2922,6 +2961,12 @@ To extract data from a webpage:
                 # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
                 if self._is_thinking_api:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
+
+                # MiniMax: separate thinking into reasoning_details field
+                if getattr(self, "_is_minimax", False):
+                    extra = params.get("extra_body", {})
+                    extra["reasoning_split"] = True
+                    params["extra_body"] = extra
 
                 if tools:
                     params["tools"] = tools

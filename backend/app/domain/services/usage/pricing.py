@@ -119,6 +119,11 @@ MODEL_PRICING: dict[str, ModelPricing] = {
     "glm-5": ModelPricing(1.38, 2.76, 0.69),
     "glm-4-flash": ModelPricing(0.0, 0.0, None),
     # =========================================
+    # MiniMax Models
+    # =========================================
+    "minimax-m2.7": ModelPricing(1.10, 4.40, 0.11),  # MiniMax M2.7 (estimated)
+    "minimax-m2.7-highspeed": ModelPricing(1.10, 4.40, 0.11),
+    # =========================================
     # Kimi / Moonshot Models
     # =========================================
     "kimi-for-coding": ModelPricing(1.38, 2.76, 0.69),
@@ -207,6 +212,9 @@ def get_model_pricing(model_name: str) -> ModelPricing:
         (r"^phi", "phi3"),
         (r"^qwen2\.5-coder", "qwen2.5-coder"),
         (r"^qwen2\.5", "qwen2.5"),
+        (r"^minimax-m2\.7-highspeed", "minimax-m2.7-highspeed"),
+        (r"^minimax-m2\.7", "minimax-m2.7"),
+        (r"^minimax", "minimax-m2.7"),
         (r"^glm-5-turbo", "glm-5-turbo"),
         (r"^glm-5", "glm-5"),
         (r"^glm-4", "glm-4-flash"),
@@ -222,7 +230,7 @@ def get_model_pricing(model_name: str) -> ModelPricing:
             return MODEL_PRICING[base_model]
 
     # Check if it looks like a local/ollama model (no known provider prefix)
-    known_prefixes = ("gpt-", "claude-", "o1", "o3", "gemini-", "deepseek-", "glm-", "kimi", "moonshot")
+    known_prefixes = ("gpt-", "claude-", "o1", "o3", "gemini-", "deepseek-", "glm-", "kimi", "moonshot", "minimax")
     if not any(model_lower.startswith(p) for p in known_prefixes):
         # Assume local model = free
         logger.debug(f"Treating {model_lower} as local/free model")
@@ -297,5 +305,7 @@ def get_provider_from_model(model_name: str) -> str:
         return "zhipu"
     if model_lower.startswith(("kimi", "moonshot")):
         return "moonshot"
+    if model_lower.startswith("minimax"):
+        return "minimax"
     # Assume local/ollama for unrecognized models
     return "ollama"

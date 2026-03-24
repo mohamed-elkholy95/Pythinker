@@ -238,6 +238,21 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
             max_output_tokens=4_096,
         ),
     ),
+    # ── MiniMax M2.7 ─────────────────────────────────────────────────────
+    (
+        "minimax-m2*",
+        ProviderCapabilities(
+            json_schema=True,
+            json_object=True,
+            tool_use=True,
+            vision=False,
+            thinking=True,
+            streaming=True,
+            parallel_tool_calls=True,
+            max_context_window=1_000_000,
+            max_output_tokens=16_384,
+        ),
+    ),
     # ── Llama (Ollama / Meta) ─────────────────────────────────────────────
     (
         "llama*",

@@ -120,6 +120,8 @@ class TokenManager:
         "claude-opus": 200000,
         # DeepSeek
         "deepseek": 128000,  # DeepSeek V3.2 supports 128K context
+        # MiniMax
+        "minimax-m2": 1000000,  # MiniMax M2.7 supports 1M context
         # Google
         "gemini-flash": 1000000,
         "gemini-pro": 1000000,
