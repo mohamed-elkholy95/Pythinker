@@ -88,12 +88,13 @@ class ComparisonChartGenerator:
         "latency",
         "performance",
     )
-    _LOWER_IS_BETTER_HINTS = ("latency", "cost", "price", "time", "delay", "error", "memory")
+    _LOWER_IS_BETTER_HINTS = ("latency", "cost", "price", "time", "delay", "error", "memory", "fee")
 
     # Labels that indicate a spec-sheet row (single-product attribute list), not a
     # comparison between multiple products.  When 40 %+ of labels match, the table
     # is a spec sheet and should NOT produce a bar chart.
     _SPEC_SHEET_LABEL_HINTS = (
+        # Tech specs
         "price",
         "cost",
         "storage",
@@ -123,6 +124,22 @@ class ComparisonChartGenerator:
         "dimension",
         "thickness",
         "size",
+        # Financial / product features
+        "fee",
+        "annual",
+        "interest",
+        "apr",
+        "reward",
+        "cash back",
+        "cashback",
+        "sign-up",
+        "signup",
+        "bonus",
+        "limit",
+        "credit limit",
+        "warranty",
+        "insurance",
+        "coverage",
     )
 
     # Markdown formatting patterns to strip from labels
@@ -549,6 +566,9 @@ class ComparisonChartGenerator:
             return row[:target_size]
         return [*row, *([""] * (target_size - len(row)))]
 
+    # Citation reference pattern: [N], [N][M], etc.
+    _CITATION_REF_PATTERN = re.compile(r"^\s*(?:\[\d+\]\s*)+\s*$")
+
     def _parse_number(self, raw_value: str) -> float | None:
         cleaned = raw_value.strip().lower()
         if not cleaned or cleaned in {"n/a", "na", "-", "--", "none"}:
@@ -556,6 +576,10 @@ class ComparisonChartGenerator:
 
         stripped = raw_value.strip()
         if self._HEX_COLOR_PATTERN.match(stripped) or stripped.startswith("--"):
+            return None
+
+        # Reject citation references like [23], [1][2], [23][24][31]
+        if self._CITATION_REF_PATTERN.match(stripped):
             return None
 
         match = self._NUMBER_PATTERN.search(raw_value)
