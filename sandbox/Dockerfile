@@ -231,8 +231,8 @@ RUN echo '{"executablePath":"/usr/local/bin/chromium","args":["--no-sandbox","--
 WORKDIR /app
 COPY --from=builder /app/app /app/app
 COPY --from=builder /app/scripts /app/scripts
-COPY --from=builder /app/sandbox_context.json /app/sandbox_context.json
-COPY --from=builder /app/sandbox_context.md /app/sandbox_context.md
+COPY --from=builder --chown=ubuntu:ubuntu /app/sandbox_context.json /app/sandbox_context.json
+COPY --from=builder --chown=ubuntu:ubuntu /app/sandbox_context.md /app/sandbox_context.md
 COPY --from=builder /app/requirements.runtime.txt /app/requirements.runtime.txt
 COPY --from=builder /app/requirements.addons.txt /app/requirements.addons.txt
 COPY --from=builder /app/requirements.txt /app/requirements.txt
