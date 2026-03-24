@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 _VENV_PYTHON = "/opt/base-python-venv/bin/python3"
 _CHART_SCRIPT = "/app/scripts/generate_comparison_chart_plotly.py"
 
-# Maximum report length sent to LLM for chart analysis (tokens ≈ chars / 4)
-_MAX_ANALYSIS_CONTENT = 12000
+# Maximum report length sent to LLM for chart analysis (tokens ≈ chars / 4).
+# Shorter content reduces the risk of TokenLimitExceededError during
+# structured output generation.
+_MAX_ANALYSIS_CONTENT = 8000
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +204,7 @@ class PlotlyChartOrchestrator:
             result = await self._llm.ask_structured(
                 messages=messages,
                 response_model=ChartAnalysisResult,
-                max_tokens=1024,
+                max_tokens=2048,
                 temperature=0.1,
             )
             logger.info(
@@ -214,8 +216,14 @@ class PlotlyChartOrchestrator:
             )
             return result
 
-        except Exception:
-            logger.warning("LLM chart analysis failed", exc_info=True)
+        except Exception as exc:
+            # Graceful degradation: report will be delivered without a chart.
+            # Use concise log for known LLM failures, full trace for unexpected ones.
+            exc_name = type(exc).__name__
+            if "Token" in exc_name or "Retry" in exc_name or "Incomplete" in exc_name:
+                logger.warning("LLM chart analysis failed (token/retry limit): %s", exc_name)
+            else:
+                logger.warning("LLM chart analysis failed", exc_info=True)
             return None
 
     # ------------------------------------------------------------------
