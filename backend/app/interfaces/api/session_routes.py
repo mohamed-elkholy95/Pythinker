@@ -2405,6 +2405,35 @@ async def vnc_websocket(
             await websocket.close(code=1008, reason="Sandbox not found")
             return
 
+        # ── Pre-flight: check if VNC/websockify is actually enabled ──
+        # In CDP_ONLY streaming mode, websockify exits at boot (ENABLE_VNC not set).
+        # Detect this early instead of waiting for a 5s connection timeout.
+        try:
+            from app.infrastructure.external.http_pool import HTTPClientPool
+
+            supervisor_url = f"{sandbox.base_url}/api/v1/supervisor/status"
+            pool = HTTPClientPool.get_or_create("vnc-preflight", base_url="")
+            resp = await pool.client.get(supervisor_url, timeout=3.0)
+            if resp.status_code == 200:
+                sup_data = resp.json()
+                services = sup_data if isinstance(sup_data, list) else sup_data.get("services", [])
+                websockify_running = any(
+                    s.get("name") == "websockify" and s.get("statename") == "RUNNING" for s in services
+                )
+                if not websockify_running:
+                    logger.warning(
+                        "VNC websockify is not running in sandbox %s (CDP_ONLY mode or ENABLE_VNC not set). "
+                        "Use CDP screencast instead.",
+                        session.sandbox_id,
+                    )
+                    await websocket.close(
+                        code=1011,
+                        reason="VNC not available — websockify is not running (CDP_ONLY mode). Use screencast endpoint instead.",
+                    )
+                    return
+        except Exception as preflight_err:
+            logger.debug("VNC pre-flight check failed (non-fatal): %s", preflight_err)
+
         # Websockify runs on port 6080 inside the sandbox container.
         # Replace the API port (typically 8080) with 6080 for VNC.
         sandbox_vnc_url = sandbox.base_url.replace("http", "ws")
@@ -2477,10 +2506,22 @@ async def vnc_websocket(
         error_text = _safe_exc_text(e)
         if "No such container" in error_text or "404 Client Error" in error_text:
             logger.warning(f"VNC WS: sandbox container no longer exists: {error_text}")
+        elif "Connection refused" in error_text:
+            logger.warning(
+                "VNC websockify connection refused on port 6080 for session %s. "
+                "This typically means ENABLE_VNC is not set or websockify failed to start. "
+                "CDP screencast is available as an alternative.",
+                session_id,
+            )
         else:
             logger.error(f"Unable to connect to VNC websockify: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox VNC: {error_text}")
+            reason = (
+                "VNC not available (websockify not listening). Use CDP screencast instead."
+                if "Connection refused" in error_text
+                else f"Unable to connect to sandbox VNC: {error_text}"
+            )
+            await websocket.close(code=1011, reason=reason)
     except Exception as e:
         error_text = _safe_exc_text(e)
         if "No such container" in error_text or "404 Client Error" in error_text:
