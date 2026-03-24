@@ -303,3 +303,73 @@ def test_is_heterogeneous_data_uniform_values():
         _NumericPoint(label="Model C", value=81, display_value="81%"),
     ]
     assert gen._is_heterogeneous_data(points) is False
+
+
+# ===========================================================================
+# Bug fix: Credit card / product feature tables should NOT produce charts
+# ===========================================================================
+
+
+def test_parse_number_rejects_citation_references():
+    """Citation numbers like [23][24][31] should NOT be parsed as numeric values."""
+    gen = ComparisonChartGenerator()
+    assert gen._parse_number("[23][24][31]") is None
+    assert gen._parse_number("[5]") is None
+    assert gen._parse_number("[1][2]") is None
+
+
+def test_parse_number_accepts_plain_numbers():
+    """Regular numbers should still be parsed correctly."""
+    gen = ComparisonChartGenerator()
+    assert gen._parse_number("3%") == 3.0
+    assert gen._parse_number("$0") == 0.0
+    assert gen._parse_number("5.5") == 5.5
+    assert gen._parse_number("1,200") == 1200.0
+
+
+def test_build_numeric_chart_spec_rejects_credit_card_features():
+    """A single credit card's features should NOT produce a bar chart.
+
+    This is the exact bug: the system extracted numbers from mixed-type
+    feature values (3% cash back, $0 fee, 5% travel portal) and created
+    a nonsensical bar chart with citation numbers as the tallest bars.
+    """
+    gen = ComparisonChartGenerator()
+
+    markdown = """## Robinhood Gold Card Features
+| Feature | Details | Source |
+|---------|---------|--------|
+| Annual Fee | $0 | [23] |
+| Foreign Transaction Fee | $0 | [24] |
+| Rewards Rate | 3% flat cash back | [23][24][31] |
+| Travel Portal | 5% travel portal | [23] |
+| Sign-up Bonus | None | [31] |
+"""
+
+    tables = gen._extract_tables(markdown)
+    spec = gen._build_numeric_chart_spec(tables[0], "Robinhood Gold Card")
+    # Must return None — this is a single-product feature list, not a comparison
+    assert spec is None
+
+
+def test_is_heterogeneous_detects_financial_spec_sheet():
+    """Financial product features (fee, rate, reward) should be detected as spec-sheet data."""
+    from app.domain.services.comparison_chart_generator import _NumericPoint
+
+    gen = ComparisonChartGenerator()
+
+    points = [
+        _NumericPoint(label="Annual Fee", value=0.0, display_value="$0"),
+        _NumericPoint(label="Foreign Transaction Fee", value=0.0, display_value="$0"),
+        _NumericPoint(label="Rewards Rate", value=3.0, display_value="3%"),
+        _NumericPoint(label="Travel Portal", value=5.0, display_value="5%"),
+    ]
+    assert gen._is_heterogeneous_data(points) is True
+
+
+def test_lower_is_better_includes_fee():
+    """The 'fee' keyword should be detected as lower-is-better."""
+    gen = ComparisonChartGenerator()
+    assert any(
+        hint in "annual fee" for hint in gen._LOWER_IS_BETTER_HINTS
+    ), "Expected 'fee' to be in _LOWER_IS_BETTER_HINTS"
