@@ -10,6 +10,7 @@ type MonacoModule = typeof import("monaco-editor/esm/vs/editor/editor.api");
 
 let monacoModule: MonacoModule | null = null;
 let monacoLoadPromise: Promise<MonacoModule> | null = null;
+let customThemeDefined = false;
 
 const loadMonaco = async (): Promise<MonacoModule> => {
   if (monacoModule) {
@@ -69,6 +70,7 @@ interface MonacoEditorProps {
   filename?: string;
   readOnly?: boolean;
   theme?: string;
+  fontSize?: number;
   lineNumbers?: 'on' | 'off' | 'relative' | 'interval';
   wordWrap?: 'on' | 'off' | 'wordWrapColumn' | 'bounded';
   minimap?: boolean;
@@ -82,6 +84,7 @@ const props = withDefaults(defineProps<MonacoEditorProps>(), {
   filename: "",
   readOnly: true,
   theme: "vs",
+  fontSize: 14,
   lineNumbers: "off",
   wordWrap: "on",
   minimap: false,
@@ -141,11 +144,29 @@ const initEditor = async () => {
     return;
   }
 
+  // Register custom markdown theme with dark blue headings
+  if (!customThemeDefined) {
+    monaco.editor.defineTheme('vs-markdown', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'keyword.md', foreground: '1e3a5f', fontStyle: 'bold' },
+        { token: 'string.link.md', foreground: '1e3a5f' },
+        { token: 'variable.md', foreground: 'c05600' },
+      ],
+      colors: {},
+    });
+    customThemeDefined = true;
+  }
+
+  const resolvedTheme = computedLanguage.value === 'markdown' ? 'vs-markdown' : props.theme;
+
   editor = monaco.editor.create(monacoContainer.value, {
     value: props.value,
     language: computedLanguage.value,
-    theme: props.theme,
+    theme: resolvedTheme,
     readOnly: props.readOnly,
+    fontSize: props.fontSize,
     minimap: { enabled: props.minimap },
     scrollBeyondLastLine: props.scrollBeyondLastLine,
     automaticLayout: props.automaticLayout,
