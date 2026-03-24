@@ -516,7 +516,7 @@ class TestCancelledErrorPartialReport:
 
 
 class TestDirectDeliveryShortCircuit:
-    def test_can_deliver_pretrim_report_directly_requires_completed_telegram_report(self):
+    def test_can_deliver_pretrim_report_directly_requires_completed_steps_and_quality(self):
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
         agent = _make_execution_agent_for_summarize()
@@ -528,6 +528,7 @@ class TestDirectDeliveryShortCircuit:
             allow_compression=False,
         )
 
+        # Incomplete steps always rejected regardless of channel
         assert (
             agent._can_deliver_pretrim_report_directly(
                 response_policy=policy,
@@ -536,19 +537,30 @@ class TestDirectDeliveryShortCircuit:
             )
             is False
         )
+        # Web sessions with all steps completed should be allowed (not Telegram-only)
         assert (
             agent._can_deliver_pretrim_report_directly(
                 response_policy=policy,
                 all_steps_completed=True,
                 delivery_channel="web",
             )
-            is False
+            is True
         )
+        # Telegram still works
         assert (
             agent._can_deliver_pretrim_report_directly(
                 response_policy=policy,
                 all_steps_completed=True,
                 delivery_channel="telegram",
+            )
+            is True
+        )
+        # No channel (default web) also works
+        assert (
+            agent._can_deliver_pretrim_report_directly(
+                response_policy=policy,
+                all_steps_completed=True,
+                delivery_channel=None,
             )
             is True
         )
