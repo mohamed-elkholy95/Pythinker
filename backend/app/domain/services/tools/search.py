@@ -390,8 +390,10 @@ class SearchTool(BaseTool):
     _cache_ttl: ClassVar[int] = 3600  # 1 hour cache TTL
     _cache_max_size: ClassVar[int] = 100  # Maximum cache entries
     _preview_url_cache_max_size: ClassVar[int] = 200
-    # Keep reserve for follow-up verification after wide research bursts.
-    _WIDE_RESEARCH_FOLLOWUP_RESERVE_CALLS: ClassVar[int] = 2
+    # Keep reserve for follow-up searches after wide research bursts.
+    # Set to 5 so later steps in multi-step plans still have search
+    # capability after a large wide_research in step 1.
+    _WIDE_RESEARCH_FOLLOWUP_RESERVE_CALLS: ClassVar[int] = 5
     _QUOTA_ERROR_MARKERS: ClassVar[tuple[str, ...]] = (
         "not enough credits",
         "quota",
