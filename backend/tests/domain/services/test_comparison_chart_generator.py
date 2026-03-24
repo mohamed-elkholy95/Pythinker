@@ -370,6 +370,6 @@ def test_is_heterogeneous_detects_financial_spec_sheet():
 def test_lower_is_better_includes_fee():
     """The 'fee' keyword should be detected as lower-is-better."""
     gen = ComparisonChartGenerator()
-    assert any(
-        hint in "annual fee" for hint in gen._LOWER_IS_BETTER_HINTS
-    ), "Expected 'fee' to be in _LOWER_IS_BETTER_HINTS"
+    assert any(hint in "annual fee" for hint in gen._LOWER_IS_BETTER_HINTS), (
+        "Expected 'fee' to be in _LOWER_IS_BETTER_HINTS"
+    )

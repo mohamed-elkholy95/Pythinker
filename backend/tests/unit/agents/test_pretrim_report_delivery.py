@@ -221,7 +221,7 @@ class TestRichnessFallback:
 
     def test_keeps_llm_when_lengths_similar(self, executor):
         """If LLM output is close in length to cache, keep the LLM output."""
-        similar_length_content = FULL_GUIDE[:len(FULL_GUIDE) - 100]
+        similar_length_content = FULL_GUIDE[: len(FULL_GUIDE) - 100]
         result = executor._richness_fallback(
             llm_content=similar_length_content,
             pre_trim_cache=FULL_GUIDE,
