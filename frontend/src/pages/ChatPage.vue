@@ -2117,10 +2117,12 @@ const activeThinkingStepId = computed<string | undefined>(() => {
 // (no running step or active tool call visible).
 // Exclude 'completing' phase — that is the 300ms wind-down after done event;
 // the task is already finished so no thinking indicator should appear.
+// Hide when tool panel is open — ThinkingIndicator already shows inside the panel.
 const showFloatingThinkingIndicator = computed(() => {
   if (showSessionWarmupMessage.value) return false;
   if (!isLoading.value) return false;
   if (responsePhase.value === 'completing') return false;
+  if (isToolPanelOpen.value) return false;
   if (hasActiveToolCall.value) return false;
   if (hasRunningStep.value) return false;
   return true;
