@@ -125,6 +125,9 @@ class UrlFailureGuard:
         self._total_failures = 0
         self._tier2_escalations = 0
         self._tier3_escalations = 0
+        # Domain-level failure tracking: block entire domain after N distinct URL failures
+        self._domain_failures: dict[str, int] = {}  # domain → count of distinct failed URLs
+        self._domain_block_threshold = 2  # Block domain after 2 distinct URL failures
 
     def check_url(self, url: str) -> GuardDecision:
         """Pre-execution check for a URL.
@@ -137,6 +140,23 @@ class UrlFailureGuard:
         record = self._failures.get(normalized)
 
         if record is None:
+            # Domain-level block: if 2+ distinct URLs from this domain failed, block all
+            try:
+                domain = urlparse(normalized).netloc.lower()
+            except Exception:
+                domain = ""
+            if domain and self._domain_failures.get(domain, 0) >= self._domain_block_threshold:
+                logger.info("URL blocked by domain-level failure: %s (%d URLs failed)", domain, self._domain_failures[domain])
+                return GuardDecision(
+                    action="block",
+                    tier=3,
+                    message=(
+                        f"BLOCKED: Domain {domain} has {self._domain_failures[domain]} failed URLs this session. "
+                        f"This domain appears unreliable — use a different source."
+                    ),
+                    alternative_urls=self._get_alternatives(normalized),
+                )
+
             # Check cross-session cache before allowing first attempt
             cached_error = _cross_session_check(normalized)
             if cached_error:
@@ -219,6 +239,15 @@ class UrlFailureGuard:
                 error=error,
                 source_tool=tool,
             )
+
+        # Track domain-level failures (only for first failure of each URL)
+        if normalized not in self._failures or self._failures[normalized].attempts == 1:
+            try:
+                domain = urlparse(normalized).netloc.lower()
+                if domain:
+                    self._domain_failures[domain] = self._domain_failures.get(domain, 0) + 1
+            except Exception:
+                logger.debug("Domain failure tracking failed for %s", normalized[:60], exc_info=True)
 
         # Persist to cross-session cache (404/403 errors only — transient
         # errors like timeouts should not be cached across sessions)
