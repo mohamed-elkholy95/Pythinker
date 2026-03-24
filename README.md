@@ -10,7 +10,7 @@
 
 *Your self-hosted alternative to [Manus AI](https://manus.im) — with 43+ tools and full autonomy.*
 
-[![CI](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml/badge.svg?branch=main)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml)
+[![CI](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml/badge.svg?branch=main-dev)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml)
 [![Docker](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml)
 [![Security](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml)
 [![GitHub issues](https://img.shields.io/github/issues/mohamed-elkholy95/Pythinker)](https://github.com/mohamed-elkholy95/Pythinker/issues)
