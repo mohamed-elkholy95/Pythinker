@@ -244,8 +244,12 @@ class AgentTaskRunner(TaskRunner):
         # Per-tool content handler registry (replaces elif chain)
         self._content_handlers = get_content_handler_registry()
         self._comparison_chart_generator = ComparisonChartGenerator()
-        # Phase 4: Plotly chart orchestrator (feature-flagged)
-        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
+        # Phase 5: LLM-powered Plotly chart orchestrator
+        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(
+            sandbox=self._sandbox,
+            session_id=session_id,
+            llm=self._llm,
+        )
         self._delivery_scope_id: str | None = None
         self._delivery_scope_root: str | None = None
         self._workspace_deliverables_root: str | None = None  # Set from session.workspace_structure

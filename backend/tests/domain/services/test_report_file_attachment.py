@@ -66,13 +66,47 @@ def mock_sandbox() -> AsyncMock:
 
 
 @pytest.fixture
-def runner(mock_sandbox) -> AgentTaskRunner:
+def mock_llm_for_chart() -> AsyncMock:
+    """AsyncMock LLM that returns chart analysis for comparison reports."""
+    from app.domain.services.plotly_chart_orchestrator import ChartAnalysisResult
+
+    llm = AsyncMock()
+    llm.model_name = "test-model"
+
+    async def _chart_analysis(messages, response_model, **kwargs):
+        # Extract report content from user message
+        user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
+        sys_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        content_lower = user_msg.lower()
+        is_forced = "user has explicitly requested" in sys_msg.lower()
+        if "comparison" in content_lower or "score" in content_lower or is_forced:
+            return ChartAnalysisResult(
+                should_generate=True,
+                chart_type="bar",
+                title="Comparison Chart",
+                metric_name="Score",
+                lower_is_better=False,
+                points=[
+                    {"label": "Alpha", "value": 92.0, "display_value": "92"},
+                    {"label": "Beta", "value": 88.0, "display_value": "88"},
+                    {"label": "Gamma", "value": 85.0, "display_value": "85"},
+                ],
+                reason="Compares values.",
+            )
+        return ChartAnalysisResult(should_generate=False, reason="Not a comparison.")
+
+    llm.ask_structured = AsyncMock(side_effect=_chart_analysis)
+    return llm
+
+
+@pytest.fixture
+def runner(mock_sandbox, mock_llm_for_chart) -> AgentTaskRunner:
     with patch("app.domain.services.agent_task_runner.PlanActFlow"):
         return AgentTaskRunner(
             session_id="test-session",
             agent_id="test-agent",
             user_id="test-user",
-            llm=MagicMock(),
+            llm=mock_llm_for_chart,
             sandbox=mock_sandbox,
             browser=AsyncMock(),
             agent_repository=AsyncMock(),
