@@ -42,11 +42,14 @@
               />
               <span class="panel-report-activity-accent"></span>
             </span>
-            <span
+            <svg
               v-else-if="showPlanActivityIcon"
-              class="flex-shrink-0 text-[13px] leading-none"
+              width="13" height="13" viewBox="0 0 32 32" fill="none"
+              class="flex-shrink-0"
               :class="{ 'animate-pulse': isPlanStreaming }"
-            >💡</span>
+            >
+              <path d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z" fill="var(--icon-secondary)" />
+            </svg>
             <Loader2
               v-else-if="showActivitySpinner"
               :size="13"
