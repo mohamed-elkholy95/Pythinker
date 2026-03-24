@@ -9,7 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV HOSTNAME=sandbox
 
 # Base system tools
-RUN apt-get update && apt-get install -y \
+# Cache-bust: 2026-03-24 (bump date to force apt-get update after mirror rotation)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo bc curl wget gnupg ca-certificates software-properties-common python3-apt \
     xterm socat supervisor libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri \
     libgl1-mesa-glx libgif7 libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 \
@@ -24,7 +25,7 @@ RUN mkdir -p /run/user/1000 && chown -R ubuntu:ubuntu /run/user/1000
 
 # Python 3.11
 RUN add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
-    apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
+    apt-get install -y --no-install-recommends python3.11 python3.11-venv python3.11-dev python3-pip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 LTS via NVM
@@ -51,7 +52,7 @@ RUN curl -LsSf https://astral.sh/uv/0.7.12/install.sh | env UV_INSTALL_DIR=/usr/
 # fonts-dejavu-core: fallback sans/serif/mono
 # fonts-freefont-ttf: additional Unicode coverage
 # fontconfig: font configuration and caching system
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-noto-color-emoji \
     fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
     locales \
