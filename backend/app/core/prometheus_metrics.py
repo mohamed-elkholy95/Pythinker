@@ -383,6 +383,27 @@ element_extraction_cache_misses_total = Counter(
     labels=[],
 )
 
+# Browser Page Lifecycle Metrics
+# Tracks open pages, evictions, and post-preview cleanups to detect
+# unbounded renderer accumulation (each renderer uses 140-390 MiB).
+browser_pages_open = Gauge(
+    name="pythinker_browser_pages_open",
+    help_text="Current number of open browser pages",
+    labels=[],
+)
+
+browser_page_evictions_total = Counter(
+    name="pythinker_browser_page_evictions_total",
+    help_text="Total browser page evictions",
+    labels=["reason"],  # reason: idle_ttl, max_pages, session_clear
+)
+
+browser_preview_cleanups_total = Counter(
+    name="pythinker_browser_preview_cleanups_total",
+    help_text="Total post-preview about:blank cleanups to release renderers",
+    labels=[],
+)
+
 # Sandbox Connection Metrics (Phase 6: warmup optimization)
 sandbox_connection_attempts_total = Counter(
     name="pythinker_sandbox_connection_attempts_total",
@@ -1863,6 +1884,31 @@ def record_sandbox_runtime_crash() -> None:
     Priority 3: Sandbox Health Monitoring
     """
     sandbox_runtime_crashes_total.inc({})
+
+
+# ── Browser Page Lifecycle Helpers ──────────────────────────────────
+
+
+def record_page_eviction(reason: str) -> None:
+    """Record a browser page eviction event.
+
+    Args:
+        reason: Why the page was evicted (idle_ttl, max_pages, session_clear)
+    """
+    normalized = (reason or "").strip().lower()
+    if normalized not in {"idle_ttl", "max_pages", "session_clear"}:
+        normalized = "unknown"
+    browser_page_evictions_total.inc({"reason": normalized})
+
+
+def set_open_page_count(count: int) -> None:
+    """Update the current open browser page count gauge."""
+    browser_pages_open.set({}, max(0, count))
+
+
+def record_preview_cleanup() -> None:
+    """Record a post-preview about:blank cleanup to release renderers."""
+    browser_preview_cleanups_total.inc({})
 
 
 def record_plan_verification(result: str) -> None:

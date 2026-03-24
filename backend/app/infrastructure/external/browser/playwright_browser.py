@@ -6,6 +6,7 @@ import random
 import re
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
@@ -17,6 +18,8 @@ from app.core.prometheus_metrics import (
     browser_element_extraction_latency,
     browser_element_extraction_timeout_total,
     browser_element_extraction_total,
+    record_page_eviction,
+    set_open_page_count,
 )
 from app.domain.models.tool_result import ToolResult
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
@@ -110,6 +113,21 @@ HEAVY_PAGE_THRESHOLD = 3000  # Pages with more elements use lightweight extracti
 # Wikipedia and heavy page detection (Priority 1: crash prevention)
 WIKIPEDIA_DOMAINS = ["wikipedia.org", "en.wikipedia.org", "*.wikipedia.org"]
 QUICK_SIZE_CHECK_TIMEOUT_MS = 500  # Quick page size check timeout
+
+
+@dataclass
+class TrackedPage:
+    """Metadata for an open Playwright page, used by the page lifecycle manager.
+
+    Tracks creation and last-activity timestamps so the idle-check loop can
+    evict pages that exceed their TTL, and the max-pages guard can evict the
+    oldest non-active pages when the ceiling is breached.
+    """
+
+    page_id: int  # id(page) — stable for the lifetime of the Page object
+    created_at: float = field(default_factory=time.monotonic)
+    last_active_at: float = field(default_factory=time.monotonic)
+    origin: str = ""  # Last navigated origin (for logging)
 
 
 class PlaywrightBrowser:
@@ -249,6 +267,22 @@ class PlaywrightBrowser:
                 profile_name=getattr(self.settings, "browser_choreography_profile", "professional"),
                 enabled=getattr(self.settings, "browser_choreography_enabled", True),
             )
+
+        # ── Page Lifecycle Manager ──────────────────────────────────────
+        # Tracks open pages and evicts excess/idle pages to prevent unbounded
+        # Chromium renderer process accumulation (each renderer ~140-390 MiB).
+        self._page_tracker: dict[int, TrackedPage] = {}
+        self._page_idle_check_task: asyncio.Task | None = None
+        self._page_eviction_enabled: bool = self._safe_bool(
+            getattr(self.settings, "browser_page_eviction_enabled", True), True
+        )
+        self._max_pages: int = self._safe_int(getattr(self.settings, "browser_max_pages", 3), 3, minimum=1)
+        self._page_idle_ttl: float = self._safe_float(
+            getattr(self.settings, "browser_page_idle_ttl_seconds", 120), 120.0, minimum=10.0
+        )
+        self._page_idle_check_interval: float = self._safe_float(
+            getattr(self.settings, "browser_page_idle_check_interval_seconds", 30), 30.0, minimum=5.0
+        )
 
     @staticmethod
     def _safe_bool(value: Any, default: bool) -> bool:
@@ -807,6 +841,10 @@ class PlaywrightBrowser:
         # Small delay to let WM settle after positioning
         await asyncio.sleep(0.05)
 
+        # Page lifecycle: track the new page and evict excess
+        self._track_page(page)
+        await self._evict_excess_pages()
+
         return page
 
     async def _setup_route_interception(self, context: BrowserContext) -> None:
@@ -1123,6 +1161,209 @@ class PlaywrightBrowser:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._background_tasks.clear()
         self._keepalive_task = None
+        self._page_idle_check_task = None
+
+    # ── Page Lifecycle Manager ─────────────────────────────────────────
+    #
+    # Prevents unbounded Chromium renderer process accumulation by tracking
+    # open pages and evicting excess/idle ones.  Each cross-origin navigation
+    # spawns a new renderer process (~140-390 MiB) that Chrome does not
+    # eagerly release.  Without eviction, a single research task can
+    # accumulate 12+ renderers consuming 3+ GiB.
+    #
+    # Integration points:
+    #   _new_page_with_bounds  → _track_page + _evict_excess_pages
+    #   _ensure_page           → _touch_page + start idle checker
+    #   navigate_for_display   → _touch_page
+    #   clear_session          → _reset_page_tracker
+    #   cleanup                → cancel idle checker + clear tracker
+
+    def _track_page(self, page: Page, origin: str = "") -> None:
+        """Register a newly created page in the lifecycle tracker."""
+        if not self._page_eviction_enabled:
+            return
+        page_id = id(page)
+        now = time.monotonic()
+        self._page_tracker[page_id] = TrackedPage(
+            page_id=page_id,
+            created_at=now,
+            last_active_at=now,
+            origin=origin,
+        )
+        self._update_page_count_metric()
+
+    def _touch_page(self, page: Page, origin: str = "") -> None:
+        """Update last-active timestamp for a page (prevents idle eviction)."""
+        if not self._page_eviction_enabled:
+            return
+        page_id = id(page)
+        tracked = self._page_tracker.get(page_id)
+        if tracked:
+            tracked.last_active_at = time.monotonic()
+            if origin:
+                tracked.origin = origin
+        else:
+            # Page exists but wasn't tracked (e.g. created before lifecycle manager init)
+            self._track_page(page, origin)
+
+    def _untrack_page(self, page: Page) -> None:
+        """Remove a page from the lifecycle tracker."""
+        self._page_tracker.pop(id(page), None)
+        self._update_page_count_metric()
+
+    def _update_page_count_metric(self) -> None:
+        """Sync the Prometheus gauge with the current open page count."""
+        # Clean up entries for pages that were closed externally
+        stale_ids = [
+            pid
+            for pid, tracked in self._page_tracker.items()
+            if hasattr(tracked, "page_id")  # guard for malformed entries
+            and self._is_tracked_page_closed(tracked)
+        ]
+        for pid in stale_ids:
+            self._page_tracker.pop(pid, None)
+
+        set_open_page_count(len(self._page_tracker))
+
+    def _is_tracked_page_closed(self, tracked: TrackedPage) -> bool:
+        """Check if the Playwright page behind a TrackedPage is closed.
+
+        We cannot store a direct Page reference in the dataclass (it would
+        create a reference cycle that prevents GC).  Instead we look up the
+        page in the context by matching ``id(page) == tracked.page_id``.
+        """
+        if not self.context:
+            return True
+        for page in self.context.pages:
+            if id(page) == tracked.page_id:
+                return page.is_closed()
+        # Page no longer in context → treat as closed
+        return True
+
+    def _resolve_tracked_page(self, tracked: TrackedPage) -> Page | None:
+        """Resolve a TrackedPage back to its Playwright Page object."""
+        if not self.context:
+            return None
+        for page in self.context.pages:
+            if id(page) == tracked.page_id:
+                return page if not page.is_closed() else None
+        return None
+
+    async def _evict_page(self, tracked: TrackedPage, reason: str) -> None:
+        """Evict a single page: navigate to about:blank, close, untrack, record metric."""
+        page = self._resolve_tracked_page(tracked)
+        if page is None:
+            self._page_tracker.pop(tracked.page_id, None)
+            self._update_page_count_metric()
+            return
+
+        origin = tracked.origin or "unknown"
+        try:
+            # Navigate to about:blank first to signal Chrome to release the renderer
+            # for the previous origin.  This is the key memory reclamation step.
+            if not page.is_closed():
+                with contextlib.suppress(Exception):
+                    await page.goto("about:blank", timeout=3000)
+            if not page.is_closed():
+                await page.close()
+            logger.info(
+                "Page evicted (reason=%s, origin=%s, age=%.0fs)",
+                reason,
+                origin,
+                time.monotonic() - tracked.created_at,
+            )
+        except Exception as e:
+            logger.debug("Failed to evict page (origin=%s): %s", origin, e)
+        finally:
+            self._page_tracker.pop(tracked.page_id, None)
+            self._update_page_count_metric()
+            record_page_eviction(reason)
+
+    async def _evict_excess_pages(self) -> None:
+        """Close oldest non-active pages when count exceeds max_pages."""
+        if not self._page_eviction_enabled or not self.context:
+            return
+
+        # Prune already-closed pages from tracker
+        self._update_page_count_metric()
+
+        open_count = len(self._page_tracker)
+        if open_count <= self._max_pages:
+            return
+
+        # Sort by last_active_at ascending (oldest first), skip active page
+        active_page_id = id(self.page) if self.page else None
+        candidates = sorted(
+            (t for t in self._page_tracker.values() if t.page_id != active_page_id),
+            key=lambda t: t.last_active_at,
+        )
+
+        evict_count = open_count - self._max_pages
+        for tracked in candidates[:evict_count]:
+            await self._evict_page(tracked, reason="max_pages")
+
+    def _start_page_idle_checker(self) -> None:
+        """Launch the background idle-check loop if not already running."""
+        if not self._page_eviction_enabled:
+            return
+        if self._page_idle_check_task and not self._page_idle_check_task.done():
+            return  # Already running
+        try:
+            self._page_idle_check_task = self._track_background_task(self._page_idle_check_loop())
+            logger.debug(
+                "Page idle checker started (ttl=%ds, interval=%ds)",
+                int(self._page_idle_ttl),
+                int(self._page_idle_check_interval),
+            )
+        except RuntimeError:
+            pass  # No running event loop
+
+    async def _page_idle_check_loop(self) -> None:
+        """Periodic loop that evicts pages exceeding their idle TTL.
+
+        Mirrors the pattern in sandbox/app/services/chrome_lifecycle.py
+        ``_idle_check_loop``.  Runs until cancelled (on cleanup or session end).
+        """
+        while True:
+            try:
+                await asyncio.sleep(self._page_idle_check_interval)
+                if not self.context or self._shutting_down:
+                    continue
+
+                now = time.monotonic()
+                active_page_id = id(self.page) if self.page else None
+
+                for tracked in list(self._page_tracker.values()):
+                    # Never evict the active page
+                    if tracked.page_id == active_page_id:
+                        continue
+                    # Skip already-closed pages (just untrack)
+                    if self._is_tracked_page_closed(tracked):
+                        self._page_tracker.pop(tracked.page_id, None)
+                        continue
+                    # Evict if idle beyond TTL
+                    idle_seconds = now - tracked.last_active_at
+                    if idle_seconds > self._page_idle_ttl:
+                        logger.info(
+                            "Page idle for %.0fs (ttl=%ds), evicting (origin=%s)",
+                            idle_seconds,
+                            int(self._page_idle_ttl),
+                            tracked.origin,
+                        )
+                        await self._evict_page(tracked, reason="idle_ttl")
+
+                self._update_page_count_metric()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug("Page idle check loop error: %s", e)
+
+    def _reset_page_tracker(self, preserved_page: Page | None = None) -> None:
+        """Reset the page tracker, optionally keeping one preserved page."""
+        self._page_tracker.clear()
+        if preserved_page and not preserved_page.is_closed():
+            self._track_page(preserved_page, origin="about:blank")
+        self._update_page_count_metric()
 
     # ── CDP keepalive ───────────────────────────────────────────────────
 
@@ -1340,9 +1581,17 @@ class PlaywrightBrowser:
                     except Exception as e:
                         logger.debug(f"Error closing page during session clear: {e}")
 
+                # Record metrics for the pages we just closed
+                closed_count = len(pages) - 1
+                for _ in range(closed_count):
+                    record_page_eviction("session_clear")
+
                 # Update our page reference to the preserved first page
                 if not first_page.is_closed():
                     self.page = first_page
+
+            # Page lifecycle: reset tracker to only the preserved first page
+            self._reset_page_tracker(self.page)
         except Exception as e:
             logger.warning(f"Error during session clear: {e}")
 
@@ -1727,6 +1976,9 @@ class PlaywrightBrowser:
             self.context = None
             self.browser = None
             self.playwright = None
+            # Page lifecycle: clear tracker (idle-check task already cancelled above)
+            self._page_tracker.clear()
+            set_open_page_count(0)
 
     async def close(self) -> None:
         """Backward-compatible alias for cleanup()."""
@@ -1800,6 +2052,11 @@ class PlaywrightBrowser:
                 rightmost_page = pages[-1]
                 if self.page != rightmost_page and not self._is_page_closed(rightmost_page):
                     self.page = rightmost_page
+
+        # Page lifecycle: touch the active page and start idle checker
+        if self.page:
+            self._touch_page(self.page)
+            self._start_page_idle_checker()
 
     async def _smart_scroll_for_lazy_content(self, max_scrolls: int = 3, scroll_delay: float = 0.4) -> None:
         """Smart scroll through page to trigger lazy-loaded content.
@@ -2839,6 +3096,8 @@ class PlaywrightBrowser:
                 await self._ensure_page_visible()
                 # Park cursor outside viewport so it doesn't appear in screencast
                 await self._park_cursor()
+                # Page lifecycle: mark page active with navigated origin
+                self._touch_page(self.page, origin=url)
                 logger.debug(f"navigate_for_display: showed {url} on live preview")
                 self._display_failure_count = 0
                 return True

@@ -12,9 +12,30 @@ Examples:
 """
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Matches CJK Unified Ideographs, CJK Compatibility, Hangul, Kana, and other
+# non-Latin scripts that should never appear in file paths, URLs, or resource IDs.
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]+")
+
+
+def _sanitize_path_like(text: str) -> str:
+    """Strip non-ASCII characters from path-like or URL-like strings.
+
+    Some LLM providers (e.g. MiniMax M2.7) inject CJK characters into
+    tool call arguments meant to be file paths, URLs, or resource IDs.
+    This produces garbled display text like "ev保存://trs-162a26da4366".
+    Stripping non-ASCII from these structural strings fixes the display
+    without affecting legitimate multilingual content (search queries, etc.).
+    """
+    cleaned = _NON_ASCII_RE.sub("", text)
+    # Collapse any resulting double-slashes or whitespace
+    cleaned = re.sub(r"/{3,}", "//", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 def _truncate(text: str, max_length: int = 60) -> str:
@@ -26,6 +47,7 @@ def _truncate(text: str, max_length: int = 60) -> str:
 
 def _format_url(url: str, max_length: int = 50) -> str:
     """Format URL for display: extract domain + path."""
+    url = _sanitize_path_like(url)
     try:
         from urllib.parse import urlparse
 
@@ -38,6 +60,7 @@ def _format_url(url: str, max_length: int = 50) -> str:
 
 def _format_file_path(path: str) -> str:
     """Format file path: remove common prefixes and extract filename."""
+    path = _sanitize_path_like(path)
     # Remove common sandbox prefixes
     return path.replace("/home/ubuntu/", "").replace("/workspace/", "")
 
@@ -238,7 +261,7 @@ class CommandFormatter:
         # Extract tool name from function (e.g., mcp__tavily__search -> tavily search)
         parts = function_name.split("__")
         tool_name = " ".join(parts[1:]) if len(parts) >= 3 else function_name.replace("mcp_", "").replace("_", " ")
-        resource = args.get("resource", args.get("tool_name", ""))
+        resource = _sanitize_path_like(args.get("resource", args.get("tool_name", "")))
 
         if resource:
             return (f"Using extension: {tool_name}", "mcp", resource[:30])
@@ -247,11 +270,11 @@ class CommandFormatter:
     @staticmethod
     def _format_git(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format git commands."""
-        repo_path = args.get("repo_path", args.get("path", ""))
+        repo_path = _sanitize_path_like(args.get("repo_path", args.get("path", "")))
         repo_name = repo_path.split("/")[-1] if repo_path else "repository"
 
         if "clone" in function_name:
-            url = args.get("url", "")
+            url = _sanitize_path_like(args.get("url", ""))
             repo = url.split("/")[-1].replace(".git", "") if url else "repository"
             return (f"Clone repository {repo}", "git", repo)
 
@@ -284,7 +307,7 @@ class CommandFormatter:
         """Format code execution commands."""
         language = args.get("language", "python")
         code = args.get("code", "")
-        file_path = args.get("file_path", "")
+        file_path = _sanitize_path_like(args.get("file_path", ""))
 
         if file_path:
             filename = file_path.split("/")[-1]
@@ -305,7 +328,7 @@ class CommandFormatter:
     @staticmethod
     def _format_test(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format test runner commands."""
-        test_path = args.get("test_path", args.get("file_path", args.get("suite_name", "")))
+        test_path = _sanitize_path_like(args.get("test_path", args.get("file_path", args.get("suite_name", ""))))
         test_name = test_path.split("/")[-1] if test_path else "tests"
 
         return (f"Run tests: {test_name}", "test", test_name)
