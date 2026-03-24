@@ -11,6 +11,14 @@ const props = defineProps<{
   isStreaming?: boolean
 }>()
 
+/** Truncate text at a word boundary to avoid cutting mid-word. */
+function truncateAtWordBoundary(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  const truncated = text.substring(0, maxLen)
+  const lastSpace = truncated.lastIndexOf(' ')
+  return lastSpace > maxLen * 0.6 ? truncated.substring(0, lastSpace) : truncated
+}
+
 interface ParsedStep {
   number: number
   title: string
@@ -22,7 +30,7 @@ const parsedSteps = computed((): ParsedStep[] => {
   if (props.plan?.steps?.length) {
     return props.plan.steps.map((step, i) => ({
       number: i + 1,
-      title: step.description?.split('.')[0]?.substring(0, 80) || `Step ${i + 1}`,
+      title: truncateAtWordBoundary(step.description?.split('.')[0] || '', 120) || `Step ${i + 1}`,
       description: step.description || '',
       status: step.status || 'pending',
     }))
@@ -170,20 +178,12 @@ function getStepNumberClass(status: string): string {
       </div>
     </div>
 
-    <!-- Streaming indicator with bouncing dots -->
+    <!-- Thinking indicator — shown before plan steps arrive -->
     <div v-if="isStreaming && parsedSteps.length === 0" class="plan-streaming">
       <div class="plan-streaming-content">
-        <h2 class="plan-streaming-title">
-          Planning<span class="bouncing-dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
-        </h2>
+        <div class="thinking-bulb">💡</div>
+        <h2 class="plan-streaming-title">Thinking</h2>
         <p class="plan-streaming-subtitle">Analyzing your request</p>
-        <div class="plan-streaming-loader">
-          <div class="plan-dot-group">
-            <span class="plan-bounce-dot" style="animation-delay: 0s"></span>
-            <span class="plan-bounce-dot" style="animation-delay: 0.15s"></span>
-            <span class="plan-bounce-dot" style="animation-delay: 0.3s"></span>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -303,63 +303,39 @@ function getStepNumberClass(status: string): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 0;
+  padding: 64px 0;
 }
 
 .plan-streaming-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.thinking-bulb {
+  font-size: 40px;
+  line-height: 1;
+  animation: bulb-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes bulb-glow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
 }
 
 .plan-streaming-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--text-primary);
   margin: 0;
   line-height: 1.3;
-}
-
-.bouncing-dots .dot {
-  display: inline-block;
-  animation: dot-bounce 1.4s ease-in-out infinite;
-}
-.bouncing-dots .dot:nth-child(1) { animation-delay: 0s; }
-.bouncing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
-.bouncing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dot-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-  40% { transform: translateY(-4px); opacity: 1; }
+  letter-spacing: -0.01em;
 }
 
 .plan-streaming-subtitle {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-tertiary);
   margin: 0;
-}
-
-.plan-streaming-loader {
-  margin-top: 16px;
-}
-
-.plan-dot-group {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.plan-bounce-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-  animation: plan-dot-bounce 1.2s ease-in-out infinite;
-}
-
-@keyframes plan-dot-bounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-  40% { transform: scale(1); opacity: 1; }
 }
 </style>
