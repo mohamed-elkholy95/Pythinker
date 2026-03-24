@@ -216,7 +216,25 @@ For example, "User prefers Python" and "User also uses JavaScript" are NOT contr
 
             import json
 
-            data = json.loads(response.get("content", "{}"))
+            raw_content = response.get("content", "") or ""
+
+            # Strip <think>...</think> blocks (MiniMax M2.7 reasoning tags)
+            raw_content = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL).strip()
+
+            # Extract JSON object using balanced-brace matching
+            data: dict = {"contradictions": []}
+            brace_start = raw_content.find("{")
+            if brace_start != -1:
+                depth = 0
+                for idx in range(brace_start, len(raw_content)):
+                    if raw_content[idx] == "{":
+                        depth += 1
+                    elif raw_content[idx] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            data = json.loads(raw_content[brace_start : idx + 1])
+                            break
+
             n = len(evidence_list)
 
             for contradiction in data.get("contradictions", []):

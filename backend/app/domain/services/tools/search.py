@@ -1131,6 +1131,7 @@ class SearchTool(BaseTool):
             _preview_cfg = _get_preview_settings()
             preview_dwell = getattr(_preview_cfg, "browser_background_preview_dwell", 7.0)
             preview_scroll = getattr(_preview_cfg, "browser_background_preview_scroll", True)
+            preview_cleanup_enabled = getattr(_preview_cfg, "browser_preview_cleanup_enabled", True)
 
             logger.info(
                 "Browsing top %d search results for live preview visibility "
@@ -1217,6 +1218,28 @@ class SearchTool(BaseTool):
             # or early stop.
             for normalized_url in reserved_urls:
                 self._previewing_result_urls.discard(normalized_url)
+
+            # ── Post-preview renderer cleanup ──────────────────────────────
+            # Navigate to about:blank to signal Chrome to release all the
+            # cross-origin renderer processes accumulated during preview.
+            # Each cross-origin navigation spawns a new renderer (~140-390 MiB)
+            # that Chrome does not eagerly GC.  This single navigation reclaims
+            # ~1-2 GiB after a typical 5-URL preview cycle.
+            if preview_cleanup_enabled:
+                try:
+                    if hasattr(self._browser, "navigate_for_display"):
+                        await asyncio.wait_for(
+                            self._browser.navigate_for_display("about:blank"),
+                            timeout=5.0,
+                        )
+                        from app.core.prometheus_metrics import record_preview_cleanup
+
+                        record_preview_cleanup()
+                        logger.debug("Post-preview cleanup: navigated to about:blank to release renderers")
+                except TimeoutError:
+                    logger.debug("Post-preview cleanup timed out (non-critical)")
+                except Exception as cleanup_err:
+                    logger.debug("Post-preview cleanup failed (non-critical): %s", cleanup_err)
         except asyncio.CancelledError:
             logger.debug("_browse_top_results: cancelled by newer browse task")
         except Exception as e:

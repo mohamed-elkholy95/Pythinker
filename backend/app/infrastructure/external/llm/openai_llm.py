@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, ClassVar, TypeVar
 
 import httpx
-from openai import AsyncOpenAI, RateLimitError
+from openai import NOT_GIVEN, AsyncOpenAI, RateLimitError
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import get_settings
@@ -2064,7 +2064,7 @@ To extract data from a webpage:
                         tool_call = client.chat.completions.create(
                             **params,
                             tools=request_tools,
-                            response_format=use_response_format,
+                            response_format=use_response_format or NOT_GIVEN,
                             tool_choice=tool_choice,
                             parallel_tool_calls=self._supports_parallel_tool_calls(),
                         )
@@ -2079,7 +2079,7 @@ To extract data from a webpage:
                         )
                         completion_call = client.chat.completions.create(
                             **params,
-                            response_format=response_format if not self._is_mlx_mode else None,
+                            response_format=(response_format if not self._is_mlx_mode else None) or NOT_GIVEN,
                         )
                         if call_timeout > 0:
                             response = await asyncio.wait_for(completion_call, timeout=call_timeout)

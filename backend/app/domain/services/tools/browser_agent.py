@@ -54,6 +54,10 @@ def extract_first_json(text: str) -> str:
     text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
     text = text.strip()
 
+    # Strip <think>...</think> blocks (e.g. MiniMax M2.7 reasoning traces)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = text.strip()
+
     # Try to find and extract the first complete JSON object
     # Use a bracket-counting approach for robustness
     brace_count = 0
