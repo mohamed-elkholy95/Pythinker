@@ -135,7 +135,7 @@
             >
               <div class="sr-icon-wrap">
                 <img
-                  v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
+                  v-if="(result.url || result.link) && !isFaviconError(result.url ?? result.link ?? '')"
                   :src="getFavicon(result.url ?? result.link ?? '')"
                   alt=""
                   class="sr-favicon"
@@ -242,14 +242,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
-import { getFaviconUrl, getToolDisplay, markFaviconFailed, getIconLetterFromUrl } from '@/utils/toolDisplay';
+import { getToolDisplay } from '@/utils/toolDisplay';
+import { useFavicon } from '@/composables/useFavicon';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
 import type { ToolEventData } from '@/types/event';
@@ -608,14 +609,7 @@ const truncate = (text: string, maxLength: number): string => {
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 };
 
-const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
-
-const faviconErrors: Record<string, boolean> = reactive({});
-
-const onFaviconError = (url: string) => {
-  faviconErrors[url] = true;
-  markFaviconFailed(url);
-};
+const { getUrl: getFavicon, isError: isFaviconError, handleError: onFaviconError, getLetter: getIconLetterFromUrl } = useFavicon();
 
 const fileName = computed(() => {
   if (!props.filePath) return 'File';

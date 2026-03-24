@@ -19,11 +19,11 @@
         <div class="deal-store-row">
           <div class="store-avatar">
             <img
-              v-if="!faviconError && faviconUrl"
+              v-if="!isFaviconError(deal.url) && faviconUrl"
               :src="faviconUrl"
               alt=""
               class="store-favicon"
-              @error="faviconError = true; markFaviconFailed(deal.url)"
+              @error="onFaviconError(deal.url)"
             />
             <span v-else class="store-letter">{{ storeLetter }}</span>
           </div>
@@ -70,9 +70,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { Trophy, Ticket } from 'lucide-vue-next';
-import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
+import { useFavicon } from '@/composables/useFavicon';
 import type { DealItem } from '@/types/toolContent';
 
 const props = defineProps<{
@@ -85,11 +85,11 @@ defineEmits<{
   (e: 'click'): void;
 }>();
 
-const faviconError = ref(false);
+const { getUrl, isError: isFaviconError, handleError: onFaviconError } = useFavicon();
 
 const faviconUrl = computed(() => {
   if (!props.deal.url) return null;
-  return getFaviconUrl(props.deal.url);
+  return getUrl(props.deal.url) || null;
 });
 
 const storeLetter = computed(() => {
