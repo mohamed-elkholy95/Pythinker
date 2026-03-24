@@ -1683,7 +1683,7 @@ def build_execution_prompt_from_context(
         # Some models (e.g. GLM-5) generate report content as inline text
         # instead of calling file_write, causing the content to be lost.
         _compile_re = re.compile(
-            r"\b(compile|deliver(?:able)?s?|write\s+report|create\s+report|finalize)\b",
+            r"\b(compile|deliver(?:able)?s?|write\s+report|create\s+report|finalize|comparison|report|analysis|save)\b",
             re.IGNORECASE,
         )
         if _compile_re.search(step):
