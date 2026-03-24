@@ -181,7 +181,13 @@ function getStepNumberClass(status: string): string {
     <!-- Thinking indicator — shown before plan steps arrive -->
     <div v-if="isStreaming && parsedSteps.length === 0" class="plan-streaming">
       <div class="plan-streaming-content">
-        <div class="thinking-bulb">💡</div>
+        <div class="thinking-bulb">
+          <svg width="40" height="40" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path class="lamp-bulb" d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z" />
+            <rect class="lamp-base" x="10" y="26" width="12" height="2" rx="1" />
+            <rect class="lamp-base" x="11" y="29" width="10" height="1.5" rx=".75" />
+          </svg>
+        </div>
         <h2 class="plan-streaming-title">Thinking</h2>
         <p class="plan-streaming-subtitle">Analyzing your request</p>
       </div>
@@ -314,14 +320,23 @@ function getStepNumberClass(status: string): string {
 }
 
 .thinking-bulb {
-  font-size: 40px;
   line-height: 1;
   animation: bulb-glow 2.5s ease-in-out infinite;
 }
 
+.thinking-bulb .lamp-bulb {
+  fill: var(--text-tertiary);
+  transition: fill 0.3s;
+}
+
+.thinking-bulb .lamp-base {
+  fill: var(--text-quaternary, var(--text-tertiary));
+  opacity: 0.5;
+}
+
 @keyframes bulb-glow {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.08); }
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
 }
 
 .plan-streaming-title {
