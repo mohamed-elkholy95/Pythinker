@@ -18,7 +18,6 @@ from app.domain.services.plotly_chart_orchestrator import (
     PlotlyChartOrchestrator,
 )
 
-
 # ---------------------------------------------------------------------------
 # Pydantic model tests
 # ---------------------------------------------------------------------------
