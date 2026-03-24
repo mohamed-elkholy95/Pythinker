@@ -148,9 +148,9 @@ class LLMTimeoutSettingsMixin:
     # Replaces hardcoded constants in openai_llm.py lines 66-70
     llm_slow_breaker_degraded_max_tokens: int = 4096  # Was hardcoded 1024
     llm_slow_breaker_degraded_timeout: float = 90.0  # Was hardcoded 60.0
-    llm_slow_tool_threshold: float = 30.0  # Seconds before a tool call is "slow"
-    llm_slow_tool_trip_count: int = 2  # Consecutive slow calls to trip breaker
-    llm_slow_tool_cooldown: float = 300.0  # Seconds before breaker resets
+    llm_slow_tool_threshold: float = 45.0  # Seconds before a tool call is "slow" (raised: 60-70s synthesis is normal)
+    llm_slow_tool_trip_count: int = 3  # Consecutive slow calls to trip breaker (raised from 2: avoid false trips)
+    llm_slow_tool_cooldown: float = 120.0  # Seconds before breaker resets (reduced from 300: recover faster)
 
     # Model router tier settings (design 5C)
     fast_model_max_tokens: int = 4096
