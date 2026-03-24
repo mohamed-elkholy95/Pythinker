@@ -206,7 +206,7 @@
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
           <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
-            <ThinkingIndicator :showText="true" :label="'Thinking'" />
+            <ThinkingIndicator :showText="true" label="Thinking" />
           </div>
           <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep && !isToolPanelOpen && !hasActiveToolCall" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
 
