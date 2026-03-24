@@ -145,18 +145,19 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
 
         __slots__ = ("_inner",)
 
-        def __init__(self, inner: Any) -> None:
+        def __init__(self, inner: object) -> None:
             self._inner = inner
 
         async def create(self, **kwargs: Any) -> Any:
-            response = await self._inner.create(**kwargs)
+            response = await self._inner.create(**kwargs)  # type: ignore[attr-defined]
             for choice in getattr(response, "choices", ()):
                 msg = getattr(choice, "message", None)
                 if msg and isinstance(getattr(msg, "content", None), str):
                     original = msg.content
                     stripped = _THINK_TAG_RE.sub("", original).strip()
                     if stripped != original:
-                        msg.content = stripped
+                        with contextlib.suppress(AttributeError, TypeError):
+                            msg.content = stripped
                         logger.debug(
                             "Stripped <think> block (%d chars) from LLM response",
                             len(original) - len(stripped),
@@ -171,9 +172,9 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
 
         __slots__ = ("_inner", "completions")
 
-        def __init__(self, inner: Any) -> None:
+        def __init__(self, inner: object) -> None:
             self._inner = inner
-            self.completions = _ThinkStrippingCompletions(inner.completions)
+            self.completions = _ThinkStrippingCompletions(inner.completions)  # type: ignore[attr-defined]
 
         def __getattr__(self, name: str) -> Any:
             return getattr(self._inner, name)
@@ -183,9 +184,9 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
 
         __slots__ = ("_inner", "chat")
 
-        def __init__(self, inner: Any) -> None:
+        def __init__(self, inner: object) -> None:
             self._inner = inner
-            self.chat = _ThinkStrippingChat(inner.chat)
+            self.chat = _ThinkStrippingChat(inner.chat)  # type: ignore[attr-defined]
 
         def __getattr__(self, name: str) -> Any:
             return getattr(self._inner, name)
@@ -244,7 +245,7 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
 
         # -- Client-level interception ------------------------------------
 
-        def get_client(self) -> Any:
+        def get_client(self) -> _ThinkStrippingClient:
             """Return a wrapped AsyncOpenAI client that strips <think> tags."""
             raw_client = super().get_client()
             return _ThinkStrippingClient(raw_client)

@@ -64,12 +64,24 @@ checked against the provided context (e.g., opinions, formatting instructions)
 """
 
 
+class ClaimVerdict:
+    """Verdict constants for grounding verification claims."""
+
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+    UNVERIFIABLE = "unverifiable"
+    COMMON_KNOWLEDGE = "common_knowledge"
+
+    # All recognised verdicts — used for input normalisation.
+    _ALL: frozenset[str] = frozenset({SUPPORTED, UNSUPPORTED, UNVERIFIABLE, COMMON_KNOWLEDGE})
+
+
 @dataclass(frozen=True, slots=True)
 class FlaggedClaim:
     """A claim flagged during verification."""
 
     claim_text: str
-    verdict: str  # "supported", "unsupported", "unverifiable"
+    verdict: str  # See ClaimVerdict constants
     source_snippet: str | None = None
 
 
@@ -260,9 +272,9 @@ class LLMGroundingVerifier:
                 if not isinstance(claim, dict):
                     continue
                 claim_text = claim.get("claim", "")
-                verdict = claim.get("verdict", "unverifiable").lower()
-                if verdict not in ("supported", "unsupported", "unverifiable", "common_knowledge"):
-                    verdict = "unverifiable"
+                verdict = claim.get("verdict", ClaimVerdict.UNVERIFIABLE).lower()
+                if verdict not in ClaimVerdict._ALL:
+                    verdict = ClaimVerdict.UNVERIFIABLE
 
                 # Skip self-referential claims — they are meta-statements about
                 # the agent's own output, not verifiable external facts.
@@ -274,12 +286,12 @@ class LLMGroundingVerifier:
                 # don't need source backing (e.g., historical dates, famous events).
                 # Counting these as "unsupported" inflates the hallucination score
                 # with false positives and causes alert fatigue.
-                if verdict == "common_knowledge":
+                if verdict == ClaimVerdict.COMMON_KNOWLEDGE:
                     common_knowledge_skipped += 1
                     continue
 
                 total += 1
-                if verdict == "unsupported":
+                if verdict == ClaimVerdict.UNSUPPORTED:
                     unsupported += 1
                     flagged.append(
                         FlaggedClaim(

@@ -28,6 +28,8 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from app.domain.services.agents.llm_grounding_verifier import ClaimVerdict
+
 if TYPE_CHECKING:
     from app.domain.external.llm import LLM
     from app.domain.external.observability import MetricsPort
@@ -618,9 +620,9 @@ class OutputVerifier:
                     # Hallucination feedback loop: register unsupported claims
                     # as a BLOCKER so the next step's synthesized context warns
                     # the agent not to re-assert them.
-                    unsupported = [c for c in grounding_result.flagged_claims if c.verdict == "unsupported"]
+                    unsupported = [c for c in grounding_result.flagged_claims if c.verdict == ClaimVerdict.UNSUPPORTED]
                     if unsupported:
-                        claims_list = "; ".join(c.claim_text[:120] for c in unsupported[:5])
+                        claims_list = "; ".join(getattr(c, "claim_text", str(c))[:120] for c in unsupported[:5])
                         self._context_manager.add_insight(
                             insight_type=InsightType.BLOCKER,
                             content=(
