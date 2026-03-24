@@ -290,6 +290,26 @@ class UrlFailureGuard:
         lines = [f"  - {record.url} ({record.error}, {record.attempts} attempts)" for record in self._failures.values()]
         return "Failed URLs this session:\n" + "\n".join(lines)
 
+    def get_blocked_domains_context(self) -> str | None:
+        """Return a system-level context string listing blocked domains.
+
+        Designed to be injected into the LLM system prompt so the model
+        stops attempting domains that are confirmed unreliable.  Returns
+        None when no domains are blocked.
+        """
+        blocked = [domain for domain, count in self._domain_failures.items() if count >= self._domain_block_threshold]
+        if not blocked:
+            return None
+        domain_list = ", ".join(blocked)
+        return (
+            f"\n<blocked_domains>\n"
+            f"The following domains are BLOCKED because multiple URLs failed (404/403) this session: "
+            f"{domain_list}. "
+            f"Do NOT navigate to or use any URL from these domains. "
+            f"Use alternative sources from your search results instead.\n"
+            f"</blocked_domains>"
+        )
+
     def get_metrics(self) -> dict[str, int]:
         """Metrics for Prometheus export."""
         return {
