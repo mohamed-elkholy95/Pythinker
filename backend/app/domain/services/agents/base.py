@@ -2838,8 +2838,32 @@ class BaseAgent:
                         trimmed[idx] = {**m, "content": content[:_second_floor] + "\n[... truncated ...]"}
                 self.memory.messages = trimmed
 
-            # Escalation 5+: block file_read via middleware and inject nudge.
-            if _escalation >= 5:
+            # Third pass (escalation 3+): also truncate older assistant messages.
+            # Large step results in assistant messages contribute significantly
+            # to context growth and are missed by tool-only truncation.
+            if _escalation >= 3:
+                _after = sum(len(str(m.get("content", ""))) for m in trimmed)
+                if _after > _target:
+                    assistant_indices = [
+                        i
+                        for i, m in enumerate(trimmed)
+                        if m.get("role") == "assistant" and len(str(m.get("content", ""))) > 500
+                    ]
+                    # Preserve the most recent assistant message (current step output)
+                    if assistant_indices:
+                        _asst_limit = max(200, 800 - 150 * (_escalation - 2))
+                        for idx in assistant_indices[:-1]:  # skip the last (newest)
+                            m = trimmed[idx]
+                            content = str(m.get("content", ""))
+                            if len(content) > _asst_limit:
+                                trimmed[idx] = {
+                                    **m,
+                                    "content": content[:_asst_limit] + "\n[... earlier output truncated ...]",
+                                }
+                        self.memory.messages = trimmed
+
+            # Escalation 3+: block file_read via middleware and inject nudge.
+            if _escalation >= 3:
                 logger.warning(
                     "Context cap hit %d consecutive times — blocking file_read and injecting step-advance nudge",
                     _escalation,
