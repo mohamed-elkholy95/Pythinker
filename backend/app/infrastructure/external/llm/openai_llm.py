@@ -2581,6 +2581,24 @@ To extract data from a webpage:
                         # Pydantic validation internally.  We pop response_format
                         # to avoid double-setting it.
                         params.pop("response_format", None)
+
+                        # MiniMax prompt reinforcement: MiniMax-M2.7 sometimes
+                        # returns narrative text instead of JSON even when
+                        # response_format or instructor is used.  A prompt-level
+                        # JSON-only instruction drastically reduces first-attempt
+                        # failures (observed 100% narrative on chart analysis).
+                        if getattr(self, "_is_minimax", False):
+                            _json_reminder = (
+                                "\n\nIMPORTANT: Respond with ONLY a valid JSON object. "
+                                "Do NOT include any explanation, reasoning, markdown, "
+                                "or text outside the JSON object."
+                            )
+                            _msgs = params.get("messages", [])
+                            if _msgs and _msgs[0].get("role") == "system":
+                                _msgs[0] = {**_msgs[0], "content": _msgs[0]["content"] + _json_reminder}
+                            elif _msgs:
+                                _msgs.insert(0, {"role": "system", "content": _json_reminder.strip()})
+
                         try:
                             result, completion = await asyncio.wait_for(
                                 patched_client.chat.completions.create_with_completion(
@@ -2724,6 +2742,38 @@ To extract data from a webpage:
                     raise
                 except (ValidationError, json.JSONDecodeError) as e:
                     logger.warning(f"Structured validation error on attempt {attempt + 1}: {e}")
+
+                    # Instructor recovery: when instructor fails because the
+                    # model returned narrative instead of JSON (common with
+                    # MiniMax), try to extract JSON from the raw response
+                    # content before burning a retry.
+                    if patched_client and not tools:
+                        _raw_content: str | None = None
+                        with contextlib.suppress(Exception):
+                            # instructor wraps the completion; try common locations
+                            _last = getattr(e, "last_completion", None) or getattr(e, "response", None)
+                            if _last and hasattr(_last, "choices") and _last.choices:
+                                _raw_content = getattr(_last.choices[0].message, "content", None)
+                            # InstructorRetryException nests the actual content differently
+                            if not _raw_content and hasattr(e, "__cause__") and e.__cause__:
+                                _cause = e.__cause__
+                                _lc = getattr(_cause, "last_completion", None)
+                                if _lc and hasattr(_lc, "choices") and _lc.choices:
+                                    _raw_content = getattr(_lc.choices[0].message, "content", None)
+                        if _raw_content:
+                            _extracted = self._extract_json_from_text(_raw_content)
+                            if _extracted:
+                                try:
+                                    result = response_model.model_validate_json(_extracted)
+                                    logger.info(
+                                        "Recovered structured output from instructor failure via JSON extraction "
+                                        "(model=%s, schema=%s)",
+                                        effective_model,
+                                        response_model.__name__,
+                                    )
+                                    return result
+                                except Exception:
+                                    logger.debug("JSON extraction recovery also failed, will retry")
                     if attempt == max_retries:
                         try:
                             from app.core.prometheus_metrics import llm_json_parse_failures_total
