@@ -142,8 +142,8 @@
             </button>
           </div>
 
-          <!-- Right: HTML Code/Preview tabs (inline in panel header) — hidden during report -->
-          <div v-else-if="currentViewType === 'editor' && isHtmlFile && !showReportPresentation" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <!-- Right: Code/Preview tabs for HTML & Markdown (inline in panel header) — hidden during report -->
+          <div v-else-if="currentViewType === 'editor' && hasPreviewMode && !showReportPresentation" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               @click="editorViewMode = 'preview'"
               class="px-2 py-1 text-xs rounded-md transition-colors"
@@ -284,6 +284,8 @@
                   :content="reportPresentationText"
                   filename="Report.md"
                   :is-writing="isSummaryStreaming"
+                  view-mode="preview"
+                  :is-markdown-file="true"
                 />
               </div>
 
@@ -406,8 +408,9 @@
                   :filename="fileName"
                   :is-writing="isWriting"
                   :is-loading="isEditorLoading"
-                  :view-mode="isHtmlFile ? editorViewMode : 'code'"
+                  :view-mode="hasPreviewMode ? editorViewMode : 'code'"
                   :is-html-file="isHtmlFile"
+                  :is-markdown-file="isMarkdownFile"
                 />
               </div>
 
@@ -905,8 +908,9 @@ const showBrowserControls = computed(() => {
 });
 const chartViewMode = ref<'interactive' | 'static'>('interactive');
 
-// HTML file detection and editor view mode (Code / Preview)
+// HTML / Markdown file detection and editor view mode (Code / Preview)
 const HTML_PREVIEW_EXTENSIONS = new Set(['.html', '.htm', '.svg']);
+const MARKDOWN_PREVIEW_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd']);
 const isHtmlFile = computed(() => {
   const name = fileName.value.toLowerCase();
   if (!name) return false;
@@ -914,6 +918,15 @@ const isHtmlFile = computed(() => {
   if (dotIdx < 0) return false;
   return HTML_PREVIEW_EXTENSIONS.has(name.slice(dotIdx));
 });
+const isMarkdownFile = computed(() => {
+  const name = fileName.value.toLowerCase();
+  if (!name) return false;
+  const dotIdx = name.lastIndexOf('.');
+  if (dotIdx < 0) return false;
+  return MARKDOWN_PREVIEW_EXTENSIONS.has(name.slice(dotIdx));
+});
+/** Whether the current editor file supports a rendered preview */
+const hasPreviewMode = computed(() => isHtmlFile.value || isMarkdownFile.value);
 const editorViewMode = ref<'code' | 'preview'>('preview');
 
 /** Generic tool result for GenericContentView :result prop. */
