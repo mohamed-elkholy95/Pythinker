@@ -208,7 +208,7 @@
           <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
             <ThinkingIndicator :showText="true" />
           </div>
-          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
+          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep && !isToolPanelOpen && !hasActiveToolCall" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
