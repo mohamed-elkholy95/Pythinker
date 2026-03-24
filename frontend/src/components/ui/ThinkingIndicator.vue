@@ -93,7 +93,7 @@
         <line class="lamp-ray-s ray-s4" x1="28" y1="9" x2="30.5" y2="7" stroke-width="0.4" stroke-linecap="round" />
       </svg>
     </div>
-    <span v-if="props.showText" class="thinking-text">Thinking</span>
+    <span v-if="props.showText" class="thinking-text">{{ props.label }}</span>
   </div>
 </template>
 
@@ -102,8 +102,10 @@ import { ref } from 'vue'
 
 const props = withDefaults(defineProps<{
   showText?: boolean
+  label?: string
 }>(), {
-  showText: true
+  showText: true,
+  label: 'Thinking',
 })
 
 const hovered = ref(false)
