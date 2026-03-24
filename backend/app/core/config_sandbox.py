@@ -13,7 +13,7 @@ anti-bot stealth, connection pooling, crash detection, screenshots, and stuck de
 #   SANDBOX_MEM_LIMIT=4G        (docker-compose.yml default)
 #   SANDBOX_CPU_LIMIT=1.5       (docker-compose.yml default)
 #   SANDBOX_SHM_SIZE=1g         (docker-compose.yml default)
-#   ENABLE_VNC=0
+#   ENABLE_VNC=1               (required for browser takeover)
 #   One static sandbox, no pre-warmed pool; lowest host resource footprint.
 #
 # PERFORMANCE mode (for production with concurrent users):

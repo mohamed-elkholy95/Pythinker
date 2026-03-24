@@ -187,7 +187,7 @@ services:
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:?Set SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:?Set SUPERVISOR_RPC_PASSWORD}
       - LIBGL_ALWAYS_SOFTWARE=1
-      - ENABLE_VNC=${ENABLE_VNC:-0}
+      - ENABLE_VNC=${ENABLE_VNC:-1}
     # Production: no host port exposure -- backend accesses via internal network
     shm_size: ${SANDBOX_SHM_SIZE:-1g}
     security_opt:
