@@ -436,9 +436,24 @@ const enhanceAlertBlockquotes = () => {
   }
 };
 
+const removeEmptyCodeBlocks = () => {
+  const el = editor.value?.options.element;
+  const root = el instanceof HTMLElement ? el : (el && 'mount' in el ? el.mount : null);
+  if (!root) return;
+  for (const pre of root.querySelectorAll<HTMLPreElement>('pre.message-code-block')) {
+    const code = pre.querySelector('code');
+    if (!code) continue;
+    const text = code.textContent?.trim() ?? '';
+    if (text.length === 0) {
+      pre.style.display = 'none';
+    }
+  }
+};
+
 const postRenderEnhance = () => {
   addReferenceAnchors();
   enhanceAlertBlockquotes();
+  removeEmptyCodeBlocks();
 };
 
 const editor = useEditor({
@@ -975,6 +990,7 @@ defineExpose({ contentRef });
   line-height: 1.55 !important;
   border: 1px solid var(--border-light) !important;
 }
+
 
 /* ── Tables — premium styling ────────────────────── */
 :deep(.tiptap table) {
