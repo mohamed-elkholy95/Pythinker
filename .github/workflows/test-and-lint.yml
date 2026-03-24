@@ -104,11 +104,11 @@ jobs:
 
       - name: Type check (Pyright)
         if: needs.changes.outputs.backend == 'true'
-        # TODO: Remove continue-on-error once Pyright errors are resolved (1626 pre-existing errors)
-        continue-on-error: true
+        # Pyright has 1626 pre-existing errors — run for visibility but don't fail the job.
+        # Using `|| true` instead of `continue-on-error` to avoid ghost failure annotations.
         run: |
           pip install pyright
-          pyright app/
+          pyright app/ || echo "::warning::Pyright reported errors (pre-existing, non-blocking)"
 
   backend-test:
     name: Backend Tests (pytest)

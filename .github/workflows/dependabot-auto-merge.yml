@@ -24,6 +24,10 @@ jobs:
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
           steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        # GITHUB_TOKEN may lack permission to approve PRs unless repo setting
+        # "Allow GitHub Actions to create and approve pull requests" is enabled.
+        # Non-fatal so auto-merge can still be enabled for human approval.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
