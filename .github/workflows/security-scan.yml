@@ -43,8 +43,9 @@ jobs:
         continue-on-error: false
         run: |
           # --ignore-vuln: CVE-2025-69872 (diskcache 5.6.3) — no fix available upstream
-          pip-audit --ignore-vuln CVE-2025-69872 --format json --output pip-audit-report.json || true
-          pip-audit --ignore-vuln CVE-2025-69872
+          # --ignore-vuln: CVE-2026-4539 (pygments 2.19.2) — no fix available; transitive dep via rich
+          pip-audit --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539 --format json --output pip-audit-report.json || true
+          pip-audit --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
 
       - name: Install Node dependencies
         working-directory: frontend

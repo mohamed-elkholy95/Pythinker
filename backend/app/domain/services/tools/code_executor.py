@@ -85,6 +85,10 @@ _MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+\S", re.MULTILINE)
 _TRIPLE_QUOTE_ASSIGNMENT = re.compile(r"=\s*(?:[rRuUbBfF]{0,3})?('{3}|\"{3})")
 _TEXT_EXPORT_HINT = re.compile(r"\b(file_write|code_save_artifact|open\(|write\(|pathlib|Path\()", re.IGNORECASE)
 
+# Pre-compiled pattern for package name validation (prevents command injection
+# in pip/npm install commands).
+_SAFE_PACKAGE_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+([<>=!]+[a-zA-Z0-9_\-\.]+)?$")
+
 
 def _looks_like_plain_text(code: str) -> bool:
     """Return True when *code* is clearly prose / markdown, not Python source.
@@ -422,10 +426,7 @@ class CodeExecutorTool(BaseTool):
     def _is_safe_package_name(self, package: str) -> bool:
         """Basic validation of package name to prevent command injection."""
         # Allow alphanumeric, dash, underscore, dot, and version specifiers
-        import re
-
-        pattern = r"^[a-zA-Z0-9_\-\.]+([<>=!]+[a-zA-Z0-9_\-\.]+)?$"
-        return bool(re.match(pattern, package))
+        return bool(_SAFE_PACKAGE_RE.match(package))
 
     async def _collect_artifacts(self) -> list[Artifact]:
         """
