@@ -2729,7 +2729,11 @@ class PlanActFlow(BaseFlow):
             await self.planner.roll_back(message)
 
         if session.status == SessionStatus.RUNNING:
-            logger.debug(f"Session {self._session_id} is in RUNNING status")
+            logger.info(
+                "Session %s is RUNNING (agent status=%s), transitioning to PLANNING for new message",
+                self._session_id,
+                self.status.value,
+            )
             self._transition_to(AgentStatus.PLANNING)
 
         if session.status == SessionStatus.WAITING:

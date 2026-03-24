@@ -41,6 +41,7 @@ VALID_TRANSITIONS: dict[AgentStatus, list[AgentStatus]] = {
         AgentStatus.UPDATING,
         AgentStatus.SUMMARIZING,
         AgentStatus.REFLECTING,
+        AgentStatus.PLANNING,  # Re-plan when new user message arrives mid-execution
         AgentStatus.ERROR,
     ],
     AgentStatus.UPDATING: [
