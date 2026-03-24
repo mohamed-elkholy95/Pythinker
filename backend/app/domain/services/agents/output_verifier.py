@@ -615,6 +615,23 @@ class OutputVerifier:
                         tags=["hallucination", "llm_grounding", "verification"],
                     )
 
+                    # Hallucination feedback loop: register unsupported claims
+                    # as a BLOCKER so the next step's synthesized context warns
+                    # the agent not to re-assert them.
+                    unsupported = [c for c in grounding_result.flagged_claims if c.verdict == "unsupported"]
+                    if unsupported:
+                        claims_list = "; ".join(c.claim_text[:120] for c in unsupported[:5])
+                        self._context_manager.add_insight(
+                            insight_type=InsightType.BLOCKER,
+                            content=(
+                                f"CORRECTION — the following claim(s) from a previous step "
+                                f"could NOT be verified and must NOT be repeated without "
+                                f"a verified source: {claims_list}"
+                            ),
+                            confidence=0.95,
+                            tags=["hallucination_correction", "do_not_repeat"],
+                        )
+
                     # Record Prometheus metric
                     self._metrics.increment(
                         "pythinker_hallucination_detections_total",
