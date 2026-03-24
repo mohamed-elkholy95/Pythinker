@@ -753,11 +753,13 @@ async def lifespan(app: FastAPI):
             logger.info("Application shutdown - Pythinker AI Agent terminating")
             _health_state["ready"] = False
 
-            # Phase 1.5: Drain active SSE streams before tearing down services
+            # Phase 1.5: Drain active SSE streams before tearing down services.
+            # 10s timeout gives long-lived SSE connections (research sessions
+            # lasting 200+ seconds) time to close gracefully during dev reloads.
             try:
                 from app.domain.services.stream_guard import drain_active_streams
 
-                drained = await drain_active_streams(drain_timeout=5.0)
+                drained = await drain_active_streams(drain_timeout=10.0)
                 if drained:
                     logger.info("Drained %d active SSE streams before shutdown", drained)
             except Exception as e:
@@ -868,6 +870,57 @@ async def lifespan(app: FastAPI):
                     logger.error(f"Error during AgentService cleanup: {e!s}")
             else:
                 logger.info("AgentService was never created, skipping shutdown")
+
+            # Sweep workspace files from active sessions before destroying sandboxes.
+            # This prevents file loss when sessions are cancelled mid-execution
+            # (the normal sweep in agent_task_runner only runs on clean completion).
+            try:
+                from app.domain.services.file_sync_manager import FileSyncManager
+                from app.infrastructure.external.file.gridfsfile import get_file_storage
+                from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+                from app.interfaces.dependencies import get_session_repository
+
+                db = get_mongodb().client[settings.mongodb_database]
+                sweep_sessions = db.sessions.find(
+                    {"sandbox_id": {"$ne": None}, "status": {"$in": ["running", "initializing", "cancelled"]}},
+                    {"_id": 1, "sandbox_id": 1, "agent_id": 1, "user_id": 1},
+                )
+                swept_count = 0
+                file_storage = get_file_storage()
+                session_repo = get_session_repository()
+                async for session_doc in sweep_sessions:
+                    sandbox_id = session_doc.get("sandbox_id")
+                    session_id = str(session_doc["_id"])
+                    if not sandbox_id:
+                        continue
+                    try:
+                        sandbox = await DockerSandbox.get(sandbox_id)
+                        if not sandbox:
+                            continue
+                        fsm = FileSyncManager(
+                            agent_id=session_doc.get("agent_id", "shutdown"),
+                            session_id=session_id,
+                            user_id=session_doc.get("user_id", "anonymous"),
+                            sandbox=sandbox,
+                            file_storage=file_storage,
+                            session_repository=session_repo,
+                        )
+                        synced_files = await asyncio.wait_for(fsm.sweep_workspace_files(), timeout=15.0)
+                        if synced_files:
+                            swept_count += len(synced_files)
+                            logger.info(
+                                "Shutdown sweep: synced %d files from session %s",
+                                len(synced_files),
+                                session_id,
+                            )
+                    except TimeoutError:
+                        logger.warning("Shutdown sweep timed out for session %s", session_id)
+                    except Exception as e:
+                        logger.debug("Shutdown sweep failed for session %s: %s", session_id, e)
+                if swept_count > 0:
+                    logger.info("Shutdown sweep: saved %d files total from active sessions", swept_count)
+            except Exception as e:
+                logger.warning("Shutdown workspace sweep failed (non-critical): %s", e)
 
             # Destroy orphaned sandbox containers from active sessions
             # (catches sandboxes missed by task registry cleanup)
