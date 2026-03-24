@@ -338,6 +338,12 @@ class BaseAgent:
         self._compression_guard_active: bool = False
         self._step_start_time: float | None = None
 
+        # Consecutive hard context cap hits — drives escalating truncation.
+        # When the graduated truncation can't keep pace with context growth,
+        # each consecutive hit tightens limits further.  Reset when context
+        # drops below 90 % of the cap.
+        self._consecutive_cap_hits: int = 0
+
         # Per-session hallucination rate tracking (for model escalation)
         self._total_hallucinations: int = 0
         self._total_tool_calls: int = 0
@@ -1777,6 +1783,8 @@ class BaseAgent:
         self._step_start_time = time.monotonic()
         self._recent_truncation_count = 0  # Prevent stale count from prior step
         self._stuck_recovery_exhausted = False
+        self._consecutive_cap_hits = 0
+        self._set_context_cap_file_read_block(blocked=False)
         self._json_nudge_sent = False  # Proactive JSON nudge gate (one per step)
 
         # ── Middleware context for this execution ──
@@ -2727,6 +2735,21 @@ class BaseAgent:
     # Now configurable via settings: hard_context_char_cap / hard_context_char_cap_deep_research
     _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000  # Fallback if settings unavailable
 
+    def _set_context_cap_file_read_block(self, *, blocked: bool) -> None:
+        """Toggle file_read blocking on the efficiency monitor middleware.
+
+        Called when consecutive hard context cap hits indicate that reads are
+        adding context faster than graduated truncation can remove it.
+        """
+        from app.domain.services.agents.middleware_adapters.efficiency_monitor import (
+            EfficiencyMonitorMiddleware,
+        )
+
+        for mw in self._pipeline.middleware:
+            if isinstance(mw, EfficiencyMonitorMiddleware):
+                mw._context_cap_file_read_blocked = blocked
+                break
+
     @property
     def _effective_context_char_cap(self) -> int:
         """Return the effective hard context cap, respecting per-flow settings."""
@@ -2754,23 +2777,32 @@ class BaseAgent:
         total_chars = sum(len(str(m.get("content", ""))) for m in all_msgs)
         _cap = self._effective_context_char_cap
         if total_chars > _cap:
+            self._consecutive_cap_hits += 1
+            _escalation = self._consecutive_cap_hits
             logger.warning(
-                "Hard context cap hit (%d > %d chars), applying graduated truncation",
+                "Hard context cap hit (%d > %d chars, consecutive=%d), applying graduated truncation",
                 total_chars,
                 _cap,
+                _escalation,
             )
+
             # Graduated eviction: older tool results are truncated more
             # aggressively, recent ones are preserved with more context.
-            # Target 80% of cap to prevent re-triggering on the next turn
-            # (each tool result can add 5-10K chars).
-            _target = int(_cap * 0.80)
+            # Target drops with each consecutive hit to break the growth cycle.
+            _target_pct = max(0.60, 0.80 - 0.05 * (_escalation - 1))
+            _target = int(_cap * _target_pct)
             tool_indices = [i for i, m in enumerate(all_msgs) if m.get("role") == "tool"]
             n_tools = len(tool_indices)
             trimmed = list(all_msgs)  # shallow copy
 
-            # Scale limits by overshoot ratio: more aggressive when further over cap
+            # Scale limits by overshoot ratio: more aggressive when further over cap.
+            # Floor drops with consecutive hits (0.3 → 0.2 → 0.1 min).
             _overshoot = total_chars / _cap  # e.g. 1.3 means 30% over
-            _scale = max(0.3, 1.0 / _overshoot)
+            _scale_floor = max(0.10, 0.30 - 0.10 * (_escalation - 1))
+            _scale = max(_scale_floor, 1.0 / _overshoot)
+
+            # Per-message floor also drops with escalation (100 → 60 → 30).
+            _msg_floor = max(30, 100 - 20 * (_escalation - 1))
 
             for rank, idx in enumerate(tool_indices):
                 m = trimmed[idx]
@@ -2785,7 +2817,7 @@ class BaseAgent:
                     limit = int(600 * _scale)  # middle third: moderate truncation
                 else:
                     limit = int(1500 * _scale)  # newest third: preserve more context
-                limit = max(limit, 100)  # floor: never truncate below 100 chars
+                limit = max(limit, _msg_floor)
                 if len(content) > limit:
                     trimmed[idx] = {**m, "content": content[:limit] + "\n[... truncated ...]"}
             self.memory.messages = trimmed
@@ -2793,12 +2825,39 @@ class BaseAgent:
             # Verify we reached the target; if not, do a second pass
             _after = sum(len(str(m.get("content", ""))) for m in trimmed)
             if _after > _target and tool_indices:
+                # Second-pass floor also tightens with escalation
+                _second_floor = max(50, 150 - 25 * (_escalation - 1))
                 for idx in tool_indices:
                     m = trimmed[idx]
                     content = m.get("content", "")
-                    if isinstance(content, str) and len(content) > 150:
-                        trimmed[idx] = {**m, "content": content[:150] + "\n[... truncated ...]"}
+                    if isinstance(content, str) and len(content) > _second_floor:
+                        trimmed[idx] = {**m, "content": content[:_second_floor] + "\n[... truncated ...]"}
                 self.memory.messages = trimmed
+
+            # Escalation 5+: block file_read via middleware and inject nudge.
+            if _escalation >= 5:
+                logger.warning(
+                    "Context cap hit %d consecutive times — blocking file_read and injecting step-advance nudge",
+                    _escalation,
+                )
+                # Activate file_read blocking on the efficiency monitor middleware
+                self._set_context_cap_file_read_block(blocked=True)
+                self._efficiency_nudges.append(
+                    {
+                        "message": (
+                            "IMPORTANT: You have been operating near the context limit for too long. "
+                            "Stop reading files and gathering more information. Immediately synthesize "
+                            "what you have and produce your final output for this step."
+                        ),
+                        "confidence": 0.95,
+                        "hard_stop": _escalation >= 7,
+                    }
+                )
+        else:
+            # Context is under cap — reset consecutive counter and unblock file_read
+            if self._consecutive_cap_hits > 0 and total_chars < _cap * 0.90:
+                self._consecutive_cap_hits = 0
+                self._set_context_cap_file_read_block(blocked=False)
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
         if self._efficiency_nudges:

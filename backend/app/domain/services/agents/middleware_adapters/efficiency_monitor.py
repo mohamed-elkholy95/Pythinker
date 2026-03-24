@@ -39,6 +39,9 @@ def _get_browser_nav_budget() -> int:
         return 6
 
 
+_FILE_READ_TOOLS = frozenset({"file_read", "file_read_range"})
+
+
 class EfficiencyMonitorMiddleware(BaseMiddleware):
     """Detects analysis paralysis and enforces browser navigation budgets."""
 
@@ -55,6 +58,11 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         self._browser_nav_signatures: set[str] = set()
         self._duplicate_skip_count = 0
         self._last_step_iteration: int = -1
+        # Context-cap escalation: set by BaseAgent when consecutive hard-cap
+        # hits reach the threshold.  When True, file_read calls are blocked
+        # to stop the "bathtub problem" (reads add context faster than
+        # truncation can remove it).
+        self._context_cap_file_read_blocked: bool = False
 
     @property
     def name(self) -> str:
@@ -97,6 +105,22 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         if ctx.step_iteration_count < self._last_step_iteration:
             self.reset_browser_budget()
         self._last_step_iteration = ctx.step_iteration_count
+
+        # Block file_read when context cap escalation is active.
+        # This stops the "bathtub problem" where reads add context faster
+        # than graduated truncation can remove it.
+        if self._context_cap_file_read_blocked and tool_call.function_name in _FILE_READ_TOOLS:
+            logger.info(
+                "Context cap escalation: blocking %s to prevent further context growth",
+                tool_call.function_name,
+            )
+            return MiddlewareResult(
+                signal=MiddlewareSignal.SKIP_TOOL,
+                message=(
+                    "Context size is critically high. Stop reading files and produce "
+                    "your output immediately using the information you already have."
+                ),
+            )
 
         if tool_call.function_name not in _BROWSER_NAV_TOOLS:
             return MiddlewareResult.ok()
