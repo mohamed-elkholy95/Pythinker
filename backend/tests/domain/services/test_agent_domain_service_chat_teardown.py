@@ -336,9 +336,16 @@ async def test_chat_marks_cancelled_when_task_finishes_without_terminal_event_af
         done=False,
     )
 
+    _call_count = 0
+
     async def _get_event(*args, **kwargs):
-        task.done = True
-        return ("1-0", progress_event.model_dump_json())
+        nonlocal _call_count
+        _call_count += 1
+        if _call_count == 1:
+            task.done = True
+            return ("1-0", progress_event.model_dump_json())
+        # Subsequent calls return None — stream exhausted (matches real Redis XREAD behavior)
+        return (None, None)
 
     task.output_stream = SimpleNamespace(get=AsyncMock(side_effect=_get_event))
 
