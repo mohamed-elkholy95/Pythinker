@@ -21,6 +21,15 @@ vi.mock('lucide-vue-next', async () => {
   };
 });
 
+// Mock PlanPresentationView at module level to prevent its scoped CSS from
+// loading asynchronously and racing with Vitest environment teardown.
+vi.mock('@/components/toolViews/PlanPresentationView.vue', () => ({
+  default: defineComponent({
+    name: 'PlanPresentationView',
+    template: '<div />',
+  }),
+}));
+
 const baseToolContent: ToolContent = {
   event_id: 'tool-1',
   timestamp: Date.now(),
