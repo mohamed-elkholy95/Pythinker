@@ -13,7 +13,6 @@ import pytest
 
 from app.domain.services.agents.execution import ExecutionAgent
 
-
 # ---------------------------------------------------------------------------
 # Sample content fixtures
 # ---------------------------------------------------------------------------

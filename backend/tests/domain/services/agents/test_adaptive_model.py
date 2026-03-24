@@ -124,7 +124,6 @@ class TestExecutionAgentModelSelection:
     def test_select_model_returns_model_name(self, mock_metrics, mock_get_settings):
         """_select_model_for_step returns a model name string."""
         import app.domain.services.agents.model_router as mr_module
-
         from app.domain.services.agents.execution import ExecutionAgent
         from app.domain.services.agents.step_executor import StepExecutor
 
