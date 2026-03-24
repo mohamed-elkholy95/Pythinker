@@ -222,7 +222,13 @@ class TestBrowseTopResultsResilience:
             await search_tool._browse_top_results(search_data, count=5)
 
         # Should keep trying all candidates instead of stopping after 2 failures.
-        assert search_tool._browser.navigate_for_display.await_count == 5
+        # navigate_for_display is called once per candidate URL; the about:blank
+        # cleanup is NOT reached because all navigations failed.
+        real_calls = [
+            c for c in search_tool._browser.navigate_for_display.call_args_list
+            if c.args[0] != "about:blank"
+        ]
+        assert len(real_calls) == 5
 
     @pytest.mark.asyncio
     async def test_skips_when_disconnected(self, search_tool):
@@ -243,7 +249,12 @@ class TestBrowseTopResultsResilience:
 
         await search_tool._browse_top_results(search_data, count=3)
 
-        assert search_tool._browser.navigate_for_display.await_count == 3
+        # 3 result navigations + 1 about:blank cleanup (from successful first nav)
+        real_calls = [
+            c for c in search_tool._browser.navigate_for_display.call_args_list
+            if c.args[0] != "about:blank"
+        ]
+        assert len(real_calls) == 3
 
     @pytest.mark.asyncio
     async def test_skips_urls_already_shown_in_live_preview(self, search_tool):
@@ -268,7 +279,11 @@ class TestBrowseTopResultsResilience:
                 count=2,
             )
 
-        called_urls = [call.args[0] for call in search_tool._browser.navigate_for_display.await_args_list]
+        called_urls = [
+            call.args[0]
+            for call in search_tool._browser.navigate_for_display.await_args_list
+            if call.args[0] != "about:blank"
+        ]
         assert called_urls == [
             "https://example.com/deals?utm_source=google&utm_medium=cpc",
             "https://example.com/new-offer",
@@ -287,7 +302,13 @@ class TestBrowseTopResultsResilience:
                 count=1,
             )
 
-        assert search_tool._browser.navigate_for_display.await_count == 1
+        # First call navigates to the real URL + about:blank cleanup.
+        # Second call should skip entirely (URL already previewed).
+        real_calls = [
+            c for c in search_tool._browser.navigate_for_display.call_args_list
+            if c.args[0] != "about:blank"
+        ]
+        assert len(real_calls) == 1
 
 
 # --- 6. BrowserTool search live-preview guard ---

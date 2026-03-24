@@ -42,7 +42,18 @@ async def test_browse_top_results_avoids_duplicate_navigation_during_race() -> N
             tool._browse_top_results(search_data, count=1),
         )
 
-    assert mock_browser.navigate_for_display.await_count == 1
+    # navigate_for_display is called once for the result URL plus once for
+    # the about:blank post-preview renderer cleanup.  The key dedup
+    # guarantee is that the *result* URL is navigated exactly once.
+    real_url_calls = [
+        c
+        for c in mock_browser.navigate_for_display.call_args_list
+        if c[0][0] != "about:blank"
+    ]
+    assert len(real_url_calls) == 1, (
+        f"Expected 1 real URL navigation, got {len(real_url_calls)}: "
+        f"{[c[0][0] for c in real_url_calls]}"
+    )
     assert not tool._previewing_result_urls
     normalized = SearchTool._normalize_preview_url("https://example.com/deals/headphones")
     assert normalized in tool._previewed_result_urls
