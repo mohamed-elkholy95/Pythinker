@@ -293,6 +293,13 @@ async function initConnection(): Promise<void> {
       handleError('Failed to get screencast URL')
     }
   } catch (e) {
+    // HTTP 409: session is complete/cancelled — screencast no longer available.
+    // Stop silently instead of showing an error or retrying.
+    const status = (e as { response?: { status?: number } })?.response?.status
+    if (status === 409) {
+      isLoading.value = false
+      return
+    }
     handleError(`Failed to initialize: ${formatError(e)}`)
   } finally {
     _isConnecting = false
