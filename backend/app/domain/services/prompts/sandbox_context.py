@@ -99,6 +99,7 @@ class SandboxContextManager:
             logger.info("Loaded sandbox context via HTTP from %s", url)
             return context
         except Exception:
+            logger.debug("Failed to load sandbox context via HTTP from %s", url, exc_info=True)
             return None
 
     @classmethod
