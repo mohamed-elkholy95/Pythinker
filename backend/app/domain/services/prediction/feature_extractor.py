@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from app.domain.models.reflection import ProgressMetrics
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,6 +51,11 @@ def extract_features(
         try:
             stuck_confidence = float(getattr(stuck_analysis, "confidence", 0.0))
         except Exception:
+            logger.debug(
+                "Could not extract stuck_confidence from %s: %r",
+                type(stuck_analysis).__name__,
+                stuck_analysis,
+            )
             stuck_confidence = 0.0
 
     return FailureFeatures(
