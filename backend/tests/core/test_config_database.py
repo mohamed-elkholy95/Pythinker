@@ -12,7 +12,6 @@ from app.core.config_database import (
     StorageSettingsMixin,
 )
 
-
 # ─── DatabaseSettingsMixin ───
 
 

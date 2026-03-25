@@ -11,8 +11,8 @@ import pytest
 
 from app.domain.services.search.cost_router import QuotaStatus
 from app.domain.services.search.quota_manager import (
-    SearchQuotaManager,
     _PROVIDER_QUOTA_SETTINGS,
+    SearchQuotaManager,
 )
 
 
