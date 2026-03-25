@@ -1060,7 +1060,7 @@ class PlanActFlow(BaseFlow):
 
         self._last_compact_time = now
 
-        async def _compact():
+        async def _compact() -> None:
             if self._compact_lock.locked():
                 logger.debug(f"Agent {self._agent_id} skipping compaction — another run is already in progress")
                 return
@@ -2013,7 +2013,7 @@ class PlanActFlow(BaseFlow):
 
         self._last_save_time = now
 
-        async def _save():
+        async def _save() -> None:
             try:
                 await self._task_state_manager.save_to_sandbox()
                 logger.debug(f"Agent {self._agent_id} task state saved to sandbox")
