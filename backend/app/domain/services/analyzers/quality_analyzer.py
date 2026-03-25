@@ -126,56 +126,56 @@ class ComplexityVisitor(ast.NodeVisitor):
         self.max_nesting = 0
         self.decision_points = []
 
-    def _add_complexity(self, node, points: int = 1):
+    def _add_complexity(self, node, points: int = 1) -> None:
         """Add complexity points."""
         self.complexity += points
         self.decision_points.append(node.__class__.__name__)
 
-    def visit_If(self, node):
+    def visit_If(self, node) -> None:
         self._add_complexity(node)
         self.nesting_depth += 1
         self.max_nesting = max(self.max_nesting, self.nesting_depth)
         self.generic_visit(node)
         self.nesting_depth -= 1
 
-    def visit_For(self, node):
+    def visit_For(self, node) -> None:
         self._add_complexity(node)
         self.nesting_depth += 1
         self.max_nesting = max(self.max_nesting, self.nesting_depth)
         self.generic_visit(node)
         self.nesting_depth -= 1
 
-    def visit_While(self, node):
+    def visit_While(self, node) -> None:
         self._add_complexity(node)
         self.nesting_depth += 1
         self.max_nesting = max(self.max_nesting, self.nesting_depth)
         self.generic_visit(node)
         self.nesting_depth -= 1
 
-    def visit_ExceptHandler(self, node):
+    def visit_ExceptHandler(self, node) -> None:
         self._add_complexity(node)
         self.generic_visit(node)
 
-    def visit_With(self, node):
+    def visit_With(self, node) -> None:
         self.nesting_depth += 1
         self.max_nesting = max(self.max_nesting, self.nesting_depth)
         self.generic_visit(node)
         self.nesting_depth -= 1
 
-    def visit_BoolOp(self, node):
+    def visit_BoolOp(self, node) -> None:
         # Each 'and' or 'or' adds complexity
         self._add_complexity(node, len(node.values) - 1)
         self.generic_visit(node)
 
-    def visit_comprehension(self, node):
+    def visit_comprehension(self, node) -> None:
         self._add_complexity(node)
         self.generic_visit(node)
 
-    def visit_Assert(self, node):
+    def visit_Assert(self, node) -> None:
         self._add_complexity(node)
         self.generic_visit(node)
 
-    def visit_Lambda(self, node):
+    def visit_Lambda(self, node) -> None:
         self._add_complexity(node)
         self.generic_visit(node)
 
