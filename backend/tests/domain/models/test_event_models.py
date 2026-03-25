@@ -1,6 +1,6 @@
 """Tests for domain event models — enums, content models, and discriminated union."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 
@@ -34,8 +34,8 @@ from app.domain.models.event import (
     IdleEvent,
     KnowledgeBaseToolContent,
     KnowledgeEvent,
-    McpToolContent,
     MCPHealthEvent,
+    McpToolContent,
     MessageEvent,
     ModeChangeEvent,
     MultiTaskEvent,
@@ -82,7 +82,6 @@ from app.domain.models.event import (
     WorkspaceEvent,
     WorkspaceToolContent,
 )
-
 
 # ── Enum tests ──────────────────────────────────────────────
 
@@ -139,8 +138,14 @@ class TestReflectionStatus:
 class TestPlanningPhase:
     def test_all_values(self) -> None:
         expected = {
-            "received", "analyzing", "planning", "finalizing",
-            "heartbeat", "waiting", "verifying", "executing_setup",
+            "received",
+            "analyzing",
+            "planning",
+            "finalizing",
+            "heartbeat",
+            "waiting",
+            "verifying",
+            "executing_setup",
             "tool_executing",
         }
         assert {p.value for p in PlanningPhase} == expected
@@ -322,6 +327,7 @@ class TestDeepScanToolContent:
 class TestAgentModeToolContentImport:
     def test_construct(self) -> None:
         from app.domain.models.event import AgentModeToolContent
+
         c = AgentModeToolContent(mode="agent")
         assert c.mode == "agent"
 
@@ -765,38 +771,45 @@ class TestSkillEvent:
 class TestAgentEventDiscriminator:
     def test_error_event(self) -> None:
         from pydantic import TypeAdapter
+
         ta = TypeAdapter(AgentEvent)
         e = ta.validate_python({"type": "error", "error": "fail"})
         assert isinstance(e, ErrorEvent)
 
     def test_done_event(self) -> None:
         from pydantic import TypeAdapter
+
         ta = TypeAdapter(AgentEvent)
         e = ta.validate_python({"type": "done"})
         assert isinstance(e, DoneEvent)
 
     def test_message_event(self) -> None:
         from pydantic import TypeAdapter
+
         ta = TypeAdapter(AgentEvent)
         e = ta.validate_python({"type": "message", "message": "hi"})
         assert isinstance(e, MessageEvent)
 
     def test_invalid_type_raises(self) -> None:
         from pydantic import TypeAdapter, ValidationError
+
         ta = TypeAdapter(AgentEvent)
         with pytest.raises(ValidationError):
             ta.validate_python({"type": "nonexistent_event_type"})
 
     def test_tool_event(self) -> None:
         from pydantic import TypeAdapter
+
         ta = TypeAdapter(AgentEvent)
-        e = ta.validate_python({
-            "type": "tool",
-            "tool_call_id": "tc-1",
-            "tool_name": "search",
-            "function_name": "web_search",
-            "function_args": {"q": "test"},
-            "status": "calling",
-        })
+        e = ta.validate_python(
+            {
+                "type": "tool",
+                "tool_call_id": "tc-1",
+                "tool_name": "search",
+                "function_name": "web_search",
+                "function_args": {"q": "test"},
+                "status": "calling",
+            }
+        )
         assert isinstance(e, ToolEvent)
         assert e.status == ToolStatus.CALLING

@@ -17,7 +17,6 @@ from app.domain.models.plan import (
     ValidationResult,
 )
 
-
 # ── ExecutionStatus ─────────────────────────────────────────
 
 
@@ -291,16 +290,12 @@ class TestPlan:
         assert plan.get_step_by_id("nonexistent") is None
 
     def test_get_phase_by_type(self) -> None:
-        plan = Plan(
-            phases=[Phase(id="ph-1", phase_type=PhaseType.ALIGNMENT, label="Align")]
-        )
+        plan = Plan(phases=[Phase(id="ph-1", phase_type=PhaseType.ALIGNMENT, label="Align")])
         assert plan.get_phase_by_type(PhaseType.ALIGNMENT) is not None
         assert plan.get_phase_by_type(PhaseType.DELIVERY_FEEDBACK) is None
 
     def test_get_phase_by_id(self) -> None:
-        plan = Plan(
-            phases=[Phase(id="ph-1", phase_type=PhaseType.ALIGNMENT, label="Align")]
-        )
+        plan = Plan(phases=[Phase(id="ph-1", phase_type=PhaseType.ALIGNMENT, label="Align")])
         assert plan.get_phase_by_id("ph-1") is not None
         assert plan.get_phase_by_id("ph-999") is None
 
