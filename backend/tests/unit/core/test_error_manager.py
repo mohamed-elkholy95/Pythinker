@@ -1,5 +1,7 @@
 """Tests for core error management system."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from app.core.error_manager import (
@@ -14,7 +16,6 @@ from app.core.error_manager import (
     error_handler,
     get_error_manager,
 )
-from datetime import UTC, datetime
 
 
 @pytest.mark.unit

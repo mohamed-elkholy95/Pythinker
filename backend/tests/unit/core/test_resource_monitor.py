@@ -1,8 +1,8 @@
 """Tests for core resource monitor."""
 
-import pytest
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+
+import pytest
 
 from app.core.resource_monitor import (
     ContainerResources,

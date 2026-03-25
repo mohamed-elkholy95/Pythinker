@@ -84,7 +84,7 @@ class TestRecoveryMonitor:
         # First recovery
         monitor.record_open("svc1")
         stats = monitor.record_recovery("svc1", success=True)
-        first_mttr = stats.mttr_seconds
+        _ = stats.mttr_seconds  # capture for reference
         # Second recovery
         monitor.record_open("svc1")
         stats = monitor.record_recovery("svc1", success=True)

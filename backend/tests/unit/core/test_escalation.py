@@ -2,12 +2,12 @@
 
 import pytest
 
+from app.domain.external.scraper import ScrapedContent
 from app.infrastructure.external.scraper.escalation import (
     ESCALATION_STATUS_CODES,
     has_http2_transport_error,
     should_escalate,
 )
-from app.domain.external.scraper import ScrapedContent
 
 
 @pytest.mark.unit
