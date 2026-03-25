@@ -534,7 +534,7 @@ class ContextManager:
         size_bytes: int | None = None,
         content_summary: str | None = None,
         is_deliverable: bool = False,
-    ):
+    ) -> None:
         """Track file creation/read/modification"""
         self._context.files[path] = FileContext(
             path=path,
@@ -553,7 +553,7 @@ class ContextManager:
         key_findings: list[str] | None = None,
         urls_visited: list[str] | None = None,
         files_affected: list[str] | None = None,
-    ):
+    ) -> None:
         """Track tool execution results"""
         self._context.tools.append(
             ToolContext(
@@ -567,7 +567,7 @@ class ContextManager:
         )
         logger.debug(f"Tracked tool execution: {tool_name}")
 
-    def add_key_fact(self, fact: str):
+    def add_key_fact(self, fact: str) -> None:
         """Add important discovery/fact"""
         if fact not in self._context.key_facts:
             self._context.key_facts.append(fact)
@@ -577,7 +577,7 @@ class ContextManager:
         observation_type: str,
         content: str,
         importance: float = 0.5,
-    ):
+    ) -> None:
         """Add an observation to the context.
 
         Args:
@@ -594,7 +594,7 @@ class ContextManager:
             self._context.key_facts.append(fact)
         logger.debug(f"Added observation: {observation_type} (importance={importance})")
 
-    def mark_deliverable_complete(self, deliverable_path: str):
+    def mark_deliverable_complete(self, deliverable_path: str) -> None:
         """Mark a deliverable as completed"""
         if deliverable_path not in self._context.deliverables:
             self._context.deliverables.append(deliverable_path)
@@ -667,7 +667,7 @@ class ContextManager:
         """Get list of completed deliverables"""
         return self._context.deliverables.copy()
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all context (use at task boundaries)"""
         self._context = WorkingContext()
         self._context_graph = ContextGraph()
