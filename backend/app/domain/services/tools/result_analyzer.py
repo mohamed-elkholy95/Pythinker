@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from app.domain.models.tool_result import ToolResult
+
+# Pattern matching actual Python tracebacks rather than the mere word
+# "traceback".  Documentation pages, code examples, and module references
+# regularly contain the substring "traceback" without indicating an error.
+_TRACEBACK_RE = re.compile(
+    r"Traceback \(most recent call last\):|"
+    r"^\s+File \".+\", line \d+, in ",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -45,7 +55,7 @@ class ResultAnalyzer:
             anomalies.append("oversized_result")
         if not result.success:
             anomalies.append("error_result")
-        if result.success and "traceback" in text_str.lower():
+        if result.success and _TRACEBACK_RE.search(text_str):
             anomalies.append("traceback_in_success")
 
         return ResultAnalysis(size=size, is_empty=is_empty, error_like=error_like, anomalies=anomalies)
