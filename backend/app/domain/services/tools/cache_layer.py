@@ -286,16 +286,16 @@ class ToolCacheStats:
         self.skipped = 0  # Tools excluded from caching
         self.errors = 0
 
-    def record_hit(self):
+    def record_hit(self) -> None:
         self.hits += 1
 
-    def record_miss(self):
+    def record_miss(self) -> None:
         self.misses += 1
 
-    def record_skip(self):
+    def record_skip(self) -> None:
         self.skipped += 1
 
-    def record_error(self):
+    def record_error(self) -> None:
         self.errors += 1
 
     @property
@@ -316,7 +316,7 @@ class ToolCacheStats:
             "hit_rate": round(self.hit_rate, 4),
         }
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset all statistics."""
         self.hits = 0
         self.misses = 0
@@ -557,7 +557,7 @@ async def warmup_common_tools() -> dict[str, bool]:
     # Register cache-specific warmup tasks
     if not warmup_manager.is_warmed_up:
         # These are lightweight tasks that help prime the cache infrastructure
-        async def prime_l1_cache():
+        async def prime_l1_cache() -> None:
             """Prime L1 cache with placeholder to ensure it's initialized."""
             _l1_cache.set("_warmup_test", {"status": "ready"}, ttl=60)
             _l1_cache.get("_warmup_test")
@@ -565,7 +565,7 @@ async def warmup_common_tools() -> dict[str, bool]:
 
         warmup_manager.register_warmup_task(name="l1_cache_prime", coroutine_factory=prime_l1_cache, priority=1)
 
-        async def check_l2_connection():
+        async def check_l2_connection() -> bool:
             """Verify L2 (Redis) connection is available."""
             try:
                 from app.domain.external.cache import get_cache
