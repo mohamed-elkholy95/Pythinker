@@ -76,6 +76,17 @@ class AgentLogger:
                 result_message=message[:200] if message else None,
             ),
         )
+        # Record Prometheus tool metrics
+        try:
+            from app.core.prometheus_metrics import record_tool_call
+
+            record_tool_call(
+                tool=tool_name,
+                status="success" if success else "error",
+                latency=duration_ms / 1000.0,
+            )
+        except Exception:
+            pass  # Telemetry must not crash tool execution
 
     def tool_failed(
         self,

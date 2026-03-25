@@ -1682,6 +1682,12 @@ class AgentTaskRunner(TaskRunner):
             if self._plan_act_flow is not None:
                 self._plan_act_flow.set_cancel_token(self._cancel_token)
             logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
+            try:
+                from app.core.prometheus_metrics import active_sessions
+
+                active_sessions.inc({})
+            except Exception:
+                pass  # Telemetry must not crash the session start path
             await self._start_agent_run_usage()
 
             # Ensure runtime is initialized (idempotent)
@@ -1939,6 +1945,12 @@ class AgentTaskRunner(TaskRunner):
             self._terminal_status = SessionStatus.FAILED
             final_usage_status = AgentRunStatus.FAILED
         finally:
+            try:
+                from app.core.prometheus_metrics import active_sessions
+
+                active_sessions.dec({})
+            except Exception:
+                pass  # Telemetry must not crash the session teardown path
             await self._finish_agent_run_usage(final_usage_status)
 
     async def _run_flow(self, message: Message, task: Task | None = None) -> AsyncGenerator[BaseEvent, None]:

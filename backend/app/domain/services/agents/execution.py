@@ -645,6 +645,7 @@ class ExecutionAgent(BaseAgent):
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
         _step_start_time = time.monotonic()
+        _tool_call_start_times: dict[str, float] = {}
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -733,6 +734,10 @@ class ExecutionAgent(BaseAgent):
                         yield MessageEvent(message=_display_result)
                     continue
                 elif isinstance(event, ToolEvent):
+                    # Record tool call start time for Prometheus latency tracking
+                    if event.status == ToolStatus.CALLING and event.tool_call_id:
+                        _tool_call_start_times[event.tool_call_id] = time.monotonic()
+
                     # Track tool usage for prompt adapter
                     if event.status == ToolStatus.CALLED:
                         success = event.function_result.success if event.function_result else True
@@ -740,6 +745,21 @@ class ExecutionAgent(BaseAgent):
                         # Guard against None function_name
                         func_name = event.function_name or "unknown"
                         self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
+
+                        # Record Prometheus tool call metrics
+                        try:
+                            from app.core.prometheus_metrics import record_tool_call
+
+                            _tool_latency = 0.0
+                            if event.tool_call_id and event.tool_call_id in _tool_call_start_times:
+                                _tool_latency = time.monotonic() - _tool_call_start_times.pop(event.tool_call_id)
+                            record_tool_call(
+                                tool=func_name,
+                                status="success" if success else "error",
+                                latency=_tool_latency,
+                            )
+                        except Exception:
+                            pass  # Telemetry must not crash the execution path
 
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
