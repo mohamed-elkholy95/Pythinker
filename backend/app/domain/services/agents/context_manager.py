@@ -295,6 +295,9 @@ class InsightSynthesizer:
         insights: list[StepInsight] = []
         args = args or {}
 
+        # Normalise result to string so downstream slicing/regex never fails on None
+        result = result or ""
+
         # Handle errors specially
         if not success:
             insights.append(
