@@ -1411,7 +1411,7 @@ class AgentService:
         await self._session_repository.update_unread_message_count(session_id, 0)
         logger.info(f"Unread message count cleared for session {session_id}")
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         logger.info("Closing all agents and cleaning up resources")
         for session_id in list(self._sandbox_warm_tasks.keys()):
             with contextlib.suppress(Exception):
