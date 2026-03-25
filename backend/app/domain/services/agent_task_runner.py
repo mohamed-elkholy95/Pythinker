@@ -720,6 +720,16 @@ class AgentTaskRunner(TaskRunner):
                     f"]({download_url})",
                 )
 
+            # Third fallback: try file_path basename (sync may preserve original sandbox name)
+            att_file_path = getattr(attachment, "file_path", None)
+            if att_file_path and event.content == old_content:
+                path_basename = att_file_path.rsplit("/", 1)[-1] if "/" in att_file_path else att_file_path
+                if path_basename and path_basename != filename and f"]({path_basename})" in event.content:
+                    event.content = event.content.replace(
+                        f"]({path_basename})",
+                        f"]({download_url})",
+                    )
+
             if event.content != old_content:
                 rewrite_count += 1
                 logger.debug(

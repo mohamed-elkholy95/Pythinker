@@ -888,12 +888,20 @@ class FileSyncManager:
                             file_path,
                         )
                     else:
+                        # Preserve the original attachment filename (e.g. comparison-chart-{id}.png)
+                        # so that _rewrite_chart_image_urls can match the canonical pattern injected
+                        # into the report content.  sync_file_to_storage derives filename from the
+                        # sandbox file_path basename, which may differ from the canonical name.
+                        original_filename = valid_attachments[i].filename
+                        if original_filename and original_filename != result.filename:
+                            result.filename = original_filename
                         synced_attachments.append(result)
                         logger.debug(
-                            "Agent %s: Successfully synced attachment '%s' -> file_id=%s",
+                            "Agent %s: Successfully synced attachment '%s' -> file_id=%s (filename=%s)",
                             self._agent_id,
                             file_path,
                             result.file_id,
+                            result.filename,
                         )
 
             logger.info(
