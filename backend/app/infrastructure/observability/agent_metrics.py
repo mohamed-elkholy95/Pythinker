@@ -39,25 +39,25 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 agent_response_recovery_trigger = Counter(
-    name="agent_response_recovery_trigger_total",
+    name="pythinker_agent_response_recovery_trigger_total",
     help_text="Total response recovery triggers",
     labels=["recovery_reason", "agent_type"],
 )
 
 agent_response_recovery_success = Counter(
-    name="agent_response_recovery_success_total",
+    name="pythinker_agent_response_recovery_success_total",
     help_text="Successful response recoveries",
     labels=["recovery_strategy", "retry_count"],
 )
 
 agent_response_recovery_failure = Counter(
-    name="agent_response_recovery_failure_total",
+    name="pythinker_agent_response_recovery_failure_total",
     help_text="Failed response recoveries (budget exhausted)",
     labels=["recovery_reason", "agent_type"],
 )
 
 recovery_duration = Histogram(
-    name="agent_response_recovery_duration_seconds",
+    name="pythinker_agent_response_recovery_duration_seconds",
     help_text="Time spent in recovery flow",
     labels=["recovery_reason"],
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")],
@@ -68,26 +68,26 @@ recovery_duration = Histogram(
 # ============================================================================
 
 failure_snapshot_generated = Counter(
-    name="agent_failure_snapshot_generated_total",
+    name="pythinker_agent_failure_snapshot_generated_total",
     help_text="Failure snapshots generated",
     labels=["failure_type", "step_name"],
 )
 
 failure_snapshot_size = Histogram(
-    name="agent_failure_snapshot_tokens",
+    name="pythinker_agent_failure_snapshot_tokens",
     help_text="Snapshot size in approximate tokens",
     labels=[],
     buckets=[50, 100, 200, 300, 500, float("inf")],
 )
 
 failure_snapshot_injected = Counter(
-    name="agent_failure_snapshot_injected_total",
+    name="pythinker_agent_failure_snapshot_injected_total",
     help_text="Snapshots injected into retry context",
     labels=["retry_count"],
 )
 
 failure_snapshot_budget_violations = Counter(
-    name="agent_failure_snapshot_budget_violations_total",
+    name="pythinker_agent_failure_snapshot_budget_violations_total",
     help_text="Snapshots exceeding token budget",
     labels=["violation_type"],
 )
@@ -97,19 +97,19 @@ failure_snapshot_budget_violations = Counter(
 # ============================================================================
 
 agent_duplicate_query_blocked = Counter(
-    name="agent_duplicate_query_blocked_total",
+    name="pythinker_agent_duplicate_query_blocked_total",
     help_text="Queries suppressed as duplicates",
     labels=["tool_name", "suppression_reason"],
 )
 
 agent_duplicate_query_override = Counter(
-    name="agent_duplicate_query_override_total",
+    name="pythinker_agent_duplicate_query_override_total",
     help_text="Duplicate suppressions overridden (false positives)",
     labels=["override_reason"],
 )
 
 duplicate_query_window_size = Gauge(
-    name="agent_duplicate_query_window_size",
+    name="pythinker_agent_duplicate_query_window_size",
     help_text="Current duplicate query window size (minutes)",
     labels=["policy_type"],
 )
@@ -119,13 +119,13 @@ duplicate_query_window_size = Gauge(
 # ============================================================================
 
 agent_tool_args_canonicalized = Counter(
-    name="agent_tool_args_canonicalized_total",
+    name="pythinker_agent_tool_args_canonicalized_total",
     help_text="Tool arguments canonicalized",
     labels=["tool_name", "alias_type"],
 )
 
 agent_tool_args_rejected = Counter(
-    name="agent_tool_args_rejected_total",
+    name="pythinker_agent_tool_args_rejected_total",
     help_text="Unknown tool arguments rejected",
     labels=["tool_name", "rejection_reason"],
 )
@@ -135,43 +135,43 @@ agent_tool_args_rejected = Counter(
 # ============================================================================
 
 agent_tool_definition_cache_hits = Counter(
-    name="agent_tool_definition_cache_hits_total",
+    name="pythinker_agent_tool_definition_cache_hits_total",
     help_text="Tool definition cache hits",
     labels=["cache_scope"],
 )
 
 agent_tool_definition_cache_misses = Counter(
-    name="agent_tool_definition_cache_misses_total",
+    name="pythinker_agent_tool_definition_cache_misses_total",
     help_text="Tool definition cache misses",
     labels=["cache_scope"],
 )
 
 agent_tool_cache_invalidations = Counter(
-    name="agent_tool_cache_invalidations_total",
+    name="pythinker_agent_tool_cache_invalidations_total",
     help_text="Cache invalidations triggered",
     labels=["invalidation_reason"],
 )
 
 agent_tool_cache_size = Gauge(
-    name="agent_tool_cache_size",
+    name="pythinker_agent_tool_cache_size",
     help_text="Current tool cache size (number of cached definitions)",
     labels=["cache_type"],
 )
 
 agent_tool_cache_hit_rate = Gauge(
-    name="agent_tool_cache_hit_rate",
+    name="pythinker_agent_tool_cache_hit_rate",
     help_text="Cache hit rate (0-1) over time window",
     labels=["window"],
 )
 
 agent_tool_cache_memory_bytes = Gauge(
-    name="agent_tool_cache_memory_bytes",
+    name="pythinker_agent_tool_cache_memory_bytes",
     help_text="Approximate cache memory usage in bytes",
     labels=["cache_type"],
 )
 
 tool_cache_lookup_duration = Histogram(
-    name="agent_tool_cache_lookup_duration_seconds",
+    name="pythinker_agent_tool_cache_lookup_duration_seconds",
     help_text="Time spent looking up tool definitions",
     labels=["cache_hit"],
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, float("inf")],
