@@ -887,6 +887,15 @@ class PlaywrightBrowser:
                 # and safe to ignore — the request is already dead.
                 pass
 
+        # Unroute any previously registered handlers before re-registering.
+        # Without this, each reconnect accumulates a new duplicate handler on the
+        # same context, causing TargetClosedError / RecursionError storms when
+        # an in-flight handler tries to act on an already-closed page.
+        try:
+            await context.unroute_all(behavior="ignoreErrors")
+        except Exception as _unroute_err:
+            logger.debug("unroute_all before route setup failed (ignored): %s", _unroute_err)
+
         await context.route("**/*", route_handler)
         logger.debug(f"Network route interception configured (resource blocking: {self.blocked_types})")
 
@@ -1426,7 +1435,7 @@ class PlaywrightBrowser:
             if "Execution context was destroyed" in str(exc):
                 logger.debug("Keepalive: execution context destroyed (navigation race) — non-fatal")
                 return
-            logger.warning("CDP keepalive probe failed: %s", exc)
+            logger.warning("CDP keepalive probe failed: %s: %s", type(exc).__name__, exc or "(no message)")
             self._connection_healthy = False
             # Schedule proactive reconnect
             with contextlib.suppress(RuntimeError):
@@ -1940,6 +1949,14 @@ class PlaywrightBrowser:
             # Close pages in all contexts
             if self.browser:
                 for context in self.browser.contexts:
+                    # Unroute all handlers before closing pages to prevent
+                    # TargetClosedError / RecursionError from in-flight handlers
+                    # that fire after page close (Playwright best practice).
+                    for page in context.pages:
+                        try:
+                            await page.unroute_all(behavior="ignoreErrors")
+                        except Exception as _e:
+                            logger.debug("unroute_all (page) during cleanup failed (ignored): %s", _e)
                     for page in context.pages:
                         try:
                             if not page.is_closed():
@@ -1947,13 +1964,23 @@ class PlaywrightBrowser:
                         except Exception as e:
                             logger.debug(f"Error closing page: {e}")
 
-            # Close the current page if it still exists
+            # Unroute and close the current page if it still exists
             if self.page and not self.page.is_closed():
+                try:
+                    await self.page.unroute_all(behavior="ignoreErrors")
+                except Exception as _e:
+                    logger.debug("unroute_all (current page) during cleanup failed (ignored): %s", _e)
                 try:
                     await self.page.close()
                 except Exception as e:
                     logger.debug(f"Error closing current page: {e}")
 
+            # Unroute context-level handlers before closing context
+            if self.context:
+                try:
+                    await self.context.unroute_all(behavior="ignoreErrors")
+                except Exception as _e:
+                    logger.debug("unroute_all (context) during cleanup failed (ignored): %s", _e)
             # Close context
             if self.context:
                 try:
