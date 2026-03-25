@@ -4,6 +4,7 @@ Provides a standardized logging interface for agent operations,
 tool calls, and workflow transitions with automatic context binding.
 """
 
+import contextlib
 import logging
 import time
 from typing import Any
@@ -76,8 +77,8 @@ class AgentLogger:
                 result_message=message[:200] if message else None,
             ),
         )
-        # Record Prometheus tool metrics
-        try:
+        # Record Prometheus tool metrics (telemetry must not crash tool execution)
+        with contextlib.suppress(Exception):
             from app.core.prometheus_metrics import record_tool_call
 
             record_tool_call(
@@ -85,8 +86,6 @@ class AgentLogger:
                 status="success" if success else "error",
                 latency=duration_ms / 1000.0,
             )
-        except Exception:
-            pass  # Telemetry must not crash tool execution
 
     def tool_failed(
         self,

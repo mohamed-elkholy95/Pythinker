@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -747,7 +748,7 @@ class ExecutionAgent(BaseAgent):
                         self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
 
                         # Record Prometheus tool call metrics
-                        try:
+                        with contextlib.suppress(Exception):
                             from app.core.prometheus_metrics import record_tool_call
 
                             _tool_latency = 0.0
@@ -758,8 +759,6 @@ class ExecutionAgent(BaseAgent):
                                 status="success" if success else "error",
                                 latency=_tool_latency,
                             )
-                        except Exception:
-                            pass  # Telemetry must not crash the execution path
 
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)

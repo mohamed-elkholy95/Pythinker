@@ -2122,7 +2122,8 @@ To extract data from a webpage:
                 await self._record_usage(response)
 
                 # Record Prometheus metrics
-                try:
+
+                with contextlib.suppress(Exception):
                     from app.core.prometheus_metrics import record_llm_call
 
                     _usage = getattr(response, "usage", None)
@@ -2134,8 +2135,6 @@ To extract data from a webpage:
                         completion_tokens=getattr(_usage, "completion_tokens", 0) or 0,
                         cached_tokens=getattr(getattr(_usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0,
                     )
-                except Exception:
-                    pass  # Telemetry must not crash the LLM call path
 
                 result = response.choices[0].message.model_dump()
 
@@ -2222,7 +2221,7 @@ To extract data from a webpage:
                     )
                     continue
 
-                try:
+                with contextlib.suppress(Exception):
                     from app.core.prometheus_metrics import record_llm_call
 
                     record_llm_call(
@@ -2230,8 +2229,6 @@ To extract data from a webpage:
                         status="error",
                         latency=time.monotonic() - llm_call_start,
                     )
-                except Exception:
-                    pass  # Telemetry must not crash the LLM call path
                 raise LLMException(
                     f"LLM request timed out after {timeout_seconds:.1f}s (model={effective_model}, tools={'yes' if request_tools else 'no'})"
                 ) from e
@@ -2347,7 +2344,7 @@ To extract data from a webpage:
                 error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
                 logger.error(error_log)
                 if attempt == max_retries:
-                    try:
+                    with contextlib.suppress(Exception):
                         from app.core.prometheus_metrics import record_llm_call
 
                         record_llm_call(
@@ -2355,8 +2352,6 @@ To extract data from a webpage:
                             status="error",
                             latency=time.monotonic() - llm_call_start,
                         )
-                    except Exception:
-                        pass  # Telemetry must not crash the LLM call path
                     raise e
                 continue
         # This should never be reached - all paths should either return or raise
@@ -2669,8 +2664,9 @@ To extract data from a webpage:
                             f"attempt={attempt + 1})"
                         )
                         await self._record_usage(completion)
-                        # Record Prometheus metrics for instructor path
-                        try:
+                        # Record Prometheus metrics
+
+                        with contextlib.suppress(Exception):
                             from app.core.prometheus_metrics import record_llm_call
 
                             _usage = getattr(completion, "usage", None)
@@ -2680,10 +2676,11 @@ To extract data from a webpage:
                                 latency=llm_call_duration,
                                 prompt_tokens=getattr(_usage, "prompt_tokens", 0) or 0,
                                 completion_tokens=getattr(_usage, "completion_tokens", 0) or 0,
-                                cached_tokens=getattr(getattr(_usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0,
+                                cached_tokens=getattr(
+                                    getattr(_usage, "prompt_tokens_details", None), "cached_tokens", 0
+                                )
+                                or 0,
                             )
-                        except Exception:
-                            pass  # Telemetry must not crash the LLM call path
                         return result
 
                     # ── manual path (fallback) ───────────────────────────────
@@ -2719,8 +2716,9 @@ To extract data from a webpage:
                     # Record usage for structured requests
                     await self._record_usage(response)
 
-                    # Record Prometheus metrics for manual path
-                    try:
+                    # Record Prometheus metrics
+
+                    with contextlib.suppress(Exception):
                         from app.core.prometheus_metrics import record_llm_call
 
                         _usage = getattr(response, "usage", None)
@@ -2730,10 +2728,9 @@ To extract data from a webpage:
                             latency=llm_call_duration,
                             prompt_tokens=getattr(_usage, "prompt_tokens", 0) or 0,
                             completion_tokens=getattr(_usage, "completion_tokens", 0) or 0,
-                            cached_tokens=getattr(getattr(_usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0,
+                            cached_tokens=getattr(getattr(_usage, "prompt_tokens_details", None), "cached_tokens", 0)
+                            or 0,
                         )
-                    except Exception:
-                        pass  # Telemetry must not crash the LLM call path
 
                     if not response or not response.choices:
                         if attempt == max_retries:
