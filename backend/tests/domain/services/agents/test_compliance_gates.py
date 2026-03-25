@@ -8,8 +8,8 @@ from app.domain.services.agents.compliance_gates import (
     get_compliance_gates,
 )
 
-
 # ── GateResult ──────────────────────────────────────────────────────
+
 
 class TestGateResult:
     def test_failed_is_blocking(self):
@@ -30,6 +30,7 @@ class TestGateResult:
 
 
 # ── ComplianceReport ────────────────────────────────────────────────
+
 
 class TestComplianceReport:
     def test_empty_report_passes(self):
@@ -67,6 +68,7 @@ class TestComplianceReport:
 
 
 # ── Artifact Hygiene Gate ───────────────────────────────────────────
+
 
 class TestArtifactHygiene:
     def test_skipped_when_no_artifacts(self):
@@ -123,6 +125,7 @@ class TestArtifactHygiene:
 
 # ── Command Context Gate ────────────────────────────────────────────
 
+
 class TestCommandContext:
     def test_passes_clean_content(self):
         gates = ComplianceGates()
@@ -159,6 +162,7 @@ class TestCommandContext:
 
 
 # ── Source Labeling Gate ────────────────────────────────────────────
+
 
 class TestSourceLabeling:
     def test_skipped_when_no_sources(self):
@@ -198,8 +202,12 @@ class TestSourceLabeling:
         gates = ComplianceGates()
         sources = [
             {"url": "https://docs.python.org", "type": "official"},
-            {"url": "https://myblog.io/post", },
-            {"url": "https://forum.io/thread", },
+            {
+                "url": "https://myblog.io/post",
+            },
+            {
+                "url": "https://forum.io/thread",
+            },
         ]
         result = gates.check_source_labeling(sources)
         assert result.status == GateStatus.WARNING
@@ -207,6 +215,7 @@ class TestSourceLabeling:
 
 
 # ── Content Completeness Gate ───────────────────────────────────────
+
 
 class TestContentCompleteness:
     def test_passes_complete_content(self):
@@ -271,6 +280,7 @@ class TestContentCompleteness:
 
 # ── check_all Integration ──────────────────────────────────────────
 
+
 class TestCheckAll:
     def test_all_pass_clean_input(self):
         gates = ComplianceGates()
@@ -300,7 +310,9 @@ class TestCheckAll:
         )
         # Strict mode: command context warning → failure
         failed_gates = [r for r in report.results if r.status == GateStatus.FAILED]
-        if any(r.status == GateStatus.WARNING for r in ComplianceGates().check_all(content="```\nnpm install\n```").results):
+        if any(
+            r.status == GateStatus.WARNING for r in ComplianceGates().check_all(content="```\nnpm install\n```").results
+        ):
             assert len(failed_gates) >= 1
 
     def test_no_artifacts_or_sources(self):
@@ -313,6 +325,7 @@ class TestCheckAll:
 
 
 # ── Singleton ───────────────────────────────────────────────────────
+
 
 class TestSingleton:
     def test_get_compliance_gates_returns_instance(self):

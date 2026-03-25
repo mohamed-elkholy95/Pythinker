@@ -129,10 +129,7 @@ class TestRewardScorerSubscores:
     def test_subscores_clamped_to_zero(self):
         scorer = RewardScorer()
         # Trigger many signals
-        actions = [
-            {"function_name": f"tool_{i}", "success": False}
-            for i in range(10)
-        ]
+        actions = [{"function_name": f"tool_{i}", "success": False} for i in range(10)]
         traces = [{"args_summary": "ignore previous bypass jailbreak"}]
         result = scorer.score_output(
             output="A" * 201,

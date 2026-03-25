@@ -6,8 +6,8 @@ from app.domain.services.agents.prompt_adapter import (
     PromptAdapter,
 )
 
-
 # ── ExecutionContext ────────────────────────────────────────────────
+
 
 class TestExecutionContext:
     def test_defaults(self):
@@ -28,6 +28,7 @@ class TestExecutionContext:
 
 
 # ── Tool Tracking ──────────────────────────────────────────────────
+
 
 class TestToolTracking:
     def test_tracks_tool_usage(self):
@@ -67,6 +68,7 @@ class TestToolTracking:
 
 
 # ── Context Inference ──────────────────────────────────────────────
+
 
 class TestContextInference:
     def test_browser_context_from_browser_tools(self):
@@ -121,6 +123,7 @@ class TestContextInference:
 
 # ── Iteration Tracking ─────────────────────────────────────────────
 
+
 class TestIteration:
     def test_increment_iteration(self):
         adapter = PromptAdapter()
@@ -141,6 +144,7 @@ class TestIteration:
 
 
 # ── Context Prompt Generation ──────────────────────────────────────
+
 
 class TestGetContextPrompt:
     def test_returns_none_for_general_context_no_errors(self):
@@ -191,6 +195,7 @@ class TestGetContextPrompt:
 
 # ── Prompt Adaptation ──────────────────────────────────────────────
 
+
 class TestAdaptPrompt:
     def test_returns_base_when_no_context(self):
         adapter = PromptAdapter()
@@ -213,6 +218,7 @@ class TestAdaptPrompt:
 
 
 # ── should_inject_guidance ─────────────────────────────────────────
+
 
 class TestShouldInjectGuidance:
     def test_true_when_errors(self):
@@ -247,6 +253,7 @@ class TestShouldInjectGuidance:
 
 # ── Reset ──────────────────────────────────────────────────────────
 
+
 class TestReset:
     def test_reset_clears_everything(self):
         adapter = PromptAdapter()
@@ -262,6 +269,7 @@ class TestReset:
 
 
 # ── Stats ──────────────────────────────────────────────────────────
+
 
 class TestStats:
     def test_stats_structure(self):
