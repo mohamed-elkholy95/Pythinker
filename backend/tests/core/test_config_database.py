@@ -31,7 +31,9 @@ class TestDatabaseSettingsMixin:
 
     def test_connect_timeout_less_than_server_selection(self) -> None:
         """Connect timeout should be shorter than server selection timeout."""
-        assert DatabaseSettingsMixin.mongodb_connect_timeout_ms < DatabaseSettingsMixin.mongodb_server_selection_timeout_ms
+        assert (
+            DatabaseSettingsMixin.mongodb_connect_timeout_ms < DatabaseSettingsMixin.mongodb_server_selection_timeout_ms
+        )
 
     def test_retry_enabled_by_default(self) -> None:
         assert DatabaseSettingsMixin.mongodb_retry_writes is True

@@ -228,24 +228,30 @@ class TestIsGenericTopicsAck:
 class TestShouldSampleTraceback:
     def test_zero_rate_never_samples(self) -> None:
         r = FastAcknowledgmentRefiner(
-            llm=_FakeLLM(), fallback_generator=AcknowledgmentGenerator(),
-            timeout_seconds=1.0, traceback_sample_rate=0.0,
+            llm=_FakeLLM(),
+            fallback_generator=AcknowledgmentGenerator(),
+            timeout_seconds=1.0,
+            traceback_sample_rate=0.0,
         )
         r._error_count = 1
         assert not r._should_sample_traceback()
 
     def test_full_rate_always_samples(self) -> None:
         r = FastAcknowledgmentRefiner(
-            llm=_FakeLLM(), fallback_generator=AcknowledgmentGenerator(),
-            timeout_seconds=1.0, traceback_sample_rate=1.0,
+            llm=_FakeLLM(),
+            fallback_generator=AcknowledgmentGenerator(),
+            timeout_seconds=1.0,
+            traceback_sample_rate=1.0,
         )
         r._error_count = 1
         assert r._should_sample_traceback()
 
     def test_fifth_error_sampled_at_20_percent(self) -> None:
         r = FastAcknowledgmentRefiner(
-            llm=_FakeLLM(), fallback_generator=AcknowledgmentGenerator(),
-            timeout_seconds=1.0, traceback_sample_rate=0.2,
+            llm=_FakeLLM(),
+            fallback_generator=AcknowledgmentGenerator(),
+            timeout_seconds=1.0,
+            traceback_sample_rate=0.2,
         )
         # interval = round(1/0.2) = 5, so every 5th error is sampled
         r._error_count = 5
