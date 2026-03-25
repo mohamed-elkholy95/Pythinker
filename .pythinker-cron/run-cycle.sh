@@ -135,16 +135,33 @@ cd "$PROJECT_DIR"
 
 # Read prompt into variable (avoids subshell issues with timeout)
 PROMPT=$(cat "$PROMPT_FILE")
+RUN_TS=$(date +%s)
+RUN_UUID=$(python3 - <<'PY'
+import uuid
+print(uuid.uuid4().hex)
+PY
+)
+RUN_TAG="cron-cycle-${RUN_TS}-${RUN_UUID}"
+export PYTHINKER_CRON_RUN_TAG="$RUN_TAG"
+export PYTHINKER_CRON_LOG_FILE="$LOG_FILE"
+
+log "Run tag: $RUN_TAG"
 
 # Run Claude in headless mode with hard timeout
 set +e  # Don't exit on Claude failure
 timeout "$MAX_RUNTIME_SEC" "$CLAUDE_BIN" \
     -p "$PROMPT" \
+    --append-system-prompt "Autonomous cron run tag: $RUN_TAG. Every canary/live session created during this run must be fresh and uniquely attributable to this tag. Any reused session id, accidental attachment to an older session, or stop/cancel of the fresh canary session is a hard failure and must be reported." \
     --dangerously-skip-permissions \
     --output-format text \
     >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 set -e
+
+if grep -q "SESSION_REUSE_BUG:\|returned existing session_id=\|attached to a different session id\|cancelled/stopped session" "$LOG_FILE" 2>/dev/null; then
+    log "Detected session lifecycle failure markers in log; overriding exit code to failure"
+    EXIT_CODE=42
+fi
 
 # ── Post-run ──────────────────────────────────────────────────────────────────
 
