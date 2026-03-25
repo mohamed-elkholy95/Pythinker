@@ -232,7 +232,7 @@ class MCPClientManager:
         self._templates_cache: dict[str, list[ResourceTemplate]] = {}
         self._resource_subscriptions: dict[str, set[str]] = {}  # server -> set of URIs
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize MCP client manager"""
         if self._initialized:
             return
@@ -428,7 +428,7 @@ class MCPClientManager:
         """Get current health status of all servers"""
         return self._server_health
 
-    async def _connect_servers(self):
+    async def _connect_servers(self) -> None:
         """Connect to all enabled MCP servers"""
         for server_name, server_config in self._config.mcp_servers.items():
             if not server_config.enabled:
@@ -441,7 +441,7 @@ class MCPClientManager:
                 # Continue connecting to other servers
                 continue
 
-    async def _connect_server(self, server_name: str, server_config: MCPServerConfig):
+    async def _connect_server(self, server_name: str, server_config: MCPServerConfig) -> None:
         """Connect to a single MCP server.
 
         On reconnect, closes the old per-server exit stack to avoid
@@ -475,7 +475,7 @@ class MCPClientManager:
             logger.error(f"Failed to connect to MCP server {server_name}: {e}")
             raise
 
-    async def _connect_stdio_server(self, server_name: str, server_config: MCPServerConfig):
+    async def _connect_stdio_server(self, server_name: str, server_config: MCPServerConfig) -> None:
         """Connect to stdio MCP server"""
         command = server_config.command
         args = server_config.args or []
@@ -515,7 +515,7 @@ class MCPClientManager:
             logger.error(f"Failed to connect to stdio MCP server {server_name}: {e}")
             raise
 
-    async def _connect_http_server(self, server_name: str, server_config: MCPServerConfig):
+    async def _connect_http_server(self, server_name: str, server_config: MCPServerConfig) -> None:
         """Connect to HTTP MCP server"""
         url = server_config.url
         if not url:
@@ -547,7 +547,7 @@ class MCPClientManager:
             logger.error(f"Failed to connect to HTTP MCP server {server_name}: {e}")
             raise
 
-    async def _connect_streamable_http_server(self, server_name: str, server_config: MCPServerConfig):
+    async def _connect_streamable_http_server(self, server_name: str, server_config: MCPServerConfig) -> None:
         """Connect to streamable-http MCP server
 
         Configuration options:
@@ -598,7 +598,7 @@ class MCPClientManager:
             logger.error(f"Failed to connect to streamable-http MCP server {server_name}: {e}")
             raise
 
-    async def _cache_server_tools(self, server_name: str, session: ClientSession):
+    async def _cache_server_tools(self, server_name: str, session: ClientSession) -> None:
         """Cache server tool list with TTL and initialize health tracking"""
         try:
             tools_response = await session.list_tools()
@@ -643,7 +643,7 @@ class MCPClientManager:
 
         return []
 
-    def invalidate_tool_cache(self, server_name: str | None = None):
+    def invalidate_tool_cache(self, server_name: str | None = None) -> None:
         """Invalidate tool cache for a specific server or all servers.
 
         Args:
@@ -657,7 +657,7 @@ class MCPClientManager:
             self._tools_cache.clear()
             logger.debug("Invalidated all tool caches")
 
-    async def _cache_server_resources(self, server_name: str, session: ClientSession):
+    async def _cache_server_resources(self, server_name: str, session: ClientSession) -> None:
         """Cache server resources and templates."""
         try:
             # List resources from server
@@ -1045,7 +1045,7 @@ class MCPClientManager:
             logger.error(f"Failed to call MCP tool {tool_name}: {e}")
             return ToolResult(success=False, message=f"Failed to call MCP tool: {e!s}")
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources, killing subprocess transports on failure."""
         # Close per-server exit stacks first
         for server_name, stack in list(self._server_exit_stacks.items()):
@@ -1350,7 +1350,7 @@ class MCPTool(BaseTool):
         self._health_monitor: MCPHealthMonitor | None = None
         self._health_callback: Any = None
 
-    async def initialized(self, config: MCPConfig | None = None):
+    async def initialized(self, config: MCPConfig | None = None) -> None:
         """Ensure manager is initialized.
 
         Phase 5: When mcp_lazy_init is enabled, this method stores the config
@@ -1377,7 +1377,7 @@ class MCPTool(BaseTool):
                 # Immediate initialization (original behavior)
                 await self._do_initialize()
 
-    async def _do_initialize(self):
+    async def _do_initialize(self) -> None:
         """Perform actual MCP initialization."""
         if self._initialized:
             return
@@ -1410,7 +1410,7 @@ class MCPTool(BaseTool):
         except Exception as e:
             logger.warning(f"MCP health monitor failed to start: {e}")
 
-    async def _ensure_initialized(self):
+    async def _ensure_initialized(self) -> None:
         """Ensure MCP is initialized before use (for lazy init).
 
         Uses a lock to prevent concurrent initialization races where
@@ -1675,7 +1675,7 @@ class MCPTool(BaseTool):
         # Execute warmup
         return await warmup_manager.warmup()
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources"""
         if self._health_monitor:
             try:
