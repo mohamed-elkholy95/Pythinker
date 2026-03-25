@@ -30,6 +30,7 @@ sys.setrecursionlimit(10000)
 # can fail collection before skip markers/fixtures are evaluated.
 os.environ.setdefault("MINIO_ACCESS_KEY", "test-minio-access-key")
 os.environ.setdefault("MINIO_SECRET_KEY", "test-minio-secret-key")
+os.environ.setdefault("AUTH_PROVIDER", "none")
 
 # Add the parent directory to Python path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
