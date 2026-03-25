@@ -142,13 +142,19 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
     except asyncio.TimeoutError:
         logger.warning("X11 frame capture timed out")
         if proc is not None:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass  # Process already exited between timeout and kill
             await proc.wait()
         return None
     except Exception as e:
         logger.warning("X11 frame capture failed: %s", e)
         if proc is not None and proc.returncode is None:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass  # Process already exited
             await proc.wait()
         return None
 
@@ -173,7 +179,10 @@ async def drain_x11_event_queue() -> None:
     except asyncio.TimeoutError:
         logger.debug("X11 event drain timed out — skipping")
         if proc is not None:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass  # Process already exited between timeout and kill
             await proc.wait()
     except Exception as e:
         logger.debug("X11 event drain failed (non-critical): %s", e)
