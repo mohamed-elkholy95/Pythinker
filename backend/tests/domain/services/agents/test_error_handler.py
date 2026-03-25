@@ -11,9 +11,7 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,7 +21,6 @@ from app.domain.services.agents.error_handler import (
     ErrorType,
     TokenLimitExceededError,
 )
-
 
 # ---------------------------------------------------------------------------
 # ErrorType enum
@@ -395,7 +392,7 @@ class TestHandleWithRetry:
             call_count += 1
             raise Exception("something completely unexpected")
 
-        success, result = await self.handler.handle_with_retry(fatal_op, max_retries=3)
+        success, _result = await self.handler.handle_with_retry(fatal_op, max_retries=3)
         assert success is False
         assert call_count == 1  # Only called once — non-recoverable
 
@@ -414,7 +411,7 @@ class TestHandleWithRetry:
         async def on_retry(ctx: ErrorContext, attempt: int) -> None:
             retry_attempts.append(attempt)
 
-        success, result = await self.handler.handle_with_retry(flaky, max_retries=3, on_retry=on_retry)
+        success, _result = await self.handler.handle_with_retry(flaky, max_retries=3, on_retry=on_retry)
         assert success is True
         assert len(retry_attempts) == 1
 
@@ -563,11 +560,11 @@ class TestRecoveryStrategy:
         assert strategy is not None
 
     def test_token_limit_recoverable(self) -> None:
-        strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.TOKEN_LIMIT, "")
+        _strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.TOKEN_LIMIT, "")
         assert recoverable is True
 
     def test_unknown_not_recoverable(self) -> None:
-        strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.UNKNOWN, "")
+        _strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.UNKNOWN, "")
         assert recoverable is False
 
     def test_llm_api_rate_limit(self) -> None:
@@ -576,15 +573,15 @@ class TestRecoveryStrategy:
         assert "backoff" in strategy.lower()
 
     def test_llm_api_auth_failure(self) -> None:
-        strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "authentication error")
+        _strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "authentication error")
         assert recoverable is False
 
     def test_llm_api_quota_exceeded(self) -> None:
-        strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "insufficient_quota")
+        _strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "insufficient_quota")
         assert recoverable is False
 
     def test_llm_api_exhausted(self) -> None:
-        strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "keys exhausted")
+        _strategy, recoverable = self.handler._get_recovery_strategy(ErrorType.LLM_API, "keys exhausted")
         assert recoverable is False
 
 

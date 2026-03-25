@@ -13,8 +13,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from app.domain.services.tools.dynamic_toolset import (
     TASK_PATTERNS,
     TASK_TO_CATEGORIES,
@@ -89,8 +87,17 @@ class TestConstants:
     """TASK_PATTERNS and TASK_TO_CATEGORIES constants."""
 
     def test_task_patterns_keys(self) -> None:
-        expected = {"research", "coding", "file_management", "web_browsing", "analysis",
-                    "communication", "automation", "delegation", "skills"}
+        expected = {
+            "research",
+            "coding",
+            "file_management",
+            "web_browsing",
+            "analysis",
+            "communication",
+            "automation",
+            "delegation",
+            "skills",
+        }
         assert set(TASK_PATTERNS.keys()) == expected
 
     def test_task_to_categories_keys(self) -> None:
@@ -375,10 +382,12 @@ class TestGetStats:
 
     def test_stats(self) -> None:
         mgr = DynamicToolsetManager()
-        mgr.register_tools([
-            _tool_schema("file_read", "Read"),
-            _tool_schema("browser_nav", "Navigate"),
-        ])
+        mgr.register_tools(
+            [
+                _tool_schema("file_read", "Read"),
+                _tool_schema("browser_nav", "Navigate"),
+            ]
+        )
         stats = mgr.get_stats()
         assert stats["total_tools"] == 2
         assert "categories" in stats

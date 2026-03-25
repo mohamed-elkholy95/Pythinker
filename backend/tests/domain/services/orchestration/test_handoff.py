@@ -30,7 +30,6 @@ from app.domain.services.orchestration.handoff import (
     get_handoff_protocol,
 )
 
-
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -59,7 +58,7 @@ class TestHandoffContext:
     """HandoffContext dataclass logic."""
 
     def _make(self, **kwargs) -> HandoffContext:
-        defaults = dict(task_description="T", original_request="R", current_progress="P")
+        defaults = {"task_description": "T", "original_request": "R", "current_progress": "P"}
         defaults.update(kwargs)
         return HandoffContext(**defaults)
 
@@ -285,7 +284,7 @@ class TestHandoffProtocol:
 
     def test_get_pending_sorted_by_priority(self) -> None:
         proto = HandoffProtocol()
-        h1 = proto.create_handoff(
+        proto.create_handoff(
             source_agent=AgentType.EXECUTOR,
             reason=HandoffReason.SPECIALIZATION,
             context=self._ctx(),
@@ -469,7 +468,7 @@ class TestHandoffProtocolRollback:
     """HandoffProtocol.rollback_handoff."""
 
     def _ctx(self, **kwargs) -> HandoffContext:
-        defaults = dict(task_description="T", original_request="R", current_progress="P")
+        defaults = {"task_description": "T", "original_request": "R", "current_progress": "P"}
         defaults.update(kwargs)
         return HandoffContext(**defaults)
 
@@ -546,7 +545,7 @@ class TestHandoffProtocolTransfer:
     """HandoffProtocol.transfer_context."""
 
     def _ctx(self, **kwargs) -> HandoffContext:
-        defaults = dict(task_description="T", original_request="R", current_progress="P")
+        defaults = {"task_description": "T", "original_request": "R", "current_progress": "P"}
         defaults.update(kwargs)
         return HandoffContext(**defaults)
 
@@ -614,7 +613,7 @@ class TestHandoffProtocolWorkflow:
     """HandoffProtocol.get_workflow_progress."""
 
     def _ctx(self, **kwargs) -> HandoffContext:
-        defaults = dict(task_description="T", original_request="R", current_progress="P")
+        defaults = {"task_description": "T", "original_request": "R", "current_progress": "P"}
         defaults.update(kwargs)
         return HandoffContext(**defaults)
 
@@ -628,7 +627,7 @@ class TestHandoffProtocolWorkflow:
             context=ctx1,
             target_agent=AgentType.PLANNER,
         )
-        h2 = proto.create_handoff(
+        proto.create_handoff(
             source_agent=AgentType.EXECUTOR,
             reason=HandoffReason.SPECIALIZATION,
             context=ctx2,

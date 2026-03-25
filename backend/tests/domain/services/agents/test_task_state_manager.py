@@ -15,8 +15,6 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
 
 from app.domain.services.agents.task_state_manager import (
@@ -26,7 +24,6 @@ from app.domain.services.agents.task_state_manager import (
     get_task_state_manager,
     set_task_state_manager,
 )
-
 
 # ---------------------------------------------------------------------------
 # TaskState dataclass
@@ -349,10 +346,13 @@ class TestTaskStateManagerUpdateStep:
     @pytest.fixture()
     def mgr(self) -> TaskStateManager:
         m = TaskStateManager()
-        m.initialize_from_plan("Obj", [
-            {"id": "1", "description": "A"},
-            {"id": "2", "description": "B"},
-        ])
+        m.initialize_from_plan(
+            "Obj",
+            [
+                {"id": "1", "description": "A"},
+                {"id": "2", "description": "B"},
+            ],
+        )
         return m
 
     async def test_complete_step(self, mgr: TaskStateManager) -> None:
