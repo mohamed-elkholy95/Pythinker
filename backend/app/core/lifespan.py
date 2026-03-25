@@ -114,6 +114,46 @@ async def _try_acquire_startup_singleton(task_name: str, ttl_seconds: int = _STA
     return acquired
 
 
+async def _run_deferred_session_reconciliation(
+    maintenance_service: MaintenanceService,
+    delay_seconds: float = 90.0,
+    stale_threshold_minutes: int = 2,
+) -> None:
+    """Post-startup reconciliation for sessions orphaned by hot-reload.
+
+    After a server restart (e.g. uvicorn --reload), in-flight agent tasks
+    are killed but their sessions remain in ``running`` status with no
+    active worker.  The normal startup cleanup uses a conservative
+    threshold that may miss recently-active sessions.
+
+    This task waits ``delay_seconds`` after startup, then sweeps sessions
+    that are *still* ``running`` but have had no activity since before
+    the restart.  The short delay gives legitimately-resuming sessions
+    time to reconnect.
+    """
+    await asyncio.sleep(delay_seconds)
+    if not await _try_acquire_leader_lock(
+        "deferred_session_reconciliation",
+        ttl_seconds=int(delay_seconds) + 120,
+    ):
+        return
+    try:
+        result = await maintenance_service.cleanup_stale_running_sessions(
+            stale_threshold_minutes=stale_threshold_minutes,
+            dry_run=False,
+        )
+        cleaned = result.get("sessions_cleaned", 0)
+        if cleaned > 0:
+            logger.info(
+                "Deferred reconciliation: cleaned %d orphaned sessions (threshold=%d min, delay=%ds)",
+                cleaned,
+                stale_threshold_minutes,
+                int(delay_seconds),
+            )
+    except Exception as e:
+        logger.warning("Deferred session reconciliation failed: %s", e)
+
+
 async def _run_periodic_session_cleanup(
     maintenance_service: MaintenanceService,
     interval_seconds: float = 300.0,
@@ -279,6 +319,7 @@ async def lifespan(app: FastAPI):
     storage_cleanup_task = None
     reconciliation_task = None
     memory_cleanup_task = None
+    deferred_reconciliation_task = None
     event_archival_task = None
     mongo_profiler_task = None
     sync_worker_started = False
@@ -406,6 +447,18 @@ async def lifespan(app: FastAPI):
                     ),
                 )
                 logger.info("Periodic session cleanup background task started")
+
+            # Deferred reconciliation: catch sessions orphaned by hot-reload
+            # that the startup cleanup missed (too recently active).
+            if await _try_acquire_startup_singleton("deferred_session_reconciliation"):
+                deferred_reconciliation_task = asyncio.create_task(
+                    _run_deferred_session_reconciliation(
+                        maintenance_service,
+                        delay_seconds=90.0,
+                        stale_threshold_minutes=2,
+                    ),
+                )
+                logger.info("Deferred session reconciliation scheduled (delay=90s, threshold=2min)")
 
             # Storage TTL cleanup (screenshots + snapshots)
             if await _try_acquire_startup_singleton("storage_cleanup_loop"):
@@ -780,6 +833,12 @@ async def lifespan(app: FastAPI):
                 reconciliation_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await reconciliation_task
+
+            # Cancel deferred reconciliation task
+            if deferred_reconciliation_task is not None:
+                deferred_reconciliation_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await deferred_reconciliation_task
 
             # Cancel periodic session cleanup task
             if periodic_cleanup_task is not None:
