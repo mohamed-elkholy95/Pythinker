@@ -24,10 +24,6 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: 'container_name'
-      - source_labels: ['__meta_docker_container_name']
-        regex: '/(.*)'
-        target_label: '__path__'
-        replacement: '/var/lib/docker/containers/$1/$1-json.log'
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: 'compose_service'
       - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
@@ -35,3 +31,58 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_log_stream']
         target_label: 'stream'
 
+    pipeline_stages:
+      - docker: {}
+
+      # structlog: level word followed by 2+ spaces (ANSI-tolerant)
+      - regex:
+          expression: '(?P<level>critical|error|warning|info|debug)\s{2,}'
+
+      # Python logging / loguru: "| INFO |", "- ERROR -"
+      - regex:
+          expression: '[\|\-]\s+(?P<level>CRITICAL|ERROR|WARNING|INFO|DEBUG)\s+[\|\-]'
+
+      # Chromium/sandbox: ":ERROR:", ":WARNING:"
+      - regex:
+          expression: ':(?P<level>FATAL|ERROR|WARNING|INFO):'
+
+      # uvicorn startup: "INFO:     Uvicorn running"
+      - regex:
+          expression: '^(?P<level>INFO|WARNING|ERROR|DEBUG):\s'
+
+      # MongoDB JSON structured logs: "s":"I", "s":"W", "s":"E"
+      - regex:
+          expression: '"s":"(?P<level>I|W|E|F)"'
+
+      # Go structured logs: level=info, level=warn
+      - regex:
+          expression: 'level=(?P<level>info|warn|error|debug|critical)'
+
+      # Normalize: lowercase + expand MongoDB single-letter + Go "warn"
+      - template:
+          source: level
+          template: >-
+            {{ $v := ToLower .Value }}
+            {{- if eq $v "i" }}info
+            {{- else if eq $v "w" }}warning
+            {{- else if eq $v "e" }}error
+            {{- else if eq $v "f" }}fatal
+            {{- else if eq $v "warn" }}warning
+            {{- else if $v }}{{ $v }}
+            {{- else }}unknown
+            {{- end }}
+
+      - labels:
+          level:
+
+      # Detect error patterns
+      - regex:
+          expression: '(?P<error_type>Traceback|Exception|Error|FATAL|OOMKilled|panic)'
+      - labels:
+          error_type:
+
+      # Multiline: group Python tracebacks
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2}[T ]|^\x1b\[\d|^\{"|^\[?\d+:\d+:'
+          max_wait_time: 3s
+          max_lines: 128
