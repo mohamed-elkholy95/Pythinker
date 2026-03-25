@@ -44,7 +44,7 @@ class TestFlowStatus:
 class _DoneFlow(BaseFlow):
     async def run(self) -> AsyncGenerator[BaseEvent, None]:
         return
-        yield  # noqa: RET504
+        yield
 
     def is_done(self) -> bool:
         return True
@@ -53,7 +53,7 @@ class _DoneFlow(BaseFlow):
 class _NotDoneFlow(BaseFlow):
     async def run(self) -> AsyncGenerator[BaseEvent, None]:
         return
-        yield  # noqa: RET504
+        yield
 
     def is_done(self) -> bool:
         return False

@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from app.domain.models.search import SearchResultItem, SearchResultMeta, SearchResults
 
-
 # ===========================================================================
 # SearchResultItem
 # ===========================================================================

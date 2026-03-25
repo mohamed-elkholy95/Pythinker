@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from app.domain.services.agents.agent_context import AgentServiceContext
-from app.domain.services.agents.middleware import AgentMiddleware, MiddlewareResult
+from app.domain.services.agents.middleware import AgentMiddleware
 from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
 
 

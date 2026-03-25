@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from app.domain.models.file import FileInfo
 
-
 # ---------------------------------------------------------------------------
 # Required field — filename
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -132,7 +132,7 @@ class TestLinkedChannelResponse:
         assert resp.linked_at is None
 
     def test_linked_at_can_be_set(self) -> None:
-        dt = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
         resp = LinkedChannelResponse(channel="telegram", sender_id="user-42", linked_at=dt)
         assert resp.linked_at == dt
 
@@ -152,7 +152,7 @@ class TestLinkedChannelResponse:
         assert data["linked_at"] is None
 
     def test_serialization_with_linked_at(self) -> None:
-        dt = datetime(2026, 3, 1, 8, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 3, 1, 8, 0, 0, tzinfo=UTC)
         resp = LinkedChannelResponse(channel="telegram", sender_id="u123", linked_at=dt)
         data = resp.model_dump()
         assert data["linked_at"] == dt

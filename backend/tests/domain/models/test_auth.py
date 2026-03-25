@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from app.domain.models.auth import AuthToken
 from app.domain.models.user import User, UserRole
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

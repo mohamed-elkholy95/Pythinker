@@ -65,7 +65,7 @@ class TestAnalyzeDependenciesDuplicateIds:
         s1a = _make_step("dup")
         s1b = _make_step("dup")
         plan = _make_plan([s1a, s1b])
-        errors, warnings = analyze_dependencies(plan)
+        errors, _warnings = analyze_dependencies(plan)
         assert len(errors) == 1
         assert "dup" in errors[0]
 

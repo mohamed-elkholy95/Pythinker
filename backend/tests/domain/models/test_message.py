@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from pydantic import ValidationError
-
 from app.domain.models.message import Message
-
 
 # ---------------------------------------------------------------------------
 # Empty / minimal construction

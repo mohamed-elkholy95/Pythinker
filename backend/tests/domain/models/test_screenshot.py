@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 
-
 # ---------------------------------------------------------------------------
 # ScreenshotTrigger enum
 # ---------------------------------------------------------------------------
