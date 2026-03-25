@@ -2465,9 +2465,7 @@ except ModuleNotFoundError:
 except ImportError as e:
     import logging as _logging
 
-    _logging.getLogger(__name__).warning(
-        "Agent enhancement metrics partially unavailable: %s", e
-    )
+    _logging.getLogger(__name__).warning("Agent enhancement metrics partially unavailable: %s", e)
 
 
 def record_profile_selection(
