@@ -125,7 +125,7 @@ services:
       - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-1}
       - BACKEND_UVICORN_GRACEFUL_TIMEOUT=${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-120}
       - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
-      - LOG_FORMAT=${LOG_FORMAT:-plain}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
       interval: 10s
@@ -187,7 +187,7 @@ services:
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
       - FAST_MODEL=${FAST_MODEL:-}
-      - LOG_FORMAT=${LOG_FORMAT:-plain}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
     develop:
       watch:
         - action: sync+restart

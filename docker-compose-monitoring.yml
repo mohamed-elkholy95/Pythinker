@@ -14,6 +14,9 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - ./prometheus/agent_enhancement_alerts.yml:/etc/prometheus/agent_enhancement_alerts.yml:ro
+      - ./prometheus/recording_rules.yml:/etc/prometheus/recording_rules.yml:ro
+      - ./prometheus/agent_quality_alerts.yml:/etc/prometheus/agent_quality_alerts.yml:ro
+      - ./prometheus/monitoring_health_alerts.yml:/etc/prometheus/monitoring_health_alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -49,6 +52,10 @@ services:
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=redis-datasource
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_ALERTING_ENABLED=false
+      # Webhook URL is configured in grafana/provisioning/alerting/contactpoints.yml
+      # (Grafana provisioning YAML does not interpolate env vars)
     ports:
       - "3001:3000"
     depends_on:
@@ -72,6 +79,7 @@ services:
     command: ["-config.file=/etc/loki/config.yml"]
     volumes:
       - ./loki/config.yml:/etc/loki/config.yml:ro
+      - ./loki/rules:/loki/rules:ro
       - loki_data:/loki
     ports:
       - "3100:3100"
