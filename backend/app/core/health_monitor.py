@@ -46,7 +46,7 @@ class ComponentHealth:
     last_check: datetime = None
     error_count: int = 0
 
-    def add_metric(self, metric: HealthMetric):
+    def add_metric(self, metric: HealthMetric) -> None:
         """Add a health metric"""
         self.metrics.append(metric)
         # Keep only recent metrics (last 100)
@@ -63,7 +63,7 @@ class HealthMonitor:
         self._monitoring_interval = 30  # seconds
         self._is_monitoring = False
 
-    async def start_monitoring(self):
+    async def start_monitoring(self) -> None:
         """Start health monitoring for all components"""
         if self._is_monitoring:
             return
@@ -78,7 +78,7 @@ class HealthMonitor:
             task = asyncio.create_task(self._monitor_component(component))
             self._monitoring_tasks[component] = task
 
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> None:
         """Stop health monitoring"""
         self._is_monitoring = False
 
@@ -89,7 +89,7 @@ class HealthMonitor:
         self._monitoring_tasks.clear()
         logger.info("Health monitoring stopped")
 
-    async def _monitor_component(self, component: str):
+    async def _monitor_component(self, component: str) -> None:
         """Monitor a specific component"""
         while self._is_monitoring:
             try:
@@ -101,7 +101,7 @@ class HealthMonitor:
                 logger.error(f"Error monitoring component {component}: {e}")
                 await asyncio.sleep(self._monitoring_interval)
 
-    async def _check_component_health(self, component: str):
+    async def _check_component_health(self, component: str) -> None:
         """Check health of a specific component"""
         try:
             health = self._components.get(component, ComponentHealth(component, ComponentStatus.UNKNOWN))
@@ -129,7 +129,7 @@ class HealthMonitor:
             health.error_count += 1
             self._components[component] = health
 
-    async def _check_error_manager_health(self, health: ComponentHealth):
+    async def _check_error_manager_health(self, health: ComponentHealth) -> None:
         """Check error manager health"""
         error_manager = get_error_manager()
         stats = error_manager.get_error_stats(hours=1)
@@ -150,7 +150,7 @@ class HealthMonitor:
             )
         )
 
-    async def _check_sandbox_manager_health(self, health: ComponentHealth):
+    async def _check_sandbox_manager_health(self, health: ComponentHealth) -> None:
         """Check sandbox manager health"""
         sandbox_manager = get_sandbox_manager()
         stats = sandbox_manager.get_sandbox_stats()
@@ -189,7 +189,7 @@ class HealthMonitor:
             )
         )
 
-    async def _check_database_health(self, health: ComponentHealth):
+    async def _check_database_health(self, health: ComponentHealth) -> None:
         """Check database connectivity with WiredTiger cache and connection stats."""
         try:
             import time
@@ -239,7 +239,7 @@ class HealthMonitor:
             )
         )
 
-    async def _check_redis_health(self, health: ComponentHealth):
+    async def _check_redis_health(self, health: ComponentHealth) -> None:
         """Check Redis connectivity with memory and hit ratio stats."""
         try:
             import time
@@ -298,7 +298,7 @@ class HealthMonitor:
             HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
-    async def _check_redis_cache_health(self, health: ComponentHealth):
+    async def _check_redis_cache_health(self, health: ComponentHealth) -> None:
         """Check cache Redis connectivity.
 
         Cache Redis is optional for correctness. Failures degrade performance but should
@@ -330,7 +330,7 @@ class HealthMonitor:
             HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
-    async def _check_qdrant_health(self, health: ComponentHealth):
+    async def _check_qdrant_health(self, health: ComponentHealth) -> None:
         """Check Qdrant connectivity with collection stats."""
         try:
             import time
