@@ -57,65 +57,49 @@ class TestFormatFilePath:
 
 class TestCommandFormatterSearch:
     def test_search(self) -> None:
-        display, category, summary = CommandFormatter.format_tool_call(
+        display, category, _summary = CommandFormatter.format_tool_call(
             "search", "web_search", {"query": "Python 3.12 features"}
         )
         assert "Python 3.12" in display
         assert category == "search"
 
     def test_search_long_query(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "search", "web_search", {"query": "a" * 200}
-        )
+        display, _cat, _ = CommandFormatter.format_tool_call("search", "web_search", {"query": "a" * 200})
         assert len(display) < 200
 
 
 class TestCommandFormatterBrowser:
     def test_navigate(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "browser", "navigate", {"url": "https://python.org"}
-        )
+        display, category, _ = CommandFormatter.format_tool_call("browser", "navigate", {"url": "https://python.org"})
         assert "Navigate" in display
         assert category == "browse"
 
     def test_click(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "browser", "click", {"index": 5}
-        )
+        display, _cat, _ = CommandFormatter.format_tool_call("browser", "click", {"index": 5})
         assert "Click" in display
         assert "5" in display
 
     def test_type(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "browser", "input_text", {"text": "search query"}
-        )
+        display, _cat, _ = CommandFormatter.format_tool_call("browser", "input_text", {"text": "search query"})
         assert "Type" in display
 
     def test_scroll_down(self) -> None:
-        display, _, _ = CommandFormatter.format_tool_call(
-            "browser", "scroll_down", {}
-        )
+        display, _, _ = CommandFormatter.format_tool_call("browser", "scroll_down", {})
         assert "Scroll" in display
         assert "down" in display
 
     def test_view_content(self) -> None:
-        display, _, _ = CommandFormatter.format_tool_call(
-            "browser", "view_content", {}
-        )
+        display, _, _ = CommandFormatter.format_tool_call("browser", "view_content", {})
         assert "page content" in display.lower() or "Read" in display
 
     def test_restart(self) -> None:
-        display, _, _ = CommandFormatter.format_tool_call(
-            "browser", "restart_browser", {"url": "https://example.com"}
-        )
+        display, _, _ = CommandFormatter.format_tool_call("browser", "restart_browser", {"url": "https://example.com"})
         assert "Restart" in display
 
 
 class TestCommandFormatterShell:
     def test_shell(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "shell", "run_command", {"command": "ls -la"}
-        )
+        _display, category, _ = CommandFormatter.format_tool_call("shell", "run_command", {"command": "ls -la"})
         assert category == "shell"
 
     def test_multiline(self) -> None:
@@ -127,25 +111,18 @@ class TestCommandFormatterShell:
 
 class TestCommandFormatterFile:
     def test_file(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "file", "file_read", {"path": "/workspace/report.md"}
-        )
+        _display, category, _ = CommandFormatter.format_tool_call("file", "file_read", {"path": "/workspace/report.md"})
         assert category == "file"
 
 
 class TestCommandFormatterDefault:
     def test_unknown_tool(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "unknown_tool", "do_something", {"arg": "val"}
-        )
-        assert display  # Should produce some output
-        assert category  # Should have a category
+        display, category, _ = CommandFormatter.format_tool_call("unknown_tool", "do_something", {"arg": "val"})
+        assert display
+        assert category
 
 
 class TestCommandFormatterDeal:
     def test_deal(self) -> None:
-        display, category, _ = CommandFormatter.format_tool_call(
-            "deal", "search_deals", {"query": "laptop deals"}
-        )
-        # Should return something meaningful
+        display, _cat, _ = CommandFormatter.format_tool_call("deal", "search_deals", {"query": "laptop deals"})
         assert display

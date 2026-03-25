@@ -3,7 +3,6 @@
 import pytest
 
 from app.domain.services.usage.pricing import (
-    DEFAULT_PRICING,
     MODEL_PRICING,
     ModelPricing,
     get_model_pricing,
@@ -32,7 +31,7 @@ class TestModelPricing:
 
     def test_calculate_cost_zero_tokens(self) -> None:
         p = ModelPricing(prompt_price=10.0, completion_price=30.0)
-        prompt_cost, completion_cost, total = p.calculate_cost(0, 0)
+        _prompt_cost, _completion_cost, total = p.calculate_cost(0, 0)
         assert total == 0.0
 
     def test_free_model(self) -> None:
@@ -43,7 +42,7 @@ class TestModelPricing:
     def test_cached_tokens_no_cached_price(self) -> None:
         p = ModelPricing(prompt_price=5.0, completion_price=15.0, cached_price=None)
         # When cached_price is None, cached_tokens are ignored
-        prompt_cost, _, total = p.calculate_cost(1_000_000, 0, cached_tokens=500_000)
+        prompt_cost, _, _total = p.calculate_cost(1_000_000, 0, cached_tokens=500_000)
         assert prompt_cost == pytest.approx(5.0)
 
 
