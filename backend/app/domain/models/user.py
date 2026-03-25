@@ -46,22 +46,22 @@ class User(BaseModel):
             raise ValueError("Invalid email format: must be user@domain.tld")
         return v
 
-    def update_last_login(self):
+    def update_last_login(self) -> None:
         """Update last login timestamp"""
         self.last_login_at = datetime.now(UTC)
         self.updated_at = datetime.now(UTC)
 
-    def verify_email(self):
+    def verify_email(self) -> None:
         """Mark email as verified"""
         self.email_verified = True
         self.updated_at = datetime.now(UTC)
 
-    def deactivate(self):
+    def deactivate(self) -> None:
         """Deactivate user account"""
         self.is_active = False
         self.updated_at = datetime.now(UTC)
 
-    def activate(self):
+    def activate(self) -> None:
         """Activate user account"""
         self.is_active = True
         self.updated_at = datetime.now(UTC)
