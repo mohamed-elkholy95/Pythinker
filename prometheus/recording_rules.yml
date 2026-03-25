@@ -1,0 +1,178 @@
+# =============================================================================
+# Prometheus Recording Rules — Pre-computed Agent SLO Metrics
+# =============================================================================
+# These recording rules pre-aggregate expensive queries into efficient
+# time series that dashboards and alerts can reference directly.
+# Based on 2026 LLM observability best practices:
+#   - Token cost tracking per model
+#   - LLM error/success ratios
+#   - Tool reliability per tool
+#   - Latency percentiles
+#   - Session throughput
+# =============================================================================
+
+groups:
+  # ─────────────────────────────────────────────────────────────────────
+  # LLM Performance SLOs
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_llm_slos
+    interval: 30s
+    rules:
+      # LLM error rate (0-1): fraction of calls that fail
+      - record: pythinker:llm_error_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="error"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[5m])), 0.000001)
+          )
+
+      # LLM success rate (0-1)
+      - record: pythinker:llm_success_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="success"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[5m])), 0.000001)
+          )
+
+      # LLM p50 latency
+      - record: pythinker:llm_latency_p50:5m
+        expr: |
+          histogram_quantile(0.50,
+            sum by (le) (rate(pythinker_llm_latency_seconds_bucket[5m]))
+          )
+
+      # LLM p95 latency
+      - record: pythinker:llm_latency_p95:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(pythinker_llm_latency_seconds_bucket[5m]))
+          )
+
+      # LLM p99 latency
+      - record: pythinker:llm_latency_p99:5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(pythinker_llm_latency_seconds_bucket[5m]))
+          )
+
+      # Token throughput (tokens/sec by type)
+      - record: pythinker:token_rate:5m
+        expr: sum by (type) (rate(pythinker_tokens_total[5m]))
+
+      # Total token cost rate (prompt + completion tokens/sec)
+      - record: pythinker:total_token_rate:5m
+        expr: sum(rate(pythinker_tokens_total[5m]))
+
+      # LLM calls per minute by model
+      - record: pythinker:llm_calls_per_minute:5m
+        expr: sum by (model) (rate(pythinker_llm_calls_total[5m])) * 60
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Tool Reliability SLOs
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_tool_slos
+    interval: 30s
+    rules:
+      # Overall tool success rate
+      - record: pythinker:tool_success_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_tool_calls_total{status="success"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_tool_calls_total[5m])), 0.000001)
+          )
+
+      # Per-tool success rate
+      - record: pythinker:tool_success_rate_by_tool:5m
+        expr: |
+          (
+            sum by (tool) (rate(pythinker_tool_calls_total{status="success"}[5m]))
+            /
+            clamp_min(sum by (tool) (rate(pythinker_tool_calls_total[5m])), 0.000001)
+          )
+
+      # Per-tool error rate
+      - record: pythinker:tool_error_rate_by_tool:5m
+        expr: |
+          (
+            sum by (tool) (rate(pythinker_tool_calls_total{status="error"}[5m]))
+            /
+            clamp_min(sum by (tool) (rate(pythinker_tool_calls_total[5m])), 0.000001)
+          )
+
+      # Tool calls per minute by tool
+      - record: pythinker:tool_calls_per_minute:5m
+        expr: sum by (tool, status) (rate(pythinker_tool_calls_total[5m])) * 60
+
+      # Tool p95 latency by tool
+      - record: pythinker:tool_latency_p95:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (tool, le) (rate(pythinker_tool_latency_seconds_bucket[5m]))
+          )
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Agent Quality SLOs
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_quality_slos
+    interval: 30s
+    rules:
+      # Delivery integrity pass rate
+      - record: pythinker:delivery_pass_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result="passed"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[5m])), 0.000001)
+          )
+
+      # Hallucination rate (detections per hour)
+      - record: pythinker:hallucination_rate:1h
+        expr: sum(increase(pythinker_hallucination_detected_total[1h]))
+
+      # Citation fabrication rate (per hour)
+      - record: pythinker:citation_fabrication_rate:1h
+        expr: sum(increase(pythinker_citation_fabricated_total[1h]))
+
+      # Error rate (errors per minute by component)
+      - record: pythinker:error_rate:5m
+        expr: sum by (type, component) (rate(pythinker_errors_total[5m])) * 60
+
+      # Fast ack success rate
+      - record: pythinker:fast_ack_success_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_fast_ack_refiner_total{status="success"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_fast_ack_refiner_total[5m])), 0.000001)
+          )
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Infrastructure SLOs
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_infra_slos
+    interval: 30s
+    rules:
+      # SSE stream error rate
+      - record: pythinker:sse_error_rate:5m
+        expr: |
+          (
+            sum(rate(pythinker_sse_stream_error_total[5m]))
+            /
+            clamp_min(sum(rate(pythinker_sse_stream_open_total[5m])), 0.000001)
+          )
+
+      # HTTP pool error rate by client
+      - record: pythinker:http_pool_error_rate:5m
+        expr: |
+          (
+            sum by (client_name) (rate(pythinker_http_pool_requests_total{status!="success"}[5m]))
+            /
+            clamp_min(sum by (client_name) (rate(pythinker_http_pool_requests_total[5m])), 0.000001)
+          )
+
+      # API key health (aggregated by provider)
+      - record: pythinker:api_key_health:current
+        expr: avg by (provider) (pythinker_api_key_health_score)
