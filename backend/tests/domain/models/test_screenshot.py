@@ -13,6 +13,7 @@ from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 # ScreenshotTrigger enum
 # ---------------------------------------------------------------------------
 
+
 def test_screenshot_trigger_all_members():
     """All five trigger values exist as enum members."""
     assert ScreenshotTrigger.TOOL_BEFORE == "tool_before"
@@ -53,6 +54,7 @@ def test_screenshot_trigger_values_are_lowercase_snake():
 # ---------------------------------------------------------------------------
 # SessionScreenshot — required fields
 # ---------------------------------------------------------------------------
+
 
 def _make_screenshot(**overrides) -> SessionScreenshot:
     """Return a minimal valid SessionScreenshot."""
@@ -128,6 +130,7 @@ def test_session_screenshot_missing_trigger_raises():
 # Defaults
 # ---------------------------------------------------------------------------
 
+
 def test_session_screenshot_default_timestamp_is_utc():
     before = datetime.now(UTC)
     ss = _make_screenshot()
@@ -185,6 +188,7 @@ def test_session_screenshot_default_original_storage_key_is_none():
 # Trigger variants
 # ---------------------------------------------------------------------------
 
+
 def test_session_screenshot_trigger_tool_before():
     ss = _make_screenshot(trigger=ScreenshotTrigger.TOOL_BEFORE)
     assert ss.trigger == ScreenshotTrigger.TOOL_BEFORE
@@ -214,6 +218,7 @@ def test_session_screenshot_trigger_from_string():
 # ---------------------------------------------------------------------------
 # Tool context fields
 # ---------------------------------------------------------------------------
+
 
 def test_session_screenshot_with_tool_context():
     ss = _make_screenshot(
@@ -249,6 +254,7 @@ def test_session_screenshot_with_size_bytes():
 # Deduplication fields
 # ---------------------------------------------------------------------------
 
+
 def test_session_screenshot_mark_as_duplicate():
     """is_duplicate=True with a reference to the original storage key."""
     original = _make_screenshot(
@@ -280,6 +286,7 @@ def test_session_screenshot_not_duplicate_keeps_defaults():
 # sequence_number variants
 # ---------------------------------------------------------------------------
 
+
 def test_session_screenshot_sequence_number_zero():
     ss = _make_screenshot(sequence_number=0)
     assert ss.sequence_number == 0
@@ -294,14 +301,26 @@ def test_session_screenshot_sequence_number_large():
 # Serialization
 # ---------------------------------------------------------------------------
 
+
 def test_session_screenshot_model_dump_includes_all_fields():
     ss = _make_screenshot()
     data = ss.model_dump()
     expected_keys = {
-        "id", "session_id", "sequence_number", "timestamp", "storage_key",
-        "thumbnail_storage_key", "trigger", "tool_call_id", "tool_name",
-        "function_name", "action_type", "size_bytes", "perceptual_hash",
-        "is_duplicate", "original_storage_key",
+        "id",
+        "session_id",
+        "sequence_number",
+        "timestamp",
+        "storage_key",
+        "thumbnail_storage_key",
+        "trigger",
+        "tool_call_id",
+        "tool_name",
+        "function_name",
+        "action_type",
+        "size_bytes",
+        "perceptual_hash",
+        "is_duplicate",
+        "original_storage_key",
     }
     assert expected_keys.issubset(data.keys())
 

@@ -205,9 +205,7 @@ class TestReportPdfPayloadWithSources:
         payload = ReportPdfPayload(
             title="Snippet Report",
             markdown_content="content",
-            sources=[
-                _make_citation(snippet="First 200 chars of the page...")
-            ],
+            sources=[_make_citation(snippet="First 200 chars of the page...")],
         )
         assert payload.sources[0].snippet == "First 200 chars of the page..."
 

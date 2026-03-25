@@ -132,9 +132,7 @@ class TestScreenshotListResponse:
         assert resp.screenshots[0].id == "scr-001"
 
     def test_multiple_screenshots(self) -> None:
-        screenshots = [
-            _make_metadata(id=f"scr-{i}", sequence_number=i) for i in range(5)
-        ]
+        screenshots = [_make_metadata(id=f"scr-{i}", sequence_number=i) for i in range(5)]
         resp = ScreenshotListResponse(screenshots=screenshots, total=5)
         assert len(resp.screenshots) == 5
         assert resp.total == 5

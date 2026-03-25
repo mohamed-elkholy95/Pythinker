@@ -57,9 +57,7 @@ async def test_syncs_file_from_output_path_key() -> None:
     sync_mock = AsyncMock()
     ctx = _make_ctx(sync_mock)
     event = _make_event(
-        function_result=ToolResult(
-            success=True, data={"output_path": "/tmp/archive.tar.gz"}
-        ),
+        function_result=ToolResult(success=True, data={"output_path": "/tmp/archive.tar.gz"}),
     )
     await handle_export_content(event, ctx)
     sync_mock.assert_awaited_once_with("/tmp/archive.tar.gz")
@@ -102,9 +100,7 @@ async def test_priority_path_over_file_path() -> None:
     sync_mock = AsyncMock()
     ctx = _make_ctx(sync_mock)
     event = _make_event(
-        function_result=ToolResult(
-            success=True, data={"path": "/a.pdf", "file_path": "/b.pdf"}
-        ),
+        function_result=ToolResult(success=True, data={"path": "/a.pdf", "file_path": "/b.pdf"}),
     )
     await handle_export_content(event, ctx)
     sync_mock.assert_awaited_once_with("/a.pdf")

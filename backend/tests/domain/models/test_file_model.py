@@ -13,6 +13,7 @@ from app.domain.models.file import FileInfo
 # Required field — filename
 # ---------------------------------------------------------------------------
 
+
 def test_file_info_requires_filename():
     """Constructing FileInfo without filename raises ValidationError."""
     with pytest.raises(ValidationError) as exc_info:
@@ -37,6 +38,7 @@ def test_file_info_filename_stored_verbatim():
 # ---------------------------------------------------------------------------
 # Optional field defaults — all None
 # ---------------------------------------------------------------------------
+
 
 def test_file_info_default_file_id_is_none():
     fi = FileInfo(filename="f.txt")
@@ -81,6 +83,7 @@ def test_file_info_default_file_url_is_none():
 # ---------------------------------------------------------------------------
 # Setting optional fields
 # ---------------------------------------------------------------------------
+
 
 def test_file_info_with_file_id():
     fi = FileInfo(filename="img.png", file_id="file-abc-123")
@@ -148,6 +151,7 @@ def test_file_info_with_file_url():
 # Full construction
 # ---------------------------------------------------------------------------
 
+
 def test_file_info_full_construction():
     """All fields can be set simultaneously."""
     now = datetime.now(UTC)
@@ -177,6 +181,7 @@ def test_file_info_full_construction():
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 def test_file_info_model_dump_minimal():
     fi = FileInfo(filename="data.json")

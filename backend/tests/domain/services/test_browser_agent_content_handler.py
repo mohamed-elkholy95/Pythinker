@@ -28,9 +28,7 @@ def _make_event(**kwargs) -> ToolEvent:
 @pytest.mark.asyncio
 async def test_extracts_result_and_steps() -> None:
     event = _make_event(
-        function_result=ToolResult(
-            success=True, data={"result": "found 3 items", "steps_taken": 5}
-        ),
+        function_result=ToolResult(success=True, data={"result": "found 3 items", "steps_taken": 5}),
     )
     await handle_browser_agent_content(event, MagicMock())
     assert isinstance(event.tool_content, BrowserAgentToolContent)

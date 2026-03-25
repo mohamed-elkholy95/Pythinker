@@ -53,9 +53,7 @@ class TestFileSearchResult:
         assert r.line_numbers == []
 
     def test_with_matches(self) -> None:
-        r = FileSearchResult(
-            file="/app/f.py", matches=["line1", "line2"], line_numbers=[10, 20]
-        )
+        r = FileSearchResult(file="/app/f.py", matches=["line1", "line2"], line_numbers=[10, 20])
         assert len(r.matches) == 2
         assert r.line_numbers == [10, 20]
 

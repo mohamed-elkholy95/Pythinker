@@ -42,9 +42,7 @@ class TestSnapshotType:
 class TestFileSnapshot:
     def test_required_fields(self) -> None:
         now = datetime.now(UTC)
-        snap = FileSnapshot(
-            path="/app/main.py", content="print('hi')", size_bytes=10, modified_at=now
-        )
+        snap = FileSnapshot(path="/app/main.py", content="print('hi')", size_bytes=10, modified_at=now)
         assert snap.path == "/app/main.py"
         assert snap.is_binary is False
 

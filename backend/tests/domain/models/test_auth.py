@@ -12,6 +12,7 @@ from app.domain.models.user import User, UserRole
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_user(**overrides) -> User:
     """Return a minimal valid User instance."""
     defaults = {
@@ -26,6 +27,7 @@ def make_user(**overrides) -> User:
 # ---------------------------------------------------------------------------
 # Construction — required fields
 # ---------------------------------------------------------------------------
+
 
 def test_auth_token_minimal_construction():
     """AuthToken can be constructed with only access_token."""
@@ -51,6 +53,7 @@ def test_auth_token_access_token_stored_as_given():
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
+
 
 def test_auth_token_default_token_type():
     """token_type defaults to 'bearer'."""
@@ -80,6 +83,7 @@ def test_auth_token_default_requires_totp_is_false():
 # Optional fields — explicit values
 # ---------------------------------------------------------------------------
 
+
 def test_auth_token_custom_token_type():
     """token_type can be set to any string value."""
     token = AuthToken(access_token="tok", token_type="mac")
@@ -101,6 +105,7 @@ def test_auth_token_requires_totp_true():
 # ---------------------------------------------------------------------------
 # Nested User field
 # ---------------------------------------------------------------------------
+
 
 def test_auth_token_with_user_instance():
     """user field accepts a full User object."""
@@ -129,6 +134,7 @@ def test_auth_token_user_can_be_set_to_none_explicitly():
 # Full construction
 # ---------------------------------------------------------------------------
 
+
 def test_auth_token_full_construction():
     """All fields can be set together without error."""
     user = make_user()
@@ -149,6 +155,7 @@ def test_auth_token_full_construction():
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 def test_auth_token_model_dump_minimal():
     """model_dump() includes all expected keys for a minimal token."""

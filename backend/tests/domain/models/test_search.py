@@ -11,6 +11,7 @@ from app.domain.models.search import SearchResultItem, SearchResultMeta, SearchR
 # SearchResultItem
 # ===========================================================================
 
+
 class TestSearchResultItem:
     # --- Required fields ---
 
@@ -87,6 +88,7 @@ class TestSearchResultItem:
 # ===========================================================================
 # SearchResultMeta
 # ===========================================================================
+
 
 class TestSearchResultMeta:
     # --- Required field ---
@@ -200,6 +202,7 @@ class TestSearchResultMeta:
 # SearchResults
 # ===========================================================================
 
+
 class TestSearchResults:
     # --- Required field ---
 
@@ -254,10 +257,7 @@ class TestSearchResults:
         assert sr.results[0].title == "A"
 
     def test_with_multiple_result_items(self):
-        items = [
-            SearchResultItem(title=f"Result {i}", link=f"https://r{i}.com")
-            for i in range(5)
-        ]
+        items = [SearchResultItem(title=f"Result {i}", link=f"https://r{i}.com") for i in range(5)]
         sr = SearchResults(query="multi", total_results=5, results=items)
         assert len(sr.results) == 5
         assert sr.results[2].title == "Result 2"

@@ -170,10 +170,7 @@ class TestLinkedChannelsListResponse:
         assert resp.channels[0].sender_id == "u1"
 
     def test_multiple_channels(self) -> None:
-        channels = [
-            LinkedChannelResponse(channel="telegram", sender_id=f"u{i}")
-            for i in range(3)
-        ]
+        channels = [LinkedChannelResponse(channel="telegram", sender_id=f"u{i}") for i in range(3)]
         resp = LinkedChannelsListResponse(channels=channels)
         assert len(resp.channels) == 3
 

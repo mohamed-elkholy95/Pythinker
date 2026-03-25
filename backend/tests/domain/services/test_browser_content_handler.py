@@ -81,9 +81,7 @@ async def test_empty_dict_data() -> None:
 async def test_priority_content_over_text() -> None:
     """content key takes priority over text key."""
     event = _make_tool_event(
-        function_result=ToolResult(
-            success=True, data={"content": "primary", "text": "secondary"}
-        ),
+        function_result=ToolResult(success=True, data={"content": "primary", "text": "secondary"}),
     )
     await handle_browser_content(event, MagicMock())
     assert event.tool_content.content == "primary"

@@ -8,6 +8,7 @@ from app.domain.models.message import Message
 # Empty / minimal construction
 # ---------------------------------------------------------------------------
 
+
 def test_message_empty_construction():
     """Message can be constructed with no arguments at all."""
     msg = Message()
@@ -32,6 +33,7 @@ def test_message_no_required_fields():
 # title field
 # ---------------------------------------------------------------------------
 
+
 def test_message_with_title():
     msg = Message(title="Research task")
     assert msg.title == "Research task"
@@ -50,6 +52,7 @@ def test_message_title_can_be_empty_string():
 # ---------------------------------------------------------------------------
 # message field
 # ---------------------------------------------------------------------------
+
 
 def test_message_with_message_text():
     msg = Message(message="Hello, Pythinker!")
@@ -70,6 +73,7 @@ def test_message_with_multiline_text():
 # ---------------------------------------------------------------------------
 # attachments field
 # ---------------------------------------------------------------------------
+
 
 def test_message_default_attachments_is_empty_list():
     msg = Message()
@@ -100,6 +104,7 @@ def test_message_attachments_are_independent_between_instances():
 # skills field
 # ---------------------------------------------------------------------------
 
+
 def test_message_default_skills_is_empty_list():
     msg = Message()
     assert msg.skills == []
@@ -127,6 +132,7 @@ def test_message_skills_are_independent_between_instances():
 # ---------------------------------------------------------------------------
 # thinking_mode field
 # ---------------------------------------------------------------------------
+
 
 def test_message_default_thinking_mode_is_none():
     msg = Message()
@@ -157,6 +163,7 @@ def test_message_thinking_mode_arbitrary_string():
 # ---------------------------------------------------------------------------
 # Follow-up fields
 # ---------------------------------------------------------------------------
+
 
 def test_message_default_follow_up_fields_are_none():
     msg = Message()
@@ -195,6 +202,7 @@ def test_message_with_all_follow_up_fields():
 # Full construction
 # ---------------------------------------------------------------------------
 
+
 def test_message_full_construction():
     """All fields can be set together."""
     msg = Message(
@@ -220,6 +228,7 @@ def test_message_full_construction():
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 def test_message_model_dump_defaults():
     msg = Message()
