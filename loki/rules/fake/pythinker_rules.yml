@@ -1,0 +1,163 @@
+# =============================================================================
+# Loki Recording & Alert Rules — Log-Derived Metrics
+# =============================================================================
+# These rules extract metrics from log patterns that Prometheus metrics
+# cannot capture: tracebacks, stuck patterns, workflow anomalies,
+# hallucination warnings in log text, and error categorization.
+#
+# Per Context7 Loki docs: rules use LogQL metric queries (count_over_time, rate)
+# and are evaluated by Loki's built-in ruler.
+# =============================================================================
+
+groups:
+  # ─────────────────────────────────────────────────────────────────────
+  # Log-Derived Recording Rules
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_log_metrics
+    interval: 1m
+    rules:
+      # Error log rate per service
+      - record: pythinker:log_errors:rate1m
+        expr: |
+          sum by (compose_service) (
+            count_over_time({compose_project="pythinker-main",level=~"error|critical|fatal"}[1m])
+          )
+
+      # Warning log rate per service
+      - record: pythinker:log_warnings:rate1m
+        expr: |
+          sum by (compose_service) (
+            count_over_time({compose_project="pythinker-main",level="warning"}[1m])
+          )
+
+      # Traceback rate (Python exceptions)
+      - record: pythinker:tracebacks:rate5m
+        expr: |
+          sum(
+            count_over_time({compose_project="pythinker-main"} |= "Traceback" [5m])
+          )
+
+      # Tool failure rate from logs
+      - record: pythinker:tool_failures_log:rate5m
+        expr: |
+          sum(
+            count_over_time({compose_service="backend",level="warning"} |= "tool_completed" |= "success=False" [5m])
+          )
+
+      # Stuck detector triggers from logs
+      - record: pythinker:stuck_detector:rate5m
+        expr: |
+          sum(
+            count_over_time({compose_service="backend"} |= "stuck pattern detected" [5m])
+          )
+
+      # LLM slow calls (warning level = above threshold)
+      - record: pythinker:llm_slow_calls:rate5m
+        expr: |
+          sum(
+            count_over_time({compose_service="backend",level="warning"} |= "LLM ask" [5m])
+          )
+
+      # Hallucination grounding warnings from logs
+      - record: pythinker:hallucination_log_warnings:rate5m
+        expr: |
+          sum(
+            count_over_time({compose_service="backend"} |~ "hallucination|unsupported claim|grounding" [5m])
+          )
+
+      # Workflow transitions per minute
+      - record: pythinker:workflow_transitions:rate1m
+        expr: |
+          sum(
+            count_over_time({compose_service="backend"} |= "workflow_transition" [1m])
+          )
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Log-Based Alert Rules
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_log_alerts
+    interval: 1m
+    rules:
+      # Python traceback burst
+      - alert: TracebackBurst
+        expr: |
+          sum(count_over_time({compose_project="pythinker-main"} |= "Traceback" [5m])) > 3
+        for: 1m
+        labels:
+          severity: critical
+          category: runtime_error
+        annotations:
+          summary: "Multiple Python tracebacks detected"
+          description: "{{ $value }} tracebacks in last 5m across all services. Check Loki for stack traces."
+
+      # Backend error rate spike
+      - alert: BackendErrorLogSpike
+        expr: |
+          sum(count_over_time({compose_service="backend",level=~"error|critical"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: runtime_error
+        annotations:
+          summary: "Backend error log rate spiking"
+          description: "{{ $value }} error/critical logs in last 5m. Query: {compose_service=\"backend\",level=~\"error|critical\"}"
+
+      # Sandbox errors (Chromium crashes, tool execution failures)
+      - alert: SandboxErrorBurst
+        expr: |
+          sum(count_over_time({compose_service="sandbox",level=~"error|fatal"}[10m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: sandbox
+        annotations:
+          summary: "Sandbox error burst detected"
+          description: "{{ $value }} sandbox errors in 10m. May indicate Chromium crashes or tool failures."
+
+      # Agent stuck pattern detected
+      - alert: AgentStuckPatternDetected
+        expr: |
+          sum(count_over_time({compose_service="backend"} |= "stuck pattern detected" [10m])) > 1
+        for: 1m
+        labels:
+          severity: warning
+          category: workflow
+        annotations:
+          summary: "Agent stuck pattern detected in workflow"
+          description: "{{ $value }} stuck patterns in 10m. Agent may be looping or unable to make progress."
+
+      # Hallucination-related warnings in logs
+      - alert: HallucinationLogWarnings
+        expr: |
+          sum(count_over_time({compose_service="backend",level="warning"} |~ "hallucination|unsupported claim|grounding" [10m])) > 3
+        for: 1m
+        labels:
+          severity: warning
+          category: quality
+        annotations:
+          summary: "Hallucination-related warnings in agent logs"
+          description: "{{ $value }} hallucination/grounding warnings in 10m. Output quality may be degraded."
+
+      # Tool consistently failing (from logs)
+      - alert: ToolFailureBurstInLogs
+        expr: |
+          sum(count_over_time({compose_service="backend",level="warning"} |= "tool_completed" |= "success=False" [5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: tools
+        annotations:
+          summary: "Multiple tool failures detected in logs"
+          description: "{{ $value }} tool failures in 5m. Check which tools are failing with: |= 'tool_completed' |= 'success=False'"
+
+      # LLM timeout pattern
+      - alert: LLMTimeoutPattern
+        expr: |
+          sum(count_over_time({compose_service="backend"} |~ "timed out|ReadTimeout|timeout" [10m])) > 3
+        for: 2m
+        labels:
+          severity: warning
+          category: llm
+        annotations:
+          summary: "LLM timeout pattern detected"
+          description: "{{ $value }} timeout-related log entries in 10m. LLM provider may be slow or unresponsive."

@@ -1,0 +1,51 @@
+# =============================================================================
+# Grafana Unified Alerting — Contact Points & Notification Policies
+# =============================================================================
+# Configures where alerts get sent. Supports:
+#   - Webhook (for custom integrations, Discord, Slack incoming webhooks)
+#   - Email (when SMTP is configured)
+#
+# To enable Discord/Slack:
+#   Set GRAFANA_ALERT_WEBHOOK_URL env var to your webhook URL
+#   Discord: https://discord.com/api/webhooks/...
+#   Slack: https://hooks.slack.com/services/...
+# =============================================================================
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: pythinker-webhook
+    receivers:
+      - uid: pythinker-webhook-receiver
+        type: webhook
+        settings:
+          url: "http://backend:8000/api/v1/webhooks/grafana-alert"
+          httpMethod: POST
+          maxAlerts: 10
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: pythinker-webhook
+    group_by:
+      - alertname
+      - category
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      # Critical alerts: shorter repeat interval
+      - receiver: pythinker-webhook
+        matchers:
+          - severity = critical
+        group_wait: 10s
+        repeat_interval: 1h
+      # Quality alerts: group by category
+      - receiver: pythinker-webhook
+        matchers:
+          - category =~ "quality|hallucination"
+        group_by:
+          - alertname
+          - category
+        repeat_interval: 2h
