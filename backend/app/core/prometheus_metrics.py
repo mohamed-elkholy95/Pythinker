@@ -2411,6 +2411,64 @@ _metrics_registry.extend(
     ]
 )
 
+# Agent Enhancement Metrics — import and register so they appear in /metrics
+try:
+    from app.infrastructure.observability.agent_metrics import (
+        agent_duplicate_query_blocked,
+        agent_duplicate_query_override,
+        agent_response_recovery_failure,
+        agent_response_recovery_success,
+        agent_response_recovery_trigger,
+        agent_tool_args_canonicalized,
+        agent_tool_args_rejected,
+        agent_tool_cache_hit_rate,
+        agent_tool_cache_invalidations,
+        agent_tool_cache_memory_bytes,
+        agent_tool_cache_size,
+        agent_tool_definition_cache_hits,
+        agent_tool_definition_cache_misses,
+        duplicate_query_window_size,
+        failure_snapshot_budget_violations,
+        failure_snapshot_generated,
+        failure_snapshot_injected,
+        failure_snapshot_size,
+        recovery_duration,
+        tool_cache_lookup_duration,
+    )
+
+    _metrics_registry.extend(
+        [
+            agent_response_recovery_trigger,
+            agent_response_recovery_success,
+            agent_response_recovery_failure,
+            recovery_duration,
+            failure_snapshot_generated,
+            failure_snapshot_size,
+            failure_snapshot_injected,
+            failure_snapshot_budget_violations,
+            agent_duplicate_query_blocked,
+            agent_duplicate_query_override,
+            duplicate_query_window_size,
+            agent_tool_args_canonicalized,
+            agent_tool_args_rejected,
+            agent_tool_definition_cache_hits,
+            agent_tool_definition_cache_misses,
+            agent_tool_cache_invalidations,
+            agent_tool_cache_size,
+            agent_tool_cache_hit_rate,
+            agent_tool_cache_memory_bytes,
+            tool_cache_lookup_duration,
+        ]
+    )
+except ModuleNotFoundError:
+    pass  # agent_metrics module not installed — optional
+except ImportError as e:
+    import logging as _logging
+
+    _logging.getLogger(__name__).warning(
+        "Agent enhancement metrics partially unavailable: %s", e
+    )
+
 
 def record_profile_selection(
     profile_id: str,
@@ -2467,10 +2525,8 @@ def format_prometheus() -> str:
 
     for metric in _metrics_registry:
         collected = metric.collect()
-        if not collected:
-            continue
 
-        # Add HELP and TYPE comments
+        # Always emit HELP and TYPE so Prometheus knows the metric exists
         lines.append(f"# HELP {metric.name} {metric.help_text}")
 
         if isinstance(metric, Counter):
@@ -2479,6 +2535,15 @@ def format_prometheus() -> str:
             lines.append(f"# TYPE {metric.name} gauge")
         elif isinstance(metric, Histogram):
             lines.append(f"# TYPE {metric.name} histogram")
+
+        # Emit default 0 for label-free counters/gauges with no data
+        if not collected and not isinstance(metric, Histogram):
+            if not metric.labels:
+                lines.append(f"{metric.name} 0")
+            continue
+
+        if not collected:
+            continue
 
         # Add metric values
         for item in collected:
