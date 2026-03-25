@@ -1,3 +1,14 @@
+# =============================================================================
+# Promtail Configuration — Pythinker AI Agent Log Collection
+# =============================================================================
+# Best-practice pipeline for 2026 LLM observability:
+#   1. Docker JSON log unwrap
+#   2. Structured JSON field extraction (backend/gateway emit JSON via structlog)
+#   3. Multi-format level detection (JSON, structlog plain, loguru, Chromium, MongoDB)
+#   4. Error pattern detection (Traceback, Exception, OOM)
+#   5. Multiline traceback grouping
+# =============================================================================
+
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
@@ -32,9 +43,31 @@ scrape_configs:
         target_label: 'stream'
 
     pipeline_stages:
+      # ─── Stage 1: Unwrap Docker JSON log format ───────────────────────
       - docker: {}
 
-      # structlog: level word followed by 2+ spaces (ANSI-tolerant)
+      # ─── Stage 2: Try JSON parsing (backend/gateway emit JSON logs) ───
+      # Extracts: level, event, logger, request_id, and any extra fields
+      # If log line is not JSON, this silently fails and falls through
+      - json:
+          expressions:
+            level: level
+            event: event
+            logger: logger
+            request_id: request_id
+            # Agent-specific fields for diagnostics
+            duration_ms: duration_ms
+            tool_name: tool_name
+            method: method
+            path: path
+            status_code: status
+
+      # ─── Stage 3: Level extraction — multi-format cascade ─────────────
+      # JSON logs already have level extracted above.
+      # These regex stages handle non-JSON formats (sandbox, MongoDB, etc.)
+      # Promtail only captures if field is empty, so JSON level takes priority.
+
+      # structlog plain format: level word followed by 2+ spaces
       - regex:
           expression: '(?P<level>critical|error|warning|info|debug)\s{2,}'
 
@@ -42,7 +75,7 @@ scrape_configs:
       - regex:
           expression: '[\|\-]\s+(?P<level>CRITICAL|ERROR|WARNING|INFO|DEBUG)\s+[\|\-]'
 
-      # Chromium/sandbox: ":ERROR:", ":WARNING:"
+      # Chromium/sandbox: ":ERROR:", ":WARNING:", ":FATAL:"
       - regex:
           expression: ':(?P<level>FATAL|ERROR|WARNING|INFO):'
 
@@ -50,15 +83,15 @@ scrape_configs:
       - regex:
           expression: '^(?P<level>INFO|WARNING|ERROR|DEBUG):\s'
 
-      # MongoDB JSON structured logs: "s":"I", "s":"W", "s":"E"
+      # MongoDB JSON: "s":"I", "s":"W", "s":"E", "s":"F"
       - regex:
           expression: '"s":"(?P<level>I|W|E|F)"'
 
-      # Go structured logs: level=info, level=warn
+      # Go structured logs (monitoring stack): level=info, level=warn
       - regex:
           expression: 'level=(?P<level>info|warn|error|debug|critical)'
 
-      # Normalize: lowercase + expand MongoDB single-letter + Go "warn"
+      # ─── Stage 4: Normalize level ────────────────────────────────────
       - template:
           source: level
           template: >-
@@ -72,17 +105,19 @@ scrape_configs:
             {{- else }}unknown
             {{- end }}
 
+      # ─── Stage 5: Set labels for Loki indexing ───────────────────────
       - labels:
           level:
+          event:
 
-      # Detect error patterns
+      # ─── Stage 6: Error pattern detection ────────────────────────────
       - regex:
           expression: '(?P<error_type>Traceback|Exception|Error|FATAL|OOMKilled|panic)'
       - labels:
           error_type:
 
-      # Multiline: group Python tracebacks
+      # ─── Stage 7: Multiline — group Python tracebacks ───────────────
       - multiline:
-          firstline: '^\d{4}-\d{2}-\d{2}[T ]|^\x1b\[\d|^\{"|^\[?\d+:\d+:'
+          firstline: '^\d{4}-\d{2}-\d{2}[T ]|^\{"|^\[?\d+:\d+:'
           max_wait_time: 3s
           max_lines: 128
