@@ -1,0 +1,206 @@
+# =============================================================================
+# Agent Quality & Workflow Alert Rules
+# =============================================================================
+# Based on 2026 LLM observability best practices:
+#   - Hallucination spike detection
+#   - Delivery integrity monitoring
+#   - Tool loop / stuck detection
+#   - LLM latency degradation
+#   - Output quality gates
+#   - Session anomaly detection
+# =============================================================================
+
+groups:
+  # ─────────────────────────────────────────────────────────────────────
+  # Hallucination & Output Quality Alerts
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_hallucination
+    interval: 30s
+    rules:
+      # Hallucination rate spike
+      - alert: HallucinationRateSpike
+        expr: sum(increase(pythinker_hallucination_detected_total[15m])) > 3
+        for: 1m
+        labels:
+          severity: warning
+          category: quality
+        annotations:
+          summary: "Hallucination detection rate spiking"
+          description: "{{ $value }} hallucinations detected in last 15m. Investigate grounding context and source quality."
+
+      # Citation fabrication detected
+      - alert: CitationFabricationDetected
+        expr: increase(pythinker_citation_fabricated_total[30m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: quality
+        annotations:
+          summary: "Fabricated citations detected"
+          description: "{{ $value }} fabricated citations in last 30m. Model may be inventing references."
+
+      # Delivery integrity blocks (content too unreliable to send)
+      - alert: DeliveryIntegrityBlocked
+        expr: increase(pythinker_delivery_integrity_gate_result_total{result="blocked"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: quality
+        annotations:
+          summary: "Agent output blocked by delivery integrity gate"
+          description: "Delivery integrity gate blocked output {{ $value }} time(s) in 15m. Content failed quality checks."
+
+      # Delivery integrity warning rate high
+      - alert: DeliveryWarningRateHigh
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result!="passed"}[10m]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[10m])), 0.000001)
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          category: quality
+        annotations:
+          summary: "High delivery integrity warning rate"
+          description: "{{ $value | humanizePercentage }} of deliveries have warnings. Check hallucination scores and source quality."
+
+  # ─────────────────────────────────────────────────────────────────────
+  # LLM Performance Alerts
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_llm_quality
+    interval: 30s
+    rules:
+      # LLM error rate rising
+      - alert: LLMErrorRateRising
+        expr: pythinker:llm_error_rate:5m > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          category: llm
+        annotations:
+          summary: "LLM error rate above 10%"
+          description: "LLM error rate is {{ $value | humanizePercentage }}. Check API provider status and credentials."
+
+      # LLM p95 latency degraded
+      - alert: LLMLatencyDegraded
+        expr: pythinker:llm_latency_p95:5m > 30
+        for: 5m
+        labels:
+          severity: warning
+          category: llm
+        annotations:
+          summary: "LLM p95 latency above 30s"
+          description: "p95 LLM latency is {{ $value | humanizeDuration }}. Model may be overloaded or network issues."
+
+      # LLM p99 latency critical
+      - alert: LLMLatencyCritical
+        expr: pythinker:llm_latency_p99:5m > 60
+        for: 3m
+        labels:
+          severity: critical
+          category: llm
+        annotations:
+          summary: "LLM p99 latency above 60s"
+          description: "p99 LLM latency is {{ $value | humanizeDuration }}. Requests likely timing out."
+
+      # Token consumption spike (cost alert)
+      - alert: TokenConsumptionSpike
+        expr: pythinker:total_token_rate:5m > 500
+        for: 5m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "High token consumption rate"
+          description: "Token rate is {{ $value | humanize }} tokens/sec. Check for runaway loops or oversized contexts."
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Tool Reliability Alerts
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_tool_quality
+    interval: 30s
+    rules:
+      # Overall tool failure rate high
+      - alert: ToolFailureRateHigh
+        expr: (1 - pythinker:tool_success_rate:5m) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          category: tools
+        annotations:
+          summary: "Tool failure rate above 20%"
+          description: "Overall tool failure rate is {{ $value | humanizePercentage }}. Check individual tool health."
+
+      # Specific tool failing consistently
+      - alert: ToolConsistentlyFailing
+        expr: pythinker:tool_error_rate_by_tool:5m > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          category: tools
+        annotations:
+          summary: "Tool {{ $labels.tool }} failing >50% of calls"
+          description: "Tool {{ $labels.tool }} has {{ $value | humanizePercentage }} error rate. May need investigation."
+
+      # Search provider unhealthy
+      - alert: SearchProviderUnhealthy
+        expr: pythinker_search_provider_health_score < 0.5
+        for: 5m
+        labels:
+          severity: warning
+          category: search
+        annotations:
+          summary: "Search provider {{ $labels.provider }} health degraded"
+          description: "Search health score is {{ $value }}. API keys may be exhausted or provider down."
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Workflow & Session Alerts
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_workflow
+    interval: 30s
+    rules:
+      # High concurrent sessions
+      - alert: HighConcurrentSessions
+        expr: pythinker_active_sessions > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: "{{ $value }} concurrent agent sessions"
+          description: "Multiple agent sessions running simultaneously. Monitor resource usage."
+
+      # Analysis paralysis (tool efficiency nudges firing)
+      - alert: AnalysisParalysisDetected
+        expr: increase(pythinker_tool_efficiency_nudges_total[15m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+          category: workflow
+        annotations:
+          summary: "Analysis paralysis detected in agent workflow"
+          description: "{{ $value }} efficiency nudges fired in 15m. Agent may be stuck reading without acting."
+
+      # Output truncation rate
+      - alert: OutputTruncationRateHigh
+        expr: increase(pythinker_output_truncations_total[30m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+          category: quality
+        annotations:
+          summary: "Multiple output truncations detected"
+          description: "{{ $value }} truncated outputs in 30m. Check LLM token limits and response handling."
+
+      # SSE stream errors (client disconnection issues)
+      - alert: SSEStreamErrors
+        expr: pythinker:sse_error_rate:5m > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          category: streaming
+        annotations:
+          summary: "SSE stream error rate above 10%"
+          description: "{{ $value | humanizePercentage }} of SSE streams encountering errors. Check network and frontend."
