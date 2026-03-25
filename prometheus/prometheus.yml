@@ -17,6 +17,9 @@ global:
 rule_files:
   - "alert_rules.yml"
   - "agent_enhancement_alerts.yml"
+  - "recording_rules.yml"
+  - "agent_quality_alerts.yml"
+  - "monitoring_health_alerts.yml"
 
 # Scrape configurations
 scrape_configs:
