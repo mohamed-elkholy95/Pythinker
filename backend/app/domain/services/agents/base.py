@@ -2641,7 +2641,7 @@ class BaseAgent:
         async with semaphore:
             return await self.invoke_tool(tool, function_name, function_args)
 
-    async def _ensure_memory(self):
+    async def _ensure_memory(self) -> None:
         """Ensure the agent has initialized memory.
 
         Retrieves memory from the repository, creating the agent document
@@ -3371,7 +3371,7 @@ class BaseAgent:
 
         memory_snapshot = Memory(messages=list(self.memory.messages))
 
-        async def _save_background():
+        async def _save_background() -> None:
             try:
                 await self._repository.save_memory(self._agent_id, self.name, memory_snapshot)
                 logger.debug("Background memory save completed after token limit handling")
@@ -3402,7 +3402,7 @@ class BaseAgent:
     async def ask(self, request: str, format: str | None = None) -> dict[str, Any]:
         return await self.ask_with_messages([{"role": "user", "content": request}], format)
 
-    async def roll_back(self, message: Message):
+    async def roll_back(self, message: Message) -> None:
         await self._ensure_memory()
         last_message = self.memory.get_last_message()
         if not last_message or not last_message.get("tool_calls") or len(last_message.get("tool_calls")) == 0:
