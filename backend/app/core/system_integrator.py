@@ -23,7 +23,7 @@ class SystemIntegrator:
         self.health_monitor = get_health_monitor()
         self._initialized = False
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize all enhanced components"""
         if self._initialized:
             return
@@ -44,7 +44,7 @@ class SystemIntegrator:
             logger.error(f"Failed to initialize enhanced components: {e}")
             raise
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Shutdown all enhanced components"""
         if not self._initialized:
             return
@@ -64,7 +64,7 @@ class SystemIntegrator:
         except Exception as e:
             logger.error(f"Error during enhanced components shutdown: {e}")
 
-    async def _register_recovery_strategies(self):
+    async def _register_recovery_strategies(self) -> None:
         """Register additional recovery strategies"""
 
         async def network_recovery_strategy(error_record):
@@ -91,7 +91,7 @@ class SystemIntegrator:
         self.error_manager.register_recovery_strategy(ErrorCategory.NETWORK, network_recovery_strategy)
         self.error_manager.register_recovery_strategy(ErrorCategory.RESOURCE, resource_recovery_strategy)
 
-    async def _cleanup_resources(self):
+    async def _cleanup_resources(self) -> None:
         """Clean up any remaining resources"""
         try:
             # Clean up sandbox resources
