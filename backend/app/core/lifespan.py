@@ -600,7 +600,7 @@ async def lifespan(app: FastAPI):
 
             if ctx is None:
                 # Sandbox not ready yet: wait for /health then load.
-                async def _reload_sandbox_context_on_ready():
+                async def _reload_sandbox_context_on_ready() -> None:
                     """Wait for sandbox health, then load context once."""
                     import httpx as _httpx
 
@@ -706,7 +706,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Reconciliation job initialization failed (non-critical): {e}")
 
-            async def _reconciliation_loop():
+            async def _reconciliation_loop() -> None:
                 """Periodic reconciliation -- runs every 5 minutes."""
                 # Wait 1 minute before first run to let system stabilize
                 await asyncio.sleep(60)
@@ -733,7 +733,7 @@ async def lifespan(app: FastAPI):
         # Start background memory cleanup task (Phase 7 + Phase 6F context cleanup)
         if _health_state["qdrant"]:
 
-            async def _memory_cleanup_loop():
+            async def _memory_cleanup_loop() -> None:
                 """Periodic memory maintenance -- runs every hour."""
                 while True:
                     await asyncio.sleep(3600)  # Every hour
