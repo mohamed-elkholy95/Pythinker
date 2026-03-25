@@ -270,8 +270,14 @@ def setup_structured_logging() -> None:
         structlog.processors.UnicodeDecoder(),
     ]
 
-    if settings.is_development:
-        # Development: colored console output
+    # Determine log format: "auto" uses dev/prod detection, "json" forces JSON,
+    # "plain" forces console without ANSI colors (ideal for Docker/Loki ingestion)
+    log_format = getattr(settings, "log_format", "auto").lower()
+    use_console = settings.is_development if log_format == "auto" else log_format == "plain"
+    use_colors = use_console and log_format != "plain"
+
+    if use_console:
+        # Console output (colored in auto+dev, plain in "plain" mode)
         processors: list[Processor] = [
             *shared_processors,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
@@ -281,13 +287,13 @@ def setup_structured_logging() -> None:
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                 structlog.dev.ConsoleRenderer(
-                    colors=True,
+                    colors=use_colors,
                     exception_formatter=_rich_traceback_no_locals,
                 ),
             ],
         )
     else:
-        # Production: JSON output
+        # JSON output (production default or explicit "json")
         processors = [
             *shared_processors,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,

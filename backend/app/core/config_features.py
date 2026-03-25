@@ -203,6 +203,7 @@ class ObservabilitySettingsMixin:
 
     # Logging configuration
     log_level: str = "INFO"
+    log_format: str = "auto"  # "auto" (dev=console, prod=json), "json", "plain" (no ANSI)
     log_redaction_enabled: bool = True
     # Comma-separated list of keys to redact in logs (case-insensitive)
     log_redaction_keys: str = (
