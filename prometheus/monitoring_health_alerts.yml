@@ -1,0 +1,116 @@
+# =============================================================================
+# Self-Monitoring & Retention Alerts
+# =============================================================================
+# Monitor the monitoring stack itself — catch failures before they cascade.
+# Based on Grafana/Prometheus best practices for production deployments.
+# =============================================================================
+
+groups:
+  - name: pythinker_self_monitoring
+    interval: 60s
+    rules:
+      # Prometheus scrape failures
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 3m
+        labels:
+          severity: critical
+          category: monitoring
+        annotations:
+          summary: "Scrape target {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} (job={{ $labels.job }}) for 3+ minutes."
+
+      # Prometheus TSDB storage growing fast
+      - alert: PrometheusStorageHigh
+        expr: |
+          (prometheus_tsdb_storage_blocks_bytes / 1024 / 1024 / 1024) > 5
+        for: 10m
+        labels:
+          severity: warning
+          category: monitoring
+        annotations:
+          summary: "Prometheus TSDB storage above 5GB"
+          description: "TSDB is using {{ $value | printf \"%.2f\" }} GB. Consider reducing retention or adding storage."
+
+      # Prometheus rule evaluation failures
+      - alert: PrometheusRuleEvalFailure
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: monitoring
+        annotations:
+          summary: "Prometheus rule evaluation failures"
+          description: "{{ $value }} rule evaluation failures in last 5m. Check rule syntax."
+
+      # Prometheus scrape duration too high
+      - alert: ScrapeDurationHigh
+        expr: scrape_duration_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: monitoring
+        annotations:
+          summary: "Scrape duration high for {{ $labels.job }}"
+          description: "Scrape takes {{ $value | humanizeDuration }} for {{ $labels.job }}. Metrics endpoint may be slow."
+
+      # Container restart detected (via cAdvisor)
+      - alert: ContainerRestarted
+        expr: changes(container_start_time_seconds{name=~"pythinker.*"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Container {{ $labels.name }} restarted"
+          description: "Container {{ $labels.name }} restarted in last 5m. Check container logs."
+
+      # Container high memory usage
+      - alert: ContainerHighMemory
+        expr: |
+          (container_memory_usage_bytes{name=~"pythinker.*"}
+          / container_spec_memory_limit_bytes{name=~"pythinker.*"}) > 0.85
+          and container_spec_memory_limit_bytes{name=~"pythinker.*"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Container {{ $labels.name }} using >85% memory"
+          description: "Memory usage is {{ $value | humanizePercentage }} of limit. Risk of OOM kill."
+
+      # Container high CPU
+      - alert: ContainerHighCPU
+        expr: |
+          rate(container_cpu_usage_seconds_total{name=~"pythinker.*"}[5m]) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Container {{ $labels.name }} high CPU usage"
+          description: "CPU usage is {{ $value }} cores for 10+ minutes."
+
+      # Node disk usage high
+      - alert: NodeDiskSpaceHigh
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"})) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Disk usage above 85% on {{ $labels.mountpoint }}"
+          description: "Disk {{ $labels.device }} at {{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full."
+
+      # Node high memory usage
+      - alert: NodeMemoryHigh
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Node memory usage above 90%"
+          description: "System memory usage is {{ $value | humanizePercentage }}. May need to free resources."
