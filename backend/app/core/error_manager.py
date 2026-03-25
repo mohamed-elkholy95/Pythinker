@@ -185,7 +185,7 @@ class ErrorManager:
         self._circuit_breakers: dict[str, CircuitBreaker] = {}
         self._max_history = 1000
 
-    def register_recovery_strategy(self, category: ErrorCategory, strategy: Callable):
+    def register_recovery_strategy(self, category: ErrorCategory, strategy: Callable) -> None:
         """Register a recovery strategy for an error category"""
         if category not in self._recovery_strategies:
             self._recovery_strategies[category] = []
@@ -265,7 +265,7 @@ class ErrorManager:
 
         return False
 
-    def _add_error_record(self, record: ErrorRecord):
+    def _add_error_record(self, record: ErrorRecord) -> None:
         """Add error record to history with size limit"""
         self._error_history.append(record)
         if len(self._error_history) > self._max_history:
@@ -306,12 +306,12 @@ class CircuitBreaker:
         # half-open
         return True
 
-    def record_success(self):
+    def record_success(self) -> None:
         """Record successful operation"""
         self.failure_count = 0
         self.state = "closed"
 
-    def record_failure(self):
+    def record_failure(self) -> None:
         """Record failed operation"""
         self.failure_count += 1
         self.last_failure_time = datetime.now(UTC)
