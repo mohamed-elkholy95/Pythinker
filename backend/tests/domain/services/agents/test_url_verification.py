@@ -12,7 +12,6 @@ from app.domain.services.agents.url_verification import (
     get_url_verification_service,
 )
 
-
 # ── URLVerificationResult model ─────────────────────────────────────
 
 
@@ -71,9 +70,7 @@ class TestBatchURLVerificationResult:
     def test_all_valid_with_results(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://a.com": URLVerificationResult(
-                    url="https://a.com", status=URLVerificationStatus.VERIFIED
-                ),
+                "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED),
             },
             verified_count=1,
         )
@@ -92,9 +89,7 @@ class TestBatchURLVerificationResult:
         assert batch.has_warnings is True
 
     def test_get_summary(self):
-        batch = BatchURLVerificationResult(
-            total_urls=3, verified_count=1, not_found_count=1, placeholder_count=1
-        )
+        batch = BatchURLVerificationResult(total_urls=3, verified_count=1, not_found_count=1, placeholder_count=1)
         summary = batch.get_summary()
         assert "Total: 3" in summary
         assert "Verified: 1" in summary
@@ -249,9 +244,7 @@ class TestVerifyUrlWasVisited:
         session_urls = {"https://docs.python.org/3/library"}
         # The original URL has a fragment, session URL doesn't
         # After normalization both should match (fragments removed)
-        assert self.svc.verify_url_was_visited(
-            "https://docs.python.org/3/library#section", session_urls
-        ) is True
+        assert self.svc.verify_url_was_visited("https://docs.python.org/3/library#section", session_urls) is True
 
 
 # ── URL Extraction from Text ────────────────────────────────────────

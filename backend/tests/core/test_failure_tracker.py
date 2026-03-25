@@ -1,8 +1,8 @@
 """Tests for FailureTracker — adaptive circuit breaker failure tracking."""
 
 from datetime import UTC, datetime, timedelta
-from app.core.failure_tracker import FailureEvent, FailureStats, FailureTracker
 
+from app.core.failure_tracker import FailureEvent, FailureStats, FailureTracker
 
 # ── FailureEvent ────────────────────────────────────────────────────
 

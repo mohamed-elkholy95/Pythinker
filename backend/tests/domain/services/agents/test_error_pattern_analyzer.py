@@ -13,7 +13,6 @@ from app.domain.services.agents.error_pattern_analyzer import (
     get_error_pattern_analyzer,
 )
 
-
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
