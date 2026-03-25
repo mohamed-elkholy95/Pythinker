@@ -91,9 +91,7 @@ class TestBatchURLVerificationResult:
             "https://b.com": URLVerificationResult(
                 url="https://b.com", status=URLVerificationStatus.NOT_FOUND, http_status=404
             ),
-            "https://c.com": URLVerificationResult(
-                url="https://c.com", status=URLVerificationStatus.PLACEHOLDER
-            ),
+            "https://c.com": URLVerificationResult(url="https://c.com", status=URLVerificationStatus.PLACEHOLDER),
         }
         return BatchURLVerificationResult(
             results=results,
@@ -109,9 +107,7 @@ class TestBatchURLVerificationResult:
 
     def test_all_valid_true(self) -> None:
         results = {
-            "https://a.com": URLVerificationResult(
-                url="https://a.com", status=URLVerificationStatus.VERIFIED
-            ),
+            "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED),
         }
         batch = BatchURLVerificationResult(results=results, total_urls=1, verified_count=1)
         assert batch.all_valid is True

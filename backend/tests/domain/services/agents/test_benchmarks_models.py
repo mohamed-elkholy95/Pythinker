@@ -10,8 +10,12 @@ from app.domain.services.agents.benchmarks import (
 class TestBenchmarkCategory:
     def test_values(self) -> None:
         expected = {
-            "token_efficiency", "latency", "cache_performance",
-            "tool_selection", "hallucination", "memory",
+            "token_efficiency",
+            "latency",
+            "cache_performance",
+            "tool_selection",
+            "hallucination",
+            "memory",
         }
         assert {c.value for c in BenchmarkCategory} == expected
 
@@ -48,7 +52,9 @@ class TestBenchmarkSuite:
             results=[
                 BenchmarkResult(name="a", category=BenchmarkCategory.LATENCY, passed=True, score=0.9, duration_ms=100),
                 BenchmarkResult(name="b", category=BenchmarkCategory.LATENCY, passed=True, score=0.8, duration_ms=200),
-                BenchmarkResult(name="c", category=BenchmarkCategory.TOKEN_EFFICIENCY, passed=False, score=0.3, duration_ms=50),
+                BenchmarkResult(
+                    name="c", category=BenchmarkCategory.TOKEN_EFFICIENCY, passed=False, score=0.3, duration_ms=50
+                ),
             ],
         )
 

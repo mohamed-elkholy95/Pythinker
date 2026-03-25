@@ -69,25 +69,19 @@ class TestPlanValidator:
         assert report.passed is False
 
     def test_unavailable_tool_warning(self) -> None:
-        plan = Plan(
-            steps=[Step(id="s-0", description="Use `nonexistent_tool` tool to do X")]
-        )
+        plan = Plan(steps=[Step(id="s-0", description="Use `nonexistent_tool` tool to do X")])
         v = PlanValidator(tool_names=["web_search", "browser"])
         report = v.validate(plan)
         assert any("nonexistent_tool" in w for w in report.warnings)
 
     def test_unavailable_tool_strict_error(self) -> None:
-        plan = Plan(
-            steps=[Step(id="s-0", description="Use `bad_tool` tool to do X")]
-        )
+        plan = Plan(steps=[Step(id="s-0", description="Use `bad_tool` tool to do X")])
         v = PlanValidator(tool_names=["web_search"], strict_tool_match=True)
         report = v.validate(plan)
         assert any("bad_tool" in e for e in report.errors)
 
     def test_available_tool_no_warning(self) -> None:
-        plan = Plan(
-            steps=[Step(id="s-0", description="Use `web_search` tool to find data")]
-        )
+        plan = Plan(steps=[Step(id="s-0", description="Use `web_search` tool to find data")])
         v = PlanValidator(tool_names=["web_search"])
         report = v.validate(plan)
         assert not any("web_search" in w for w in report.warnings)
