@@ -332,16 +332,12 @@ class TestCheckTokenBudget:
         assert self.analyzer._check_token_budget(states) == 0.0
 
     def test_exactly_50_percent_critical_returns_zero(self) -> None:
-        states = [make_workflow(context_pressure="critical")] * 5 + [
-            make_workflow(context_pressure="normal")
-        ] * 5
+        states = [make_workflow(context_pressure="critical")] * 5 + [make_workflow(context_pressure="normal")] * 5
         # 5/10 = 50% — condition is > 50% (strictly greater)
         assert self.analyzer._check_token_budget(states) == 0.0
 
     def test_majority_critical_returns_positive(self) -> None:
-        states = [make_workflow(context_pressure="critical")] * 6 + [
-            make_workflow(context_pressure="normal")
-        ] * 4
+        states = [make_workflow(context_pressure="critical")] * 6 + [make_workflow(context_pressure="normal")] * 4
         score = self.analyzer._check_token_budget(states)
         assert score > 0.0
 
@@ -567,9 +563,7 @@ class TestAnalyzeFailedSession:
         # All failures (tool cascade dominant) + critical context (token_budget above 0.3 threshold)
         tools = [make_tool(success=False)] * 10
         # 6 out of 10 critical → 60% > 50% → token_budget score = 0.6
-        workflows = [make_workflow(context_pressure="critical")] * 6 + [
-            make_workflow(context_pressure="normal")
-        ] * 4
+        workflows = [make_workflow(context_pressure="critical")] * 6 + [make_workflow(context_pressure="normal")] * 4
 
         mock_repo = AsyncMock()
         mock_repo.get_tool_executions_for_session.return_value = tools
