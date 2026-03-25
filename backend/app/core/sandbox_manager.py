@@ -185,7 +185,7 @@ class EnhancedSandboxManager:
             logger.error(f"Failed to destroy sandbox for session {session_id}: {e}")
             return False
 
-    async def _monitor_sandbox_health(self, sandbox: "ManagedSandbox"):
+    async def _monitor_sandbox_health(self, sandbox: "ManagedSandbox") -> None:
         """Monitor sandbox health continuously"""
         while sandbox.state not in [SandboxState.DESTROYED, SandboxState.FAILED]:
             try:
@@ -318,7 +318,7 @@ class ManagedSandbox:
         # API clients (managed by HTTPClientPool)
         self.api_client: ManagedHTTPClient | None = None
 
-    async def create(self):
+    async def create(self) -> None:
         """Create and start the sandbox container"""
         try:
             self.state = SandboxState.CREATING
@@ -412,7 +412,7 @@ class ManagedSandbox:
 
         return ip_address
 
-    async def _wait_for_services(self, timeout: int = 60):  # noqa: ASYNC109
+    async def _wait_for_services(self, timeout: int = 60) -> None:  # noqa: ASYNC109
         """Wait for sandbox services to become available"""
         start_time = time.time()
 
@@ -543,7 +543,7 @@ class ManagedSandbox:
             logger.error(f"Failed to recreate container for sandbox {self.session_id}: {e}")
             return False
 
-    async def destroy(self):
+    async def destroy(self) -> None:
         """Destroy the sandbox"""
         try:
             self.state = SandboxState.DESTROYED
