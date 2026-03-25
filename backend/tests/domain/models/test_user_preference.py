@@ -16,8 +16,12 @@ from app.domain.models.user_preference import (
 class TestPreferenceCategoryEnum:
     def test_all_values(self) -> None:
         expected = {
-            "communication", "tool_usage", "output_format",
-            "risk_tolerance", "verbosity", "interaction_style",
+            "communication",
+            "tool_usage",
+            "output_format",
+            "risk_tolerance",
+            "verbosity",
+            "interaction_style",
         }
         assert {c.value for c in PreferenceCategory} == expected
 

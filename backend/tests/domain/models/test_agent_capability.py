@@ -14,8 +14,16 @@ from app.domain.models.agent_capability import (
 class TestCapabilityCategoryEnum:
     def test_all_values(self) -> None:
         expected = {
-            "research", "coding", "analysis", "creative", "browser",
-            "file", "shell", "planning", "verification", "communication",
+            "research",
+            "coding",
+            "analysis",
+            "creative",
+            "browser",
+            "file",
+            "shell",
+            "planning",
+            "verification",
+            "communication",
         }
         assert {c.value for c in CapabilityCategory} == expected
 

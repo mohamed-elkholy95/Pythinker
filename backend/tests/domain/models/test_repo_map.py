@@ -9,8 +9,15 @@ from app.domain.models.repo_map import EntryType, RepoMap, RepoMapEntry
 class TestEntryTypeEnum:
     def test_all_values(self) -> None:
         expected = {
-            "file", "directory", "class", "function", "method",
-            "interface", "module", "constant", "type",
+            "file",
+            "directory",
+            "class",
+            "function",
+            "method",
+            "interface",
+            "module",
+            "constant",
+            "type",
         }
         assert {e.value for e in EntryType} == expected
 

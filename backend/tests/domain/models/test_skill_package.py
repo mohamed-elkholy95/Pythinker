@@ -39,7 +39,9 @@ class TestSkillFeatureCategory:
 
     def test_with_mappings(self) -> None:
         mapping = SkillFeatureMapping(
-            feature="Line Chart", user_value="See trends", when_to_use="Time series",
+            feature="Line Chart",
+            user_value="See trends",
+            when_to_use="Time series",
         )
         cat = SkillFeatureCategory(category="Charts", mappings=[mapping])
         assert len(cat.mappings) == 1
@@ -54,7 +56,8 @@ class TestSkillWorkflowStep:
 
     def test_with_substeps(self) -> None:
         step = SkillWorkflowStep(
-            step_number=2, description="Process",
+            step_number=2,
+            description="Process",
             substeps=["Parse data", "Validate", "Transform"],
         )
         assert len(step.substeps) == 3

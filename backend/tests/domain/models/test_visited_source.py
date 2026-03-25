@@ -14,8 +14,12 @@ from app.domain.models.visited_source import (
 class TestContentAccessMethodEnum:
     def test_all_values(self) -> None:
         expected = {
-            "browser_navigate", "browser_get_content", "http_fetch",
-            "search_snippet", "file_read", "mcp_tool",
+            "browser_navigate",
+            "browser_get_content",
+            "http_fetch",
+            "search_snippet",
+            "file_read",
+            "mcp_tool",
         }
         assert {m.value for m in ContentAccessMethod} == expected
 

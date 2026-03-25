@@ -168,8 +168,8 @@ class TestExtractJsonFromShellOutput:
         assert result == '{"key": "value"}'
 
     def test_clean_array_passthrough(self) -> None:
-        result = extract_json_from_shell_output('[1, 2, 3]')
-        assert result == '[1, 2, 3]'
+        result = extract_json_from_shell_output("[1, 2, 3]")
+        assert result == "[1, 2, 3]"
 
     def test_shell_framed_output(self) -> None:
         raw = """[CMD_BEGIN]
@@ -188,7 +188,7 @@ ubuntu@sandbox:~
         assert result == "no json here"
 
     def test_json_last_line(self) -> None:
-        raw = "some output\nmore output\n{\"result\": 42}"
+        raw = 'some output\nmore output\n{"result": 42}'
         result = extract_json_from_shell_output(raw)
         assert '"result": 42' in result
 

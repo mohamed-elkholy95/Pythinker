@@ -15,8 +15,14 @@ from app.domain.models.thought import (
 class TestThoughtTypeEnum:
     def test_all_values(self) -> None:
         expected = {
-            "observation", "analysis", "hypothesis", "inference",
-            "evaluation", "decision", "reflection", "uncertainty",
+            "observation",
+            "analysis",
+            "hypothesis",
+            "inference",
+            "evaluation",
+            "decision",
+            "reflection",
+            "uncertainty",
         }
         assert {t.value for t in ThoughtType} == expected
 

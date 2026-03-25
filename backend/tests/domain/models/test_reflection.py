@@ -41,73 +41,102 @@ class TestReflectionTrigger:
     def test_step_interval_trigger(self) -> None:
         trigger = ReflectionTrigger(step_interval=2, min_steps_before_first=1)
         result = trigger.should_trigger(
-            steps_completed=2, error_count=0, total_attempts=2,
+            steps_completed=2,
+            error_count=0,
+            total_attempts=2,
         )
         assert result == ReflectionTriggerType.STEP_INTERVAL
 
     def test_no_trigger_before_min_steps(self) -> None:
         trigger = ReflectionTrigger(step_interval=2, min_steps_before_first=3)
         result = trigger.should_trigger(
-            steps_completed=2, error_count=0, total_attempts=2,
+            steps_completed=2,
+            error_count=0,
+            total_attempts=2,
         )
         assert result is None
 
     def test_after_error_trigger(self) -> None:
         trigger = ReflectionTrigger(step_interval=100)  # Avoid step trigger
         result = trigger.should_trigger(
-            steps_completed=1, error_count=1, total_attempts=1, last_had_error=True,
+            steps_completed=1,
+            error_count=1,
+            total_attempts=1,
+            last_had_error=True,
         )
         assert result == ReflectionTriggerType.AFTER_ERROR
 
     def test_after_error_disabled(self) -> None:
         trigger = ReflectionTrigger(reflect_after_error=False, step_interval=100)
         result = trigger.should_trigger(
-            steps_completed=1, error_count=0, total_attempts=1, last_had_error=True,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=1,
+            last_had_error=True,
         )
         assert result is None
 
     def test_high_error_rate_trigger(self) -> None:
         trigger = ReflectionTrigger(
-            step_interval=100, reflect_after_error=False,
+            step_interval=100,
+            reflect_after_error=False,
             error_rate_threshold=0.5,
         )
         result = trigger.should_trigger(
-            steps_completed=1, error_count=6, total_attempts=10,
+            steps_completed=1,
+            error_count=6,
+            total_attempts=10,
         )
         assert result == ReflectionTriggerType.HIGH_ERROR_RATE
 
     def test_low_confidence_trigger(self) -> None:
         trigger = ReflectionTrigger(
-            step_interval=100, reflect_after_error=False,
+            step_interval=100,
+            reflect_after_error=False,
             confidence_threshold=0.6,
         )
         result = trigger.should_trigger(
-            steps_completed=1, error_count=0, total_attempts=5, confidence=0.3,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=5,
+            confidence=0.3,
         )
         assert result == ReflectionTriggerType.LOW_CONFIDENCE
 
     def test_stall_trigger(self) -> None:
         trigger = ReflectionTrigger(
-            step_interval=100, reflect_after_error=False,
+            step_interval=100,
+            reflect_after_error=False,
         )
         result = trigger.should_trigger(
-            steps_completed=1, error_count=0, total_attempts=5, is_stalled=True,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=5,
+            is_stalled=True,
         )
         assert result == ReflectionTriggerType.PROGRESS_STALL
 
     def test_stall_detection_disabled(self) -> None:
         trigger = ReflectionTrigger(
-            step_interval=100, reflect_after_error=False, stall_detection=False,
+            step_interval=100,
+            reflect_after_error=False,
+            stall_detection=False,
         )
         result = trigger.should_trigger(
-            steps_completed=1, error_count=0, total_attempts=5, is_stalled=True,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=5,
+            is_stalled=True,
         )
         assert result is None
 
     def test_no_trigger_when_ok(self) -> None:
         trigger = ReflectionTrigger(step_interval=100)
         result = trigger.should_trigger(
-            steps_completed=1, error_count=0, total_attempts=5, confidence=0.9,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=5,
+            confidence=0.9,
         )
         assert result is None
 
@@ -125,8 +154,10 @@ class TestReflectionTrigger:
 
     def test_confidence_decay_detection(self) -> None:
         trigger = ReflectionTrigger(
-            step_interval=100, reflect_after_error=False,
-            detect_confidence_decay=True, confidence_decay_threshold=0.1,
+            step_interval=100,
+            reflect_after_error=False,
+            detect_confidence_decay=True,
+            confidence_decay_threshold=0.1,
         )
         # Simulate decaying confidence
         for c in [0.9, 0.85, 0.8, 0.7, 0.6, 0.5]:
@@ -145,7 +176,9 @@ class TestReflectionTriggerEnhanced:
     def test_user_requested_highest_priority(self) -> None:
         trigger = ReflectionTrigger(step_interval=100)
         result = trigger.should_trigger_enhanced(
-            steps_completed=1, error_count=0, total_attempts=1,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=1,
             user_requested=True,
         )
         assert result == ReflectionTriggerType.USER_REQUESTED
@@ -153,7 +186,9 @@ class TestReflectionTriggerEnhanced:
     def test_plan_divergence_trigger(self) -> None:
         trigger = ReflectionTrigger(step_interval=100)
         result = trigger.should_trigger_enhanced(
-            steps_completed=1, error_count=0, total_attempts=1,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=1,
             plan_divergence=0.5,
         )
         assert result == ReflectionTriggerType.PLAN_DIVERGENCE
@@ -161,7 +196,9 @@ class TestReflectionTriggerEnhanced:
     def test_pattern_change_trigger(self) -> None:
         trigger = ReflectionTrigger(step_interval=100)
         result = trigger.should_trigger_enhanced(
-            steps_completed=1, error_count=0, total_attempts=1,
+            steps_completed=1,
+            error_count=0,
+            total_attempts=1,
             pattern_change_detected=True,
         )
         assert result == ReflectionTriggerType.PATTERN_CHANGE
@@ -169,6 +206,8 @@ class TestReflectionTriggerEnhanced:
     def test_falls_back_to_basic(self) -> None:
         trigger = ReflectionTrigger(step_interval=2)
         result = trigger.should_trigger_enhanced(
-            steps_completed=2, error_count=0, total_attempts=2,
+            steps_completed=2,
+            error_count=0,
+            total_attempts=2,
         )
         assert result == ReflectionTriggerType.STEP_INTERVAL

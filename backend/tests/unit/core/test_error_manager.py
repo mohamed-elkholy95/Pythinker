@@ -44,9 +44,18 @@ class TestErrorCategory:
 
     def test_all_categories_present(self) -> None:
         expected = {
-            "sandbox", "agent", "database", "network",
-            "authentication", "validation", "resource",
-            "external_api", "llm", "tool", "timeout", "rate_limit",
+            "sandbox",
+            "agent",
+            "database",
+            "network",
+            "authentication",
+            "validation",
+            "resource",
+            "external_api",
+            "llm",
+            "tool",
+            "timeout",
+            "rate_limit",
         }
         actual = {c.value for c in ErrorCategory}
         assert actual == expected

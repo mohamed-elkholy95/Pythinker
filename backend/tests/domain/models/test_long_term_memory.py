@@ -30,8 +30,14 @@ class TestSyncStateEnum:
 class TestMemoryTypeEnum:
     def test_all_values(self) -> None:
         expected = {
-            "fact", "preference", "entity", "task_outcome",
-            "conversation", "procedure", "error_pattern", "project",
+            "fact",
+            "preference",
+            "entity",
+            "task_outcome",
+            "conversation",
+            "procedure",
+            "error_pattern",
+            "project",
         }
         assert {t.value for t in MemoryType} == expected
 
@@ -148,11 +154,15 @@ class TestMemoryQuery:
 class TestMemorySearchResult:
     def test_construction(self) -> None:
         entry = MemoryEntry(
-            id="m1", user_id="u1", content="test",
+            id="m1",
+            user_id="u1",
+            content="test",
             memory_type=MemoryType.FACT,
         )
         result = MemorySearchResult(
-            memory=entry, relevance_score=0.95, match_type="semantic",
+            memory=entry,
+            relevance_score=0.95,
+            match_type="semantic",
         )
         assert result.relevance_score == 0.95
         assert result.match_type == "semantic"

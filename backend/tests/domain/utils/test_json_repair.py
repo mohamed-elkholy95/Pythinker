@@ -17,8 +17,8 @@ class TestExtractJsonText:
         assert result == '{"key": "value"}'
 
     def test_bare_json_array(self) -> None:
-        result = extract_json_text('[1, 2, 3]')
-        assert result == '[1, 2, 3]'
+        result = extract_json_text("[1, 2, 3]")
+        assert result == "[1, 2, 3]"
 
     def test_markdown_code_fence(self) -> None:
         text = '```json\n{"name": "test"}\n```'
@@ -85,7 +85,7 @@ class TestParseJsonResponse:
         assert result == {"key": "value"}
 
     def test_valid_json_array(self) -> None:
-        result = parse_json_response('[1, 2, 3]')
+        result = parse_json_response("[1, 2, 3]")
         assert result == [1, 2, 3]
 
     def test_json_in_code_fence(self) -> None:

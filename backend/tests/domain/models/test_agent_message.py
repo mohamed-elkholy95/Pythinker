@@ -14,9 +14,16 @@ from app.domain.models.agent_message import (
 class TestMessageTypeEnum:
     def test_all_values(self) -> None:
         expected = {
-            "task_delegation", "information_request", "information_response",
-            "result_share", "coordination", "status_update",
-            "error_report", "assistance_request", "feedback", "acknowledgment",
+            "task_delegation",
+            "information_request",
+            "information_response",
+            "result_share",
+            "coordination",
+            "status_update",
+            "error_report",
+            "assistance_request",
+            "feedback",
+            "acknowledgment",
         }
         assert {t.value for t in MessageType} == expected
 
