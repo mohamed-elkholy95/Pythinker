@@ -2426,18 +2426,36 @@ class PlaywrightBrowser:
                     )
 
             # Parallel extraction of elements and content (LangChain pattern)
+            # Use asyncio.wait instead of asyncio.gather to avoid _GatheringFuture
+            # recursive cancel chain during browser disconnect (RecursionError)
             elements_task = asyncio.create_task(self._extract_interactive_elements())
             content_task = asyncio.create_task(self._extract_content())
 
-            interactive_elements, content = await asyncio.gather(elements_task, content_task, return_exceptions=True)
+            done, _pending = await asyncio.wait(
+                [elements_task, content_task],
+                timeout=30.0,
+            )
 
-            # Handle extraction errors gracefully
-            if isinstance(interactive_elements, Exception):
-                logger.error(f"Element extraction failed: {interactive_elements}")
+            if elements_task in done and not elements_task.cancelled():
+                exc = elements_task.exception()
+                if exc:
+                    logger.error(f"Element extraction failed: {exc}")
+                    interactive_elements = ["0:<span>Element extraction failed - use coordinates</span>"]
+                else:
+                    interactive_elements = elements_task.result()
+            else:
+                logger.error("Element extraction timed out or was cancelled")
                 interactive_elements = ["0:<span>Element extraction failed - use coordinates</span>"]
 
-            if isinstance(content, Exception):
-                logger.error(f"Content extraction failed: {content}")
+            if content_task in done and not content_task.cancelled():
+                exc = content_task.exception()
+                if exc:
+                    logger.error(f"Content extraction failed: {exc}")
+                    content = "Content extraction failed"
+                else:
+                    content = content_task.result()
+            else:
+                logger.error("Content extraction timed out or was cancelled")
                 content = "Content extraction failed"
 
             # Update extraction cache
