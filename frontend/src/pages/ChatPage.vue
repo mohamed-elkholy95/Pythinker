@@ -4183,7 +4183,14 @@ const restoreSession = async (
 
       if (shouldAbortRestore('before_auto_resume')) return;
 
-      // No stop flag - safe to auto-resume
+      // No stop flag - safe to auto-resume.
+      // Skip for freshly created sessions with no pending message — they have no
+      // task to resume, so an empty chat() just creates a ghost session that the
+      // backend immediately completes with 0 events.
+      if (context === 'session_create') {
+        transitionTo('idle');
+        return;
+      }
       await chat('', [], { skipOptimistic: true });
       if (shouldAbortRestore('after_auto_resume')) return;
     } else if (isTerminalSessionStatus(sessionStatus.value)) {
