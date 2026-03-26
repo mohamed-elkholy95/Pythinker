@@ -84,64 +84,78 @@ class MinIOStorage:
         await self.initialize()
 
     async def initialize(self) -> None:
-        """Initialize MinIO client and ensure buckets exist."""
+        """Initialize MinIO client and ensure buckets exist.
+
+        Retries with exponential backoff to handle race conditions with
+        the minio-init container that creates service users and buckets.
+        """
         if self._client is not None:
             return
 
-        # Serialized startup avoids concurrent initialization races when services
-        # use MinIO outside FastAPI lifespan (e.g., gateway runner).
         async with self._init_lock:
             if self._client is not None:
                 return
 
-            try:
-                self._client = Minio(
-                    self._settings.minio_endpoint,
-                    access_key=self._settings.minio_access_key,
-                    secret_key=self._settings.minio_secret_key,
-                    secure=self._settings.minio_use_ssl,
-                    region=self._settings.minio_region,
-                )
+            max_attempts = 5
+            base_delay = 2.0
 
-                # Ensure all buckets exist (blocking I/O → thread)
-                for bucket in [
-                    self._settings.minio_bucket_name,
-                    self._settings.minio_screenshots_bucket,
-                    self._settings.minio_thumbnails_bucket,
-                ]:
-                    exists = await asyncio.to_thread(self._client.bucket_exists, bucket)
-                    if not exists:
-                        await asyncio.to_thread(self._client.make_bucket, bucket, location=self._settings.minio_region)
-                        logger.info("Created MinIO bucket '%s'", bucket)
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    self._client = Minio(
+                        self._settings.minio_endpoint,
+                        access_key=self._settings.minio_access_key,
+                        secret_key=self._settings.minio_secret_key,
+                        secure=self._settings.minio_use_ssl,
+                        region=self._settings.minio_region,
+                    )
+
+                    client = self._client  # Narrow type for Pyright
+                    assert client is not None  # noqa: S101 — guaranteed by line above
+
+                    # Ensure all buckets exist (blocking I/O → thread)
+                    for bucket in [
+                        self._settings.minio_bucket_name,
+                        self._settings.minio_screenshots_bucket,
+                        self._settings.minio_thumbnails_bucket,
+                    ]:
+                        exists = await asyncio.to_thread(client.bucket_exists, bucket)
+                        if not exists:
+                            await asyncio.to_thread(client.make_bucket, bucket, location=self._settings.minio_region)
+                            logger.info("Created MinIO bucket '%s'", bucket)
+                        else:
+                            logger.info("MinIO bucket '%s' already exists", bucket)
+
+                        # Enable bucket versioning if configured (Phase 6E)
+                        if self._settings.minio_versioning_enabled:
+                            try:
+                                from minio.versioningconfig import VersioningConfig
+
+                                await asyncio.to_thread(
+                                    client.set_bucket_versioning,
+                                    bucket,
+                                    VersioningConfig(status="Enabled"),
+                                )
+                                logger.info("Bucket versioning enabled for '%s'", bucket)
+                            except Exception as e:
+                                logger.warning("Failed to enable versioning on '%s': %s", bucket, e)
+
+                    logger.info(
+                        "Successfully connected to MinIO at %s",
+                        self._settings.minio_endpoint,
+                    )
+                    return  # Success
+                except Exception as e:
+                    self._client = None
+                    if attempt < max_attempts:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        logger.warning(
+                            "MinIO init attempt %d/%d failed: %s — retrying in %.0fs",
+                            attempt, max_attempts, e, delay,
+                        )
+                        await asyncio.sleep(delay)
                     else:
-                        logger.info("MinIO bucket '%s' already exists", bucket)
-
-                    # Enable bucket versioning if configured (Phase 6E)
-                    if self._settings.minio_versioning_enabled:
-                        try:
-                            from minio.versioningconfig import VersioningConfig
-
-                            await asyncio.to_thread(
-                                self._client.set_bucket_versioning,
-                                bucket,
-                                VersioningConfig(status="Enabled"),
-                            )
-                            logger.info("Bucket versioning enabled for '%s'", bucket)
-                        except Exception as e:
-                            logger.warning("Failed to enable versioning on '%s': %s", bucket, e)
-
-                logger.info(
-                    "Successfully connected to MinIO at %s",
-                    self._settings.minio_endpoint,
-                )
-            except S3Error as e:
-                self._client = None
-                logger.error("Failed to initialize MinIO: %s", e)
-                raise
-            except Exception as e:
-                self._client = None
-                logger.error("Failed to connect to MinIO: %s", e)
-                raise
+                        logger.error("Failed to initialize MinIO after %d attempts: %s", max_attempts, e)
+                        raise
 
     async def shutdown(self) -> None:
         """Shutdown MinIO client."""

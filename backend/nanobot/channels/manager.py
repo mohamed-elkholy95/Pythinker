@@ -212,19 +212,22 @@ class ChannelManager:
                 )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
-        """Start a channel with auto-restart on failure.
+        """Start a channel with auto-restart on failure and long-term recovery.
 
         Uses a Redis distributed lock to prevent concurrent polling conflicts
         (falls back to Telegram's native detection if Redis is unavailable).
 
         Retries with exponential backoff (5s → 10s → 20s → ... → 120s max).
-        Gives up after 5 consecutive conflict failures to avoid the expensive
-        20-minute retry loop that was observed in production.
+        After exhausting retries, enters a recovery loop that waits a cooldown
+        period (5 min) then retries the entire startup sequence.  This makes
+        channels self-healing after transient conflicts resolve.
         """
-        max_retries = 5  # Reduced from 10 — conflicts won't self-resolve with retries
+        max_retries = 5
         base_delay = 5.0
         max_delay = 120.0
         conflict_marker = "terminated by other getUpdates"
+        recovery_cooldown = 300.0  # 5 minutes between recovery cycles
+        max_recovery_cycles = 50  # Safety cap to prevent infinite loops
 
         # Attempt Redis lock before starting (prevents conflict entirely)
         if not _try_acquire_redis_lock(name):
@@ -235,52 +238,85 @@ class ChannelManager:
             return
         self._held_locks.add(name)
 
-        for attempt in range(max_retries + 1):
-            try:
-                await channel.start()
-                return  # start() returned normally (e.g., shutdown requested)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                is_telegram_conflict = conflict_marker in str(e)
-                if attempt >= max_retries:
+        for recovery_cycle in range(max_recovery_cycles):
+            for attempt in range(max_retries + 1):
+                try:
+                    await channel.start()
+                    return  # start() returned normally (e.g., shutdown requested)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    is_telegram_conflict = conflict_marker in str(e)
+                    if attempt >= max_retries:
+                        if is_telegram_conflict:
+                            logger.error(
+                                "Channel {} giving up retry loop after {} attempts "
+                                "(recovery cycle {}/{}). Will retry after {:.0f}s cooldown.",
+                                name,
+                                max_retries,
+                                recovery_cycle + 1,
+                                max_recovery_cycles,
+                                recovery_cooldown,
+                            )
+                        else:
+                            logger.error(
+                                "Channel {} failed after {} restart attempts "
+                                "(recovery cycle {}/{}), retrying after {:.0f}s cooldown: {}",
+                                name,
+                                max_retries,
+                                recovery_cycle + 1,
+                                max_recovery_cycles,
+                                recovery_cooldown,
+                                e,
+                            )
+                        break  # Exit retry loop, enter recovery cooldown
+
                     if is_telegram_conflict:
-                        logger.error(
-                            "Channel {} giving up after {} attempts: another bot "
-                            "instance is using the same token. Stop the other "
-                            "instance and restart this container to recover.",
+                        delay = max(60.0, min(max_delay, base_delay * (2**attempt)))
+                        logger.warning(
+                            "Channel {} conflict: another bot instance is polling (attempt {}/{}), retrying in {:.0f}s",
                             name,
+                            attempt + 1,
                             max_retries,
+                            delay,
                         )
                     else:
-                        logger.error(
-                            "Channel {} failed after {} restart attempts, giving up: {}",
+                        delay = min(max_delay, base_delay * (2**attempt))
+                        logger.warning(
+                            "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
                             name,
+                            attempt + 1,
                             max_retries,
+                            delay,
                             e,
                         )
-                    return
+                    await asyncio.sleep(delay)
 
-                if is_telegram_conflict:
-                    delay = max(60.0, min(max_delay, base_delay * (2**attempt)))
-                    logger.warning(
-                        "Channel {} conflict: another bot instance is polling (attempt {}/{}), retrying in {:.0f}s",
-                        name,
-                        attempt + 1,
-                        max_retries,
-                        delay,
-                    )
-                else:
-                    delay = min(max_delay, base_delay * (2**attempt))
-                    logger.warning(
-                        "Channel {} crashed (attempt {}/{}), restarting in {:.0f}s: {}",
-                        name,
-                        attempt + 1,
-                        max_retries,
-                        delay,
-                        e,
-                    )
-                await asyncio.sleep(delay)
+            # Recovery cooldown — wait before retrying the entire startup sequence
+            logger.info(
+                "Channel {} entering recovery cooldown ({:.0f}s) before next startup attempt...",
+                name,
+                recovery_cooldown,
+            )
+            await asyncio.sleep(recovery_cooldown)
+
+            # Re-acquire Redis lock (may have expired during cooldown)
+            if name in self._held_locks:
+                _release_redis_lock(name)
+                self._held_locks.discard(name)
+            if not _try_acquire_redis_lock(name):
+                logger.error(
+                    "Channel {} recovery: another instance holds the polling lock. Waiting another cycle.",
+                    name,
+                )
+                continue
+            self._held_locks.add(name)
+
+        logger.error(
+            "Channel {} exhausted all %d recovery cycles. Manual restart required.",
+            name,
+            max_recovery_cycles,
+        )
 
     async def start_all(self) -> None:
         """Start all channels and the outbound dispatcher."""
