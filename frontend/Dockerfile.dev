@@ -2,9 +2,6 @@
 # Note: Bun has issues with Vite's WebSocket proxy (socket.destroySoon not implemented)
 FROM node:22-slim
 
-# Install dependencies with npm for reliable registry resolution
-RUN npm install -g npm@11.12.0
-
 # Set working directory
 WORKDIR /app
 
