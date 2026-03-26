@@ -247,6 +247,11 @@ class PlaywrightBrowser:
 
         # Shutdown guard — prevents spurious reconnect on intentional cleanup
         self._shutting_down: bool = False
+        # Reconnect debounce — prevents multiple concurrent reconnect attempts
+        self._reconnect_in_progress: bool = False
+        self._reconnect_backoff: float = 3.0  # Current backoff (grows exponentially)
+        self._reconnect_backoff_base: float = 3.0
+        self._reconnect_backoff_max: float = 30.0
         # CDP keepalive task — periodic JS eval to prevent idle WebSocket disconnects
         self._keepalive_task: asyncio.Task | None = None
         self._keepalive_enabled: bool = self._safe_bool(
@@ -1117,40 +1122,59 @@ class PlaywrightBrowser:
 
         logger.error(f"Browser disconnected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
-        with contextlib.suppress(RuntimeError):
-            self._track_background_task(self._proactive_reconnect())
+        if not self._reconnect_in_progress:
+            with contextlib.suppress(RuntimeError):
+                self._track_background_task(self._proactive_reconnect())
 
     async def _proactive_reconnect(self, delay: float = 3.0) -> None:
-        """Reconnect after browser disconnect with a short delay.
+        """Reconnect after browser disconnect with debounce and exponential backoff.
 
-        Waits briefly for supervisord to restart the Chrome process, then
-        re-initializes the Playwright connection so the browser is ready
-        before the next user operation arrives.
-
-        Args:
-            delay: Seconds to wait before attempting reconnect (allows Chrome to restart).
+        Only one reconnect attempt runs at a time.  Successive failures increase
+        the backoff delay (3s -> 6s -> 12s -> 30s cap).  A successful reconnect
+        resets the backoff.
         """
-        await asyncio.sleep(delay)
-        if self._shutting_down:
+        if self._reconnect_in_progress:
+            logger.debug("Reconnect already in progress (CDP: %s), skipping duplicate", self.cdp_url)
             return
-        if self._connection_healthy:
-            return  # Already recovered via a concurrent operation
-        logger.info(f"Proactive reconnect attempt after browser disconnect (CDP: {self.cdp_url})")
+        self._reconnect_in_progress = True
         try:
-            await self._ensure_browser()
+            await asyncio.sleep(self._reconnect_backoff)
+            if self._shutting_down:
+                return
             if self._connection_healthy:
-                logger.info(f"Proactive reconnect succeeded (CDP: {self.cdp_url})")
-                # Reset viewport and verify window position to prevent
-                # "zoomed in" screencast after recovery
-                await self._verify_and_reset_viewport()
-                # Notify recovery callback if registered
-                if self._recovery_callback:
-                    try:
-                        await self._recovery_callback()
-                    except Exception as cb_err:
-                        logger.debug(f"Recovery callback failed: {cb_err}")
-        except Exception as e:
-            logger.warning(f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation")
+                return  # Already recovered via a concurrent operation
+            logger.info(f"Proactive reconnect attempt after browser disconnect (CDP: {self.cdp_url})")
+            try:
+                await self._ensure_browser()
+                if self._connection_healthy:
+                    logger.info(f"Proactive reconnect succeeded (CDP: {self.cdp_url})")
+                    # Reset backoff on success
+                    self._reconnect_backoff = self._reconnect_backoff_base
+                    # Reset viewport and verify window position to prevent
+                    # "zoomed in" screencast after recovery
+                    await self._verify_and_reset_viewport()
+                    # Notify recovery callback if registered
+                    if self._recovery_callback:
+                        try:
+                            await self._recovery_callback()
+                        except Exception as cb_err:
+                            logger.debug(f"Recovery callback failed: {cb_err}")
+                else:
+                    # Increase backoff for next attempt
+                    self._reconnect_backoff = min(
+                        self._reconnect_backoff * 2, self._reconnect_backoff_max
+                    )
+            except Exception as e:
+                # Increase backoff for next attempt
+                self._reconnect_backoff = min(
+                    self._reconnect_backoff * 2, self._reconnect_backoff_max
+                )
+                logger.warning(
+                    "Proactive reconnect failed (CDP: %s, next backoff: %.1fs): %s — will retry on next operation",
+                    self.cdp_url, self._reconnect_backoff, e,
+                )
+        finally:
+            self._reconnect_in_progress = False
 
     # ── Background task lifecycle ──────────────────────────────────────
 
@@ -1467,8 +1491,8 @@ class PlaywrightBrowser:
                 return
             logger.warning("CDP keepalive probe failed: %s: %s", type(exc).__name__, exc or "(no message)")
             self._connection_healthy = False
-            # Schedule proactive reconnect only if not already shutting down
-            if self._shutting_down:
+            # Schedule proactive reconnect only if not already shutting down or reconnecting
+            if self._shutting_down or self._reconnect_in_progress:
                 return
             with contextlib.suppress(RuntimeError):
                 self._track_background_task(self._proactive_reconnect())
@@ -1915,6 +1939,46 @@ class PlaywrightBrowser:
                 self._shutting_down = False
                 self._start_keepalive()
 
+                # Install custom exception handler to suppress Playwright's internal
+                # "Future exception was never retrieved" warnings for navigation timeouts.
+                # Playwright creates fire-and-forget futures for page navigation that may
+                # timeout or abort; without retrieving the exception Python logs noisy
+                # warnings that are not actionable.
+                try:
+                    loop = asyncio.get_running_loop()
+                    _orig = loop.get_exception_handler()
+
+                    def _playwright_exception_handler(
+                        _loop: asyncio.AbstractEventLoop,
+                        context: dict[str, Any],
+                        _original_handler: Any = _orig,
+                    ) -> None:
+                        exc = context.get("exception")
+                        if exc is not None:
+                            exc_type_name = type(exc).__name__
+                            exc_str = str(exc)
+                            if (
+                                "Timeout" in exc_type_name
+                                or "ERR_ABORTED" in exc_str
+                                or "Execution context was destroyed" in exc_str
+                                or "Target page, context or browser has been closed" in exc_str
+                                or "net::ERR_" in exc_str
+                            ):
+                                logger.debug(
+                                    "Suppressed Playwright internal future error: %s: %s",
+                                    exc_type_name,
+                                    exc_str[:200],
+                                )
+                                return
+                        if _original_handler:
+                            _original_handler(_loop, context)
+                        else:
+                            _loop.default_exception_handler(context)
+
+                    loop.set_exception_handler(_playwright_exception_handler)
+                except RuntimeError:
+                    pass  # No running event loop — skip handler installation
+
                 return True
 
             except Exception as e:
@@ -2034,6 +2098,18 @@ class PlaywrightBrowser:
                 except Exception as e:
                     logger.debug(f"Error stopping playwright: {e}")
 
+        except RecursionError:
+            # Python 3.12 asyncio.Task.cancel() can recurse through
+            # _GatheringFuture chains when Playwright's internal navigation
+            # tasks are cancelled during event-loop teardown.  This is a
+            # CPython limitation (1000-frame default), not an application bug.
+            # Log and continue — resources will be GC'd.
+            logger.warning(
+                "RecursionError during browser cleanup (CDP: %s) — "
+                "Playwright internal task chain exceeded Python recursion limit. "
+                "Resources will be garbage-collected.",
+                self.cdp_url,
+            )
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
         finally:
