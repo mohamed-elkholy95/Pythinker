@@ -120,7 +120,7 @@ class QdrantSettingsMixin:
     # Conversation context collection (real-time turn vectorization during active sessions)
     qdrant_conversation_context_collection: str = "conversation_context"
     # Scalar quantization for memory-efficient vector storage (Phase 5D)
-    qdrant_quantization_enabled: bool = False
+    qdrant_quantization_enabled: bool = True  # Aligned with deploy (int8 scalar, ~75% memory savings)
     qdrant_quantization_type: str = "scalar"  # "scalar" (INT8) — ~75% memory savings
     # Conversation context age-based cleanup (Phase 6F)
     qdrant_conversation_context_max_age_days: int = 30

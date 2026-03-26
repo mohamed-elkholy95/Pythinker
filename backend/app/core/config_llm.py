@@ -179,7 +179,7 @@ class LLMConcurrencySettingsMixin:
     llm_retry_budget_per_minute: int = 30
 
     # Semantic Cache configuration (Phase 3 Enhancement)
-    semantic_cache_enabled: bool = False
+    semantic_cache_enabled: bool = True  # Activate existing Redis+Qdrant semantic cache infrastructure
     semantic_cache_threshold: float = 0.92  # Similarity threshold for cache hits
     semantic_cache_ttl_seconds: int = 3600  # 1 hour default TTL
 
