@@ -75,7 +75,11 @@ class StuckDetectionMiddleware(BaseMiddleware):
 
         if is_stuck:
             self._detector.record_recovery_attempt()
-            recovery = self._detector.get_recovery_prompt()
+            # Fix 3: Use escalating prompt when stuck multiple times in same step.
+            # After 2+ detections, force the agent to produce output instead of
+            # continuing to research.
+            escalating = self._detector.get_escalating_recovery_prompt()
+            recovery = escalating or self._detector.get_recovery_prompt()
             return MiddlewareResult(
                 signal=MiddlewareSignal.INJECT,
                 message=recovery,

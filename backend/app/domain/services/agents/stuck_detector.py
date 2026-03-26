@@ -265,6 +265,11 @@ class StuckDetector:
         self._last_action_warning_time: float = 0.0
         self._action_debounce_seconds: float = 10.0
 
+        # Fix 3: Per-step stuck counter for escalating responses.
+        # After 2+ detections in the same step, inject a stronger "force
+        # output" prompt instead of generic "try different approach".
+        self._step_stuck_count: int = 0
+
     def reset_for_new_step(self) -> None:
         """Clear tool action history at step boundaries.
 
@@ -274,6 +279,7 @@ class StuckDetector:
         """
         self._tool_action_history.clear()
         self._stuck_analysis = None
+        self._step_stuck_count = 0
 
     def track_response(self, response: dict[str, Any]) -> tuple[bool, float]:
         """
@@ -658,6 +664,39 @@ class StuckDetector:
             "Do not repeat previous actions."
         )
 
+    def get_escalating_recovery_prompt(self) -> str | None:
+        """Return an escalating recovery prompt based on per-step stuck count (Fix 3).
+
+        Tier 1 (1st detection): Returns None — let the normal recovery prompt handle it.
+        Tier 2 (2nd detection): Force the agent to produce output before more research.
+        Tier 3 (3rd+ detection): Hard mandate — write file NOW or explain why.
+
+        Returns None when escalation is not needed (Tier 1).
+        """
+        if self._step_stuck_count < 2:
+            return None
+
+        if self._step_stuck_count == 2:
+            return (
+                "⚠️ ESCALATION: You have been stuck TWICE in this step. "
+                "You MUST produce output before doing any more research or browsing.\n\n"
+                "REQUIRED NEXT ACTION — pick ONE:\n"
+                "1. Use file_write to save your findings so far (even if incomplete)\n"
+                "2. Use message_notify_user to present what you've learned\n"
+                "3. Move to the next step if this one cannot be completed\n\n"
+                "Do NOT call search, browser_navigate, or info_search_web again "
+                "until you have written output."
+            )
+
+        return (
+            f"🛑 FINAL ESCALATION: You have been stuck {self._step_stuck_count} times in this step. "
+            "This is your LAST chance before the step is force-completed.\n\n"
+            "You MUST do ONE of these RIGHT NOW:\n"
+            "1. file_write — save whatever you have\n"
+            "2. message_notify_user — tell the user what's blocking you\n\n"
+            "ANY other tool call will be rejected."
+        )
+
     def get_truncation_recovery_prompt(self) -> str:
         """Recovery prompt specifically for stuck loops caused by output truncation.
 
@@ -775,8 +814,12 @@ class StuckDetector:
             self._last_action_warning_time = _now
             self._stuck_analysis = analysis
             self._stuck_count += 1
+            self._step_stuck_count += 1  # Fix 3: per-step escalation counter
             logger.warning(
-                f"Action stuck pattern detected: {analysis.loop_type.value} (confidence: {analysis.confidence:.2f})"
+                "Action stuck pattern detected: %s (confidence: %.2f, step_stuck=%d)",
+                analysis.loop_type.value,
+                analysis.confidence,
+                self._step_stuck_count,
             )
 
         return analysis
