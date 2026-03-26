@@ -256,15 +256,15 @@ class TestAnthropicMultiKey:
 
         mocker.patch.object(llm, "_get_client", side_effect=mock_get_client)
 
-        # Mock mark_invalid
-        mark_invalid_mock = mocker.patch.object(llm._key_pool, "mark_invalid")
+        # Mock mark_exhausted (auth errors use TTL-based exhaustion for transient recovery)
+        mark_exhausted_mock = mocker.patch.object(llm._key_pool, "mark_exhausted")
 
         # Should rotate to valid-key after invalid-key rejected
         result = await llm.ask([{"role": "user", "content": "test"}])
 
         assert result is not None
         assert call_count == 2  # Two attempts
-        mark_invalid_mock.assert_called_once()  # invalid-key marked invalid
+        mark_exhausted_mock.assert_called_once()  # invalid-key marked exhausted with TTL
 
     async def test_anthropic_stream_rate_limit_rotation(self, redis_client, mocker):
         """Test key rotation on rate limit during streaming."""

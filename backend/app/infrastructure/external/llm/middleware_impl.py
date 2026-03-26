@@ -226,9 +226,17 @@ class KeyRotationMiddleware(LLMMiddleware):
                 return
 
             err_str = str(exc).lower()
-            if "401" in err_str or "unauthorized" in err_str or "invalid" in err_str:
-                await pool.mark_invalid(current_key)
-            elif "429" in err_str or "rate limit" in err_str or "quota" in err_str:
+            # Auth errors use TTL-based cooldown (not permanent invalidation) so
+            # keys can recover from transient provider issues.
+            # "invalid" alone is too broad — catches "invalid request/JSON", not just bad keys.
+            _is_auth = (
+                "401" in err_str
+                or "unauthorized" in err_str
+                or "invalid api key" in err_str
+                or "invalid_api_key" in err_str
+            )
+            _is_rate = "429" in err_str or "rate limit" in err_str or "quota" in err_str
+            if _is_auth or _is_rate:
                 await pool.mark_exhausted(current_key, ttl_seconds=3600)
         except Exception as exc:
             logger.debug("KeyRotationMiddleware: key error handling skipped: %s", exc)

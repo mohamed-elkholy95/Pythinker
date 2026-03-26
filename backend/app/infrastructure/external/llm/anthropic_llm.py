@@ -571,10 +571,11 @@ class AnthropicLLM(LLM):
             raise
 
         except anthropic.AuthenticationError:
-            # Invalid API key - mark as invalid and rotate
+            # Auth error — use TTL-based exhaustion so the key can recover
+            # from transient auth issues instead of being permanently dead.
             key = await self.get_api_key()
             if key:
-                await self._key_pool.mark_invalid(key)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
                 logger.error(
                     f"Anthropic authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
                 )
@@ -825,10 +826,10 @@ class AnthropicLLM(LLM):
                 "provider": "anthropic",
                 "error": "authentication_error",
             }
-            # Invalid API key - mark as invalid and rotate
+            # Auth error — TTL-based exhaustion for recovery from transient issues
             key = await self.get_api_key()
             if key:
-                await self._key_pool.mark_invalid(key)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
                 logger.error(
                     f"Anthropic stream authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
                 )
