@@ -186,6 +186,7 @@
             :showStepLeadingConnector="!isChatMode && shouldShowStepLeadingConnector(index)"
             :showStepConnector="!isChatMode && shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
+            :showSkillHeader="shouldShowSkillHeader(index)"
             :renderAsSummaryCard="shouldRenderSummaryCard(index)"
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
@@ -1946,6 +1947,19 @@ const shouldShowStepLeadingConnector = (messageIndex: number): boolean => {
 
 const shouldShowAssistantHeader = (messageIndex: number): boolean => {
   return shouldShowAssistantHeaderForMessage(messages.value, messageIndex);
+};
+
+/** Hide "Pythinker is working" header for consecutive skill_invoke tool messages. */
+const shouldShowSkillHeader = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'tool') return true;
+  const currentTool = currentMessage.content as ToolContent;
+  if (currentTool.function !== 'skill_invoke') return true;
+
+  const previousMessage = messages.value[messageIndex - 1];
+  if (!previousMessage || previousMessage.type !== 'tool') return true;
+  const previousTool = previousMessage.content as ToolContent;
+  return previousTool.function !== 'skill_invoke';
 };
 
 const shouldRenderSummaryCard = (messageIndex: number): boolean => {

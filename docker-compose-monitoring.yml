@@ -101,6 +101,8 @@ services:
       - ./promtail/config.yml:/etc/promtail/config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:9080:9080"
     depends_on:
       loki:
         condition: service_healthy

@@ -106,11 +106,25 @@ scrape_configs:
             {{- end }}
 
       # ─── Stage 5: Set labels for Loki indexing ───────────────────────
+      # Only low-cardinality fields go here. High-cardinality fields
+      # (event, logger, request_id, tool_name, etc.) stay in the log line
+      # and are queried with |= or | json filters.
       - labels:
           level:
-          event:
 
-      # ─── Stage 6: Error pattern detection ────────────────────────────
+      # ─── Stage 6: Structured metadata (Loki 3.x) ──────────────────
+      # High-cardinality fields stored as metadata — queryable via
+      # | event="request_completed" but NOT indexed as labels.
+      - structured_metadata:
+          event:
+          logger:
+          request_id:
+          tool_name:
+          method:
+          path:
+          status_code:
+
+      # ─── Stage 7: Error pattern detection ────────────────────────────
       - regex:
           expression: '(?P<error_type>Traceback|Exception|Error|FATAL|OOMKilled|panic)'
       - labels:

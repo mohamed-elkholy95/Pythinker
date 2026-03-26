@@ -169,10 +169,10 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row mt-1">
+  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row" :class="{ 'mt-1': props.showSkillHeader !== false || toolContent.function !== 'skill_invoke' }">
     <!-- Skill invoke: render as mini-step aligned with step flow -->
     <div v-if="toolContent.function === 'skill_invoke'" class="step-compact step-compact--has-connector">
-      <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
+      <div v-if="props.showSkillHeader !== false" class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
         <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
           <span class="step-running-dot" aria-hidden="true"></span>
         </div>
@@ -396,6 +396,8 @@ const props = defineProps<{
   isLoading?: boolean;
   /** Live streaming thinking text from the agent */
   thinkingText?: string;
+  /** When false, hides the "Pythinker is working" header for consecutive skill_invoke tools */
+  showSkillHeader?: boolean;
 }>();
 
 const emit = defineEmits<{
