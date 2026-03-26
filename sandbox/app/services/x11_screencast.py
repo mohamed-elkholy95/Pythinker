@@ -146,7 +146,10 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
                 proc.kill()
             except ProcessLookupError:
                 pass  # Process already exited between timeout and kill
-            await proc.wait()
+            try:
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass  # Process already reaped
         return None
     except Exception as e:
         logger.warning("X11 frame capture failed: %s", e)
@@ -155,7 +158,10 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
                 proc.kill()
             except ProcessLookupError:
                 pass  # Process already exited
-            await proc.wait()
+            try:
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass  # Process already reaped
         return None
 
 
@@ -183,9 +189,21 @@ async def drain_x11_event_queue() -> None:
                 proc.kill()
             except ProcessLookupError:
                 pass  # Process already exited between timeout and kill
-            await proc.wait()
+            try:
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass  # Process already reaped
     except Exception as e:
         logger.debug("X11 event drain failed (non-critical): %s", e)
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass  # Process already reaped
 
 
 def is_x11_available() -> bool:
