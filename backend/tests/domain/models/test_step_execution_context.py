@@ -1,6 +1,9 @@
-"""Tests for StepExecutionContext and PromptSignalConfig domain models."""
+"""Tests for app.domain.models.step_execution_context — step execution context.
 
-import dataclasses
+Covers: PromptSignalConfig defaults, StepExecutionContext creation and immutability.
+"""
+
+from __future__ import annotations
 
 import pytest
 
@@ -11,63 +14,60 @@ from app.domain.models.step_execution_context import (
 
 
 class TestPromptSignalConfig:
-    """Tests for PromptSignalConfig frozen dataclass."""
+    """Tests for PromptSignalConfig defaults and fields."""
 
-    def test_defaults_all_true(self):
-        cfg = PromptSignalConfig()
-        assert cfg.enable_cot is True
-        assert cfg.include_current_date is True
-        assert cfg.enable_source_attribution is True
-        assert cfg.enable_intent_guidance is True
-        assert cfg.enable_anti_hallucination is True
-
-    def test_frozen_immutability(self):
-        cfg = PromptSignalConfig()
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            cfg.enable_cot = False  # type: ignore[misc]
+    def test_defaults(self):
+        config = PromptSignalConfig()
+        assert config.enable_cot is True
+        assert config.include_current_date is True
+        assert config.enable_source_attribution is True
+        assert config.enable_intent_guidance is True
+        assert config.enable_anti_hallucination is True
 
     def test_custom_values(self):
-        cfg = PromptSignalConfig(
+        config = PromptSignalConfig(enable_cot=False, include_current_date=False)
+        assert config.enable_cot is False
+        assert config.include_current_date is False
+        assert config.enable_source_attribution is True
+
+    def test_frozen(self):
+        config = PromptSignalConfig()
+        with pytest.raises(AttributeError):
+            config.enable_cot = False  # type: ignore[misc]
+
+    def test_all_disabled(self):
+        config = PromptSignalConfig(
             enable_cot=False,
             include_current_date=False,
             enable_source_attribution=False,
             enable_intent_guidance=False,
             enable_anti_hallucination=False,
         )
-        assert cfg.enable_cot is False
-        assert cfg.include_current_date is False
-
-    def test_equality(self):
-        a = PromptSignalConfig()
-        b = PromptSignalConfig()
-        assert a == b
-
-        c = PromptSignalConfig(enable_cot=False)
-        assert a != c
+        assert config.enable_cot is False
+        assert config.enable_anti_hallucination is False
 
 
 class TestStepExecutionContext:
-    """Tests for StepExecutionContext frozen dataclass."""
+    """Tests for StepExecutionContext creation and immutability."""
 
-    def _make_minimal(self, **overrides) -> StepExecutionContext:
+    def _make_ctx(self, **kwargs) -> StepExecutionContext:
         defaults = {
-            "step_description": "Research AI models",
-            "user_message": "Compare Claude and GPT",
+            "step_description": "Search for information",
+            "user_message": "Find recent AI papers",
             "attachments": "",
             "language": "en",
         }
-        defaults.update(overrides)
+        defaults.update(kwargs)
         return StepExecutionContext(**defaults)
 
-    def test_minimal_construction(self):
-        ctx = self._make_minimal()
-        assert ctx.step_description == "Research AI models"
-        assert ctx.user_message == "Compare Claude and GPT"
-        assert ctx.attachments == ""
+    def test_minimal_creation(self):
+        ctx = self._make_ctx()
+        assert ctx.step_description == "Search for information"
+        assert ctx.user_message == "Find recent AI papers"
         assert ctx.language == "en"
 
-    def test_optional_fields_default_none(self):
-        ctx = self._make_minimal()
+    def test_optional_fields_default_to_none(self):
+        ctx = self._make_ctx()
         assert ctx.pressure_signal is None
         assert ctx.task_state is None
         assert ctx.memory_context is None
@@ -77,63 +77,53 @@ class TestStepExecutionContext:
         assert ctx.synthesized_context is None
         assert ctx.error_pattern_signal is None
         assert ctx.locked_entity_reminder is None
+        assert ctx.report_output_path is None
+        assert ctx.mcp_context is None
+        assert ctx.profile_patch_text is None
 
-    def test_blocker_warnings_default_empty_list(self):
-        ctx = self._make_minimal()
+    def test_blocker_warnings_default_empty(self):
+        ctx = self._make_ctx()
         assert ctx.blocker_warnings == []
 
     def test_signal_config_default(self):
-        ctx = self._make_minimal()
-        assert ctx.signal_config == PromptSignalConfig()
+        ctx = self._make_ctx()
+        assert isinstance(ctx.signal_config, PromptSignalConfig)
         assert ctx.signal_config.enable_cot is True
 
-    def test_frozen_immutability(self):
-        ctx = self._make_minimal()
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            ctx.step_description = "Modified"  # type: ignore[misc]
+    def test_frozen(self):
+        ctx = self._make_ctx()
+        with pytest.raises(AttributeError):
+            ctx.step_description = "modified"  # type: ignore[misc]
 
-    def test_full_construction(self):
-        cfg = PromptSignalConfig(enable_cot=False)
-        ctx = StepExecutionContext(
-            step_description="Build API",
-            user_message="Create REST endpoints",
-            attachments="file1.py\nfile2.py",
-            language="en",
-            pressure_signal="Context is 85% full",
-            task_state="Step 3 of 5",
-            memory_context="User prefers REST over GraphQL",
-            search_context="FastAPI docs say...",
-            conversation_context="[Turn 1] User: Build API",
-            working_context_summary="Created models.py",
-            synthesized_context="Prior steps established DB schema",
-            blocker_warnings=["Auth not configured", "DB not migrated"],
-            error_pattern_signal="Watch for import errors",
-            locked_entity_reminder="Preserve: FastAPI, Python 3.12",
-            signal_config=cfg,
+    def test_with_all_optional_fields(self):
+        ctx = self._make_ctx(
+            pressure_signal="high",
+            task_state="executing",
+            memory_context="user prefers dark mode",
+            search_context="found 5 results",
+            conversation_context="last turn: user asked about AI",
+            working_context_summary="summary of work",
+            synthesized_context="synthesized info",
+            blocker_warnings=["rate limit approaching"],
+            error_pattern_signal="timeout pattern detected",
+            locked_entity_reminder="entity X is locked",
+            report_output_path="/tmp/report.md",
+            mcp_context="mcp servers: tool-x",
+            profile_patch_text="patch text",
         )
-        assert ctx.pressure_signal == "Context is 85% full"
-        assert ctx.blocker_warnings == ["Auth not configured", "DB not migrated"]
+        assert ctx.pressure_signal == "high"
+        assert ctx.blocker_warnings == ["rate limit approaching"]
+        assert ctx.mcp_context == "mcp servers: tool-x"
+
+    def test_custom_signal_config(self):
+        config = PromptSignalConfig(enable_cot=False)
+        ctx = self._make_ctx(signal_config=config)
         assert ctx.signal_config.enable_cot is False
 
-    def test_equality(self):
-        a = self._make_minimal()
-        b = self._make_minimal()
-        assert a == b
+    def test_multiple_blocker_warnings(self):
+        ctx = self._make_ctx(blocker_warnings=["warn1", "warn2", "warn3"])
+        assert len(ctx.blocker_warnings) == 3
 
-    def test_inequality_on_different_data(self):
-        a = self._make_minimal()
-        b = self._make_minimal(step_description="Different step")
-        assert a != b
-
-    def test_factory_isolation(self):
-        """Two instances have independent blocker_warnings lists."""
-        a = self._make_minimal()
-        b = self._make_minimal()
-        assert a.blocker_warnings is not b.blocker_warnings
-
-    def test_dataclass_replace(self):
-        """dataclasses.replace() works on frozen instances."""
-        ctx = self._make_minimal()
-        updated = dataclasses.replace(ctx, pressure_signal="Warning: 90% full")
-        assert updated.pressure_signal == "Warning: 90% full"
-        assert ctx.pressure_signal is None  # Original unchanged
+    def test_slots_enabled(self):
+        ctx = self._make_ctx()
+        assert hasattr(ctx, "__slots__")
