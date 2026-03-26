@@ -43,7 +43,7 @@ class WorkspaceOrganizer:
         logger.info(f"Workspace initialized: {len(template.folders)} folders created")
         return template.folders
 
-    def add_deliverable(self, file_path: str):
+    def add_deliverable(self, file_path: str) -> None:
         """Track a file as a deliverable"""
         if file_path not in self._deliverables:
             self._deliverables.append(file_path)

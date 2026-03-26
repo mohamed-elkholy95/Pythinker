@@ -196,7 +196,7 @@ Return JSON array of queries:
     def _rank_sources(self, results: list[dict]) -> list[dict]:
         """Rank sources by credibility and relevance"""
 
-        def credibility_score(result):
+        def credibility_score(result: dict) -> int:
             url = result.get("url", "")
             score = 0
 

@@ -27,7 +27,7 @@ class User(BaseModel):
 
     @field_validator("fullname")
     @classmethod
-    def validate_fullname(cls, v):
+    def validate_fullname(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Full name must be at least 2 characters long")
         return v.strip()

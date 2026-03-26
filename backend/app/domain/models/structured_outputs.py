@@ -59,7 +59,7 @@ class Citation(BaseModel):
 
     @field_validator("url", mode="before")
     @classmethod
-    def validate_url(cls, v):
+    def validate_url(cls, v: str | None) -> str | None:
         """Validate URL format."""
         if v is None:
             return v
@@ -91,7 +91,7 @@ class CitedResponse(BaseModel):
 
     @field_validator("citations")
     @classmethod
-    def validate_citations(cls, v):
+    def validate_citations(cls, v: list[Citation]) -> list[Citation]:
         """Validate citation URLs are properly formatted."""
         for citation in v:
             if citation.url and not str(citation.url).startswith(("http://", "https://")):
@@ -137,7 +137,7 @@ class StepDescription(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def validate_description(cls, v):
+    def validate_description(cls, v: str) -> str:
         """Ensure description is meaningful."""
         v = v.strip()
         if len(v) < 5:
@@ -166,7 +166,7 @@ class PlanOutput(BaseModel):
 
     @field_validator("steps")
     @classmethod
-    def validate_steps(cls, v):
+    def validate_steps(cls, v: list[StepDescription]) -> list[StepDescription]:
         """Validate plan has at least one step."""
         if not v:
             raise ValueError("Plan must have at least one step")
@@ -174,7 +174,7 @@ class PlanOutput(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def validate_title(cls, v):
+    def validate_title(cls, v: str) -> str:
         """Ensure title is not empty."""
         v = v.strip()
         if not v:
@@ -203,7 +203,7 @@ class ToolCallOutput(BaseModel):
 
     @field_validator("tool_name")
     @classmethod
-    def validate_tool_name(cls, v):
+    def validate_tool_name(cls, v: str) -> str:
         """Validate tool name format."""
         v = v.strip()
         if not v:
@@ -234,7 +234,7 @@ class SummaryOutput(BaseModel):
 
     @field_validator("outcome")
     @classmethod
-    def validate_outcome(cls, v):
+    def validate_outcome(cls, v: str) -> str:
         """Validate outcome is one of allowed values."""
         allowed = {"success", "partial", "failure"}
         v = v.lower().strip()
