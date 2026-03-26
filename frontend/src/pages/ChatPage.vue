@@ -3750,6 +3750,7 @@ const eventRegistry = createEventHandlerRegistry({
   progress: (data) => handleProgressEvent(data as ProgressEventData),
   phase_transition: (data) => handlePhaseTransitionEvent(data as PhaseTransitionEventData),
   checkpoint_saved: (data) => handleCheckpointSavedEvent(data as CheckpointSavedEventData),
+  skill: () => { /* SkillEvent (activated/deactivated/matched) — informational, no UI action needed */ },
   skill_delivery: (data) => handleSkillDeliveryEvent(data as SkillDeliveryEventData),
   skill_activation: (data) => handleSkillActivationEvent(data as SkillActivationEventData),
   canvas_update: (data) => handleCanvasUpdateEvent(data as CanvasUpdateEventData),

@@ -36,6 +36,7 @@ export type AgentSSEEvent = {
     | 'deep_research'
     | 'phase_transition'
     | 'checkpoint_saved'
+    | 'skill'
     | 'skill_delivery'
     | 'skill_activation'
     | 'thought'
