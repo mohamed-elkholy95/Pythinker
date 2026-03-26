@@ -57,3 +57,9 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
     scrape_interval: 15s
+
+  # NOTE: Frontend (Vite dev server) and Sandbox (FastAPI) do not expose
+  # /metrics endpoints. Their observability comes from:
+  #   - Logs: Promtail collects container stdout/stderr → Loki
+  #   - Container metrics: cAdvisor captures CPU/memory/network per container
+  #   - Backend proxy metrics: pythinker_http_pool_* tracks outbound calls to sandbox

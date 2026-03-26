@@ -123,6 +123,7 @@ scrape_configs:
           method:
           path:
           status_code:
+          duration_ms:
 
       # ─── Stage 7: Error pattern detection ────────────────────────────
       - regex:

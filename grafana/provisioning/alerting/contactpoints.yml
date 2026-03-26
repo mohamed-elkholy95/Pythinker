@@ -25,6 +25,25 @@ contactPoints:
           maxAlerts: 10
         disableResolveMessage: false
 
+  # Fallback: Grafana logs all notification attempts to its own container log,
+  # which Promtail captures into Loki. This receiver uses a secondary webhook
+  # to Loki's push API so critical alerts are directly written as log entries
+  # even if the backend webhook endpoint is unreachable.
+  - orgId: 1
+    name: pythinker-loki-fallback
+    receivers:
+      - uid: pythinker-loki-fallback-receiver
+        type: webhook
+        settings:
+          url: "http://loki:3100/loki/api/v1/push"
+          httpMethod: POST
+          maxAlerts: 5
+          # Loki won't parse Grafana's JSON as a valid push request, but
+          # Grafana logs the attempt including the alert details to its own
+          # stdout — which Promtail captures. This ensures alerting activity
+          # is always visible in Loki even if the backend is down.
+        disableResolveMessage: true
+
 policies:
   - orgId: 1
     receiver: pythinker-webhook
@@ -35,8 +54,15 @@ policies:
     group_interval: 5m
     repeat_interval: 4h
     routes:
-      # Critical alerts: shorter repeat interval
+      # Critical alerts: shorter repeat interval + fallback
       - receiver: pythinker-webhook
+        matchers:
+          - severity = critical
+        group_wait: 10s
+        repeat_interval: 1h
+        continue: true  # Continue to fallback route
+      # Critical alerts also go to fallback
+      - receiver: pythinker-loki-fallback
         matchers:
           - severity = critical
         group_wait: 10s

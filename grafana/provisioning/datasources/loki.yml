@@ -8,4 +8,13 @@ datasources:
     url: http://loki:3100
     isDefault: false
     editable: true
+    jsonData:
+      maxLines: 5000
+      derivedFields:
+        # Link request_id across log lines for correlation
+        - name: RequestID
+          matcherRegex: '"request_id"\s*:\s*"([a-f0-9-]+)"'
+          url: '/explore?left={"queries":[{"expr":"{compose_project=\"pythinker\"} | json | request_id=\"${__value.raw}\"","refId":"A"}]}'
+          datasourceUid: loki
+          urlDisplayLabel: "View Request Logs"
 

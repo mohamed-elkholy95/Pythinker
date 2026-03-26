@@ -59,8 +59,16 @@ compactor:
 query_range:
   align_queries_with_step: true
 
+distributor:
+  ring:
+    kvstore:
+      store: inmemory
+
 ruler:
-  alertmanager_url: http://localhost:9093
+  # No Alertmanager in dev stack — disable alert forwarding to avoid
+  # recurring "Error sending alerts" noise in logs
+  enable_alertmanager_v2: false
+  alertmanager_url: ""
   storage:
     type: local
     local:

@@ -40,10 +40,12 @@ services:
   grafana:
     image: grafana/grafana:11.5.2
     container_name: pythinker-grafana
+    entrypoint: ["/bin/sh", "/etc/grafana/entrypoint.sh"]
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/entrypoint.sh:/etc/grafana/entrypoint.sh:ro
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -62,7 +64,7 @@ services:
       prometheus:
         condition: service_healthy
       loki:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -74,7 +76,7 @@ services:
       start_period: 60s
 
   loki:
-    image: grafana/loki:3.5.4
+    image: grafana/loki:3.6.2
     container_name: pythinker-loki
     command: ["-config.file=/etc/loki/config.yml"]
     volumes:
@@ -86,15 +88,12 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+    # Loki 3.6.2 uses distroless image (no shell/wget/curl)
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      disable: true
 
   promtail:
-    image: grafana/promtail:3.5.4
+    image: grafana/promtail:3.6.2
     container_name: pythinker-promtail
     command: ["-config.file=/etc/promtail/config.yml"]
     volumes:
@@ -105,13 +104,19 @@ services:
       - "127.0.0.1:9080:9080"
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.66.0
+    image: oliver006/redis_exporter:v1.66.0-alpine
     container_name: pythinker-redis-exporter
     command:
       - '--redis.addr=redis://redis:6379'
@@ -119,10 +124,19 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9121/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.51.0
     container_name: pythinker-cadvisor
+    command:
+      - '--docker_only=true'
+      - '--disable_metrics=disk,referenced_memory,process'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
@@ -132,6 +146,12 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   node-exporter:
     image: prom/node-exporter:v1.9.0
@@ -141,6 +161,12 @@ services:
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/metrics > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   prometheus_data:

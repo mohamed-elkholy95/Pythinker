@@ -20,21 +20,21 @@ groups:
       - record: pythinker:log_errors:rate1m
         expr: |
           sum by (compose_service) (
-            count_over_time({compose_project="pythinker-main",level=~"error|critical|fatal"}[1m])
+            count_over_time({compose_project="pythinker",level=~"error|critical|fatal"}[1m])
           )
 
       # Warning log rate per service
       - record: pythinker:log_warnings:rate1m
         expr: |
           sum by (compose_service) (
-            count_over_time({compose_project="pythinker-main",level="warning"}[1m])
+            count_over_time({compose_project="pythinker",level="warning"}[1m])
           )
 
       # Traceback rate (Python exceptions)
       - record: pythinker:tracebacks:rate5m
         expr: |
           sum(
-            count_over_time({compose_project="pythinker-main"} |= "Traceback" [5m])
+            count_over_time({compose_project="pythinker"} |= "Traceback" [5m])
           )
 
       # Tool failure rate from logs
@@ -81,7 +81,7 @@ groups:
       # Python traceback burst
       - alert: TracebackBurst
         expr: |
-          sum(count_over_time({compose_project="pythinker-main"} |= "Traceback" [5m])) > 3
+          sum(count_over_time({compose_project="pythinker"} |= "Traceback" [5m])) > 3
         for: 1m
         labels:
           severity: critical
