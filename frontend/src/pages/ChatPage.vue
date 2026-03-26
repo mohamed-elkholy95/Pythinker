@@ -3004,18 +3004,6 @@ const handleTitleEvent = (titleData: TitleEventData) => {
 
 // Handle plan event
 const handlePlanEvent = (planData: PlanEventData) => {
-  // Show progress toast once per session when agent starts working.
-  // The plan event only fires in agent mode (discuss mode has no planning phase).
-  if (!hasShownProgressToast.value) {
-    hasShownProgressToast.value = true;
-    const complexity = planningProgress.value?.complexityCategory;
-    const timeRange = complexity === 'simple' ? '3\u20136' : complexity === 'complex' ? '10\u201318' : '5\u201310';
-    showProgressToast(
-      t('Research in progress'),
-      t(`Estimated time: ${timeRange} minutes. You can safely close this tab \u2014 the agent will continue working.`)
-    );
-  }
-
   // Clear thinking text and planning progress when plan arrives
   const handoffComplexity = planningProgress.value?.complexityCategory;
   thinkingText.value = '';
