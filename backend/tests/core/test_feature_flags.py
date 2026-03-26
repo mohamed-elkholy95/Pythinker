@@ -69,10 +69,14 @@ class TestLogEnabledFeatures:
 
 class TestGetFeatureFlags:
     def test_returns_instance(self):
+        get_feature_flags.cache_clear()
         flags = get_feature_flags()
         assert isinstance(flags, FeatureFlags)
+        get_feature_flags.cache_clear()
 
     def test_cached_singleton(self):
+        get_feature_flags.cache_clear()
         f1 = get_feature_flags()
         f2 = get_feature_flags()
         assert f1 is f2
+        get_feature_flags.cache_clear()

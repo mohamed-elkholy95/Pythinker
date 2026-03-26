@@ -54,6 +54,7 @@ class FeatureFlags(BaseSettings):
         env_prefix="FEATURE_",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     def log_enabled_features(self) -> None:
