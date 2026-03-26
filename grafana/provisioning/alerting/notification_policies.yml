@@ -1,0 +1,263 @@
+# =============================================================================
+# Grafana Unified Alerting — Notification Policies
+# =============================================================================
+# Defines alert routing, grouping, and inhibition-like behavior.
+#
+# Architecture:
+#   - Default route groups by alertname + component (30s wait, 5m interval)
+#   - Critical alerts use shorter wait (10s) and dual delivery (webhook + Loki)
+#   - Quality/hallucination alerts have longer repeat intervals
+#   - Infrastructure root-cause alerts are routed first to prevent noise
+#   - Mute timings suppress alerts during scheduled maintenance
+#
+# Inhibition strategy (Grafana doesn't have Alertmanager-style inhibitions):
+#   - Root-cause alerts (BackendDown, LLMLatencyCritical, RedisExporterDown)
+#     are routed to dedicated high-priority routes
+#   - Downstream/symptom alerts are grouped aggressively so they arrive
+#     as a single notification rather than N separate ones
+#   - Mute timings can be applied to symptom routes during known outages
+#
+# Alert label reference:
+#   severity:  critical | warning | info
+#   component: backend | llm | redis | redis_cache | browser | agent | tools |
+#              sandbox | security | cache | replay | fast_ack | monitoring |
+#              semantic_cache | qdrant | memory_service | grounding_safety |
+#              execution_flow | capacity_planning
+#   category:  quality | llm | tools | recovery | cache | workflow |
+#              streaming | monitoring | infrastructure | cost | search |
+#              hallucination | snapshot | duplicate_suppression | security |
+#              performance | capacity | browser
+# =============================================================================
+
+apiVersion: 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mute Timings — suppress alerts during scheduled maintenance windows
+# ─────────────────────────────────────────────────────────────────────────────
+muteTimes:
+  - orgId: 1
+    name: maintenance-weekly
+    # Saturday 02:00–06:00 UTC — weekly maintenance window
+    time_intervals:
+      - times:
+          - start_time: "02:00"
+            end_time: "06:00"
+        weekdays:
+          - "saturday"
+
+  - orgId: 1
+    name: maintenance-adhoc
+    # Placeholder for ad-hoc maintenance. Activate by setting a concrete
+    # time range in Grafana UI, then reference this timing in routes.
+    # Default: never active (empty interval matches nothing).
+    time_intervals: []
+
+  - orgId: 1
+    name: quiet-hours
+    # Suppress non-critical alerts during low-traffic hours (weekdays 00:00–06:00 UTC)
+    time_intervals:
+      - times:
+          - start_time: "00:00"
+            end_time: "06:00"
+        weekdays:
+          - "monday"
+          - "tuesday"
+          - "wednesday"
+          - "thursday"
+          - "friday"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notification Policies — routing tree
+# ─────────────────────────────────────────────────────────────────────────────
+policies:
+  - orgId: 1
+    receiver: pythinker-webhook
+    group_by:
+      - alertname
+      - component
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      # ═════════════════════════════════════════════════════════════════════
+      # ROOT-CAUSE ALERTS (highest priority — always delivered immediately)
+      # These are the "inhibiting" alerts. They fire for fundamental outages
+      # and are never muted (except during explicit maintenance).
+      # ═════════════════════════════════════════════════════════════════════
+
+      # Backend down — the most critical root-cause alert.
+      # When BackendDown fires, most other alerts are symptoms.
+      - receiver: pythinker-webhook
+        matchers:
+          - alertname = BackendDown
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 30m
+        continue: true
+      - receiver: pythinker-loki-fallback
+        matchers:
+          - alertname = BackendDown
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 30m
+
+      # LLM provider critical failure — root cause for LLM symptom alerts.
+      # LLMLatencyCritical (p99 > 60s) indicates the provider is effectively down.
+      - receiver: pythinker-webhook
+        matchers:
+          - alertname = LLMLatencyCritical
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+        continue: true
+      - receiver: pythinker-loki-fallback
+        matchers:
+          - alertname = LLMLatencyCritical
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+
+      # Redis exporter down — root cause for Redis metric alerts.
+      - receiver: pythinker-webhook
+        matchers:
+          - alertname =~ "RedisExporterDown|RedisCacheExporterDown"
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+        continue: true
+      - receiver: pythinker-loki-fallback
+        matchers:
+          - alertname =~ "RedisExporterDown|RedisCacheExporterDown"
+        group_by:
+          - alertname
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+
+      # ═════════════════════════════════════════════════════════════════════
+      # SYMPTOM ALERTS — grouped aggressively to reduce noise
+      # When a root-cause alert fires alongside these, the operator sees
+      # the root cause as a separate notification and the symptoms as a
+      # single grouped batch (because they share component/category).
+      # ═════════════════════════════════════════════════════════════════════
+
+      # LLM symptom alerts — downstream of LLM provider issues.
+      # Group all LLM-related symptoms into one notification bundle.
+      # Includes: HighLLMErrorRate, LLMErrorRateRising, LLMLatencyDegraded,
+      #           SlowLLMLatency, RecoveryBudgetExhausted, TokenConsumptionSpike
+      - receiver: pythinker-webhook
+        matchers:
+          - alertname =~ "HighLLMErrorRate|LLMErrorRateRising|LLMLatencyDegraded|SlowLLMLatency|RecoveryBudgetExhausted|TokenConsumptionSpike|LLMQueueBackup"
+        group_by:
+          - "..."
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        mute_time_intervals:
+          - maintenance-weekly
+          - maintenance-adhoc
+
+      # Redis symptom alerts — downstream of Redis exporter / connectivity issues.
+      # Group: RedisHighMemoryUsage, RedisEvictionSpike, RedisOperationFailures,
+      #        RateLimitFallbackActive
+      - receiver: pythinker-webhook
+        matchers:
+          - alertname =~ "RedisHighMemoryUsage|RedisEvictionSpike|RedisOperationFailures|RateLimitFallbackActive"
+        group_by:
+          - "..."
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        mute_time_intervals:
+          - maintenance-weekly
+          - maintenance-adhoc
+
+      # ═════════════════════════════════════════════════════════════════════
+      # SEVERITY-BASED ROUTES
+      # ═════════════════════════════════════════════════════════════════════
+
+      # Critical severity (not already matched above): dual delivery
+      - receiver: pythinker-webhook
+        matchers:
+          - severity = critical
+        group_by:
+          - alertname
+          - component
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+        continue: true
+      - receiver: pythinker-loki-fallback
+        matchers:
+          - severity = critical
+        group_by:
+          - alertname
+          - component
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+
+      # ═════════════════════════════════════════════════════════════════════
+      # CATEGORY-BASED ROUTES
+      # ═════════════════════════════════════════════════════════════════════
+
+      # Quality & hallucination alerts — longer repeat interval, less urgent
+      - receiver: pythinker-webhook
+        matchers:
+          - category =~ "quality|hallucination"
+        group_by:
+          - alertname
+          - category
+        group_wait: 30s
+        group_interval: 10m
+        repeat_interval: 2h
+        mute_time_intervals:
+          - quiet-hours
+
+      # Self-monitoring alerts — never muted, always delivered.
+      # These monitor the monitoring stack itself (Prometheus, scrape targets).
+      - receiver: pythinker-webhook
+        matchers:
+          - category = monitoring
+        group_by:
+          - alertname
+          - component
+        group_wait: 15s
+        group_interval: 5m
+        repeat_interval: 2h
+
+      # Infrastructure alerts — container restarts, memory, CPU, disk
+      - receiver: pythinker-webhook
+        matchers:
+          - category = infrastructure
+        group_by:
+          - alertname
+          - component
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        mute_time_intervals:
+          - maintenance-weekly
+          - maintenance-adhoc
+
+      # Info-level alerts — very low priority, long repeat
+      - receiver: pythinker-webhook
+        matchers:
+          - severity = info
+        group_by:
+          - alertname
+        group_wait: 1m
+        group_interval: 15m
+        repeat_interval: 8h
+        mute_time_intervals:
+          - quiet-hours

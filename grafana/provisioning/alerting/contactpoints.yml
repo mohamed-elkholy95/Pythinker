@@ -1,7 +1,10 @@
 # =============================================================================
-# Grafana Unified Alerting — Contact Points & Notification Policies
+# Grafana Unified Alerting — Contact Points
 # =============================================================================
-# Configures where alerts get sent. Supports:
+# Configures WHERE alerts get sent (contact points / receivers).
+# Routing, grouping, and mute timings are in notification_policies.yml.
+#
+# Supports:
 #   - Webhook (for custom integrations, Discord, Slack incoming webhooks)
 #   - Email (when SMTP is configured)
 #
@@ -9,11 +12,41 @@
 #   Set GRAFANA_ALERT_WEBHOOK_URL env var to your webhook URL
 #   Discord: https://discord.com/api/webhooks/...
 #   Slack: https://hooks.slack.com/services/...
+#
+# Inhibition strategy (achieved via notification_policies.yml routing):
+#   Grafana Unified Alerting does not support Alertmanager-style inhibition
+#   rules. Instead, we achieve similar noise reduction through:
+#
+#   1. Root-cause routing: BackendDown, LLMLatencyCritical, and
+#      RedisExporterDown are routed to dedicated high-priority routes
+#      with short group_wait (10s) so the operator sees them first.
+#
+#   2. Symptom grouping: Downstream alerts (e.g., HighLLMErrorRate,
+#      LLMErrorRateRising, LLMLatencyDegraded when LLM provider is down)
+#      are grouped into a single notification using group_by: ["..."]
+#      so they arrive as one bundle, not N separate pages.
+#
+#   3. Mute timings: During scheduled maintenance, symptom routes are
+#      muted while root-cause and self-monitoring routes remain active.
+#
+#   Mapping to the original inhibition requirements:
+#     LLMLatencyCritical fires  -> LLM symptom group absorbs:
+#                                  HighLLMErrorRate, LLMErrorRateRising,
+#                                  LLMLatencyDegraded, SlowLLMLatency,
+#                                  RecoveryBudgetExhausted, TokenConsumptionSpike
+#     BackendDown fires         -> All non-monitoring alerts grouped by default
+#                                  route; self-monitoring route stays independent
+#     RedisExporterDown fires   -> Redis symptom group absorbs:
+#                                  RedisHighMemoryUsage, RedisEvictionSpike,
+#                                  RedisOperationFailures, RateLimitFallbackActive
 # =============================================================================
 
 apiVersion: 1
 
 contactPoints:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Primary: Backend webhook — custom alert processing and forwarding
+  # ─────────────────────────────────────────────────────────────────────────
   - orgId: 1
     name: pythinker-webhook
     receivers:
@@ -25,7 +58,11 @@ contactPoints:
           maxAlerts: 10
         disableResolveMessage: false
 
-  # Fallback: Grafana logs all notification attempts to its own container log,
+  # ─────────────────────────────────────────────────────────────────────────
+  # Fallback: Loki log sink — ensures critical alerts are captured even
+  # when the backend is unreachable
+  # ─────────────────────────────────────────────────────────────────────────
+  # Grafana logs all notification attempts to its own container log,
   # which Promtail captures into Loki. This receiver uses a secondary webhook
   # to Loki's push API so critical alerts are directly written as log entries
   # even if the backend webhook endpoint is unreachable.
@@ -43,35 +80,3 @@ contactPoints:
           # stdout — which Promtail captures. This ensures alerting activity
           # is always visible in Loki even if the backend is down.
         disableResolveMessage: true
-
-policies:
-  - orgId: 1
-    receiver: pythinker-webhook
-    group_by:
-      - alertname
-      - category
-    group_wait: 30s
-    group_interval: 5m
-    repeat_interval: 4h
-    routes:
-      # Critical alerts: shorter repeat interval + fallback
-      - receiver: pythinker-webhook
-        matchers:
-          - severity = critical
-        group_wait: 10s
-        repeat_interval: 1h
-        continue: true  # Continue to fallback route
-      # Critical alerts also go to fallback
-      - receiver: pythinker-loki-fallback
-        matchers:
-          - severity = critical
-        group_wait: 10s
-        repeat_interval: 1h
-      # Quality alerts: group by category
-      - receiver: pythinker-webhook
-        matchers:
-          - category =~ "quality|hallucination"
-        group_by:
-          - alertname
-          - category
-        repeat_interval: 2h
