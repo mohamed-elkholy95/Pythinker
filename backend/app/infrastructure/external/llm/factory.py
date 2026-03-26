@@ -168,6 +168,16 @@ def get_llm_from_factory() -> LLM | None:
         if fallback_keys:
             kwargs["fallback_api_keys"] = fallback_keys
         kwargs["redis_client"] = redis_client
+        # Pass fallback provider config (e.g. MiniMax as backup for GLM)
+        _fb_base = getattr(settings, "llm_fallback_api_base", "") or ""
+        _fb_model = getattr(settings, "llm_fallback_model_name", "") or ""
+        _fb_key = getattr(settings, "llm_fallback_api_key", "") or ""
+        if _fb_base.strip() and _fb_model.strip() and _fb_key.strip():
+            kwargs["fallback_provider"] = {
+                "api_base": _fb_base.strip(),
+                "model_name": _fb_model.strip(),
+                "api_key": _fb_key.strip(),
+            }
 
     elif provider == "anthropic":
         fallback_keys = [k for k in [settings.anthropic_api_key_2, settings.anthropic_api_key_3] if k and k.strip()]

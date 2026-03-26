@@ -235,6 +235,12 @@ llm_calls_total = Counter(
     labels=["model", "status"],
 )
 
+FALLBACK_LLM_CALLS = Counter(
+    name="pythinker_fallback_llm_calls_total",
+    help_text="LLM calls that fell through to the fallback provider",
+    labels=["primary_model", "fallback_model", "status"],
+)
+
 tool_calls_total = Counter(
     name="pythinker_tool_calls_total",
     help_text="Total number of tool executions",

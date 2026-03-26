@@ -70,6 +70,15 @@ class LLMSettingsMixin:
     # provider fails after exhausting retries.  Empty string = no fallback.
     llm_provider_fallback_chain: str = ""
 
+    # ── LLM Fallback Provider (OpenAI-compatible) ─────────────────────────
+    # A secondary OpenAI-compatible endpoint to try when the primary provider
+    # exhausts all retries (timeouts, connection errors, key exhaustion).
+    # All three fields must be set for fallback to activate.
+    # Example: MiniMax M2.7 at https://api.minimax.io/v1
+    llm_fallback_api_base: str = ""
+    llm_fallback_model_name: str = ""
+    llm_fallback_api_key: str = ""
+
     # ── Dynamic Context Window (Phase 5) ────────────────────────────────────
     # Override the auto-detected context window size (0 = use registry value).
     llm_context_window_override: int = 0

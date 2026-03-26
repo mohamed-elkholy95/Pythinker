@@ -91,6 +91,7 @@ class OpenAILLM(LLM):
         temperature: float | None = None,
         max_tokens: int | None = None,
         api_base: str | None = None,
+        fallback_provider: dict[str, str] | None = None,
     ):
         """Initialize OpenAI-compatible LLM with multi-key failover support.
 
@@ -102,6 +103,8 @@ class OpenAILLM(LLM):
             temperature: Sampling temperature (defaults to settings)
             max_tokens: Maximum tokens in response (defaults to settings)
             api_base: API base URL (defaults to settings)
+            fallback_provider: Optional secondary OpenAI-compatible provider config
+                               {"api_base": str, "model_name": str, "api_key": str}
         """
         settings = get_settings()
 
@@ -205,6 +208,11 @@ class OpenAILLM(LLM):
         self._cached_client_key: str | None = None
         self._cached_client_base: str | None = None
 
+        # Fallback provider: a separate OpenAI-compatible endpoint to try when
+        # the primary provider exhausts all retries (timeouts, connection errors).
+        self._fallback_provider = fallback_provider
+        self._fallback_active = False  # True while executing a fallback call
+
         tags = []
         if self._is_glm_api:
             tags.append("[GLM API]")
@@ -215,9 +223,15 @@ class OpenAILLM(LLM):
         if self._is_minimax:
             tags.append("[MiniMax]")
         tag_str = " " + " ".join(tags) if tags else ""
+
+        fallback_tag = ""
+        if self._fallback_provider:
+            fb_model = self._fallback_provider.get("model_name", "?")
+            fallback_tag = f", fallback: {fb_model}"
+
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
-            f"using FAILOVER strategy, model: {self._model_name}{tag_str}"
+            f"using FAILOVER strategy, model: {self._model_name}{tag_str}{fallback_tag}"
         )
 
     async def get_api_key(self) -> str | None:
@@ -1889,37 +1903,173 @@ To extract data from a webpage:
         # (e.g. 5 consecutive 90s timeouts from concurrent sessions) cannot exhaust
         # all available semaphore slots simultaneously.
         async with self._llm_concurrency_slot():
-            return await self._ask_inner(
-                base_messages=base_messages,
-                request_messages=request_messages,
-                request_tools=request_tools,
-                original_tools=original_tools,
-                response_format=response_format,
-                tool_choice=tool_choice,
-                enable_caching=enable_caching,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                _attempt=_attempt,
-                client=client,
-                settings=settings,
-                llm_tool_max_tokens=llm_tool_max_tokens,
-                llm_tool_request_timeout=llm_tool_request_timeout,
-                llm_tool_timeout_max_retries=llm_tool_timeout_max_retries,
-                llm_request_timeout=llm_request_timeout,
-                hard_call_timeout=hard_call_timeout,
-                timeout_fallback_fast_model=timeout_fallback_fast_model,
-                model_override_for_attempt=model_override_for_attempt,
-                timeout_fallback_used=timeout_fallback_used,
-                slow_tool_breaker_timeout_logged=slow_tool_breaker_timeout_logged,
-                slow_tool_breaker_token_cap_logged=slow_tool_breaker_token_cap_logged,
-                max_retries=max_retries,
-                base_delay=base_delay,
-                validation_recovery_attempted=validation_recovery_attempted,
-                tool_timeout_retries=tool_timeout_retries,
-                messages=messages,
-                tools=tools,
+            try:
+                return await self._ask_inner(
+                    base_messages=base_messages,
+                    request_messages=request_messages,
+                    request_tools=request_tools,
+                    original_tools=original_tools,
+                    response_format=response_format,
+                    tool_choice=tool_choice,
+                    enable_caching=enable_caching,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=_attempt,
+                    client=client,
+                    settings=settings,
+                    llm_tool_max_tokens=llm_tool_max_tokens,
+                    llm_tool_request_timeout=llm_tool_request_timeout,
+                    llm_tool_timeout_max_retries=llm_tool_timeout_max_retries,
+                    llm_request_timeout=llm_request_timeout,
+                    hard_call_timeout=hard_call_timeout,
+                    timeout_fallback_fast_model=timeout_fallback_fast_model,
+                    model_override_for_attempt=model_override_for_attempt,
+                    timeout_fallback_used=timeout_fallback_used,
+                    slow_tool_breaker_timeout_logged=slow_tool_breaker_timeout_logged,
+                    slow_tool_breaker_token_cap_logged=slow_tool_breaker_token_cap_logged,
+                    max_retries=max_retries,
+                    base_delay=base_delay,
+                    validation_recovery_attempted=validation_recovery_attempted,
+                    tool_timeout_retries=tool_timeout_retries,
+                    messages=messages,
+                    tools=tools,
+                )
+            except (LLMException, RuntimeError, APIKeysExhaustedError) as primary_exc:
+                # ── Fallback Provider Attempt ──────────────────────────────
+                # When primary exhausts all retries, try the fallback provider
+                # (e.g. MiniMax when GLM is down). Skip if already in fallback
+                # or if fallback is not configured.
+                if self._fallback_active or not self._fallback_provider:
+                    raise
+                return await self._attempt_fallback_provider(
+                    primary_exc=primary_exc,
+                    messages=messages,
+                    tools=tools,
+                    response_format=response_format,
+                    tool_choice=tool_choice,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+
+    async def _attempt_fallback_provider(
+        self,
+        *,
+        primary_exc: Exception,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+        response_format: dict[str, Any] | None,
+        tool_choice: str | None,
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> dict[str, Any]:
+        """Attempt a single call to the fallback provider after primary failure.
+
+        Creates a temporary AsyncOpenAI client with the fallback credentials,
+        makes one attempt, and returns the result or re-raises the original error.
+        """
+        fb = self._fallback_provider
+        assert fb is not None  # Caller checks this  # noqa: S101
+        fb_base = fb["api_base"]
+        fb_model = fb["model_name"]
+        fb_key = fb["api_key"]
+
+        logger.warning(
+            "Primary LLM failed (%s: %s), attempting fallback provider: model=%s base=%s",
+            type(primary_exc).__name__,
+            str(primary_exc)[:120],
+            fb_model,
+            fb_base,
+        )
+
+        # Swap to fallback state — prevents recursive fallback
+        self._fallback_active = True
+        original_model = self._model_name
+        original_base = self._api_base
+        original_client = self._cached_client
+        original_client_key = self._cached_client_key
+        original_client_base = self._cached_client_base
+
+        try:
+            # Create a one-shot client with fallback credentials
+            fb_timeout = self._create_timeout(
+                is_streaming=False,
+                is_tool_call=bool(tools),
             )
+            fb_client = AsyncOpenAI(
+                api_key=fb_key,
+                base_url=fb_base,
+                timeout=fb_timeout,
+            )
+
+            # Override instance state for the duration of this call
+            self._model_name = fb_model
+            self._api_base = fb_base
+            self._cached_client = fb_client
+            self._cached_client_key = fb_key
+            self._cached_client_base = fb_base
+
+            # Refresh provider profile for the fallback provider
+            from app.infrastructure.external.llm.provider_profile import get_provider_profile
+
+            original_profile = self._provider_profile
+            self._provider_profile = get_provider_profile(fb_base, fb_model)
+            self._is_glm_api = self._detect_glm_api()
+            self._is_minimax = self._detect_minimax()
+
+            try:
+                result = await self.ask(
+                    messages=messages,
+                    tools=tools,
+                    response_format=response_format,
+                    tool_choice=tool_choice,
+                    enable_caching=False,  # Skip cache for fallback
+                    model=fb_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=0,
+                )
+                logger.info(
+                    "Fallback provider succeeded: model=%s",
+                    fb_model,
+                )
+                with contextlib.suppress(Exception):
+                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS
+
+                    FALLBACK_LLM_CALLS.labels(
+                        primary_model=original_model,
+                        fallback_model=fb_model,
+                        status="success",
+                    ).inc()
+                return result
+            except Exception as fallback_exc:
+                logger.error(
+                    "Fallback provider also failed: model=%s error=%s. Re-raising primary error.",
+                    fb_model,
+                    str(fallback_exc)[:120],
+                )
+                with contextlib.suppress(Exception):
+                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS
+
+                    FALLBACK_LLM_CALLS.labels(
+                        primary_model=original_model,
+                        fallback_model=fb_model,
+                        status="error",
+                    ).inc()
+                raise primary_exc from fallback_exc
+        finally:
+            # Always restore original state
+            self._fallback_active = False
+            self._model_name = original_model
+            self._api_base = original_base
+            self._cached_client = original_client
+            self._cached_client_key = original_client_key
+            self._cached_client_base = original_client_base
+            # Restore provider profile
+            if "original_profile" in locals():
+                self._provider_profile = original_profile
+                self._is_glm_api = self._detect_glm_api()
+                self._is_minimax = self._detect_minimax()
 
     async def _ask_inner(
         self,
@@ -2303,11 +2453,13 @@ To extract data from a webpage:
 
             except Exception as e:  # Broad catch: dispatches across OpenAI/GLM/MLX/Kimi provider errors
                 # Check for authentication errors (401) and rotate keys
+                # Use TTL-based exhaustion (not permanent invalidation) so the key
+                # can recover — transient auth issues are common with some providers.
                 error_msg = str(e).lower()
                 if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
                     key = await self.get_api_key()
                     if key:
-                        await self._key_pool.mark_invalid(key)
+                        await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
                         max_retries = getattr(self, "_max_retries", 3)
                         logger.error(
                             f"OpenAI authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
@@ -3291,7 +3443,8 @@ To extract data from a webpage:
                 ) as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
                     error_msg = str(e).lower()
 
-                    # Check for authentication errors (401) and rotate keys
+                    # Check for authentication errors (401) and rotate keys.
+                    # Use TTL-based exhaustion so the key can recover from transient auth issues.
                     if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
                         self._last_stream_metadata = {
                             "finish_reason": "error",
@@ -3301,7 +3454,7 @@ To extract data from a webpage:
                         }
                         key = await self.get_api_key()
                         if key:
-                            await self._key_pool.mark_invalid(key)
+                            await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
                             max_retries = getattr(self, "_max_retries", 3)
                             logger.error(
                                 f"OpenAI stream authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
