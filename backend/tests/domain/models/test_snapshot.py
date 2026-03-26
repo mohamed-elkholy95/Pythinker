@@ -30,8 +30,13 @@ from app.domain.models.snapshot import (
 class TestSnapshotType:
     def test_all_types(self):
         expected = {
-            "file_system", "file_content", "browser_state",
-            "terminal_state", "editor_state", "plan_state", "full_state",
+            "file_system",
+            "file_content",
+            "browser_state",
+            "terminal_state",
+            "editor_state",
+            "plan_state",
+            "full_state",
         }
         actual = {t.value for t in SnapshotType}
         assert actual == expected
@@ -188,7 +193,10 @@ class TestStateSnapshotValidator:
             sequence_number=1,
             snapshot_type=SnapshotType.FILE_CONTENT,
             file_content=FileSnapshot(
-                path="/a.py", content="code", size_bytes=4, modified_at=datetime.now(UTC),
+                path="/a.py",
+                content="code",
+                size_bytes=4,
+                modified_at=datetime.now(UTC),
             ),
         )
         assert snap.file_content is not None
@@ -226,7 +234,7 @@ class TestStateSnapshotFactories:
         assert snap.snapshot_type == SnapshotType.FILE_CONTENT
         assert snap.file_content is not None
         assert snap.file_content.path == "/app/main.py"
-        assert snap.file_content.size_bytes == len("print('hello')".encode("utf-8"))
+        assert snap.file_content.size_bytes == len(b"print('hello')")
         assert snap.resource_path == "/app/main.py"
 
     def test_create_file_snapshot_with_action_id(self):
@@ -275,14 +283,20 @@ class TestStateSnapshotFactories:
 
     def test_snapshot_gets_uuid(self):
         snap = StateSnapshot.create_file_snapshot(
-            session_id="s1", sequence_number=1, file_path="/a.py", content="x",
+            session_id="s1",
+            sequence_number=1,
+            file_path="/a.py",
+            content="x",
         )
         assert snap.id is not None
         assert len(snap.id) > 0
 
     def test_defaults(self):
         snap = StateSnapshot.create_file_snapshot(
-            session_id="s1", sequence_number=1, file_path="/a.py", content="x",
+            session_id="s1",
+            sequence_number=1,
+            file_path="/a.py",
+            content="x",
         )
         assert snap.is_compressed is False
         assert snap.compressed_size_bytes is None

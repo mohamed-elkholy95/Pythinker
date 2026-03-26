@@ -5,7 +5,7 @@ Covers: TraceType, TraceTier, TraceEntry creation and defaults.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from app.domain.models.research_trace import TraceEntry, TraceTier, TraceType
 

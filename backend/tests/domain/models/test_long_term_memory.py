@@ -38,7 +38,16 @@ class TestEnums:
         assert SyncState.DEAD_LETTER == "dead_letter"
 
     def test_memory_type_values(self):
-        expected = {"fact", "preference", "entity", "task_outcome", "conversation", "procedure", "error_pattern", "project"}
+        expected = {
+            "fact",
+            "preference",
+            "entity",
+            "task_outcome",
+            "conversation",
+            "procedure",
+            "error_pattern",
+            "project",
+        }
         actual = {m.value for m in MemoryType}
         assert actual == expected
 
