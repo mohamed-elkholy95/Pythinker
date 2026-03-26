@@ -25,6 +25,18 @@ reviews:
   review_status: true
   collapse_walkthrough: false
   sequence_diagrams: true
+  changed_files_summary: true
+  estimate_code_review_effort: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: true
+  abort_on_close: true
+  enable_prompt_for_ai_agents: true
+
+  slop_detection:
+    enabled: true
 
   path_instructions:
     # ── Backend: Domain-Driven Design ──
@@ -156,8 +168,25 @@ reviews:
     - "!**/*.min.css"
     - "!**/nanobot/**"
 
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+
+  pre_merge_checks:
+    title:
+      enabled: warning
+    description:
+      enabled: warning
+    issue_assessment:
+      enabled: warning
+
   auto_review:
     enabled: true
+    auto_incremental_review: true
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
@@ -184,6 +213,18 @@ reviews:
     biome:
       enabled: false
 
+    # ── Security Scanning ──
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+
+    # ── Infrastructure ──
+    hadolint:
+      enabled: true
+    yamllint:
+      enabled: true
+
     # ── General ──
     shellcheck:
       enabled: true
@@ -194,6 +235,8 @@ reviews:
     github-checks:
       enabled: true
       timeout_ms: 120000
+    actionlint:
+      enabled: true
     languagetool:
       enabled: false
 
@@ -201,6 +244,10 @@ chat:
   auto_reply: true
 
 knowledge_base:
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
   learnings:
     scope: auto
   issues:
@@ -211,3 +258,30 @@ knowledge_base:
     team_keys: []
   pull_requests:
     scope: auto
+
+code_generation:
+  docstrings:
+    path_instructions:
+      - path: "backend/**/*.py"
+        instructions: >
+          Google-style docstrings. Include Args, Returns, Raises sections.
+          Use Python type hints in signatures, not in docstrings.
+      - path: "frontend/src/**/*.ts"
+        instructions: >
+          TSDoc style. Include @param, @returns, @throws tags.
+  unit_tests:
+    path_instructions:
+      - path: "backend/**/*.py"
+        instructions: >
+          pytest style. Use async fixtures. asyncio_mode = "auto".
+          Mock external services, use real domain objects.
+      - path: "frontend/src/**/*.vue"
+        instructions: >
+          Vitest + Vue Test Utils. Mount with proper props.
+          Test user interactions and emitted events.
+
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  planning:
+    enabled: true
