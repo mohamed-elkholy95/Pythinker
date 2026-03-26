@@ -218,8 +218,11 @@ class DockerSandbox(Sandbox):
                     tmpfs_dict[mount_spec.strip()] = "nosuid,nodev"
 
             security_opt = ["no-new-privileges:true"]
-            if policy.require_custom_seccomp and policy.seccomp_profile_path:
-                security_opt.append(f"seccomp={policy.seccomp_profile_path}")
+            # NOTE: Seccomp profiles are applied in docker-compose (file path
+            # relative to compose context). The Docker API expects raw JSON or
+            # an absolute host path — neither is available from inside the
+            # backend container. Ephemeral containers are still hardened by
+            # cap_drop=ALL, no-new-privileges, and resource limits.
 
             # Prepare container configuration
             # Build environment — mirror docker-compose sandbox service env vars
