@@ -10,12 +10,13 @@ ENV HOSTNAME=sandbox
 
 # Base system tools
 # Cache-bust: 2026-03-24 (bump date to force apt-get update after mirror rotation)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,sharing=locked,target=/var/lib/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
     sudo bc curl wget gnupg ca-certificates software-properties-common python3-apt \
     xterm socat supervisor libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri \
     libgl1-mesa-glx libgif7 libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 \
-    libxinerama1 libxkbfile1 perl xauth x11-xkb-utils xkb-data x11-utils dbus-x11 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    libxinerama1 libxkbfile1 perl xauth x11-xkb-utils xkb-data x11-utils dbus-x11
 
 # Create user ubuntu (sudo removed in runtime stage)
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
@@ -52,13 +53,14 @@ RUN curl -LsSf https://astral.sh/uv/0.7.12/install.sh | env UV_INSTALL_DIR=/usr/
 # fonts-dejavu-core: fallback sans/serif/mono
 # fonts-freefont-ttf: additional Unicode coverage
 # fontconfig: font configuration and caching system
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,sharing=locked,target=/var/lib/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-noto-color-emoji \
     fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
     locales \
     && locale-gen en_US.UTF-8 \
-    && fc-cache -f \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && fc-cache -f
 
 WORKDIR /app
 COPY requirements.txt requirements.runtime.txt requirements.addons.txt ./
@@ -69,16 +71,17 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 # Step 1: Upgrade pip/setuptools/wheel FIRST to replace system-bundled vulnerable versions
 #   - setuptools>=78.1.0 vendors jaraco.context>=6.1.0 (fixes CVE-2026-23949)
 #   - wheel>=0.46.2 fixes permission traversal (CVE-2026-24049)
-RUN python3 -m venv /opt/base-python-venv && \
-    uv pip install --python /opt/base-python-venv/bin/python --no-cache \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    python3 -m venv /opt/base-python-venv && \
+    uv pip install --python /opt/base-python-venv/bin/python \
         "pip>=25.1" "setuptools>=78.1.0" "wheel>=0.46.2" && \
-    uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.runtime.txt && \
+    uv pip install --python /opt/base-python-venv/bin/python -r /app/requirements.runtime.txt && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
-        uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \
+        uv pip install --python /opt/base-python-venv/bin/python -r /app/requirements.addons.txt; \
     fi && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
     # Force-install standalone jaraco.context and wheel into the venv so Trivy sees the fixed versions
-    uv pip install --python /opt/base-python-venv/bin/python --no-cache \
+    uv pip install --python /opt/base-python-venv/bin/python \
         "jaraco.context>=6.1.0" "wheel>=0.46.2" && \
     # Remove ensurepip bundled wheels (contain old pip/setuptools/wheel that Trivy flags)
     rm -rf /usr/lib/python3.11/ensurepip/_bundled/ && \
@@ -97,7 +100,8 @@ RUN python3 -m venv /opt/base-python-venv && \
 
 # Node CLI tools used by sandbox code-dev/test endpoints
 # yarn 1.22.22 matches the reference sandbox environment (report §3.1)
-RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli@11.12.0
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli@11.12.0
 
 # Optional pnpm globals (add-ons profile)
 RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pnpm/global/5 /home/ubuntu/.pnpm-store/v10/projects && \
@@ -145,7 +149,9 @@ ENV HOSTNAME=sandbox
 
 # All runtime apt packages in a single layer to minimize image size.
 # gh CLI installed separately below via .deb for version pinning (fixes CVE-2026-33186 in bundled grpc).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,sharing=locked,target=/var/lib/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Container init + core tools
     tini sudo bc curl wget gnupg ca-certificates socat supervisor \
     xterm perl xauth x11-xkb-utils xkb-data x11-utils x11-apps x11-xserver-utils xdotool dbus-x11 \
@@ -174,8 +180,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             vim nano xclip xdg-utils tree ffmpeg imagemagick; \
     fi && \
     locale-gen en_US.UTF-8 && \
-    fc-cache -f && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    fc-cache -f
 
 # gh CLI — pinned version via official .deb (apt repo lags behind, bundled grpc had CVE-2026-33186)
 ARG GH_VERSION=2.88.1

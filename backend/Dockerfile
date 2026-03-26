@@ -9,11 +9,12 @@ ENV UV_HTTP_TIMEOUT=300
 WORKDIR /build
 
 # Build tools + runtime libs needed by native wheels (lxml, Pillow, etc.)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,sharing=locked,target=/var/lib/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ python3-dev curl \
     libxcb1 libxcb-util1 libxrender1 libxext6 libglib2.0-0 \
-    libgl1 libgles2 libglx0 libegl1 \
-    && rm -rf /var/lib/apt/lists/*
+    libgl1 libgles2 libglx0 libegl1
 
 # Install uv (standalone binary — faster than pip install uv)
 # Pinned to 0.7.12+ for patched jsonwebtoken Rust crate (CVE-2026-25537)
@@ -25,9 +26,10 @@ COPY requirements.txt .
 #   - pip>=25.1 fixes CVE-2026-1703, CVE-2025-8869
 #   - setuptools>=78.1.0 vendors jaraco.context>=6.1.0 (CVE-2026-23949)
 #   - wheel>=0.46.2 fixes permission traversal (CVE-2026-24049)
-RUN uv pip install --system --no-cache "pip>=25.1" "setuptools>=78.1.0,<81" "wheel>=0.46.2" Cython && \
-    uv pip install --system --no-cache --no-build-isolation editdistpy==0.1.6 && \
-    uv pip install --system --no-cache -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system "pip>=25.1" "setuptools>=78.1.0,<81" "wheel>=0.46.2" Cython && \
+    uv pip install --system --no-build-isolation editdistpy==0.1.6 && \
+    uv pip install --system -r requirements.txt
 
 # Install Playwright Chromium for PDF rendering
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
@@ -60,7 +62,9 @@ ENV BUILD_DATE=${BUILD_DATE}
 WORKDIR /app
 
 # Runtime-only system packages (no gcc/g++/dev tools)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,sharing=locked,target=/var/lib/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fonts-dejavu-core \
     fonts-liberation \
@@ -70,8 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libxshmfence1 \
     # Shared libs for native Python wheels (Pillow, lxml, etc.)
     libxcb1 libxcb-util1 libxrender1 libxext6 libglib2.0-0 \
-    libgl1 libgles2 libglx0 libegl1 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    libgl1 libgles2 libglx0 libegl1
 
 # Remove stale pip/setuptools from base image BEFORE copying builder packages
 # (Docker COPY merges directories — old dist-info would survive alongside upgraded versions)
