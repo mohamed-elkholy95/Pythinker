@@ -27,9 +27,7 @@ from app.domain.models.knowledge_gap import (
     CapabilityAssessment,
     GapSeverity,
     GapType,
-    InformationRequest,
     KnowledgeAssessment,
-    KnowledgeDomain,
     KnowledgeGap,
 )
 from app.domain.services.agents.reasoning.meta_cognition import (
@@ -37,7 +35,6 @@ from app.domain.services.agents.reasoning.meta_cognition import (
     get_meta_cognition,
     reset_meta_cognition,
 )
-
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -121,9 +118,7 @@ class TestAssessKnowledgeBoundaries:
     def test_critical_gaps_reduce_confidence(self, module):
         # Private API knowledge triggers HIGH gap
         result_simple = module.assess_knowledge_boundaries("Write Python code")
-        result_gap = module.assess_knowledge_boundaries(
-            "Access proprietary APIs with private packages"
-        )
+        result_gap = module.assess_knowledge_boundaries("Access proprietary APIs with private packages")
         assert result_gap.overall_confidence <= result_simple.overall_confidence
 
     def test_no_blocking_gaps_can_proceed(self, module):
@@ -377,9 +372,7 @@ class TestExtractUncertaintyGaps:
 
     def test_only_one_gap_per_text(self, module):
         # Even with multiple patterns, only one gap added per call
-        gaps = module._extract_uncertainty_gaps(
-            "I'm not sure, it's unclear, and I cannot determine"
-        )
+        gaps = module._extract_uncertainty_gaps("I'm not sure, it's unclear, and I cannot determine")
         assert len(gaps) == 1
 
     def test_gap_type_is_contextual(self, module):
@@ -515,9 +508,7 @@ class TestComputeUncertaintyScore:
 
     def test_context_passed_to_assessment(self, module):
         # Should not raise even with context
-        score = module.compute_uncertainty_score(
-            "task", context={"key": "value"}
-        )
+        score = module.compute_uncertainty_score("task", context={"key": "value"})
         assert 0.0 <= score <= 1.0
 
     def test_exception_during_assessment_defaults_to_moderate(self, module):

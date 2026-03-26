@@ -16,7 +16,7 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,7 +35,6 @@ from app.domain.services.agents.reasoning.engine import (
     get_reasoning_engine,
     reset_reasoning_engine,
 )
-
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -301,9 +300,7 @@ class TestValidateReasoning:
         # Add a step with more uncertainty thoughts than steps
         for i in range(3):
             step = ReasoningStep(name=f"Uncertain {i}")
-            step.add_thought(
-                Thought(type=ThoughtType.UNCERTAINTY, content=f"Uncertain {i}", confidence=0.3)
-            )
+            step.add_thought(Thought(type=ThoughtType.UNCERTAINTY, content=f"Uncertain {i}", confidence=0.3))
             step.is_complete = True
             chain.add_step(step)
         chain.final_decision = "Try anyway"
@@ -566,9 +563,7 @@ class TestCalculateValidationConfidence:
 
     def test_many_issues_floor_at_zero(self, engine):
         chain = _build_chain(confidence=0.3)
-        score = engine._calculate_validation_confidence(
-            chain, ["issue"] * 10, ["warn"] * 10
-        )
+        score = engine._calculate_validation_confidence(chain, ["issue"] * 10, ["warn"] * 10)
         assert score >= 0.0
 
 

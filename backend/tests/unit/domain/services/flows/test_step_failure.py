@@ -168,7 +168,7 @@ class TestShouldSkipStep:
         step = _make_step(step_id="s1", dependencies=["dep1"], description="Compile results")
         plan = _make_plan([dep, step])
 
-        should_skip, reason = self.handler.should_skip_step(plan, step)
+        should_skip, _reason = self.handler.should_skip_step(plan, step)
 
         assert should_skip is False
 

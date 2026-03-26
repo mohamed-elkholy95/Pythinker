@@ -138,7 +138,7 @@ class TestVerifyToken:
         assert reason == "invalid_token"
 
     def test_garbage_token(self, token_service: TokenService) -> None:
-        result, reason = token_service.verify_token_with_reason("not.a.jwt")
+        result, _reason = token_service.verify_token_with_reason("not.a.jwt")
         assert result is None
 
 
@@ -177,7 +177,7 @@ class TestVerifyTokenAsync:
 
         with (
             patch("app.application.services.token_service.get_redis", return_value=mock_redis),
-            patch("app.application.services.token_service.token_auth_fail_closed_total") as mock_metric,
+            patch("app.application.services.token_service.token_auth_fail_closed_total"),
         ):
             result, reason = await token_service.verify_token_async_with_reason(token)
 

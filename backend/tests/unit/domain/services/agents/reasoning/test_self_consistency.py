@@ -19,8 +19,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -40,16 +39,13 @@ from app.domain.services.agents.reasoning.self_consistency import (
     reset_consistency_checker,
 )
 
-
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def mock_llm():
     llm = AsyncMock()
-    llm.ask = AsyncMock(
-        return_value={"content": "I will use approach A. Therefore, proceed with plan A."}
-    )
+    llm.ask = AsyncMock(return_value={"content": "I will use approach A. Therefore, proceed with plan A."})
     return llm
 
 
@@ -66,7 +62,7 @@ def _make_path(
 ) -> ReasoningPath:
     chain = ThoughtChain(problem="Test", overall_confidence=confidence)
     step = ReasoningStep(name="step")
-    for t in (thought_types or [ThoughtType.ANALYSIS]):
+    for t in thought_types or [ThoughtType.ANALYSIS]:
         step.add_thought(Thought(type=t, content=f"Thought for {t.value}", confidence=confidence))
     step.is_complete = True
     chain.add_step(step)
@@ -229,7 +225,7 @@ class TestGeneratePaths:
     @pytest.mark.asyncio
     async def test_uses_default_n_paths_when_none(self, checker):
         paths = await checker.generate_paths("problem", n_paths=None)
-        # default_n_paths = 3
+        # Uses default n_paths=3
         assert len(paths) <= 3
 
     @pytest.mark.asyncio
@@ -300,7 +296,7 @@ class TestAggregatePaths:
 
     @pytest.mark.asyncio
     async def test_identical_decisions_high_agreement(self, checker):
-        paths = [_make_path(f"Use option A every time", path_id=f"p{i}") for i in range(3)]
+        paths = [_make_path("Use option A every time", path_id=f"p{i}") for i in range(3)]
         result = await checker.aggregate_paths(paths)
         assert isinstance(result, ConsensusResult)
 
@@ -368,14 +364,14 @@ class TestCheckConsistency:
         ]
         mock_llm.ask = AsyncMock(side_effect=responses * 2)
         checker = SelfConsistencyChecker(llm=mock_llm, default_n_paths=3)
-        result, passed = await checker.check_consistency("problem", min_agreement=0.9)
+        _result, passed = await checker.check_consistency("problem", min_agreement=0.9)
         assert isinstance(passed, bool)
 
     @pytest.mark.asyncio
     async def test_passes_when_above_threshold(self, mock_llm):
         mock_llm.ask.return_value = {"content": "I will use approach A. Therefore, proceed."}
         checker = SelfConsistencyChecker(llm=mock_llm, default_n_paths=2)
-        result, passed = await checker.check_consistency("problem", min_agreement=0.0)
+        _result, passed = await checker.check_consistency("problem", min_agreement=0.0)
         assert passed is True
 
 

@@ -21,7 +21,6 @@ from app.domain.services.agents.memory.importance_analyzer import (
     ImportanceScore,
 )
 
-
 # ---------------------------------------------------------------------------
 # ImportanceScore dataclass
 # ---------------------------------------------------------------------------
@@ -244,9 +243,7 @@ class TestScoreMessageKeywords:
 
     def test_score_capped_at_1_0(self, analyzer):
         """Even with many keywords the score must not exceed 1.0."""
-        content = " ".join(
-            ["decision", "plan", "goal", "blocked", "dependency", "result", "summary", "error", "failed", "success", "verification"]
-        )
+        content = "decision plan goal blocked dependency result summary error failed success verification"
         msg = {"role": "system", "content": content}
         # system base = 0.9, 11 keywords * 0.05 = 0.55 → would be 1.45 uncapped
         result = analyzer.score_message(msg, 0, 100, 0)

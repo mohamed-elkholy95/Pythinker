@@ -24,17 +24,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
-from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.memory.importance_analyzer import ImportanceAnalyzer
 from app.domain.services.agents.memory.temporal_compressor import (
     TemporalCompressionStats,
     TemporalCompressor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -196,20 +193,20 @@ class TestRecentWindowBoundary:
         """index == total - preserve_recent → in window → not compacted."""
         msgs = [_tool_msg("x" * 100) for _ in range(20)]
         # preserve_recent=5 → boundary at index 15
-        result, stats = tc.compress(msgs, preserve_recent=5, importance_analyzer=AlwaysLowImportanceAnalyzer())
-        # indices 0–14 (15 messages) are old → compacted
-        # indices 15–19 (5 messages) are recent → pass through
+        _result, stats = tc.compress(msgs, preserve_recent=5, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        # indices 0-14 (15 messages) are old → compacted
+        # indices 15-19 (5 messages) are recent → pass through
         assert stats.compacted == 15
 
     def test_preserve_recent_larger_than_total_nothing_compacted(self, tc):
         msgs = [_tool_msg("x" * 100) for _ in range(5)]
-        result, stats = tc.compress(msgs, preserve_recent=100, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        _result, stats = tc.compress(msgs, preserve_recent=100, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 0
 
     def test_preserve_recent_zero_means_threshold_equals_total_nothing_recent(self, tc):
         """max(0, total - 0) = total → index < total always → nothing is recent."""
         msgs = [_tool_msg("a" * 100) for _ in range(3)]
-        result, stats = tc.compress(msgs, preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        _result, stats = tc.compress(msgs, preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 3
 
 
@@ -233,14 +230,14 @@ class TestToolMessageCompression:
     def test_long_tool_message_is_compacted(self, tc):
         """content > 100 → always compacted (regardless of importance when using low analyzer)."""
         msg = _tool_msg("x" * 200)
-        result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        _result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 1
         assert stats.tool_compacted == 1
 
     def test_short_low_importance_tool_message_is_compacted(self, tc):
         """content <= 100 but low importance → compacted."""
         msg = _tool_msg("short")
-        result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        _result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 1
         assert stats.tool_compacted == 1
 
@@ -287,7 +284,7 @@ class TestAssistantMessageCompression:
 
     def test_long_assistant_message_is_truncated(self, tc):
         msg = _assistant_msg("a" * 200)
-        result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
+        _result, stats = tc.compress([msg], preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 1
         assert stats.assistant_compacted == 1
 
@@ -352,11 +349,11 @@ class TestMixedMessageTypes:
     def test_mixed_messages_correct_stats(self):
         tc = TemporalCompressor(tool_max_chars=10, assistant_max_chars=10)
         msgs = [
-            _system_msg("sys prompt"),          # exempt
-            _user_msg("user query"),             # exempt
-            _tool_msg("x" * 100),               # compacted → tool_compacted
-            _assistant_msg("a" * 100),           # compacted → assistant_compacted
-            _tool_msg("y" * 5),                  # short, but low importance → compacted
+            _system_msg("sys prompt"),  # exempt
+            _user_msg("user query"),  # exempt
+            _tool_msg("x" * 100),  # compacted → tool_compacted
+            _assistant_msg("a" * 100),  # compacted → assistant_compacted
+            _tool_msg("y" * 5),  # short, but low importance → compacted
         ]
         _, stats = tc.compress(msgs, preserve_recent=0, importance_analyzer=AlwaysLowImportanceAnalyzer())
         assert stats.compacted == 3
@@ -480,7 +477,7 @@ class TestTemporalCompressorEdgeCases:
     def test_default_analyzer_created_when_none_provided(self, tc):
         """When no importance_analyzer is passed, the default ImportanceAnalyzer is used."""
         msg = _tool_msg("x" * 10)  # short content, score=0.3 < 0.6 threshold → compacted
-        result, stats = tc.compress([msg], preserve_recent=0)
+        _result, stats = tc.compress([msg], preserve_recent=0)
         # With default analyzer: tool, score=0.3, threshold=0.6 → low importance → compacted
         assert stats.compacted == 1
 

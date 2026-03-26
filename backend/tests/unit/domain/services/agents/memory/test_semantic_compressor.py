@@ -20,17 +20,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
-from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.memory.importance_analyzer import ImportanceAnalyzer
 from app.domain.services.agents.memory.semantic_compressor import (
     SemanticCompressionStats,
     SemanticCompressor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,11 +150,11 @@ class TestToolMessagesInRecentWindow:
         """index == total - preserve_recent is within the recent window."""
         msgs = [_tool_msg("output") for _ in range(20)]
         # index 15 is the boundary (20 - 5 = 15)
-        result, stats = compressor.compress(msgs, preserve_recent=5)
-        # Indices 15–19 are recent: 5 messages pass through without compaction check.
-        # Indices 0–14 (15 messages) are old, but since they're all identical,
+        _result, stats = compressor.compress(msgs, preserve_recent=5)
+        # Indices 15-19 are recent: 5 messages pass through without compaction check.
+        # Indices 0-14 (15 messages) are old, but since they're all identical,
         # the first one stores the fingerprint and all subsequent ones are duplicates.
-        # First occurrence at index 0 → not compacted; 1–14 → compacted (14 duplicates)
+        # First occurrence at index 0 → not compacted; 1-14 → compacted (14 duplicates)
         assert stats.duplicates == 14
 
 
@@ -204,7 +201,7 @@ class TestDuplicateCompaction:
             _tool_msg("search result page: item A"),
             _tool_msg("search result page: item A"),  # identical → duplicate
         ]
-        result, stats = compressor.compress(msgs, preserve_recent=0)
+        _result, stats = compressor.compress(msgs, preserve_recent=0)
         assert stats.compacted == 1
         assert stats.duplicates == 1
 
@@ -228,7 +225,7 @@ class TestDuplicateCompaction:
 
     def test_three_duplicates_compacts_two(self, compressor):
         msgs = [_tool_msg("repeated output") for _ in range(3)]
-        result, stats = compressor.compress(msgs, preserve_recent=0)
+        _result, stats = compressor.compress(msgs, preserve_recent=0)
         assert stats.compacted == 2
         assert stats.duplicates == 2
 
@@ -245,7 +242,7 @@ class TestDuplicateCompaction:
             {"role": "tool", "content": "same output", "function_name": "search"},
             {"role": "tool", "content": "same output", "function_name": "browser"},
         ]
-        result, stats = compressor.compress(msgs, preserve_recent=0)
+        _result, stats = compressor.compress(msgs, preserve_recent=0)
         assert stats.compacted == 0
 
 
@@ -277,7 +274,7 @@ class TestAlreadyCompactedMessages:
         are skipped entirely (not stored in seen), second also passes through."""
         msg_compacted = _tool_msg("(compacted) some search result data")
         msg_fresh = _tool_msg("some search result data")
-        result, stats = compressor.compress([msg_compacted, msg_fresh], preserve_recent=0)
+        _result, stats = compressor.compress([msg_compacted, msg_fresh], preserve_recent=0)
         # msg_compacted is skipped → fingerprint never stored → msg_fresh is first → not duplicate
         assert stats.compacted == 0
 
@@ -420,7 +417,7 @@ class TestSemanticCompressorEdgeCases:
         custom_analyzer = ImportanceAnalyzer()
         # Patch is_low_importance to always return False (high importance)
         custom_analyzer.is_low_importance = lambda score, threshold=0.5: False  # type: ignore[method-assign]
-        result, stats = compressor.compress(msgs, preserve_recent=0, importance_analyzer=custom_analyzer)
+        _result, stats = compressor.compress(msgs, preserve_recent=0, importance_analyzer=custom_analyzer)
         assert stats.compacted == 0
 
     def test_output_length_equals_input_length(self, compressor):

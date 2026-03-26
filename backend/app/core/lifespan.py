@@ -312,7 +312,7 @@ def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -
     exceptions are forwarded to the default handler.
     """
     exception = context.get("exception")
-    message = context.get("message", "")
+    context.get("message", "")
 
     if exception:
         err_text = str(exception)

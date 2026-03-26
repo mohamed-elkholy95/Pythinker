@@ -107,9 +107,7 @@ class TestSanitize:
     """Tests for _sanitize."""
 
     def setup_method(self) -> None:
-        self.refiner = FastAcknowledgmentRefiner(
-            llm=AsyncMock(), fallback_generator=MagicMock()
-        )
+        self.refiner = FastAcknowledgmentRefiner(llm=AsyncMock(), fallback_generator=MagicMock())
 
     def test_empty_string(self) -> None:
         assert self.refiner._sanitize("") == ""
@@ -152,9 +150,7 @@ class TestShouldPreferFallback:
     """Tests for _should_prefer_fallback."""
 
     def setup_method(self) -> None:
-        self.refiner = FastAcknowledgmentRefiner(
-            llm=AsyncMock(), fallback_generator=MagicMock()
-        )
+        self.refiner = FastAcknowledgmentRefiner(llm=AsyncMock(), fallback_generator=MagicMock())
 
     def test_generic_refined_non_generic_fallback(self) -> None:
         refined = "Got it! I will research on the following topics."
@@ -176,23 +172,17 @@ class TestShouldSampleTraceback:
     """Tests for _should_sample_traceback."""
 
     def test_zero_rate_never_samples(self) -> None:
-        refiner = FastAcknowledgmentRefiner(
-            llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=0
-        )
+        refiner = FastAcknowledgmentRefiner(llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=0)
         refiner._error_count = 1
         assert refiner._should_sample_traceback() is False
 
     def test_full_rate_always_samples(self) -> None:
-        refiner = FastAcknowledgmentRefiner(
-            llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=1.0
-        )
+        refiner = FastAcknowledgmentRefiner(llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=1.0)
         refiner._error_count = 1
         assert refiner._should_sample_traceback() is True
 
     def test_5_percent_rate_samples_every_20th(self) -> None:
-        refiner = FastAcknowledgmentRefiner(
-            llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=0.05
-        )
+        refiner = FastAcknowledgmentRefiner(llm=AsyncMock(), fallback_generator=MagicMock(), traceback_sample_rate=0.05)
         refiner._error_count = 20
         assert refiner._should_sample_traceback() is True
         refiner._error_count = 21

@@ -9,8 +9,8 @@ stays fast.
 from __future__ import annotations
 
 import asyncio
-import collections.abc
-from typing import AsyncGenerator
+import contextlib
+from collections.abc import AsyncGenerator
 
 import pytest
 
@@ -100,9 +100,7 @@ class TestLLMHeartbeatInit:
         assert hb._phase == phase
 
 
-# ---------------------------------------------------------------------------
-# LLMHeartbeat.start()
-# ---------------------------------------------------------------------------
+# --- LLMHeartbeat.start() ---
 
 
 class TestLLMHeartbeatStart:
@@ -152,9 +150,7 @@ class TestLLMHeartbeatStart:
             await asyncio.sleep(0)
 
 
-# ---------------------------------------------------------------------------
-# LLMHeartbeat.stop()
-# ---------------------------------------------------------------------------
+# --- LLMHeartbeat.stop() ---
 
 
 class TestLLMHeartbeatStop:
@@ -199,9 +195,7 @@ class TestLLMHeartbeatStop:
         assert len(post_stop_events) == 0
 
 
-# ---------------------------------------------------------------------------
-# LLMHeartbeat.drain()
-# ---------------------------------------------------------------------------
+# --- LLMHeartbeat.drain() ---
 
 
 class TestLLMHeartbeatDrain:
@@ -426,9 +420,7 @@ class TestInterleaveHeartbeatInjection:
             interval_seconds=FAST_INTERVAL,
         )
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 4), hb)
-            )
+            result = await _collect(interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 4), hb))
         heartbeats = [e for e in result if isinstance(e, ProgressEvent)]
         assert len(heartbeats) >= 1, f"expected heartbeats during stall, got {len(heartbeats)}"
 
@@ -445,9 +437,7 @@ class TestInterleaveHeartbeatInjection:
         phase = PlanningPhase.WAITING
         hb = LLMHeartbeat(phase=phase, message="waiting...", interval_seconds=FAST_INTERVAL)
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 3), hb)
-            )
+            result = await _collect(interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 3), hb))
         for event in result:
             if isinstance(event, ProgressEvent):
                 assert event.phase == phase
@@ -456,9 +446,7 @@ class TestInterleaveHeartbeatInjection:
         message = "custom heartbeat message"
         hb = LLMHeartbeat(phase=PlanningPhase.HEARTBEAT, message=message, interval_seconds=FAST_INTERVAL)
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 3), hb)
-            )
+            result = await _collect(interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 3), hb))
         for event in result:
             if isinstance(event, ProgressEvent):
                 assert event.message == message
@@ -474,9 +462,7 @@ class TestInterleaveHeartbeatOrdering:
         """Buffered heartbeats must be yielded before the real event that unlocked them."""
         hb = LLMHeartbeat(phase=PlanningPhase.HEARTBEAT, message="x", interval_seconds=FAST_INTERVAL)
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 4), hb)
-            )
+            result = await _collect(interleave_heartbeat(_single_slow(stall=FAST_INTERVAL * 4), hb))
         if len(result) > 1:
             first_real_idx = next(
                 (i for i, e in enumerate(result) if isinstance(e, _StubEvent)),
@@ -484,18 +470,14 @@ class TestInterleaveHeartbeatOrdering:
             )
             # All events before the first real event should be ProgressEvent
             for event in result[:first_real_idx]:
-                assert isinstance(event, ProgressEvent), (
-                    f"expected ProgressEvent before real event, got {type(event)}"
-                )
+                assert isinstance(event, ProgressEvent), f"expected ProgressEvent before real event, got {type(event)}"
 
     async def test_inner_event_sequence_preserved(self) -> None:
         """The relative order of inner events is maintained even with interleaved heartbeats."""
         item_count = 4
         hb = LLMHeartbeat(phase=PlanningPhase.HEARTBEAT, message="x", interval_seconds=FAST_INTERVAL)
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(_yield_n(item_count, delay=FAST_INTERVAL * 1.5), hb)
-            )
+            result = await _collect(interleave_heartbeat(_yield_n(item_count, delay=FAST_INTERVAL * 1.5), hb))
         labels = [e.label for e in result if isinstance(e, _StubEvent)]
         assert labels == [f"item-{i}" for i in range(item_count)]
 
@@ -512,9 +494,7 @@ class TestInterleaveHeartbeatOrdering:
         # The drained heartbeats from the final branch should appear in result
         # (they were accumulated before interleave was called)
         heartbeats = [e for e in result if isinstance(e, ProgressEvent)]
-        assert len(heartbeats) >= 1, (
-            "expected pre-accumulated heartbeats to be yielded on exhaustion"
-        )
+        assert len(heartbeats) >= 1, "expected pre-accumulated heartbeats to be yielded on exhaustion"
 
 
 # ---------------------------------------------------------------------------
@@ -603,10 +583,8 @@ class TestEmitLoopCancellation:
         task = hb._task
         task.cancel()
         # Awaiting the task should not raise CancelledError to us
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass  # Expected from outside if the task was cancelled externally
         assert task.done()
 
     async def test_loop_stops_accumulating_after_stop(self) -> None:
@@ -639,11 +617,7 @@ class TestInterleaveHeartbeatIntervalAccess:
             interval_seconds=short_interval,
         )
         async with hb:
-            result = await _collect(
-                interleave_heartbeat(
-                    _single_slow(stall=short_interval * 5), hb
-                )
-            )
+            result = await _collect(interleave_heartbeat(_single_slow(stall=short_interval * 5), hb))
         heartbeats = [e for e in result if isinstance(e, ProgressEvent)]
         # With 5-interval stall and correct interval used for wait, we expect >=2 timeout cycles
         assert len(heartbeats) >= 2
