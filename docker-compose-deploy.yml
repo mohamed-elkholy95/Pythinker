@@ -66,9 +66,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     depends_on:
-      sandbox:
-        condition: service_healthy
-        restart: true
       mongodb:
         condition: service_healthy
         restart: true
@@ -95,7 +92,7 @@ services:
         max-size: "50m"
         max-file: "5"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - knowledge_base_data:/app/data/knowledge_bases
       - dspy_cache:/app/data/dspy_cache
     networks:
@@ -105,8 +102,8 @@ services:
       - .env
     environment:
       - ENVIRONMENT=production
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-ephemeral}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
@@ -157,9 +154,6 @@ services:
         restart: true
       minio-init:
         condition: service_completed_successfully
-      sandbox:
-        condition: service_healthy
-        restart: true
     restart: always
     logging:
       driver: json-file
@@ -167,7 +161,7 @@ services:
         max-size: "50m"
         max-file: "3"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - dspy_cache:/app/data/dspy_cache
     networks:
       - dokploy-network
@@ -177,8 +171,8 @@ services:
     environment:
       - ENVIRONMENT=production
       - CHANNEL_GATEWAY_ENABLED=true
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-ephemeral}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
@@ -191,9 +185,11 @@ services:
       - QDRANT_URL=http://pythinker-qdrant:6333
 
   # ---------------------------------------------------------------------------
-  # Sandbox — Isolated Docker Execution Environment
+  # Sandbox — Static sandbox for debugging (opt-in via: --profile static-sandbox)
+  # In production, ephemeral mode creates per-session containers dynamically.
   # ---------------------------------------------------------------------------
   sandbox:
+    profiles: ["static-sandbox"]
     image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
     pull_policy: always
     build:
