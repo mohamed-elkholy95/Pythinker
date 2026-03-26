@@ -1,0 +1,289 @@
+# =============================================================================
+# SLO Burn Rate Recording Rules & Alerts — Multi-Window Google SRE Pattern
+# =============================================================================
+# Implements multi-window burn rate alerting per Google SRE workbook:
+#   - Fast burn (page):  14.4x burn rate over short window (budget gone in ~1h)
+#   - Slow burn (ticket): 3x burn rate over long window (budget gone in ~3 days)
+#
+# SLO Targets:
+#   - Agent task completion: 99.5% (error budget: 0.5%)
+#   - LLM availability:     99.0% (error budget: 1.0%)
+#   - Tool reliability:     98.0% (error budget: 2.0%)
+#   - Delivery quality:     95.0% (error budget: 5.0%)
+#
+# Each SLO has 4 recording rules (5m, 30m, 1h, 6h windows) and 2 alerts
+# (fast burn critical, slow burn warning).
+# =============================================================================
+
+groups:
+  # ─────────────────────────────────────────────────────────────────────
+  # Recording Rules: Error Ratios Over Multiple Windows
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_slo_burn_rate_recording
+    interval: 30s
+    rules:
+      # ── Agent Task Completion (99.5% SLO) ───────────────────────────
+      # Uses pythinker_sessions_total: FAILED / (COMPLETED + FAILED + CANCELLED)
+      - record: pythinker:slo_agent_task_error_ratio:5m
+        expr: |
+          (
+            sum(rate(pythinker_sessions_total{status="FAILED"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_sessions_total[5m])), 0.000001)
+          )
+
+      - record: pythinker:slo_agent_task_error_ratio:30m
+        expr: |
+          (
+            sum(rate(pythinker_sessions_total{status="FAILED"}[30m]))
+            /
+            clamp_min(sum(rate(pythinker_sessions_total[30m])), 0.000001)
+          )
+
+      - record: pythinker:slo_agent_task_error_ratio:1h
+        expr: |
+          (
+            sum(rate(pythinker_sessions_total{status="FAILED"}[1h]))
+            /
+            clamp_min(sum(rate(pythinker_sessions_total[1h])), 0.000001)
+          )
+
+      - record: pythinker:slo_agent_task_error_ratio:6h
+        expr: |
+          (
+            sum(rate(pythinker_sessions_total{status="FAILED"}[6h]))
+            /
+            clamp_min(sum(rate(pythinker_sessions_total[6h])), 0.000001)
+          )
+
+      # ── LLM Availability (99.0% SLO) ───────────────────────────────
+      # Uses pythinker_llm_calls_total: error / total
+      - record: pythinker:slo_llm_error_ratio:5m
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="error"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[5m])), 0.000001)
+          )
+
+      - record: pythinker:slo_llm_error_ratio:30m
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="error"}[30m]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[30m])), 0.000001)
+          )
+
+      - record: pythinker:slo_llm_error_ratio:1h
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="error"}[1h]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[1h])), 0.000001)
+          )
+
+      - record: pythinker:slo_llm_error_ratio:6h
+        expr: |
+          (
+            sum(rate(pythinker_llm_calls_total{status="error"}[6h]))
+            /
+            clamp_min(sum(rate(pythinker_llm_calls_total[6h])), 0.000001)
+          )
+
+      # ── Tool Reliability (98.0% SLO) ───────────────────────────────
+      # Uses pythinker_tool_calls_total: error / total
+      - record: pythinker:slo_tool_error_ratio:5m
+        expr: |
+          (
+            sum(rate(pythinker_tool_calls_total{status="error"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_tool_calls_total[5m])), 0.000001)
+          )
+
+      - record: pythinker:slo_tool_error_ratio:30m
+        expr: |
+          (
+            sum(rate(pythinker_tool_calls_total{status="error"}[30m]))
+            /
+            clamp_min(sum(rate(pythinker_tool_calls_total[30m])), 0.000001)
+          )
+
+      - record: pythinker:slo_tool_error_ratio:1h
+        expr: |
+          (
+            sum(rate(pythinker_tool_calls_total{status="error"}[1h]))
+            /
+            clamp_min(sum(rate(pythinker_tool_calls_total[1h])), 0.000001)
+          )
+
+      - record: pythinker:slo_tool_error_ratio:6h
+        expr: |
+          (
+            sum(rate(pythinker_tool_calls_total{status="error"}[6h]))
+            /
+            clamp_min(sum(rate(pythinker_tool_calls_total[6h])), 0.000001)
+          )
+
+      # ── Delivery Quality (95.0% SLO) ───────────────────────────────
+      # Uses pythinker_delivery_integrity_gate_result_total: non-passed / total
+      - record: pythinker:slo_delivery_error_ratio:5m
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result!="passed"}[5m]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[5m])), 0.000001)
+          )
+
+      - record: pythinker:slo_delivery_error_ratio:30m
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result!="passed"}[30m]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[30m])), 0.000001)
+          )
+
+      - record: pythinker:slo_delivery_error_ratio:1h
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result!="passed"}[1h]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[1h])), 0.000001)
+          )
+
+      - record: pythinker:slo_delivery_error_ratio:6h
+        expr: |
+          (
+            sum(rate(pythinker_delivery_integrity_gate_result_total{result!="passed"}[6h]))
+            /
+            clamp_min(sum(rate(pythinker_delivery_integrity_gate_result_total[6h])), 0.000001)
+          )
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Burn Rate Alerts: Multi-Window SRE Pattern
+  # ─────────────────────────────────────────────────────────────────────
+  - name: pythinker_slo_burn_rate_alerts
+    interval: 30s
+    rules:
+      # ── Agent Task Completion (99.5% SLO, budget = 0.005) ───────────
+      # Fast burn: 14.4x burn rate → exhausts budget in ~1 hour
+      - alert: AgentTaskCompletionBurnRateFast
+        expr: >
+          pythinker:slo_agent_task_error_ratio:5m > (14.4 * 0.005)
+          and
+          pythinker:slo_agent_task_error_ratio:1h > (14.4 * 0.005)
+        for: 2m
+        labels:
+          severity: critical
+          slo: agent_task_completion
+          category: slo_burn
+        annotations:
+          summary: "Agent task completion SLO fast burn detected"
+          description: "Error rate is {{ $value | humanizePercentage }} over 5m — 14.4x the allowed burn rate for 99.5% SLO. Budget will be exhausted in ~1 hour."
+
+      # Slow burn: 3x burn rate → exhausts budget in ~3 days
+      - alert: AgentTaskCompletionBurnRateSlow
+        expr: >
+          pythinker:slo_agent_task_error_ratio:30m > (3 * 0.005)
+          and
+          pythinker:slo_agent_task_error_ratio:6h > (3 * 0.005)
+        for: 5m
+        labels:
+          severity: warning
+          slo: agent_task_completion
+          category: slo_burn
+        annotations:
+          summary: "Agent task completion SLO slow burn detected"
+          description: "Sustained error rate {{ $value | humanizePercentage }} over 30m — will exhaust 99.5% SLO budget in ~3 days."
+
+      # ── LLM Availability (99.0% SLO, budget = 0.01) ────────────────
+      # Fast burn: 14.4x burn rate → exhausts budget in ~1 hour
+      - alert: LLMAvailabilityBurnRateFast
+        expr: >
+          pythinker:slo_llm_error_ratio:5m > (14.4 * 0.01)
+          and
+          pythinker:slo_llm_error_ratio:1h > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: critical
+          slo: llm_availability
+          category: slo_burn
+        annotations:
+          summary: "LLM availability SLO fast burn detected"
+          description: "LLM error rate is {{ $value | humanizePercentage }} over 5m — 14.4x the allowed burn rate for 99.0% SLO. Budget will be exhausted in ~1 hour."
+
+      # Slow burn: 3x burn rate → exhausts budget in ~3 days
+      - alert: LLMAvailabilityBurnRateSlow
+        expr: >
+          pythinker:slo_llm_error_ratio:30m > (3 * 0.01)
+          and
+          pythinker:slo_llm_error_ratio:6h > (3 * 0.01)
+        for: 5m
+        labels:
+          severity: warning
+          slo: llm_availability
+          category: slo_burn
+        annotations:
+          summary: "LLM availability SLO slow burn detected"
+          description: "Sustained LLM error rate {{ $value | humanizePercentage }} over 30m — will exhaust 99.0% SLO budget in ~3 days."
+
+      # ── Tool Reliability (98.0% SLO, budget = 0.02) ────────────────
+      # Fast burn: 14.4x burn rate → exhausts budget in ~1 hour
+      - alert: ToolReliabilityBurnRateFast
+        expr: >
+          pythinker:slo_tool_error_ratio:5m > (14.4 * 0.02)
+          and
+          pythinker:slo_tool_error_ratio:1h > (14.4 * 0.02)
+        for: 2m
+        labels:
+          severity: critical
+          slo: tool_reliability
+          category: slo_burn
+        annotations:
+          summary: "Tool reliability SLO fast burn detected"
+          description: "Tool error rate is {{ $value | humanizePercentage }} over 5m — 14.4x the allowed burn rate for 98.0% SLO. Budget will be exhausted in ~1 hour."
+
+      # Slow burn: 3x burn rate → exhausts budget in ~3 days
+      - alert: ToolReliabilityBurnRateSlow
+        expr: >
+          pythinker:slo_tool_error_ratio:30m > (3 * 0.02)
+          and
+          pythinker:slo_tool_error_ratio:6h > (3 * 0.02)
+        for: 5m
+        labels:
+          severity: warning
+          slo: tool_reliability
+          category: slo_burn
+        annotations:
+          summary: "Tool reliability SLO slow burn detected"
+          description: "Sustained tool error rate {{ $value | humanizePercentage }} over 30m — will exhaust 98.0% SLO budget in ~3 days."
+
+      # ── Delivery Quality (95.0% SLO, budget = 0.05) ────────────────
+      # Fast burn: 14.4x burn rate → exhausts budget in ~1 hour
+      - alert: DeliveryQualityBurnRateFast
+        expr: >
+          pythinker:slo_delivery_error_ratio:5m > (14.4 * 0.05)
+          and
+          pythinker:slo_delivery_error_ratio:1h > (14.4 * 0.05)
+        for: 2m
+        labels:
+          severity: critical
+          slo: delivery_quality
+          category: slo_burn
+        annotations:
+          summary: "Delivery quality SLO fast burn detected"
+          description: "Delivery failure rate is {{ $value | humanizePercentage }} over 5m — 14.4x the allowed burn rate for 95.0% SLO. Budget will be exhausted in ~1 hour."
+
+      # Slow burn: 3x burn rate → exhausts budget in ~3 days
+      - alert: DeliveryQualityBurnRateSlow
+        expr: >
+          pythinker:slo_delivery_error_ratio:30m > (3 * 0.05)
+          and
+          pythinker:slo_delivery_error_ratio:6h > (3 * 0.05)
+        for: 5m
+        labels:
+          severity: warning
+          slo: delivery_quality
+          category: slo_burn
+        annotations:
+          summary: "Delivery quality SLO slow burn detected"
+          description: "Sustained delivery failure rate {{ $value | humanizePercentage }} over 30m — will exhaust 95.0% SLO budget in ~3 days."

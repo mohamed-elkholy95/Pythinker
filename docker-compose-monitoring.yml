@@ -17,6 +17,7 @@ services:
       - ./prometheus/recording_rules.yml:/etc/prometheus/recording_rules.yml:ro
       - ./prometheus/agent_quality_alerts.yml:/etc/prometheus/agent_quality_alerts.yml:ro
       - ./prometheus/monitoring_health_alerts.yml:/etc/prometheus/monitoring_health_alerts.yml:ro
+      - ./prometheus/slo_burn_rate.yml:/etc/prometheus/slo_burn_rate.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

@@ -20,6 +20,7 @@ rule_files:
   - "recording_rules.yml"
   - "agent_quality_alerts.yml"
   - "monitoring_health_alerts.yml"
+  - "slo_burn_rate.yml"
 
 # Scrape configurations
 scrape_configs:
