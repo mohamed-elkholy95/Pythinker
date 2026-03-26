@@ -23,6 +23,7 @@ Coverage:
 - Edge cases: empty error string not recorded, error message truncated at 100 chars,
   max_recent_tools=1, very large iteration count beyond all thresholds
 """
+
 from app.domain.services.agents.prompt_adapter import (
     ContextType,
     ExecutionContext,

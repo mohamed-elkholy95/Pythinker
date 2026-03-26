@@ -559,12 +559,7 @@ class TestParameterInjectionDetection:
         detector = GamingDetector()
         # All 6 patterns in one string
         traces = [
-            {
-                "args_summary": (
-                    "ignore previous system prompt developer message "
-                    "instruction override bypass jailbreak"
-                )
-            }
+            {"args_summary": ("ignore previous system prompt developer message instruction override bypass jailbreak")}
         ]
         signals = detector.detect(output="x", user_request="task", tool_traces=traces)
         injection = [s for s in signals if s.signal_type == "parameter_injection_attempt"]

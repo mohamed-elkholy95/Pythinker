@@ -6,16 +6,16 @@ import time
 import pytest
 
 from app.domain.services.agents.prompt_cache_manager import (
-    CacheMetrics,
     CachedResponse,
+    CacheMetrics,
     LLMProvider,
     PromptCacheManager,
     PromptSection,
     SemanticResponseCache,
 )
 
-
 # ── LLMProvider enum ──────────────────────────────────────────────────
+
 
 class TestLLMProvider:
     def test_values(self):
@@ -25,6 +25,7 @@ class TestLLMProvider:
 
 
 # ── CacheMetrics ──────────────────────────────────────────────────────
+
 
 class TestCacheMetrics:
     def test_defaults(self):
@@ -63,6 +64,7 @@ class TestCacheMetrics:
 
 # ── PromptSection ─────────────────────────────────────────────────────
 
+
 class TestPromptSection:
     def test_defaults(self):
         s = PromptSection(content="hello")
@@ -72,7 +74,7 @@ class TestPromptSection:
 
     def test_hash_deterministic(self):
         s = PromptSection(content="test content")
-        expected = hashlib.md5("test content".encode(), usedforsecurity=False).hexdigest()[:12]
+        expected = hashlib.md5(b"test content", usedforsecurity=False).hexdigest()[:12]
         assert s.hash == expected
 
     def test_hash_changes_with_content(self):
@@ -83,33 +85,38 @@ class TestPromptSection:
 
 # ── PromptCacheManager._detect_provider ───────────────────────────────
 
+
 class TestProviderDetection:
-    @pytest.mark.parametrize("name,expected", [
-        ("openai", LLMProvider.OPENAI),
-        ("OpenAI", LLMProvider.OPENAI),
-        ("gpt-4", LLMProvider.OPENAI),
-        ("o1-preview", LLMProvider.OPENAI),
-        ("o3-mini", LLMProvider.OPENAI),
-        ("anthropic", LLMProvider.ANTHROPIC),
-        ("claude-3", LLMProvider.ANTHROPIC),
-        ("Claude", LLMProvider.ANTHROPIC),
-        ("glm-4", LLMProvider.OPENAI),
-        ("zhipu-api", LLMProvider.OPENAI),
-        ("deepseek-v3", LLMProvider.OPENAI),
-        ("kimi-chat", LLMProvider.OPENAI),
-        ("moonshot-v1", LLMProvider.OPENAI),
-        ("qwen-turbo", LLMProvider.OPENAI),
-        ("openrouter", LLMProvider.OPENAI),
-        ("together-ai", LLMProvider.OPENAI),
-        ("groq-llama", LLMProvider.OPENAI),
-        ("unknown-provider", LLMProvider.OPENAI),  # defaults to OpenAI
-    ])
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("openai", LLMProvider.OPENAI),
+            ("OpenAI", LLMProvider.OPENAI),
+            ("gpt-4", LLMProvider.OPENAI),
+            ("o1-preview", LLMProvider.OPENAI),
+            ("o3-mini", LLMProvider.OPENAI),
+            ("anthropic", LLMProvider.ANTHROPIC),
+            ("claude-3", LLMProvider.ANTHROPIC),
+            ("Claude", LLMProvider.ANTHROPIC),
+            ("glm-4", LLMProvider.OPENAI),
+            ("zhipu-api", LLMProvider.OPENAI),
+            ("deepseek-v3", LLMProvider.OPENAI),
+            ("kimi-chat", LLMProvider.OPENAI),
+            ("moonshot-v1", LLMProvider.OPENAI),
+            ("qwen-turbo", LLMProvider.OPENAI),
+            ("openrouter", LLMProvider.OPENAI),
+            ("together-ai", LLMProvider.OPENAI),
+            ("groq-llama", LLMProvider.OPENAI),
+            ("unknown-provider", LLMProvider.OPENAI),  # defaults to OpenAI
+        ],
+    )
     def test_detect_provider(self, name, expected):
         mgr = PromptCacheManager(provider=name)
         assert mgr._provider == expected
 
 
 # ── PromptCacheManager.prepare_messages_for_caching ───────────────────
+
 
 class TestPrepareMessages:
     def test_empty_messages(self):
@@ -167,6 +174,7 @@ class TestPrepareMessages:
 
 # ── PromptCacheManager cache metrics tracking ─────────────────────────
 
+
 class TestCacheMetricsTracking:
     def test_first_call_is_miss(self):
         mgr = PromptCacheManager(provider="openai")
@@ -192,6 +200,7 @@ class TestCacheMetricsTracking:
 
 # ── PromptCacheManager.split_prompt ───────────────────────────────────
 
+
 class TestSplitPrompt:
     def test_no_dynamic_sections(self):
         mgr = PromptCacheManager()
@@ -211,6 +220,7 @@ class TestSplitPrompt:
 
 # ── PromptCacheManager.track_prompt_version ───────────────────────────
 
+
 class TestTrackPromptVersion:
     def test_first_time_returns_false(self):
         mgr = PromptCacheManager()
@@ -229,6 +239,7 @@ class TestTrackPromptVersion:
 
 # ── PromptCacheManager.get_cache_control_params ───────────────────────
 
+
 class TestCacheControlParams:
     def test_anthropic_returns_header(self):
         mgr = PromptCacheManager(provider="anthropic")
@@ -242,6 +253,7 @@ class TestCacheControlParams:
 
 
 # ── PromptCacheManager.get_metrics / reset_metrics ────────────────────
+
 
 class TestManagerMetrics:
     def test_get_metrics_structure(self):
@@ -262,6 +274,7 @@ class TestManagerMetrics:
 
 
 # ── SemanticResponseCache ─────────────────────────────────────────────
+
 
 class TestSemanticResponseCache:
     def test_init_defaults(self):
@@ -382,6 +395,7 @@ class TestSemanticResponseCache:
 
 
 # ── CachedResponse ────────────────────────────────────────────────────
+
 
 class TestCachedResponse:
     def test_defaults(self):

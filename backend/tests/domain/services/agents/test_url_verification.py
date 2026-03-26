@@ -252,9 +252,7 @@ class TestBatchURLVerificationResultAllValid:
     def test_single_verified_url(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://a.com": URLVerificationResult(
-                    url="https://a.com", status=URLVerificationStatus.VERIFIED
-                )
+                "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED)
             },
             total_urls=1,
             verified_count=1,
@@ -266,12 +264,8 @@ class TestBatchURLVerificationResultAllValid:
     def test_multiple_verified_urls(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://a.com": URLVerificationResult(
-                    url="https://a.com", status=URLVerificationStatus.VERIFIED
-                ),
-                "https://b.com": URLVerificationResult(
-                    url="https://b.com", status=URLVerificationStatus.VERIFIED
-                ),
+                "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED),
+                "https://b.com": URLVerificationResult(url="https://b.com", status=URLVerificationStatus.VERIFIED),
             },
             total_urls=2,
             verified_count=2,
@@ -315,12 +309,8 @@ class TestBatchURLVerificationResultGetInvalidUrls:
     def test_returns_non_verified_urls(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://ok.com": URLVerificationResult(
-                    url="https://ok.com", status=URLVerificationStatus.VERIFIED
-                ),
-                "https://bad.com": URLVerificationResult(
-                    url="https://bad.com", status=URLVerificationStatus.NOT_FOUND
-                ),
+                "https://ok.com": URLVerificationResult(url="https://ok.com", status=URLVerificationStatus.VERIFIED),
+                "https://bad.com": URLVerificationResult(url="https://bad.com", status=URLVerificationStatus.NOT_FOUND),
                 "https://fake.com": URLVerificationResult(
                     url="https://fake.com", status=URLVerificationStatus.PLACEHOLDER
                 ),
@@ -335,9 +325,7 @@ class TestBatchURLVerificationResultGetInvalidUrls:
     def test_all_verified_returns_empty(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://a.com": URLVerificationResult(
-                    url="https://a.com", status=URLVerificationStatus.VERIFIED
-                ),
+                "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED),
             }
         )
         assert batch.get_invalid_urls() == []
@@ -347,9 +335,7 @@ class TestBatchURLVerificationResultGetWarnings:
     def test_collects_warning_messages(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://ok.com": URLVerificationResult(
-                    url="https://ok.com", status=URLVerificationStatus.VERIFIED
-                ),
+                "https://ok.com": URLVerificationResult(url="https://ok.com", status=URLVerificationStatus.VERIFIED),
                 "https://gone.com": URLVerificationResult(
                     url="https://gone.com", status=URLVerificationStatus.NOT_FOUND, http_status=404
                 ),
@@ -368,9 +354,7 @@ class TestBatchURLVerificationResultGetWarnings:
     def test_no_warnings_when_all_verified(self):
         batch = BatchURLVerificationResult(
             results={
-                "https://a.com": URLVerificationResult(
-                    url="https://a.com", status=URLVerificationStatus.VERIFIED
-                ),
+                "https://a.com": URLVerificationResult(url="https://a.com", status=URLVerificationStatus.VERIFIED),
             }
         )
         assert batch.get_warnings() == []
@@ -1048,9 +1032,7 @@ class TestBatchVerifyAsync:
             return verified_result
 
         with patch.object(self.svc, "verify_url", side_effect=mock_verify_url):
-            await self.svc.batch_verify(
-                ["https://python.org", "https://python.org", "https://python.org"]
-            )
+            await self.svc.batch_verify(["https://python.org", "https://python.org", "https://python.org"])
 
         assert call_count == 1
 
@@ -1075,9 +1057,7 @@ class TestBatchVerifyAsync:
         assert result.not_visited_count == 1
 
     async def test_not_found_urls_increment_not_found_count(self):
-        not_found = URLVerificationResult(
-            url="https://gone.com", status=URLVerificationStatus.NOT_FOUND
-        )
+        not_found = URLVerificationResult(url="https://gone.com", status=URLVerificationStatus.NOT_FOUND)
 
         with patch.object(self.svc, "verify_url", return_value=not_found):
             result = await self.svc.batch_verify(["https://gone.com"])
@@ -1085,9 +1065,7 @@ class TestBatchVerifyAsync:
         assert result.not_found_count == 1
 
     async def test_placeholder_urls_increment_placeholder_count(self):
-        placeholder = URLVerificationResult(
-            url="https://example.com", status=URLVerificationStatus.PLACEHOLDER
-        )
+        placeholder = URLVerificationResult(url="https://example.com", status=URLVerificationStatus.PLACEHOLDER)
 
         with patch.object(self.svc, "verify_url", return_value=placeholder):
             result = await self.svc.batch_verify(["https://example.com"])
@@ -1095,12 +1073,8 @@ class TestBatchVerifyAsync:
         assert result.placeholder_count == 1
 
     async def test_error_and_timeout_increment_error_count(self):
-        error_result = URLVerificationResult(
-            url="https://broken.com", status=URLVerificationStatus.ERROR
-        )
-        timeout_result = URLVerificationResult(
-            url="https://slow.com", status=URLVerificationStatus.TIMEOUT
-        )
+        error_result = URLVerificationResult(url="https://broken.com", status=URLVerificationStatus.ERROR)
+        timeout_result = URLVerificationResult(url="https://slow.com", status=URLVerificationStatus.TIMEOUT)
 
         call_index = 0
         results_list = [error_result, timeout_result]
@@ -1124,9 +1098,7 @@ class TestBatchVerifyAsync:
             "https://not-visited.com": URLVerificationResult(
                 url="https://not-visited.com", status=URLVerificationStatus.EXISTS_NOT_VISITED
             ),
-            "https://gone.com": URLVerificationResult(
-                url="https://gone.com", status=URLVerificationStatus.NOT_FOUND
-            ),
+            "https://gone.com": URLVerificationResult(url="https://gone.com", status=URLVerificationStatus.NOT_FOUND),
             "https://example.com": URLVerificationResult(
                 url="https://example.com", status=URLVerificationStatus.PLACEHOLDER
             ),

@@ -17,7 +17,6 @@ Covers:
 """
 
 import asyncio
-from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -1214,15 +1213,15 @@ class TestAutonomyConfigCheckLimits:
         sl = SafetyLimits(max_iterations=5)
         sl.current_iterations = 10
         cfg = AutonomyConfig(limits=sl)
-        ok, reason = cfg.check_limits()
+        ok, _reason = cfg.check_limits()
         assert ok is False
-        assert reason is not None
+        assert _reason is not None
 
     def test_ok_when_within_limits(self) -> None:
         cfg = AutonomyConfig()
-        ok, reason = cfg.check_limits()
+        ok, _reason = cfg.check_limits()
         assert ok is True
-        assert reason is None
+        assert _reason is None
 
 
 # ---------------------------------------------------------------------------
@@ -1286,12 +1285,8 @@ class TestAutonomyConfigGetStatus:
 
     def test_pending_approvals_count(self) -> None:
         cfg = AutonomyConfig(level=AutonomyLevel.SUPERVISED)
-        cfg._pending_approvals.append(
-            ApprovalRequest(ActionCategory.FILE_WRITE, "A")
-        )
-        cfg._pending_approvals.append(
-            ApprovalRequest(ActionCategory.FILE_WRITE, "B")
-        )
+        cfg._pending_approvals.append(ApprovalRequest(ActionCategory.FILE_WRITE, "A"))
+        cfg._pending_approvals.append(ApprovalRequest(ActionCategory.FILE_WRITE, "B"))
         assert cfg.get_status()["pending_approvals"] == 2
 
     def test_current_stats_present(self) -> None:
@@ -1382,15 +1377,11 @@ class TestAutonomyConfigFromSettings:
         assert cfg.permissions.allow_payment_operations is True
 
     def test_disabled_permissions_respected(self) -> None:
-        cfg = AutonomyConfig.from_settings(
-            self._make_settings(allow_credential_access=False)
-        )
+        cfg = AutonomyConfig.from_settings(self._make_settings(allow_credential_access=False))
         assert cfg.permissions.allow_credential_access is False
 
     def test_limits_from_settings(self) -> None:
-        cfg = AutonomyConfig.from_settings(
-            self._make_settings(max_iterations=42, max_tool_calls=99)
-        )
+        cfg = AutonomyConfig.from_settings(self._make_settings(max_iterations=42, max_tool_calls=99))
         assert cfg.limits.max_iterations == 42
         assert cfg.limits.max_tool_calls == 99
 
@@ -1513,14 +1504,12 @@ class TestIntegrationApprovalWithLimits:
         )
         cfg.start_run()
         cfg.limits.current_iterations = 3
-        ok, reason = cfg.check_limits()
+        ok, _reason = cfg.check_limits()
         assert ok is False
 
     async def test_start_run_clears_state_for_new_run(self) -> None:
         cfg = AutonomyConfig(level=AutonomyLevel.SUPERVISED)
-        cfg._pending_approvals.append(
-            ApprovalRequest(ActionCategory.FILE_WRITE, "Old action")
-        )
+        cfg._pending_approvals.append(ApprovalRequest(ActionCategory.FILE_WRITE, "Old action"))
         cfg.limits.current_iterations = 50
         cfg.start_run()
         assert cfg._pending_approvals == []
