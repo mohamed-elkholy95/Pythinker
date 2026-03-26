@@ -454,3 +454,197 @@ class TestStepType:
         assert StepType.ALIGNMENT == "alignment"
         assert StepType.DELIVERY == "delivery"
         assert StepType.FINALIZATION == "finalization"
+
+
+# ── Plan progress ────────────────────────────────────────────────────
+
+
+class TestPlanProgress:
+    """Tests for Plan.get_progress and format_progress_text."""
+
+    def test_get_progress_empty_plan(self) -> None:
+        plan = Plan(title="test")
+        progress = plan.get_progress()
+        assert progress["total"] == 0
+        assert progress["progress_pct"] == 0.0
+
+    def test_get_progress_all_completed(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(description="a", status=ExecutionStatus.COMPLETED),
+                Step(description="b", status=ExecutionStatus.COMPLETED),
+            ],
+        )
+        progress = plan.get_progress()
+        assert progress["total"] == 2
+        assert progress["completed"] == 2
+        assert progress["progress_pct"] == 100.0
+
+    def test_get_progress_mixed(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(description="a", status=ExecutionStatus.COMPLETED),
+                Step(description="b", status=ExecutionStatus.FAILED),
+                Step(description="c", status=ExecutionStatus.PENDING),
+                Step(description="d", status=ExecutionStatus.SKIPPED),
+            ],
+        )
+        progress = plan.get_progress()
+        assert progress["total"] == 4
+        assert progress["completed"] == 1
+        assert progress["failed"] == 1
+        assert progress["pending"] == 1
+        assert progress["skipped"] == 1
+        # completed + skipped = 2 out of 4 = 50%
+        assert progress["progress_pct"] == 50.0
+
+    def test_format_progress_text(self) -> None:
+        plan = Plan(
+            title="Research Plan",
+            steps=[
+                Step(description="Search web", status=ExecutionStatus.COMPLETED),
+                Step(description="Analyze results", status=ExecutionStatus.RUNNING),
+                Step(description="Write report", status=ExecutionStatus.PENDING),
+            ],
+        )
+        text = plan.format_progress_text()
+        assert "Research Plan" in text
+        assert "[✓]" in text
+        assert "[→]" in text
+        assert "[ ]" in text
+
+
+# ── Plan dependency methods ──────────────────────────────────────────
+
+
+class TestPlanDependencies:
+    """Tests for Plan dependency inference and blocking cascade."""
+
+    def test_mark_blocked_cascade(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="First", status=ExecutionStatus.FAILED),
+                Step(id="s2", description="Second", dependencies=["s1"]),
+                Step(id="s3", description="Third", dependencies=["s2"]),
+            ],
+        )
+        blocked = plan.mark_blocked_cascade("s1", "First step failed")
+        assert "s2" in blocked
+        assert "s3" in blocked
+        assert plan.steps[1].status == ExecutionStatus.BLOCKED
+        assert plan.steps[2].status == ExecutionStatus.BLOCKED
+
+    def test_mark_blocked_cascade_no_dependents(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="First", status=ExecutionStatus.FAILED),
+                Step(id="s2", description="Second"),  # no dependencies
+            ],
+        )
+        blocked = plan.mark_blocked_cascade("s1", "Failed")
+        assert blocked == []
+        assert plan.steps[1].status == ExecutionStatus.PENDING
+
+    def test_infer_sequential_dependencies(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="First"),
+                Step(id="s2", description="Second"),
+                Step(id="s3", description="Third"),
+            ],
+        )
+        plan.infer_sequential_dependencies()
+        assert plan.steps[0].dependencies == []
+        assert plan.steps[1].dependencies == ["s1"]
+        assert plan.steps[2].dependencies == ["s2"]
+
+    def test_infer_sequential_preserves_existing(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="First"),
+                Step(id="s2", description="Second", dependencies=["s1"]),
+                Step(id="s3", description="Third"),
+            ],
+        )
+        plan.infer_sequential_dependencies()
+        assert plan.steps[1].dependencies == ["s1"]  # preserved
+        assert plan.steps[2].dependencies == ["s2"]
+
+    def test_get_step_by_id(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="First"),
+                Step(id="s2", description="Second"),
+            ],
+        )
+        assert plan.get_step_by_id("s1") is not None
+        assert plan.get_step_by_id("s1").description == "First"
+        assert plan.get_step_by_id("nonexistent") is None
+
+    def test_get_phase_by_type(self) -> None:
+        plan = Plan(
+            title="test",
+            phases=[
+                Phase(phase_type=PhaseType.RESEARCH_FOUNDATION, label="Research"),
+                Phase(phase_type=PhaseType.QUALITY_ASSURANCE, label="QA"),
+            ],
+        )
+        phase = plan.get_phase_by_type(PhaseType.QUALITY_ASSURANCE)
+        assert phase is not None
+        assert phase.label == "QA"
+        assert plan.get_phase_by_type(PhaseType.ALIGNMENT) is None
+
+    def test_infer_smart_dependencies_aggregation(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="Search for data"),
+                Step(id="s2", description="Browse websites"),
+                Step(id="s3", description="Compile all findings into a report"),
+            ],
+        )
+        plan.infer_smart_dependencies()
+        # s3 has aggregation pattern "compile all findings"
+        assert "s1" in plan.steps[2].dependencies
+        assert "s2" in plan.steps[2].dependencies
+
+    def test_infer_smart_dependencies_previous_pattern(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="Search for AI papers"),
+                Step(id="s2", description="Based on the search results, analyze trends"),
+            ],
+        )
+        plan.infer_smart_dependencies()
+        assert plan.steps[1].dependencies == ["s1"]
+
+    def test_infer_smart_dependencies_sequential_fallback(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="Do task A"),
+                Step(id="s2", description="Do task B"),
+            ],
+        )
+        plan.infer_smart_dependencies(use_sequential_fallback=True)
+        assert plan.steps[1].dependencies == ["s1"]
+
+    def test_infer_smart_dependencies_no_fallback(self) -> None:
+        plan = Plan(
+            title="test",
+            steps=[
+                Step(id="s1", description="Do task A"),
+                Step(id="s2", description="Do task B"),
+            ],
+        )
+        plan.infer_smart_dependencies(use_sequential_fallback=False)
+        # No matching patterns, no fallback → empty
+        assert plan.steps[1].dependencies == []
