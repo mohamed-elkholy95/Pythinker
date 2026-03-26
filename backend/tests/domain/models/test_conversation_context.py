@@ -89,9 +89,20 @@ class TestTurnEventType:
 
     def test_all_event_types_exist(self):
         expected = {
-            "message", "tool_result", "step_completion", "report", "error",
-            "plan", "thought", "verification", "flow_transition", "reflection",
-            "suggestion", "comprehension", "mode_change", "task_recreation",
+            "message",
+            "tool_result",
+            "step_completion",
+            "report",
+            "error",
+            "plan",
+            "thought",
+            "verification",
+            "flow_transition",
+            "reflection",
+            "suggestion",
+            "comprehension",
+            "mode_change",
+            "task_recreation",
         }
         actual = {e.value for e in TurnEventType}
         assert actual == expected
@@ -250,10 +261,7 @@ class TestFormatForInjection:
 
     def test_small_max_chars_may_exclude_later_phases(self):
         ctx = ConversationContext(
-            sliding_window_turns=[
-                _make_result(content="A" * 100, turn_number=i)
-                for i in range(1, 20)
-            ],
+            sliding_window_turns=[_make_result(content="A" * 100, turn_number=i) for i in range(1, 20)],
             cross_session_turns=[
                 _make_result(content="should not appear", turn_number=99, source="cross_session"),
             ],
@@ -275,9 +283,7 @@ class TestFormatForInjection:
 
     def test_default_max_chars(self):
         # Default is 4000
-        ctx = ConversationContext(
-            sliding_window_turns=[_make_result(content="test", turn_number=1)]
-        )
+        ctx = ConversationContext(sliding_window_turns=[_make_result(content="test", turn_number=1)])
         result = ctx.format_for_injection()
         assert len(result) <= 4100  # Some slack for headers
 
