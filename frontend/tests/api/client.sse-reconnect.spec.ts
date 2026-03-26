@@ -71,7 +71,7 @@ describe('createSSEConnection reconnect behavior', () => {
             error_code: 'stream_gap_detected',
             recoverable: true,
             retry_after_ms: 100,
-            checkpoint_event_id: 'evt-checkpoint-42',
+            checkpoint_event_id: '1711867510458-42',
             details: {
               requested_event_id: 'evt-old-10',
               first_available_event_id: 'evt-new-11',
@@ -111,9 +111,9 @@ describe('createSSEConnection reconnect behavior', () => {
     expect(onGapDetected).toHaveBeenCalledWith({
       requestedEventId: 'evt-old-10',
       firstAvailableEventId: 'evt-new-11',
-      checkpointEventId: 'evt-checkpoint-42',
+      checkpointEventId: '1711867510458-42',
     })
-    expect(secondHeaders?.['Last-Event-ID']).toBe('evt-checkpoint-42')
+    expect(secondHeaders?.['Last-Event-ID']).toBe('1711867510458-42')
 
     cancel()
   })
