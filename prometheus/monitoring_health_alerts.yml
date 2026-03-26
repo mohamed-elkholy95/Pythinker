@@ -114,3 +114,14 @@ groups:
         annotations:
           summary: "Node memory usage above 90%"
           description: "System memory usage is {{ $value | humanizePercentage }}. May need to free resources."
+
+      # CDP browser connection down
+      - alert: CDPConnectionUnhealthy
+        expr: pythinker_cdp_connection_healthy == 0
+        for: 1m
+        labels:
+          severity: warning
+          category: browser
+        annotations:
+          summary: "CDP browser connection unhealthy for {{ $labels.sandbox }}"
+          description: "Chrome DevTools Protocol connection has been down for >1m. Screencast and browser tools are unavailable."

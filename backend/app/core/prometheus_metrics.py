@@ -279,6 +279,13 @@ active_agents = Gauge(
     labels=[],
 )
 
+# CDP Browser Health
+cdp_connection_healthy = Gauge(
+    name="pythinker_cdp_connection_healthy",
+    help_text="Whether the CDP browser connection is healthy (1=healthy, 0=unhealthy)",
+    labels=["sandbox"],
+)
+
 # Screenshot Replay Metrics
 screenshot_captures_total = Counter(
     name="pythinker_screenshot_captures_total",

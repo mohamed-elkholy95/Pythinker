@@ -1109,6 +1109,15 @@ class PlaywrightBrowser:
         if self._connection_healthy:
             logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
             self._connection_healthy = False
+            self._update_cdp_health_metric(healthy=False)
+
+    def _update_cdp_health_metric(self, *, healthy: bool) -> None:
+        """Update the Prometheus CDP connection health gauge."""
+        with contextlib.suppress(Exception):
+            from app.core.prometheus_metrics import cdp_connection_healthy
+
+            sandbox_label = self.cdp_url or "unknown"
+            cdp_connection_healthy.set({"sandbox": sandbox_label}, 1.0 if healthy else 0.0)
 
     def _on_browser_disconnected(self) -> None:
         """Handle browser disconnection event (Playwright best practice).
@@ -1126,6 +1135,7 @@ class PlaywrightBrowser:
 
         logger.error(f"Browser disconnected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
+        self._update_cdp_health_metric(healthy=False)
         if not self._reconnect_in_progress:
             with contextlib.suppress(RuntimeError):
                 self._track_background_task(self._proactive_reconnect())
@@ -1921,6 +1931,7 @@ class PlaywrightBrowser:
 
                 # Verify connection is healthy
                 self._connection_healthy = await self._verify_connection_health()
+                self._update_cdp_health_metric(healthy=self._connection_healthy)
                 if not self._connection_healthy:
                     from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
 
