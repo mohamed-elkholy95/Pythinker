@@ -22,9 +22,13 @@ ingester:
         store: inmemory
       replication_factor: 1
     final_sleep: 0s
-    # Single-node: skip the 15s ring stabilization wait so queries work immediately
+    # Single-node: skip all ring stabilization waits so the ingester
+    # transitions to ACTIVE immediately and the distributor/ratestore
+    # can find it before Promtail's first push arrives.
     join_after: 0s
     min_ready_duration: 0s
+    observe_period: 0s
+    num_tokens: 512
   chunk_idle_period: 5m
   chunk_retain_period: 30s
   wal:
@@ -61,6 +65,11 @@ compactor:
 
 query_range:
   align_queries_with_step: true
+
+# Single-node: disable the scheduler ring to prevent
+# "error processing requests from scheduler" noise on restart.
+query_scheduler:
+  use_scheduler_ring: false
 
 distributor:
   ring:
