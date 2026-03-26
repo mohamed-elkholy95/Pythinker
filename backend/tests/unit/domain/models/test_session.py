@@ -18,7 +18,6 @@ from app.domain.models.session import (
     ThinkingLevel,
 )
 
-
 # ── Enums ────────────────────────────────────────────────────────────
 
 

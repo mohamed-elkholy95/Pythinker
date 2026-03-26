@@ -11,7 +11,6 @@ from app.domain.external.llm_capabilities import (
     get_capabilities,
 )
 
-
 # ── ProviderCapabilities defaults ────────────────────────────────────
 
 
@@ -36,7 +35,7 @@ class TestProviderCapabilities:
         caps = ProviderCapabilities()
         try:
             caps.json_schema = True  # type: ignore[misc]
-            assert False, "Should be frozen"
+            raise AssertionError("Should be frozen")
         except AttributeError:
             pass  # frozen=True
 

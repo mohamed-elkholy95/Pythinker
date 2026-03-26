@@ -16,7 +16,6 @@ from app.domain.models.timeline import (
     TimelineAction,
 )
 
-
 # ── Enums ────────────────────────────────────────────────────────────
 
 
