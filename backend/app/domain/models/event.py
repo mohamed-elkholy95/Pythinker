@@ -26,6 +26,8 @@ class PlanStatus(str, Enum):
     CREATED = "created"
     UPDATED = "updated"
     COMPLETED = "completed"
+    RUNNING = "running"
+    FINISHED = "finished"
 
 
 class StepStatus(str, Enum):
