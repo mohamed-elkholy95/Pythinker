@@ -128,6 +128,14 @@ class UrlFailureGuard:
         # Domain-level failure tracking: block entire domain after N distinct URL failures
         self._domain_failures: dict[str, int] = {}  # domain → count of distinct failed URLs
         self._domain_block_threshold = 2  # Block domain after 2 distinct URL failures
+        # HEAD connection failure tracking: block HEAD prechecks on domains
+        # where the server drops connections (anti-bot behaviour like usnews.com).
+        # Prevents wasting 30-48s on full Playwright navigation after HEAD fails.
+        self._head_conn_failures: dict[str, int] = {}  # domain → connection drop count
+        self._head_conn_block_threshold = 2  # block after 2 HEAD connection drops
+        # Track domains where 404 was returned on a guessed (non-search-result) URL.
+        # Injected into LLM context to prevent URL fabrication on the same domain.
+        self._guessed_url_domains: set[str] = set()
 
     def check_url(self, url: str) -> GuardDecision:
         """Pre-execution check for a URL.
@@ -242,8 +250,11 @@ class UrlFailureGuard:
                 source_tool=tool,
             )
 
-        # Track domain-level failures (only for first failure of each URL)
-        if normalized not in self._failures or self._failures[normalized].attempts == 1:
+        # Track domain-level failures: increment once per distinct URL.
+        # Use the record's attempt count (after increment above) to gate:
+        # only count on the first failure of each unique normalized URL.
+        record_for_domain = self._failures.get(normalized)
+        if record_for_domain and record_for_domain.attempts == 1:
             try:
                 domain = urlparse(normalized).netloc.lower()
                 if domain:
@@ -318,7 +329,90 @@ class UrlFailureGuard:
             "tier2_escalations": self._tier2_escalations,
             "tier3_escalations": self._tier3_escalations,
             "known_good_urls": len(self._known_good_urls),
+            "head_conn_blocked_domains": sum(
+                1 for c in self._head_conn_failures.values() if c >= self._head_conn_block_threshold
+            ),
         }
+
+    # ── HEAD Connection Failure Tracking (Fix 1) ──────────────────────────
+
+    def record_head_connection_failure(self, url: str) -> None:
+        """Record a HEAD precheck connection failure (server dropped connection).
+
+        Called by PlaywrightBrowser._head_precheck when the server drops the
+        connection (ConnectError / RemoteProtocolError) rather than returning
+        an HTTP status.  After ``_head_conn_block_threshold`` drops on the same
+        domain, ``is_head_conn_blocked()`` returns True and the browser tool
+        skips navigation entirely.
+        """
+        try:
+            domain = urlparse(url).netloc.lower()
+        except Exception:
+            return
+        if not domain:
+            return
+        self._head_conn_failures[domain] = self._head_conn_failures.get(domain, 0) + 1
+        logger.info(
+            "HEAD connection failure on %s (count=%d, threshold=%d)",
+            domain,
+            self._head_conn_failures[domain],
+            self._head_conn_block_threshold,
+        )
+
+    def is_head_conn_blocked(self, url: str) -> bool:
+        """Return True if HEAD prechecks should be skipped for this URL's domain.
+
+        When a domain has dropped ``_head_conn_block_threshold``+ connections
+        on HEAD requests, full Playwright navigation will also likely fail or
+        take 30-48s.  The caller should return a synthetic failure immediately.
+        """
+        try:
+            domain = urlparse(url).netloc.lower()
+        except Exception:
+            return False
+        return self._head_conn_failures.get(domain, 0) >= self._head_conn_block_threshold
+
+    # ── URL Hallucination Guard (Fix 2) ───────────────────────────────────
+
+    def record_guessed_url_failure(self, url: str) -> None:
+        """Record that a non-search-result URL returned 404.
+
+        When the LLM fabricates a URL (e.g. guesses a path on eastern.edu)
+        and it 404s, this records the domain.  ``get_url_hallucination_context()``
+        then injects a warning into the LLM prompt to stop guessing URLs on
+        that domain.
+        """
+        try:
+            domain = urlparse(url).netloc.lower()
+        except Exception:
+            return
+        if domain:
+            self._guessed_url_domains.add(domain)
+            logger.info("Guessed-URL domain recorded: %s", domain)
+
+    def is_url_from_search_results(self, url: str) -> bool:
+        """Return True if the URL was previously seen in search results."""
+        normalized = normalize_url(url)
+        return normalized in self._known_good_urls
+
+    def get_url_hallucination_context(self) -> str | None:
+        """Return an LLM context string warning against URL guessing.
+
+        Injected into the system prompt when the agent has fabricated URLs
+        that returned 404.  Instructs the model to only use URLs from
+        search results.
+        """
+        if not self._guessed_url_domains:
+            return None
+        domains = ", ".join(sorted(self._guessed_url_domains))
+        return (
+            "\n<url_hallucination_warning>\n"
+            f"You previously guessed URLs for these domains and got 404 errors: {domains}.\n"
+            "STOP fabricating URLs. Only use URLs that appear in search results.\n"
+            "If you need information from a website, use info_search_web first, "
+            "then navigate to URLs from those results.\n"
+            "</url_hallucination_warning>"
+        )
 
     def _get_alternatives(self, failed_normalized: str) -> list[str]:
         """Get known-good URLs excluding failed ones."""

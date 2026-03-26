@@ -8,6 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import Error as PlaywrightError
@@ -224,6 +225,11 @@ class PlaywrightBrowser:
             minimum=0.0,
         )
         self._circuit_open_until: float = 0.0  # Timestamp when circuit can close
+
+        # HEAD precheck connection-drop tracking (Fix 1).
+        # Domains that drop connections on HEAD requests (anti-bot) are recorded
+        # here.  Synced to UrlFailureGuard for cross-tool blocking.
+        self._head_conn_failures: dict[str, int] = {}
         self._circuit_breaker_enabled: bool = self._safe_bool(
             getattr(self.settings, "browser_crash_circuit_breaker_enabled", True),
             True,
@@ -2797,10 +2803,27 @@ class PlaywrightBrowser:
                     message=f"URL returned HTTP {resp.status_code} (server error): {url}. Use a different source.",
                     data={"url": url, "status_code": resp.status_code},
                 )
-        except Exception:
-            # HEAD failed (timeout, DNS, connection refused) — let full navigation try.
-            # Some servers reject HEAD but accept GET; don't block on HEAD failure.
-            logger.debug("HEAD pre-check failed for %s (non-blocking)", url[:80])
+        except Exception as head_exc:
+            # Classify HEAD failure: connection drops (anti-bot) are tracked
+            # separately from timeouts/DNS errors.  After 2+ connection drops
+            # on the same domain, is_head_conn_blocked() prevents the 30-48s
+            # full Playwright navigation from ever running (Fix 1).
+            import httpx as _httpx
+
+            _domain = ""
+            with contextlib.suppress(Exception):
+                _domain = urlparse(url).netloc.lower()
+            if isinstance(head_exc, (_httpx.ConnectError, _httpx.RemoteProtocolError)):
+                logger.warning(
+                    "HTTP request failed for head-precheck: HEAD %s - %s",
+                    url[:80],
+                    str(head_exc)[:120] or "Server disconnected without sending a response.",
+                )
+                if _domain:
+                    self._head_conn_failures[_domain] = self._head_conn_failures.get(_domain, 0) + 1
+            else:
+                # Timeout, DNS, etc. — let full navigation try.
+                logger.debug("HEAD pre-check failed for %s (non-blocking): %s", url[:80], type(head_exc).__name__)
         return None
 
     async def navigate(
