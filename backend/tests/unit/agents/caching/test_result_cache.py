@@ -13,7 +13,6 @@ from app.domain.services.agents.caching.result_cache import (
     reset_result_cache,
 )
 
-
 # ---------------------------------------------------------------------------
 # CachedResult dataclass
 # ---------------------------------------------------------------------------
@@ -22,8 +21,10 @@ from app.domain.services.agents.caching.result_cache import (
 class TestCachedResult:
     def test_defaults(self):
         cr = CachedResult(
-            cache_key="k", tool_name="search",
-            result_data={"foo": "bar"}, result_hash="abc123",
+            cache_key="k",
+            tool_name="search",
+            result_data={"foo": "bar"},
+            result_hash="abc123",
         )
         assert cr.hit_count == 0
         assert cr.last_hit is None
@@ -33,28 +34,40 @@ class TestCachedResult:
 
     def test_is_expired_false(self):
         cr = CachedResult(
-            cache_key="k", tool_name="t", result_data="r", result_hash="h",
+            cache_key="k",
+            tool_name="t",
+            result_data="r",
+            result_hash="h",
             expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         assert cr.is_expired() is False
 
     def test_is_expired_true(self):
         cr = CachedResult(
-            cache_key="k", tool_name="t", result_data="r", result_hash="h",
+            cache_key="k",
+            tool_name="t",
+            result_data="r",
+            result_hash="h",
             expires_at=datetime.now(UTC) - timedelta(seconds=1),
         )
         assert cr.is_expired() is True
 
     def test_is_valid_mirrors_expired(self):
         cr = CachedResult(
-            cache_key="k", tool_name="t", result_data="r", result_hash="h",
+            cache_key="k",
+            tool_name="t",
+            result_data="r",
+            result_hash="h",
             expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         assert cr.is_valid() is True
 
     def test_record_hit(self):
         cr = CachedResult(
-            cache_key="k", tool_name="t", result_data="r", result_hash="h",
+            cache_key="k",
+            tool_name="t",
+            result_data="r",
+            result_hash="h",
         )
         cr.record_hit()
         assert cr.hit_count == 1

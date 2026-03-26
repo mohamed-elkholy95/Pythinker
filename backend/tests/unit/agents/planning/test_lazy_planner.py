@@ -1,7 +1,5 @@
 """Tests for LazyPlanner, LazyPlan, and LazyStep."""
 
-from datetime import UTC, datetime
-
 import pytest
 
 from app.domain.services.agents.planning.lazy_planner import (
@@ -12,7 +10,6 @@ from app.domain.services.agents.planning.lazy_planner import (
     get_lazy_planner,
     reset_lazy_planner,
 )
-
 
 # ---------------------------------------------------------------------------
 # StepDetailLevel enum
@@ -109,7 +106,8 @@ class TestLazyPlan:
 
     def test_get_current_step_all_executed(self):
         plan = LazyPlan(
-            plan_id="p1", goal="g",
+            plan_id="p1",
+            goal="g",
             lazy_steps=[
                 LazyStep(step_id="s1", description="d", detail_level=StepDetailLevel.EXECUTED),
             ],
@@ -125,7 +123,8 @@ class TestLazyPlan:
 
     def test_get_steps_needing_expansion_none_needed(self):
         plan = LazyPlan(
-            plan_id="p1", goal="g",
+            plan_id="p1",
+            goal="g",
             lazy_steps=[
                 LazyStep(step_id="s1", description="d", detail_level=StepDetailLevel.DETAILED),
             ],
@@ -195,7 +194,7 @@ class TestLazyPlanner:
     def test_mark_step_executed(self):
         p = LazyPlanner()
         p.create_lazy_plan("p1", "g", ["s1", "s2", "s3"])
-        needing = p.mark_step_executed("p1", "step_1", result={"output": "ok"})
+        p.mark_step_executed("p1", "step_1", result={"output": "ok"})
         plan = p._active_plans["p1"]
         step = plan.get_step("step_1")
         assert step.detail_level == StepDetailLevel.EXECUTED

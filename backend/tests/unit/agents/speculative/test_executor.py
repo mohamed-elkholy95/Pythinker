@@ -1,7 +1,6 @@
 """Tests for SpeculativeExecutor."""
 
-import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 
@@ -14,7 +13,6 @@ from app.domain.services.agents.speculative.executor import (
     get_speculative_executor,
     reset_speculative_executor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Enums and constants
@@ -50,8 +48,10 @@ class TestSafeTools:
 class TestSpeculativeTask:
     def test_defaults(self):
         t = SpeculativeTask(
-            task_id="t1", tool_name="file_read",
-            tool_args={"path": "/a"}, prediction_confidence=0.8,
+            task_id="t1",
+            tool_name="file_read",
+            tool_args={"path": "/a"},
+            prediction_confidence=0.8,
         )
         assert t.depends_on is None
         assert t.result is None
@@ -61,8 +61,10 @@ class TestSpeculativeTask:
 
     def test_custom_fields(self):
         t = SpeculativeTask(
-            task_id="t2", tool_name="info_search_web",
-            tool_args={"q": "test"}, prediction_confidence=0.9,
+            task_id="t2",
+            tool_name="info_search_web",
+            tool_args={"q": "test"},
+            prediction_confidence=0.9,
             depends_on="t1",
         )
         assert t.depends_on == "t1"
@@ -76,8 +78,10 @@ class TestSpeculativeTask:
 class TestSpeculativeResult:
     def test_defaults(self):
         r = SpeculativeResult(
-            task_id="t1", tool_name="file_read",
-            result="content", prediction_confidence=0.8,
+            task_id="t1",
+            tool_name="file_read",
+            result="content",
+            prediction_confidence=0.8,
             execution_time_ms=50.0,
         )
         assert r.was_accurate is False
@@ -203,8 +207,10 @@ class TestSpeculativeExecutor:
     def test_mark_result_used(self):
         ex = SpeculativeExecutor()
         result = SpeculativeResult(
-            task_id="t1", tool_name="file_read",
-            result="data", prediction_confidence=0.9,
+            task_id="t1",
+            tool_name="file_read",
+            result="data",
+            prediction_confidence=0.9,
             execution_time_ms=50.0,
         )
         ex.mark_result_used(result, actual_execution_time_ms=200.0)
@@ -215,8 +221,10 @@ class TestSpeculativeExecutor:
     def test_mark_result_used_no_savings(self):
         ex = SpeculativeExecutor()
         result = SpeculativeResult(
-            task_id="t1", tool_name="file_read",
-            result="data", prediction_confidence=0.9,
+            task_id="t1",
+            tool_name="file_read",
+            result="data",
+            prediction_confidence=0.9,
             execution_time_ms=300.0,
         )
         ex.mark_result_used(result, actual_execution_time_ms=100.0)
@@ -226,8 +234,10 @@ class TestSpeculativeExecutor:
         ex = SpeculativeExecutor()
         ex.queue_speculation("file_read", {"path": "/a"}, 0.9)
         ex._completed["t1"] = SpeculativeResult(
-            task_id="t1", tool_name="file_read",
-            result="r", prediction_confidence=0.9,
+            task_id="t1",
+            tool_name="file_read",
+            result="r",
+            prediction_confidence=0.9,
             execution_time_ms=50.0,
         )
         ex.clear_speculation()

@@ -34,9 +34,7 @@ def _make_builder_with_chain(problem: str = "test problem") -> ThoughtChainBuild
     return builder
 
 
-def _make_builder_with_step(
-    problem: str = "test problem", step_name: str = "step one"
-) -> ThoughtChainBuilder:
+def _make_builder_with_step(problem: str = "test problem", step_name: str = "step one") -> ThoughtChainBuilder:
     builder = _make_builder_with_chain(problem)
     builder.start_step(step_name)
     return builder
@@ -409,12 +407,7 @@ class TestEstimateConfidence:
 
     def test_confidence_clamped_at_0_9_upper(self):
         # Pack as many boosters as possible
-        text = " ".join(
-            [
-                "because evidence data shows according to specifically for example research indicates"
-            ]
-            * 5
-        )
+        text = " ".join(["because evidence data shows according to specifically for example research indicates"] * 5)
         assert self._estimate(text) <= 0.9
 
     def test_confidence_clamped_at_0_1_lower(self):
@@ -641,9 +634,7 @@ class TestExtractFinalDecision:
 class TestParseReasoningText:
     def test_returns_thought_chain(self):
         builder = ThoughtChainBuilder()
-        chain = builder.parse_reasoning_text(
-            "I think this is straightforward. Therefore, proceed.", "solve problem"
-        )
+        chain = builder.parse_reasoning_text("I think this is straightforward. Therefore, proceed.", "solve problem")
         assert isinstance(chain, ThoughtChain)
 
     def test_problem_stored_in_chain(self):
@@ -741,7 +732,9 @@ class TestExtractDecision:
 
     def test_risks_from_uncertainty_thoughts(self):
         builder = _make_builder_with_step()
-        builder.add_thought("I'm not sure about the failure mode.", thought_type=ThoughtType.UNCERTAINTY, confidence=0.3)
+        builder.add_thought(
+            "I'm not sure about the failure mode.", thought_type=ThoughtType.UNCERTAINTY, confidence=0.3
+        )
         builder.complete_step()
         chain = builder.complete_chain("proceed carefully")
         decision = ThoughtChainBuilder().extract_decision(chain)

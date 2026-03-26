@@ -45,71 +45,103 @@ class TestCachedReasoning:
 
     def test_success_rate_no_uses(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
         )
         assert cr.success_rate == 0.5
 
     def test_success_rate_all_success(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
-            success_count=5, failure_count=0,
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
+            success_count=5,
+            failure_count=0,
         )
         assert cr.success_rate == 1.0
 
     def test_success_rate_mixed(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
-            success_count=3, failure_count=7,
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
+            success_count=3,
+            failure_count=7,
         )
         assert cr.success_rate == pytest.approx(0.3)
 
     def test_is_expired_future(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
             expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         assert cr.is_expired() is False
 
     def test_is_expired_past(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
             expires_at=datetime.now(UTC) - timedelta(seconds=1),
         )
         assert cr.is_expired() is True
 
     def test_is_reliable_enough_uses_and_rate(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
-            success_count=4, failure_count=1,
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
+            success_count=4,
+            failure_count=1,
         )
         assert cr.is_reliable(min_uses=3, min_success_rate=0.6) is True
 
     def test_is_reliable_too_few_uses(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
-            success_count=2, failure_count=0,
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
+            success_count=2,
+            failure_count=0,
         )
         assert cr.is_reliable(min_uses=3) is False
 
     def test_is_reliable_low_rate(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
-            success_count=1, failure_count=5,
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
+            success_count=1,
+            failure_count=5,
         )
         assert cr.is_reliable(min_uses=3, min_success_rate=0.6) is False
 
     def test_record_use_success(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
         )
         cr.record_use(True)
         assert cr.success_count == 1
@@ -118,8 +150,11 @@ class TestCachedReasoning:
 
     def test_record_use_failure(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
         )
         cr.record_use(False)
         assert cr.success_count == 0
@@ -134,12 +169,18 @@ class TestCachedReasoning:
 class TestReasoningMatch:
     def test_creation(self):
         cr = CachedReasoning(
-            cache_key="k", problem_hash="h", problem_summary="s",
-            thought_chain=_make_chain(), decision=_make_decision(),
+            cache_key="k",
+            problem_hash="h",
+            problem_summary="s",
+            thought_chain=_make_chain(),
+            decision=_make_decision(),
         )
         m = ReasoningMatch(
-            cached_reasoning=cr, similarity_score=0.9,
-            confidence=0.8, should_use=True, reason="Exact match",
+            cached_reasoning=cr,
+            similarity_score=0.9,
+            confidence=0.8,
+            should_use=True,
+            reason="Exact match",
         )
         assert m.similarity_score == 0.9
         assert m.should_use is True
@@ -269,7 +310,7 @@ class TestReasoningCache:
     def test_cleanup_expired(self):
         cache = ReasoningCache()
         cr1 = cache.store("p1", _make_chain(), _make_decision())
-        cr2 = cache.store("p2", _make_chain(), _make_decision())
+        cache.store("p2", _make_chain(), _make_decision())
         cr1.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         removed = cache.cleanup_expired()
         assert removed == 1
