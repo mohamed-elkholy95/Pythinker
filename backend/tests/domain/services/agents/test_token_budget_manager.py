@@ -182,9 +182,10 @@ class TestTokenBudgetManagerCreateBudget:
         mgr = TokenBudgetManager(tm, research_mode="deep_research")
         budget = mgr.create_budget(128000)
 
-        # Deep research: execution=50%, summarization=20%
+        # Deep research: planning=20%, execution=45%, summarization=20%
         effective = 128000 - 2048
-        assert budget.phases[BudgetPhase.EXECUTION].allocated_tokens == int(effective * 0.50)
+        assert budget.phases[BudgetPhase.PLANNING].allocated_tokens == int(effective * 0.20)
+        assert budget.phases[BudgetPhase.EXECUTION].allocated_tokens == int(effective * 0.45)
         assert budget.phases[BudgetPhase.SUMMARIZATION].allocated_tokens == int(effective * 0.20)
 
     def test_create_budget_min_phase_tokens(self) -> None:

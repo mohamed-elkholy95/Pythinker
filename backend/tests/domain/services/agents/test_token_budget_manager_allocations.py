@@ -9,9 +9,9 @@ from app.domain.services.agents.token_budget_manager import (
 
 
 class TestDeepResearchAllocations:
-    def test_deep_research_planning_is_15_percent(self):
+    def test_deep_research_planning_is_20_percent(self):
         allocs = TokenBudgetManager.RESEARCH_ALLOCATIONS["deep_research"]
-        assert allocs[BudgetPhase.PLANNING] == 0.15
+        assert allocs[BudgetPhase.PLANNING] == 0.20
 
     def test_deep_research_memory_context_is_5_percent(self):
         allocs = TokenBudgetManager.RESEARCH_ALLOCATIONS["deep_research"]
@@ -32,9 +32,9 @@ class TestDeepResearchAllocations:
         total = sum(allocs.values())
         assert abs(total - 1.0) < 0.001
 
-    def test_execution_unchanged_at_50_percent(self):
+    def test_execution_at_45_percent(self):
         allocs = TokenBudgetManager.RESEARCH_ALLOCATIONS["deep_research"]
-        assert allocs[BudgetPhase.EXECUTION] == 0.50
+        assert allocs[BudgetPhase.EXECUTION] == 0.45
 
     def test_summarization_unchanged_at_20_percent(self):
         allocs = TokenBudgetManager.RESEARCH_ALLOCATIONS["deep_research"]
