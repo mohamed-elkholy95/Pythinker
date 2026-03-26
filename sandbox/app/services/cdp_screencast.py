@@ -70,7 +70,7 @@ class ScreencastConfig:
     quality: int = 80  # 80% is good balance of quality/bandwidth
     max_width: int = 1280
     max_height: int = 1024  # Full window including Chrome UI (address bar, tab strip)
-    every_nth_frame: int = 1  # Capture every frame
+    every_nth_frame: int = 3  # Skip 2 of every 3 frames (reduces CPU 50-80%)
 
 
 @dataclass
