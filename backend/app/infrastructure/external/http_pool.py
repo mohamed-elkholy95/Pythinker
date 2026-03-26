@@ -154,8 +154,25 @@ class ManagedHTTPClient:
             # Thread-safe stats update
             async with self._stats_lock:
                 self.stats.requests_failed += 1
-            # Determine error type
-            error_type = "connection" if isinstance(e, httpx.ConnectError) else "unknown"
+            # Classify error type (most specific first per httpx hierarchy)
+            if isinstance(e, httpx.ConnectError):
+                error_type = "connection"
+            elif isinstance(e, httpx.ReadError):
+                error_type = "read_error"
+            elif isinstance(e, httpx.WriteError):
+                error_type = "write_error"
+            elif isinstance(e, httpx.CloseError):
+                error_type = "close_error"
+            elif isinstance(e, httpx.RemoteProtocolError):
+                error_type = "remote_disconnect"
+            elif isinstance(e, httpx.LocalProtocolError):
+                error_type = "protocol_error"
+            elif isinstance(e, httpx.ProxyError):
+                error_type = "proxy"
+            elif isinstance(e, httpx.TimeoutException):
+                error_type = "timeout"
+            else:
+                error_type = "unknown"
             response_time_sec = time.perf_counter() - start_time
 
             # Record metrics
