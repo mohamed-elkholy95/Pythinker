@@ -80,6 +80,17 @@ class SandboxSettingsMixin:
     sandbox_framework_required: bool = False
     sandbox_api_secret: str | None = None  # Shared secret for sandbox API auth
 
+    # Ephemeral container pass-through env vars
+    # These are injected into dynamically-created sandbox containers (ephemeral mode).
+    # In static mode, compose passes them directly.
+    supervisor_rpc_username: str = "supervisor"
+    supervisor_rpc_password: str | None = None
+    sandbox_enable_vnc: bool = True
+    sandbox_runtime_api_host: str = "http://backend:8000"
+    sandbox_shell_structured_markers: bool = True
+    sandbox_log_level: str = "INFO"
+    sandbox_tz: str = "UTC"
+
     # Cloud tokens for sandbox
     sandbox_gh_token: str | None = None
     sandbox_google_drive_token: str | None = None
