@@ -191,7 +191,13 @@ export const useAuthStore = defineStore('auth', () => {
       if (!silent) {
         isLoading.value = true
       }
-      await apiLogout()
+      // Only call server-side logout if we have a valid token.
+      // When called from auth:logout after a failed refresh, the token
+      // is already cleared — calling apiLogout() would just 401.
+      const token = getStoredToken()
+      if (token) {
+        await apiLogout()
+      }
     } catch {
       // Ignore logout errors — always clear local state
     } finally {
