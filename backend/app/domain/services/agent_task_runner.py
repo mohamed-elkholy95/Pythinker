@@ -648,6 +648,7 @@ class AgentTaskRunner(TaskRunner):
         self,
         file_path: str,
         content_type: str | None = None,
+        metadata: dict[str, object] | None = None,
         max_attempts: int = 3,
         initial_delay_seconds: float = 0.2,
     ) -> FileInfo | None:
@@ -655,6 +656,7 @@ class AgentTaskRunner(TaskRunner):
         return await self._file_sync_manager.sync_file_to_storage_with_retry(
             file_path,
             content_type=content_type,
+            metadata=metadata,
             max_attempts=max_attempts,
             initial_delay_seconds=initial_delay_seconds,
         )
@@ -871,6 +873,28 @@ class AgentTaskRunner(TaskRunner):
                     # Render as clickable link (rewritten to API URL after sync)
                     chart_lines.append(f"[Open interactive chart]({ci.filename})")
             event.content += "\n".join(chart_lines) + "\n"
+
+        # Inject inline references for agent-created charts (from chart_create tool)
+        # that are in attachments but not yet referenced in report content.
+        agent_chart_lines: list[str] = []
+        for att in existing:
+            if att.content_type != "image/png":
+                continue
+            metadata = getattr(att, "metadata", None) or {}
+            if not metadata.get("is_chart"):
+                continue
+            # Skip comparison charts already injected above
+            fname = att.filename or ""
+            if fname.startswith("comparison-chart-"):
+                continue
+            # Only inject if not already referenced in report content
+            if fname and f"]({fname})" not in (event.content or ""):
+                chart_title = metadata.get("chart_title", "Chart")
+                agent_chart_lines.append(f"![{chart_title}]({fname})")
+        if agent_chart_lines:
+            event.content = (
+                (event.content or "") + "\n\n---\n\n## Agent Charts\n\n" + "\n\n".join(agent_chart_lines) + "\n"
+            )
 
         # --- Write summarized report file (now includes chart references) ---
         expected_name = f"report-{event.id}.md"
