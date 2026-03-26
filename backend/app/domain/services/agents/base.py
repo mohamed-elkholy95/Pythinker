@@ -1213,6 +1213,14 @@ class BaseAgent:
                                 result.message[:200] if result.message else "Unknown error",
                                 function_name,
                             )
+                            # Fix 2: If a 404 URL was NOT from search results,
+                            # it was fabricated by the LLM.  Record it so the
+                            # URL hallucination context is injected.
+                            _msg_lower = (result.message or "").lower()
+                            if (
+                                "404" in _msg_lower or "not found" in _msg_lower
+                            ) and not self._url_failure_guard.is_url_from_search_results(_guard_url):
+                                self._url_failure_guard.record_guessed_url_failure(_guard_url)
                         from app.core.prometheus_metrics import url_guard_tracked_urls
 
                         metrics = self._url_failure_guard.get_metrics()
@@ -2931,6 +2939,17 @@ class BaseAgent:
                 if _current_blocked != _injected_set:
                     await self._add_to_memory([{"role": "user", "content": _blocked_ctx}])
                     self._injected_blocked_domains = _current_blocked  # type: ignore[attr-defined]
+
+            # Fix 2: Inject URL hallucination warning when the agent has
+            # fabricated URLs that returned 404.  Instructs the model to
+            # only use URLs from search results.
+            _halluc_ctx = self._url_failure_guard.get_url_hallucination_context()
+            if _halluc_ctx:
+                _injected_halluc: set[str] = getattr(self, "_injected_halluc_domains", set())
+                _current_halluc = frozenset(self._url_failure_guard._guessed_url_domains)
+                if _current_halluc != _injected_halluc:
+                    await self._add_to_memory([{"role": "user", "content": _halluc_ctx}])
+                    self._injected_halluc_domains = _current_halluc  # type: ignore[attr-defined]
 
         response_format = None
         if format:
