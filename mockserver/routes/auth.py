@@ -74,7 +74,11 @@ async def auth_status():
 async def login(req: LoginRequest):
     user = auth_store.get_user_by_email(req.email)
     if user and not user.get("email_verified", True):
-        return {"code": 400, "msg": "Email not verified", "data": {"code": "email_not_verified"}}
+        return {
+            "code": 400,
+            "msg": "Email not verified",
+            "data": {"code": "email_not_verified"},
+        }
     if not user:
         user = auth_store.DEMO_USER
     access, refresh = auth_store.create_token_pair(user["id"])

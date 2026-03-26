@@ -56,8 +56,12 @@ def get_user_by_id(user_id: str) -> dict | None:
 def build_verification_state() -> dict:
     now = datetime.now(timezone.utc)
     return {
-        "expires_at": (now + timedelta(seconds=VERIFICATION_EXPIRY_SECONDS)).isoformat(),
-        "resend_available_at": (now + timedelta(seconds=VERIFICATION_RESEND_COOLDOWN_SECONDS)).isoformat(),
+        "expires_at": (
+            now + timedelta(seconds=VERIFICATION_EXPIRY_SECONDS)
+        ).isoformat(),
+        "resend_available_at": (
+            now + timedelta(seconds=VERIFICATION_RESEND_COOLDOWN_SECONDS)
+        ).isoformat(),
         "resends_remaining": VERIFICATION_MAX_RESENDS,
     }
 
