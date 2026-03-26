@@ -194,7 +194,6 @@ class TestErrorManager:
         defaults.update(kwargs)
         return ErrorContext(**defaults)
 
-    @pytest.mark.asyncio
     async def test_handle_error_records_in_history(self):
         manager = ErrorManager()
         ctx = self._make_context()
@@ -202,7 +201,6 @@ class TestErrorManager:
         stats = manager.get_error_stats(hours=1)
         assert stats["total_errors"] == 1
 
-    @pytest.mark.asyncio
     async def test_handle_error_with_recovery_strategy(self):
         manager = ErrorManager()
         strategy = AsyncMock(return_value=True)
@@ -217,7 +215,6 @@ class TestErrorManager:
         assert result is True
         strategy.assert_awaited_once()
 
-    @pytest.mark.asyncio
     async def test_handle_error_failed_recovery(self):
         manager = ErrorManager()
         strategy = AsyncMock(return_value=False)
@@ -231,7 +228,6 @@ class TestErrorManager:
         )
         assert result is False
 
-    @pytest.mark.asyncio
     async def test_handle_error_recovery_strategy_raises(self):
         manager = ErrorManager()
         strategy = AsyncMock(side_effect=RuntimeError("recovery failed"))
@@ -245,7 +241,6 @@ class TestErrorManager:
         )
         assert result is False
 
-    @pytest.mark.asyncio
     async def test_error_history_size_limit(self):
         manager = ErrorManager()
         manager._max_history = 5
@@ -254,7 +249,6 @@ class TestErrorManager:
             await manager.handle_error(RuntimeError(f"error {i}"), ctx, auto_recover=False)
         assert len(manager._error_history) == 5
 
-    @pytest.mark.asyncio
     async def test_get_error_stats_by_severity(self):
         manager = ErrorManager()
         ctx = self._make_context()
@@ -274,7 +268,6 @@ class TestErrorManager:
         assert stats["by_severity"]["critical"] == 1
         assert stats["by_severity"]["low"] == 1
 
-    @pytest.mark.asyncio
     async def test_get_error_stats_by_category(self):
         manager = ErrorManager()
         ctx = self._make_context()
@@ -294,7 +287,6 @@ class TestErrorManager:
         assert stats["by_category"]["database"] == 1
         assert stats["by_category"]["network"] == 1
 
-    @pytest.mark.asyncio
     async def test_get_error_stats_filters_by_time(self):
         manager = ErrorManager()
         ctx = self._make_context()
@@ -313,7 +305,6 @@ class TestErrorManager:
         stats = manager.get_error_stats(hours=1)
         assert stats["total_errors"] == 1  # Only recent
 
-    @pytest.mark.asyncio
     async def test_recovery_rate_calculation(self):
         manager = ErrorManager()
         strategy = AsyncMock(side_effect=[True, False])
@@ -334,7 +325,6 @@ class TestErrorManager:
         stats = manager.get_error_stats(hours=1)
         assert stats["recovery_rate"] == pytest.approx(0.5)
 
-    @pytest.mark.asyncio
     async def test_multiple_recovery_strategies(self):
         manager = ErrorManager()
         strat1 = AsyncMock(return_value=False)
@@ -352,7 +342,6 @@ class TestErrorManager:
         strat1.assert_awaited_once()
         strat2.assert_awaited_once()
 
-    @pytest.mark.asyncio
     async def test_no_recovery_when_disabled(self):
         manager = ErrorManager()
         strategy = AsyncMock(return_value=True)
@@ -447,7 +436,6 @@ class TestCircuitBreaker:
 class TestErrorHandlerDecorator:
     """Tests for the error_handler decorator."""
 
-    @pytest.mark.asyncio
     async def test_decorated_async_function_returns_normally(self):
         @error_handler(reraise=False)
         async def good_func():
@@ -456,7 +444,6 @@ class TestErrorHandlerDecorator:
         result = await good_func()
         assert result == 42
 
-    @pytest.mark.asyncio
     async def test_decorated_async_function_catches_error(self):
         @error_handler(reraise=False)
         async def bad_func():
@@ -465,7 +452,6 @@ class TestErrorHandlerDecorator:
         result = await bad_func()
         assert result is None  # Error swallowed
 
-    @pytest.mark.asyncio
     async def test_decorated_async_function_reraises(self):
         @error_handler(reraise=True)
         async def bad_func():
@@ -505,13 +491,11 @@ class TestErrorHandlerDecorator:
 class TestErrorContextManager:
     """Tests for the error_context async context manager."""
 
-    @pytest.mark.asyncio
     async def test_passes_through_on_success(self):
         async with error_context("comp", "op"):
             result = 1 + 1
         assert result == 2
 
-    @pytest.mark.asyncio
     async def test_reraises_when_recovery_fails(self):
         with pytest.raises(RuntimeError, match="ctx boom"):
             async with error_context("comp", "op", auto_recover=False):
