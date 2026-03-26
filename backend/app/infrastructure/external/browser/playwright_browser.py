@@ -1131,6 +1131,8 @@ class PlaywrightBrowser:
             delay: Seconds to wait before attempting reconnect (allows Chrome to restart).
         """
         await asyncio.sleep(delay)
+        if self._shutting_down:
+            return
         if self._connection_healthy:
             return  # Already recovered via a concurrent operation
         logger.info(f"Proactive reconnect attempt after browser disconnect (CDP: {self.cdp_url})")
@@ -1168,15 +1170,43 @@ class PlaywrightBrowser:
         return task
 
     async def _cancel_background_tasks(self) -> None:
-        """Cancel all outstanding background tasks (keepalive, reconnects, etc.)."""
+        """Cancel all tracked background tasks with safe drain (no _GatheringFuture).
+
+        Uses asyncio.wait instead of asyncio.gather to avoid building a
+        _GatheringFuture cancel chain.  During Docker shutdown the event loop
+        cancels tasks recursively; a _GatheringFuture propagates cancel() to
+        every child, which with 13+ browser instances (2-3 tasks each) can
+        exceed Python's 1000-frame recursion limit (RecursionError).
+        """
+        # Snapshot and seal BEFORE cancelling — prevents new tasks during drain
         tasks = [t for t in self._background_tasks if not t.done()]
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
         self._background_tasks.clear()
         self._keepalive_task = None
         self._page_idle_check_task = None
+
+        if not tasks:
+            return
+
+        logger.debug("Cancelling %d background tasks for CDP %s", len(tasks), self.cdp_url)
+        for t in tasks:
+            t.cancel()
+
+        # asyncio.wait does NOT create a _GatheringFuture, so cancel()
+        # cannot recurse through it during event-loop teardown.
+        try:
+            _done, pending = await asyncio.wait(tasks, timeout=5.0)
+            if pending:
+                logger.debug(
+                    "%d background tasks did not complete within 5s drain timeout (CDP: %s)",
+                    len(pending),
+                    self.cdp_url,
+                )
+        except asyncio.CancelledError:
+            # Our own wait was cancelled during shutdown — best-effort drain
+            logger.debug("Background task drain cancelled during shutdown (CDP: %s)", self.cdp_url)
+        except Exception:
+            # Defensive: never let cleanup failures propagate
+            logger.debug("Background task drain error (CDP: %s)", self.cdp_url, exc_info=True)
 
     # ── Page Lifecycle Manager ─────────────────────────────────────────
     #
@@ -1437,7 +1467,9 @@ class PlaywrightBrowser:
                 return
             logger.warning("CDP keepalive probe failed: %s: %s", type(exc).__name__, exc or "(no message)")
             self._connection_healthy = False
-            # Schedule proactive reconnect
+            # Schedule proactive reconnect only if not already shutting down
+            if self._shutting_down:
+                return
             with contextlib.suppress(RuntimeError):
                 self._track_background_task(self._proactive_reconnect())
 
