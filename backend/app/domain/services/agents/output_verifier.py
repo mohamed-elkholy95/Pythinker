@@ -51,6 +51,10 @@ class HallucinationVerificationResult:
     hallucination_ratio: float | None = None
     span_count: int = 0
     skipped: bool = False
+    # Fix 4: Unsupported claim texts that need re-research.
+    # When non-empty, the caller (PlanActFlow) can trigger re-research
+    # on these specific claims before finalizing the report.
+    needs_reresearch_claims: list[str] = field(default_factory=list)
 
 
 class OutputVerifier:
@@ -701,11 +705,45 @@ class OutputVerifier:
                             "LLM grounding: appending disclaimer for moderate score %.1f%%",
                             ratio_pct,
                         )
+
+                        # Fix 4: Collect unsupported claim texts for re-research.
+                        # When hallucination ratio exceeds 40% (score > 0.40),
+                        # the caller can trigger targeted re-research on these
+                        # specific claims before finalizing the report.
+                        _reresearch_threshold = 0.40
+                        _reresearch_claims: list[str] = []
+                        if grounding_result.hallucination_score > _reresearch_threshold:
+                            from app.domain.services.agents.llm_grounding_verifier import ClaimVerdict
+
+                            _reresearch_claims = [
+                                getattr(c, "claim_text", str(c))[:200]
+                                for c in grounding_result.flagged_claims
+                                if getattr(c, "verdict", None) == ClaimVerdict.UNSUPPORTED
+                            ]
+                            if _reresearch_claims:
+                                logger.info(
+                                    "LLM grounding: %d claim(s) flagged for re-research (score=%.2f)",
+                                    len(_reresearch_claims),
+                                    grounding_result.hallucination_score,
+                                )
+                                # Register BLOCKER insight for the re-research claims
+                                self._context_manager.add_insight(
+                                    insight_type=InsightType.BLOCKER,
+                                    content=(
+                                        "RE-RESEARCH NEEDED: The following claims could not be verified "
+                                        "and need targeted re-research before the report is finalized: "
+                                        + "; ".join(_reresearch_claims[:5])
+                                    ),
+                                    confidence=0.95,
+                                    tags=["reresearch", "hallucination", "grounding"],
+                                )
+
                         return HallucinationVerificationResult(
                             content=content + disclaimer,
                             warnings=["hallucination_ratio_moderate"],
                             hallucination_ratio=grounding_result.hallucination_score,
                             span_count=len(grounding_result.flagged_claims),
+                            needs_reresearch_claims=_reresearch_claims,
                         )
                     return HallucinationVerificationResult(
                         content=content,
