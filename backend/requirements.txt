@@ -47,7 +47,8 @@ playwright>=1.48.0,<2.0.0
 browser-use>=0.11.0,<1.0.0
 # Security overrides for browser-use transitive deps
 authlib>=1.6.9,<2.0.0     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
-pypdf>=6.9.1,<7.0.0       # CVE-2026-27026 through CVE-2026-33123 (9 CVEs)
+pypdf>=6.9.2,<7.0.0       # CVE-2026-27026 through CVE-2026-33699 (10 CVEs)
+requests>=2.33.0          # CVE-2026-25645
 
 # Web scraping with TLS fingerprinting and stealth capabilities
 # [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)

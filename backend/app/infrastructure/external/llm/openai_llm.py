@@ -7,6 +7,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, ClassVar, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 from openai import NOT_GIVEN, AsyncOpenAI, RateLimitError
@@ -461,7 +462,7 @@ class OpenAILLM(LLM):
 
         # Detect if using Kimi Code API and add required headers
         default_headers = None
-        if self._api_base and "kimi.com" in self._api_base:
+        if self._api_base and self._netloc_matches(self._netloc_of_base(), "kimi.com"):
             # Kimi Code API requires User-Agent from recognized coding agents
             default_headers = {
                 "User-Agent": "claude-code/1.0",
@@ -518,20 +519,55 @@ class OpenAILLM(LLM):
 
         return 60  # Default: 1 minute TTL
 
+    def _netloc_of_base(self) -> str:
+        """Return the lower-cased netloc (host[:port]) of ``_api_base``.
+
+        Using urlparse and checking netloc rather than doing a plain substring
+        search on the full URL string prevents incomplete URL-sanitization
+        vulnerabilities (CWE-184 / CodeQL py/incomplete-url-scheme-check):
+        a crafted URL like ``https://evil.api.deepseek.com.attacker.com/v1``
+        would match ``"api.deepseek.com" in url`` but its netloc is
+        ``evil.api.deepseek.com.attacker.com``, which correctly fails the
+        ``.endswith()`` check used in the detector methods below.
+        """
+        if not self._api_base:
+            return ""
+        return urlparse(self._api_base).netloc.lower()
+
+    @staticmethod
+    def _netloc_matches(netloc: str, domain: str) -> bool:
+        """Return True if *netloc* is *domain* or a subdomain of *domain*.
+
+        Examples::
+
+            _netloc_matches("api.deepseek.com", "deepseek.com")  # True
+            _netloc_matches("deepseek.com", "deepseek.com")      # True
+            _netloc_matches("api.deepseek.com:443", "deepseek.com")  # True
+            _netloc_matches("evil.deepseek.com.attacker.com", "deepseek.com")  # False
+        """
+        # Strip optional port so "api.deepseek.com:443" still matches "deepseek.com"
+        host = netloc.split(":")[0]
+        return host == domain or host.endswith(f".{domain}")
+
     def _detect_stream_usage_support(self) -> bool:
         """Detect whether streaming usage metadata is supported by the API base."""
-        base = (self._api_base or "").lower()
-        return "openai.com" in base
+        return self._netloc_matches(self._netloc_of_base(), "openai.com")
 
     def _detect_mlx_mode(self) -> bool:
         """Detect if using local MLX server that needs text-based tool handling."""
         # Check model name for MLX community models
         if "mlx-community" in self._model_name.lower():
             return True
-        # Check API base for local servers
+        # Check API base for local servers (localhost / 127.0.0.1 are not domains,
+        # so plain substring search on netloc is safe here — these are not
+        # security-sensitive routing decisions, only local-dev detection).
         if self._api_base:
-            local_indicators = ["localhost", "127.0.0.1", "host.docker.internal", ":8081"]
-            if any(indicator in self._api_base.lower() for indicator in local_indicators):
+            netloc = self._netloc_of_base()
+            local_indicators = ["localhost", "127.0.0.1", "host.docker.internal"]
+            if any(indicator in netloc for indicator in local_indicators):
+                return True
+            # Port-based detection (e.g. :8081 local server)
+            if ":8081" in netloc:
                 return True
         return False
 
@@ -545,10 +581,10 @@ class OpenAILLM(LLM):
         if not self._api_base:
             return False
 
-        base = self._api_base.lower()
+        netloc = self._netloc_of_base()
 
         # Kimi Code API has extended thinking enabled for Claude models
-        if "kimi.com" in base or "kimi.ai" in base:
+        if self._netloc_matches(netloc, "kimi.com") or self._netloc_matches(netloc, "kimi.ai"):
             return True
 
         # Z.AI GLM-5/4.7 APIs have thinking enabled by default.
@@ -562,7 +598,7 @@ class OpenAILLM(LLM):
         # Be conservative and enable thinking handling for all Claude models
         # through non-Anthropic endpoints
         model_lower = self._model_name.lower()
-        return "claude" in model_lower and "anthropic.com" not in base
+        return "claude" in model_lower and not self._netloc_matches(netloc, "anthropic.com")
 
     def _detect_glm_api(self) -> bool:
         """Detect if using ZhipuAI GLM API (z.ai or bigmodel.cn).
@@ -577,8 +613,12 @@ class OpenAILLM(LLM):
                    https://open.bigmodel.cn/api/paas/v4
         """
         if self._api_base:
-            base = self._api_base.lower()
-            if any(marker in base for marker in ("z.ai", "bigmodel.cn", "zhipuai")):
+            netloc = self._netloc_of_base()
+            if (
+                self._netloc_matches(netloc, "z.ai")
+                or self._netloc_matches(netloc, "bigmodel.cn")
+                or self._netloc_matches(netloc, "zhipuai.cn")
+            ):
                 return True
 
         # Also detect by model name (glm- prefix covers glm-4, glm-5, glm-z1, etc.)
@@ -596,7 +636,7 @@ class OpenAILLM(LLM):
         """
         if not self._api_base:
             return False
-        return "openrouter" in self._api_base.lower()
+        return self._netloc_matches(self._netloc_of_base(), "openrouter.ai")
 
     def _detect_deepseek(self) -> bool:
         """Detect if using DeepSeek API.
@@ -610,7 +650,7 @@ class OpenAILLM(LLM):
         """
         if not self._api_base:
             return False
-        return "api.deepseek.com" in self._api_base.lower()
+        return self._netloc_matches(self._netloc_of_base(), "deepseek.com")
 
     def _detect_minimax(self) -> bool:
         """Detect if using MiniMax API.
@@ -626,8 +666,8 @@ class OpenAILLM(LLM):
         """
         if not self._api_base:
             return False
-        base = self._api_base.lower()
-        return "minimax.io" in base or "minimaxi.com" in base
+        netloc = self._netloc_of_base()
+        return self._netloc_matches(netloc, "minimax.io") or self._netloc_matches(netloc, "minimaxi.com")
 
     def _resolve_model_override(self, model: str | None) -> str:
         """Resolve a model override, falling back to default if incompatible with provider.
@@ -668,8 +708,7 @@ class OpenAILLM(LLM):
             return self._model_name
 
         # For standard OpenAI API (api.openai.com), reject non-OpenAI model names
-        base = (self._api_base or "").lower()
-        if "api.openai.com" in base:
+        if self._netloc_matches(self._netloc_of_base(), "openai.com"):
             openai_prefixes = ("gpt-", "o1", "o3", "o4", "chatgpt-", "ft:")
             if not model.startswith(openai_prefixes):
                 logger.debug("Model override '%s' incompatible with OpenAI API, using '%s'", model, self._model_name)
