@@ -39,9 +39,8 @@ class TestTimingResult:
 
     def test_context_manager_exception(self):
         result = TimingResult(name="test")
-        with pytest.raises(ValueError):
-            with result:
-                raise ValueError("boom")
+        with pytest.raises(ValueError), result:
+            raise ValueError("boom")
         assert result.success is False
         assert result.error == "boom"
         assert result.duration_ms > 0
@@ -287,9 +286,8 @@ class TestTimedBlockSync:
         assert timer.success is True
 
     def test_failure(self):
-        with pytest.raises(RuntimeError):
-            with timed_block_sync("sync_fail") as timer:
-                raise RuntimeError("error")
+        with pytest.raises(RuntimeError), timed_block_sync("sync_fail") as timer:
+            raise RuntimeError("error")
         assert timer.success is False
 
     def test_no_record(self):
