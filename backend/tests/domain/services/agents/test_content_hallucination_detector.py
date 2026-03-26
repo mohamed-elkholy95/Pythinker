@@ -93,8 +93,11 @@ class TestHallucinationAnalysisResult:
 
     def test_get_summary_high_risk(self):
         issue = HallucinationIssue(
-            pattern_type="test", matched_text="test", description="test",
-            risk=HallucinationRisk.HIGH, suggestion="test",
+            pattern_type="test",
+            matched_text="test",
+            description="test",
+            risk=HallucinationRisk.HIGH,
+            suggestion="test",
         )
         result = HallucinationAnalysisResult(issues=[issue], high_risk_count=3)
         summary = result.get_summary()
@@ -102,8 +105,11 @@ class TestHallucinationAnalysisResult:
 
     def test_get_summary_medium_risk(self):
         issue = HallucinationIssue(
-            pattern_type="test", matched_text="test", description="test",
-            risk=HallucinationRisk.MEDIUM, suggestion="test",
+            pattern_type="test",
+            matched_text="test",
+            description="test",
+            risk=HallucinationRisk.MEDIUM,
+            suggestion="test",
         )
         result = HallucinationAnalysisResult(issues=[issue], medium_risk_count=2)
         summary = result.get_summary()
@@ -111,8 +117,11 @@ class TestHallucinationAnalysisResult:
 
     def test_get_summary_both(self):
         issue = HallucinationIssue(
-            pattern_type="test", matched_text="test", description="test",
-            risk=HallucinationRisk.HIGH, suggestion="test",
+            pattern_type="test",
+            matched_text="test",
+            description="test",
+            risk=HallucinationRisk.HIGH,
+            suggestion="test",
         )
         result = HallucinationAnalysisResult(issues=[issue], high_risk_count=1, medium_risk_count=2)
         summary = result.get_summary()
