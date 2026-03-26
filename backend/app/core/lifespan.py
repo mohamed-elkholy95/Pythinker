@@ -279,7 +279,7 @@ def _initialize_observability() -> None:
 
 
 def _setup_otel_auto_instrumentation() -> None:
-    """Activate OpenTelemetry auto-instrumentation for httpx and FastAPI.
+    """Activate OpenTelemetry auto-instrumentation for httpx, FastAPI, pymongo, and redis.
 
     Each instrumentor is independently guarded so a missing package
     never blocks the others.
@@ -301,6 +301,24 @@ def _setup_otel_auto_instrumentation() -> None:
         logger.info("OTEL auto-instrumented: FastAPI")
     except Exception as exc:
         logger.debug("OTEL FastAPI instrumentation skipped: %s", exc)
+
+    # pymongo (motor uses pymongo under the hood) — traces all DB operations
+    try:
+        from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
+
+        PymongoInstrumentor().instrument()
+        logger.info("OTEL auto-instrumented: pymongo (motor)")
+    except Exception as exc:
+        logger.debug("OTEL pymongo instrumentation skipped: %s", exc)
+
+    # redis — traces all cache operations
+    try:
+        from opentelemetry.instrumentation.redis import RedisInstrumentor
+
+        RedisInstrumentor().instrument()
+        logger.info("OTEL auto-instrumented: redis")
+    except Exception as exc:
+        logger.debug("OTEL redis instrumentation skipped: %s", exc)
 
 
 def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:

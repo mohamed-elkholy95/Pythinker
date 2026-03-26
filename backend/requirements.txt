@@ -113,6 +113,8 @@ opentelemetry-sdk>=1.29.0,<2.0.0
 opentelemetry-exporter-otlp-proto-grpc>=1.29.0,<2.0.0
 opentelemetry-instrumentation-httpx>=0.50b0,<1.0.0
 opentelemetry-instrumentation-fastapi>=0.50b0,<1.0.0
+opentelemetry-instrumentation-pymongo>=0.50b0,<1.0.0
+opentelemetry-instrumentation-redis>=0.50b0,<1.0.0
 
 # Knowledge Base (RAG-Anything) — REMOVED from default image.
 # raganything pulls torch (1.7GB), nvidia CUDA (4.3GB), triton (640MB),
