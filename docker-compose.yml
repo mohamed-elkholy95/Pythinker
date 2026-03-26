@@ -105,6 +105,13 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 512M
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -384,6 +391,13 @@ services:
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
+        reservations:
+          memory: 128M
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
