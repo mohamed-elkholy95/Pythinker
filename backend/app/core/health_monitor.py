@@ -72,7 +72,7 @@ class HealthMonitor:
         logger.info("Starting health monitoring")
 
         # Start monitoring tasks for each component
-        components = ["error_manager", "sandbox_manager", "database", "redis", "redis_cache", "qdrant"]
+        components = ["error_manager", "sandbox_manager", "database", "redis", "redis_cache", "qdrant", "minio"]
 
         for component in components:
             task = asyncio.create_task(self._monitor_component(component))
@@ -119,6 +119,8 @@ class HealthMonitor:
                 await self._check_redis_cache_health(health)
             elif component == "qdrant":
                 await self._check_qdrant_health(health)
+            elif component == "minio":
+                await self._check_minio_health(health)
 
             self._components[component] = health
 
@@ -381,6 +383,38 @@ class HealthMonitor:
 
         health.add_metric(
             HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
+        )
+
+    async def _check_minio_health(self, health: ComponentHealth) -> None:
+        """Check MinIO connectivity and bucket availability."""
+        try:
+            import time
+
+            from app.infrastructure.storage.minio_storage import get_minio_storage
+
+            storage = get_minio_storage()
+            start = time.monotonic()
+            # list_buckets is a lightweight operation that validates connectivity
+            buckets = await asyncio.to_thread(storage._client.list_buckets)
+            response_time = time.monotonic() - start
+
+            bucket_names = [b.name for b in buckets] if buckets else []
+            health.status = ComponentStatus.HEALTHY
+
+        except Exception as e:
+            health.status = ComponentStatus.DEGRADED  # MinIO is optional for core functionality
+            response_time = -1
+            bucket_names = []
+            logger.warning(f"MinIO health check failed: {e}")
+
+        health.add_metric(
+            HealthMetric(
+                name="response_time",
+                value=response_time,
+                status=health.status,
+                timestamp=datetime.now(UTC),
+                metadata={"buckets": bucket_names},
+            )
         )
 
     def get_system_health(self) -> dict[str, Any]:
