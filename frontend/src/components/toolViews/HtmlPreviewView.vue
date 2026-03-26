@@ -88,7 +88,7 @@ watch(debouncedContent, () => {
   width: 100%;
   height: 100%;
   border: none;
-  background: #fff;
+  background: var(--background-white-main, #fff);
   display: block;
 }
 

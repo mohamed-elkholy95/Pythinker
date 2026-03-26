@@ -981,7 +981,7 @@ watch(isOpen, (newVal) => {
 }
 
 :global(.dark) .doc-body.prose {
-  --tw-prose-links: #7cb3e0;
+  --tw-prose-links: #60a5fa;
 }
 
 /* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */
@@ -1490,14 +1490,14 @@ watch(isOpen, (newVal) => {
 <style>
 /* ── Dark mode: link color inside report modal ────────────────────────── */
 .dark .doc-body.prose a {
-  color: #7cb3e0;
+  color: #60a5fa;
 }
 
 /* ── Dark mode: inline citation badges ────────────────────────────────── */
 .dark .doc-body a[href^="#ref-"] {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.75);
   text-decoration: none !important;
 }
 

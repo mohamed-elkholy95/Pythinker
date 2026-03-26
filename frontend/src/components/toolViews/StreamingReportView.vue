@@ -160,11 +160,83 @@ watch(() => props.text, async () => {
   font-size: 13px;
 }
 
+.markdown-body :deep(a) {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.markdown-body :deep(pre) {
+  background: var(--code-block-bg, #f6f8fa);
+  padding: 12px 14px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.markdown-body :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.markdown-body :deep(strong) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .markdown-body :deep(blockquote) {
   border-left: 3px solid var(--border-main);
   padding-left: 12px;
   color: var(--text-secondary);
   margin: 10px 0;
+}
+
+/* ── Dark mode overrides ──────────────────────────────────────────────── */
+:global(.dark) .markdown-body {
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(h1),
+:global(.dark) .markdown-body :deep(h2),
+:global(.dark) .markdown-body :deep(h3) {
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(a) {
+  color: #60a5fa;
+}
+
+:global(.dark) .markdown-body :deep(th) {
+  background: var(--bolt-elements-bg-depth-3);
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(td) {
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(code) {
+  background: var(--bolt-elements-bg-depth-3);
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(pre) {
+  background: var(--code-block-bg, #1b1b1b);
+}
+
+:global(.dark) .markdown-body :deep(pre code) {
+  color: var(--text-primary);
+}
+
+:global(.dark) .markdown-body :deep(blockquote) {
+  border-left-color: var(--border-main);
+  color: var(--text-secondary);
 }
 
 .typing-cursor {

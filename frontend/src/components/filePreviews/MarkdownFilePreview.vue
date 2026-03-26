@@ -60,17 +60,17 @@ watch(() => props.file.file_id, async (fileId) => {
 }
 
 .markdown-preview-scroll::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(128, 128, 128, 0.3);
     border-radius: 3px;
 }
 
 .markdown-preview-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(128, 128, 128, 0.5);
 }
 
 /* Firefox */
 .markdown-preview-scroll {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+    scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
 }
 </style>

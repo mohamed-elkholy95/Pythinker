@@ -1238,12 +1238,12 @@ defineExpose({
 }
 
 .dark .tiptap-report-editor .prose {
-  --tw-prose-links: #7cb3e0;
+  --tw-prose-links: #60a5fa;
 }
 
 /* ── Dark mode: report-link color ────────────────────────────────────── */
 .dark .tiptap-report-editor .report-link {
-  color: #7cb3e0;
+  color: #60a5fa;
 }
 
 /* ── Dark mode: inline citation badges ───────────────────────────────
@@ -1252,8 +1252,8 @@ defineExpose({
    unreliable across Vue SFC compiler versions. */
 .dark .tiptap-report-editor a[href^="#ref-"] {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.75);
   text-decoration: none !important;
 }
 
@@ -1266,13 +1266,13 @@ defineExpose({
 
 /* ── Dark mode: report-link safety override for citation badges ────── */
 .dark .tiptap-report-editor a.report-link[href^="#ref-"] {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* ── Dark mode: reference list anchor hover ──────────────────────────── */
 .dark .tiptap-report-editor .ref-list-anchor:hover {
-  text-decoration-color: #7cb3e0;
-  color: #7cb3e0;
+  text-decoration-color: #60a5fa;
+  color: #60a5fa;
 }
 
 /* ── Debug: highlight unresolved citation badges ────────────────────── */
