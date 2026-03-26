@@ -81,7 +81,7 @@ class TestFilterVideoUrls:
         filtered = filter_video_urls(urls)
         assert len(filtered) == 2
         assert "https://example.com/article" in filtered
-        assert "https://docs.python.org" in filtered
+        assert "https://docs.python.org" in filtered  # lgtm[py/incomplete-url-scheme-check]
 
     def test_empty_list(self) -> None:
         assert filter_video_urls([]) == []
@@ -155,7 +155,7 @@ class TestVideoConstants:
     """Tests for video constant sets."""
 
     def test_video_domains_contains_youtube(self) -> None:
-        assert "youtube.com" in VIDEO_DOMAINS
+        assert "youtube.com" in VIDEO_DOMAINS  # lgtm[py/incomplete-url-scheme-check]
 
     def test_video_extensions_contains_mp4(self) -> None:
         assert ".mp4" in VIDEO_EXTENSIONS

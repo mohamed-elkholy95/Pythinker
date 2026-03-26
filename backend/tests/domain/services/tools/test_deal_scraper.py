@@ -1506,7 +1506,7 @@ class TestDealComparePrices:
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
         result = await tool.deal_compare_prices(["https://example.com/product"])
-        assert "example.com" in result.message
+        assert "example.com" in result.message  # lgtm[py/incomplete-url-scheme-check]
         assert "timeout" in result.message
 
     @pytest.mark.asyncio
@@ -1585,7 +1585,7 @@ class TestDealFindCoupons:
         coupon_result = CouponSearchResult(coupons=coupons)
         tool = DealScraperTool(deal_finder=StubDealFinder(coupon_result=coupon_result))
         result = await tool.deal_find_coupons("Amazon")
-        assert "slickdeals.net" in result.message
+        assert "slickdeals.net" in result.message  # lgtm[py/incomplete-url-scheme-check]
 
     @pytest.mark.asyncio
     async def test_data_has_coupons_key(self) -> None:
@@ -1684,7 +1684,7 @@ class TestDealFindCoupons:
         result = await tool.deal_find_coupons("Amazon")
         assert result.success is True
         assert "No coupons found" in result.message
-        assert "slickdeals.net" in result.message
+        assert "slickdeals.net" in result.message  # lgtm[py/incomplete-url-scheme-check]
 
     @pytest.mark.asyncio
     async def test_no_coupons_message_includes_urls_checked(self) -> None:
@@ -1694,7 +1694,7 @@ class TestDealFindCoupons:
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(coupon_result=coupon_result))
         result = await tool.deal_find_coupons("Amazon")
-        assert "https://retailmenot.com" in result.message
+        assert "https://retailmenot.com" in result.message  # lgtm[py/incomplete-url-scheme-check]
 
     @pytest.mark.asyncio
     async def test_no_coupons_message_warns_against_browser_navigate(self) -> None:

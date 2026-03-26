@@ -20,7 +20,7 @@ class TestStepSourceAccumulation:
         )
         assert len(v._step_sources) == 1
         assert "M5 Pro scored 15,200" in v._step_sources[0]
-        assert "example.com" in v._step_sources[0]
+        assert "example.com" in v._step_sources[0]  # lgtm[py/incomplete-url-scheme-check]
 
     def test_add_step_source_ignores_empty(self):
         v = self._make_verifier()

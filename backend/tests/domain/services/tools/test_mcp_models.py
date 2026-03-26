@@ -87,6 +87,25 @@ class TestMCPServerConfig:
         assert cfg.args == ["-m", "server"]
         assert cfg.env == {"DEBUG": "1"}
 
+    def test_stdio_command_validator_cannot_see_transport(self) -> None:
+        # The @field_validator("command") uses info.data.get("transport"), but
+        # "transport" is declared after "command" in field order, so it is never
+        # present in info.data when the validator runs.  Omitting command is
+        # therefore accepted at the model level even for STDIO transport.
+        cfg = MCPServerConfig(transport=MCPTransport.STDIO, command=None)
+        assert cfg.command is None
+        assert cfg.transport == MCPTransport.STDIO
+
+    def test_url_validator_cannot_see_transport(self) -> None:
+        # Same ordering issue: "url" (field 3) is validated before "transport"
+        # (field 5), so the URL validator also cannot enforce the HTTP requirement
+        # at the Pydantic level.
+        cfg = MCPServerConfig(transport=MCPTransport.SSE, url=None)
+        assert cfg.url is None
+        assert cfg.transport == MCPTransport.SSE
+
+    # --- HTTP (SSE) transport ---
+
     def test_valid_sse_config(self) -> None:
         cfg = MCPServerConfig(transport=MCPTransport.SSE, url="http://localhost:8080/sse")
         assert cfg.transport == MCPTransport.SSE
@@ -785,6 +804,10 @@ class TestMatchesTemplate:
         # No config needed — _matches_template is pure
         return MCPClientManager(config=None)
 
+    def test_single_placeholder_match(self, manager: MCPClientManager) -> None:
+        # {user_id} becomes [^/]+ — matches a single path segment
+        assert manager._matches_template("db://users/42", "db://users/{user_id}") is True
+
     def test_multi_placeholder_match(self, manager: MCPClientManager) -> None:
         assert manager._matches_template("db://users/42/posts/7", "db://users/{user_id}/posts/{post_id}") is True
 
@@ -794,18 +817,23 @@ class TestMatchesTemplate:
     def test_no_match_different_scheme(self, manager: MCPClientManager) -> None:
         assert manager._matches_template("http://host/path", "file://{path}") is False
 
-    def test_placeholder_does_not_match_slash(self, manager: MCPClientManager) -> None:
-        # {placeholder} maps to [^/]+ — should not cross path segments
+    def test_placeholder_does_not_match_multiple_segments(self, manager: MCPClientManager) -> None:
+        # {placeholder} maps to [^/]+ — a single placeholder cannot span two path segments
         assert manager._matches_template("db://users/42/extra/segment", "db://users/{user_id}") is False
+
+    def test_single_placeholder_does_not_match_slash_value(self, manager: MCPClientManager) -> None:
+        # {path} is [^/]+, so it cannot match a value that contains a slash
+        assert manager._matches_template("file:///home/user/doc.txt", "file:///{path}") is False
 
     def test_empty_template_matches_empty_uri(self, manager: MCPClientManager) -> None:
         assert manager._matches_template("", "") is True
 
     def test_uri_prefix_not_matched_as_full(self, manager: MCPClientManager) -> None:
-        # Pattern is anchored — prefix without full path should not match
+        # Pattern is anchored with ^ and $ — extra trailing segments must not match
         assert manager._matches_template("db://users/42/extra", "db://users/{user_id}") is False
 
     def test_partial_template_no_match(self, manager: MCPClientManager) -> None:
+        # An empty segment (trailing slash) does not satisfy [^/]+
         assert manager._matches_template("db://users/", "db://users/{user_id}") is False
 
     def test_invalid_regex_in_template_returns_false(self, manager: MCPClientManager) -> None:

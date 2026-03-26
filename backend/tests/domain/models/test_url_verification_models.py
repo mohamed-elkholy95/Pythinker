@@ -132,8 +132,8 @@ class TestBatchURLVerificationResult:
     def test_get_invalid_urls(self) -> None:
         batch = self._make_batch()
         invalid = batch.get_invalid_urls()
-        assert "https://b.com" in invalid
-        assert "https://c.com" in invalid
+        assert "https://b.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
+        assert "https://c.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
         assert "https://a.com" not in invalid
 
     def test_get_warnings(self) -> None:

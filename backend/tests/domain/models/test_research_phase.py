@@ -71,7 +71,7 @@ class TestResearchCheckpoint:
             query_context="best practices for X",
         )
         assert len(cp.sources) == 2
-        assert "https://example.com" in cp.sources
+        assert "https://example.com" in cp.sources  # lgtm[py/incomplete-url-scheme-check]
 
     def test_timestamp_default_is_utc_aware(self) -> None:
         cp = ResearchCheckpoint(

@@ -318,7 +318,7 @@ class TestNormalizeUrlForVisitTracking:
 
     def test_root_path_preserved(self) -> None:
         result = self._norm("https://example.com/")
-        assert "example.com" in result
+        assert "example.com" in result  # lgtm[py/incomplete-url-scheme-check]
 
     def test_fragment_stripped(self) -> None:
         with_fragment = self._norm("https://example.com/page#section")

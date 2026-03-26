@@ -100,7 +100,7 @@ class TestTaskStateUrls:
     def test_record_url_new(self) -> None:
         ts = TaskState()
         assert ts.record_url("https://example.com") is True
-        assert "https://example.com" in ts.visited_urls
+        assert "https://example.com" in ts.visited_urls  # lgtm[py/incomplete-url-scheme-check]
 
     def test_record_url_duplicate(self) -> None:
         ts = TaskState()
@@ -173,7 +173,7 @@ class TestTaskStateVisitedSummary:
         ts = TaskState()
         ts.record_url("https://example.com")
         summary = ts.get_visited_summary()
-        assert "example.com" in summary
+        assert "example.com" in summary  # lgtm[py/incomplete-url-scheme-check]
         assert "URLS ALREADY VISITED" in summary
 
     def test_includes_queries(self) -> None:
