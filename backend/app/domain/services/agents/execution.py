@@ -1590,6 +1590,16 @@ class ExecutionAgent(BaseAgent):
             # Guaranteed fallback: inject complete References section if truncated/missing
             message_content = self._ensure_complete_references(message_content)
 
+            # Fix 5: Auto-fix any remaining incomplete references.
+            # Handles the case where _ensure_complete_references had no
+            # collected_sources but inline citations reference missing [N] entries.
+            try:
+                from app.domain.services.agents.truncation_detector import TruncationDetector
+
+                message_content = TruncationDetector.auto_fix_incomplete_references(message_content)
+            except Exception as _ref_fix_err:
+                logger.debug("Auto-fix incomplete references failed (non-critical): %s", _ref_fix_err)
+
             # Prepend incomplete-report warning header when truncation was unresolvable OR
             # when the content still carries `[…]` streaming artifacts.
             if truncation_exhausted or self._has_truncation_artifacts(message_content):

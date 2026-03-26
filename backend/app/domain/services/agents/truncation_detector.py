@@ -409,6 +409,63 @@ class TruncationDetector:
         """
         return assessment.is_truncated and assessment.confidence >= confidence_threshold
 
+    @staticmethod
+    def auto_fix_incomplete_references(content: str) -> str:
+        """Auto-fix incomplete references by appending placeholder entries (Fix 5).
+
+        When inline citations [N] exist in the body but the References section
+        is missing those entries, this method appends placeholder entries so the
+        report is structurally complete.  The placeholders prompt the reader
+        (or a subsequent LLM pass) to fill in the actual source.
+
+        Only triggers when the gap is <= 5 missing entries.  Larger gaps
+        indicate a more fundamental issue that needs LLM continuation.
+
+        Args:
+            content: The report content with potentially incomplete references.
+
+        Returns:
+            Content with missing reference placeholders appended (or unchanged
+            if no fix is needed).
+        """
+        max_auto_fix = 5  # Only auto-fix small gaps
+
+        ref_heading_match = re.search(
+            r"^##\s+References?\s*$",
+            content,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        if not ref_heading_match:
+            return content
+
+        body = content[: ref_heading_match.start()]
+        ref_section = content[ref_heading_match.end() :]
+
+        # Collect inline citation numbers from the body
+        inline_nums = {int(n) for n in re.findall(r"\[(\d+)\]", body)}
+        # Collect reference entry numbers from the references section
+        ref_nums = {int(n) for n in re.findall(r"\[(\d+)\]", ref_section)}
+
+        missing = sorted(inline_nums - ref_nums)
+        if not missing or len(missing) > max_auto_fix:
+            return content
+
+        # Build placeholder entries
+        placeholders = [f"[{num}] *Source pending verification*" for num in missing]
+
+        # Append to content (before any trailing disclaimer/whitespace)
+        # Find the last non-whitespace position after references
+        stripped = content.rstrip()
+        suffix = content[len(stripped) :]
+        patched = stripped + "\n" + "\n".join(placeholders) + suffix
+
+        logger.info(
+            "Auto-fixed %d missing reference entries: %s",
+            len(missing),
+            missing,
+        )
+        return patched
+
 
 # Singleton instance
 _truncation_detector: TruncationDetector | None = None
