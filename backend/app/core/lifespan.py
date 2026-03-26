@@ -303,11 +303,45 @@ def _setup_otel_auto_instrumentation() -> None:
         logger.debug("OTEL FastAPI instrumentation skipped: %s", exc)
 
 
+def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """Custom handler for unhandled asyncio exceptions.
+
+    Suppresses known harmless Playwright errors ("Execution context was
+    destroyed", "net::ERR_ABORTED") that produce noisy "Future exception
+    was never retrieved" log entries during page navigation.  All other
+    exceptions are forwarded to the default handler.
+    """
+    exception = context.get("exception")
+    message = context.get("message", "")
+
+    if exception:
+        err_text = str(exception)
+        # Playwright navigation artifacts — harmless, log at debug
+        if any(
+            pattern in err_text
+            for pattern in (
+                "Execution context was destroyed",
+                "net::ERR_ABORTED",
+                "Target page, context or browser has been closed",
+                "Protocol error",
+            )
+        ):
+            logger.debug("Suppressed harmless asyncio exception: %s", err_text[:200])
+            return
+
+    # Forward everything else to the default handler
+    loop.default_exception_handler(context)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Code executed on startup
     logger.info("Application startup - Pythinker AI Agent initializing")
     logger.info(f"Environment: {settings.environment}")
+
+    # Install custom asyncio exception handler to suppress noisy Playwright
+    # "Future exception was never retrieved" log entries
+    asyncio.get_running_loop().set_exception_handler(_asyncio_exception_handler)
 
     # Initialize enhanced error handling and monitoring
     from app.core.system_integrator import get_system_integrator
