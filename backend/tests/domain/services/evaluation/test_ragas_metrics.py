@@ -242,9 +242,7 @@ class TestAsymmetryIssue:
     def test_custom_severity(self):
         a = ComparisonItem(name="A")
         b = ComparisonItem(name="B")
-        issue = AsymmetryIssue(
-            item_a=a, item_b=b, issue_description="test", severity="critical"
-        )
+        issue = AsymmetryIssue(item_a=a, item_b=b, issue_description="test", severity="critical")
         assert issue.severity == "critical"
 
 

@@ -336,24 +336,18 @@ class TestParseImplementationLayers:
 
     def test_layer_goal_extracted(self):
         metadata = self.packager.parse_skill_md(_FULL_SKILL_MD)
-        structure = next(
-            layer for layer in metadata.implementation_layers if layer.name == "Structure"
-        )
+        structure = next(layer for layer in metadata.implementation_layers if layer.name == "Structure")
         assert structure.goal == "Provide solid foundations."
 
     def test_code_examples_extracted(self):
         metadata = self.packager.parse_skill_md(_FULL_SKILL_MD)
-        structure = next(
-            layer for layer in metadata.implementation_layers if layer.name == "Structure"
-        )
+        structure = next(layer for layer in metadata.implementation_layers if layer.name == "Structure")
         assert len(structure.code_examples) == 1
         assert "def setup():" in structure.code_examples[0]
 
     def test_layer_without_code_has_empty_list(self):
         metadata = self.packager.parse_skill_md(_FULL_SKILL_MD)
-        info = next(
-            layer for layer in metadata.implementation_layers if layer.name == "Information"
-        )
+        info = next(layer for layer in metadata.implementation_layers if layer.name == "Information")
         assert info.code_examples == []
 
     def test_no_layers_when_absent(self):
@@ -383,10 +377,7 @@ class TestParseExamples:
 
     def test_example_description_truncated_at_500(self):
         long_desc = "x" * 600
-        content = (
-            "---\nname: X\ndescription: Y\n---\n\n"
-            f"## Examples\n\n### My Example\n\n{long_desc}\n"
-        )
+        content = f"---\nname: X\ndescription: Y\n---\n\n## Examples\n\n### My Example\n\n{long_desc}\n"
         metadata = self.packager.parse_skill_md(content)
         if metadata.examples:
             assert len(metadata.examples[0].description) <= 500
@@ -837,9 +828,7 @@ class TestDeterminePackageType:
         assert self.packager.determine_package_type(meta) == SkillPackageType.SIMPLE
 
     def test_standard_type_for_workflow_steps(self):
-        meta = _make_metadata(
-            workflow_steps=[SkillWorkflowStep(step_number=1, description="Step")]
-        )
+        meta = _make_metadata(workflow_steps=[SkillWorkflowStep(step_number=1, description="Step")])
         assert self.packager.determine_package_type(meta) == SkillPackageType.STANDARD
 
     def test_standard_type_for_feature_categories(self):
@@ -847,35 +836,24 @@ class TestDeterminePackageType:
             feature_categories=[
                 SkillFeatureCategory(
                     category="Help Users\u300cX\u300d",
-                    mappings=[
-                        SkillFeatureMapping(feature="F", user_value="V", when_to_use="W")
-                    ],
+                    mappings=[SkillFeatureMapping(feature="F", user_value="V", when_to_use="W")],
                 )
             ]
         )
         assert self.packager.determine_package_type(meta) == SkillPackageType.STANDARD
 
     def test_advanced_type_for_implementation_layers(self):
-        meta = _make_metadata(
-            implementation_layers=[
-                SkillImplementationLayer(name="Structure", goal="Build base.")
-            ]
-        )
+        meta = _make_metadata(implementation_layers=[SkillImplementationLayer(name="Structure", goal="Build base.")])
         assert self.packager.determine_package_type(meta) == SkillPackageType.ADVANCED
 
     def test_advanced_type_for_custom_tools_flag(self):
         meta = _make_metadata()
-        assert (
-            self.packager.determine_package_type(meta, has_custom_tools=True)
-            == SkillPackageType.ADVANCED
-        )
+        assert self.packager.determine_package_type(meta, has_custom_tools=True) == SkillPackageType.ADVANCED
 
     def test_advanced_takes_precedence_over_standard(self):
         meta = _make_metadata(
             workflow_steps=[SkillWorkflowStep(step_number=1, description="Step")],
-            implementation_layers=[
-                SkillImplementationLayer(name="Structure", goal="Base.")
-            ],
+            implementation_layers=[SkillImplementationLayer(name="Structure", goal="Base.")],
         )
         assert self.packager.determine_package_type(meta) == SkillPackageType.ADVANCED
 

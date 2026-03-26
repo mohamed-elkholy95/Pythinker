@@ -48,28 +48,20 @@ class TestBenchmarkResult:
         assert result.score == 0.95
 
     def test_default_metrics(self):
-        result = BenchmarkResult(
-            name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0
-        )
+        result = BenchmarkResult(name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0)
         assert result.metrics == {}
 
     def test_default_duration(self):
-        result = BenchmarkResult(
-            name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0
-        )
+        result = BenchmarkResult(name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0)
         assert result.duration_ms == 0
 
     def test_default_error(self):
-        result = BenchmarkResult(
-            name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0
-        )
+        result = BenchmarkResult(name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0)
         assert result.error is None
 
     def test_timestamp_auto_set(self):
         before = datetime.now(UTC)
-        result = BenchmarkResult(
-            name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0
-        )
+        result = BenchmarkResult(name="test", category=BenchmarkCategory.MEMORY, passed=True, score=1.0)
         after = datetime.now(UTC)
         assert before <= result.timestamp <= after
 
@@ -96,15 +88,11 @@ class TestBenchmarkResult:
 
     def test_score_boundaries(self):
         # Score 0.0
-        r1 = BenchmarkResult(
-            name="zero", category=BenchmarkCategory.LATENCY, passed=False, score=0.0
-        )
+        r1 = BenchmarkResult(name="zero", category=BenchmarkCategory.LATENCY, passed=False, score=0.0)
         assert r1.score == 0.0
 
         # Score 1.0
-        r2 = BenchmarkResult(
-            name="one", category=BenchmarkCategory.LATENCY, passed=True, score=1.0
-        )
+        r2 = BenchmarkResult(name="one", category=BenchmarkCategory.LATENCY, passed=True, score=1.0)
         assert r2.score == 1.0
 
     def test_with_duration(self):
@@ -167,15 +155,9 @@ class TestBenchmarkSuite:
         suite = BenchmarkSuite(
             name="test",
             results=[
-                BenchmarkResult(
-                    name="a", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=100
-                ),
-                BenchmarkResult(
-                    name="b", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=200
-                ),
-                BenchmarkResult(
-                    name="c", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=50.5
-                ),
+                BenchmarkResult(name="a", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=100),
+                BenchmarkResult(name="b", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=200),
+                BenchmarkResult(name="c", category=BenchmarkCategory.LATENCY, passed=True, score=1.0, duration_ms=50.5),
             ],
         )
         assert suite.total_duration_ms == 350.5

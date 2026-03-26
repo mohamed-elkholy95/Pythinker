@@ -209,9 +209,6 @@ class TestModuleConstants:
         assert "online" in _COUPON_NOISE_WORDS
 
 
-
-
-
 class TestEmptyCategorySummary:
     def test_returns_dict_with_three_keys(self) -> None:
         result = _empty_category_summary()
@@ -228,9 +225,6 @@ class TestEmptyCategorySummary:
         b = _empty_category_summary()
         a["digital"] = 99
         assert b["digital"] == 0
-
-
-
 
 
 class TestCountItemCategories:
@@ -300,9 +294,6 @@ class TestCountItemCategories:
         assert result == {"digital": 1, "physical": 1, "unknown": 1}
 
 
-
-
-
 class TestBuildProgressHtml:
     def test_returns_string(self) -> None:
         html = _build_progress_html("test query")
@@ -367,9 +358,6 @@ class TestBuildProgressHtml:
         assert "Best Buy" in html
 
 
-
-
-
 class TestConfidenceLabel:
     def test_high_at_exactly_0_8(self) -> None:
         assert _confidence_label(0.8) == "High"
@@ -399,9 +387,6 @@ class TestConfidenceLabel:
         assert _confidence_label(0.499) == "Low"
 
 
-
-
-
 class TestEscapeMdPipe:
     def test_escapes_single_pipe(self) -> None:
         assert _escape_md_pipe("foo|bar") == "foo\\|bar"
@@ -428,9 +413,6 @@ class TestEscapeMdPipe:
     def test_preserves_other_special_chars(self) -> None:
         text = "hello & world <tag>"
         assert _escape_md_pipe(text) == text
-
-
-
 
 
 class TestBuildCouponTable:
@@ -590,9 +572,6 @@ class TestBuildCouponTable:
         result = _build_coupon_table([coupon])
         data_line = result[4]
         assert "Low" in data_line
-
-
-
 
 
 class TestBuildDealReportMessage:
@@ -903,9 +882,6 @@ class TestDealScraperToolInit:
         assert names == {"deal_search", "deal_compare_prices", "deal_find_coupons"}
 
 
-
-
-
 class TestNormalizeStoreName:
     def test_lowercases_name(self) -> None:
         result = DealScraperTool._normalize_store_name("AMAZON")
@@ -968,9 +944,6 @@ class TestNormalizeStoreName:
         # Only years matching 20XX pattern are stripped
         result = DealScraperTool._normalize_store_name("Store 1999")
         assert "1999" in result
-
-
-
 
 
 class TestEnqueueProgress:
@@ -1083,9 +1056,6 @@ class TestDrainProgressEvents:
         async for _ in tool.drain_progress_events():
             pass
         assert tool._progress_queue.empty()
-
-
-
 
 
 class TestDealSearch:
@@ -1301,9 +1271,7 @@ class TestDealSearch:
 
     @pytest.mark.asyncio
     async def test_exception_during_search_returns_failure(self) -> None:
-        tool = DealScraperTool(
-            deal_finder=StubDealFinder(search_exc=RuntimeError("network down"))
-        )
+        tool = DealScraperTool(deal_finder=StubDealFinder(search_exc=RuntimeError("network down")))
         result = await tool.deal_search("headphones")
         assert result.success is False
         assert "network down" in result.message
@@ -1408,9 +1376,6 @@ class TestDealSearch:
         assert tool._browser is mock_browser
 
 
-
-
-
 class TestDealComparePrices:
     @pytest.mark.asyncio
     async def test_empty_urls_returns_failure(self) -> None:
@@ -1451,9 +1416,7 @@ class TestDealComparePrices:
             searched_stores=["Amazon", "Walmart"],
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
-        result = await tool.deal_compare_prices(
-            ["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"]
-        )
+        result = await tool.deal_compare_prices(["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"])
         assert result.success is True
 
     @pytest.mark.asyncio
@@ -1466,9 +1429,7 @@ class TestDealComparePrices:
             ],
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
-        result = await tool.deal_compare_prices(
-            ["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"]
-        )
+        result = await tool.deal_compare_prices(["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"])
         assert "89.99" in result.message
         assert "Amazon" in result.message
 
@@ -1482,9 +1443,7 @@ class TestDealComparePrices:
             ],
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
-        result = await tool.deal_compare_prices(
-            ["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"]
-        )
+        result = await tool.deal_compare_prices(["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"])
         assert "save" in result.message.lower() or "20.00" in result.message
 
     @pytest.mark.asyncio
@@ -1521,9 +1480,7 @@ class TestDealComparePrices:
             ],
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
-        result = await tool.deal_compare_prices(
-            ["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"]
-        )
+        result = await tool.deal_compare_prices(["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"])
         assert result.data is not None
         savings = result.data["savings"]
         assert round(savings, 2) == savings
@@ -1560,17 +1517,13 @@ class TestDealComparePrices:
             store_errors=[{"store": "Walmart", "error": "403 Forbidden"}],
         )
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
-        result = await tool.deal_compare_prices(
-            ["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"]
-        )
+        result = await tool.deal_compare_prices(["https://amazon.com/dp/B001", "https://walmart.com/ip/12345"])
         assert "Walmart" in result.message
         assert "Could not check" in result.message
 
     @pytest.mark.asyncio
     async def test_exception_returns_failure(self) -> None:
-        tool = DealScraperTool(
-            deal_finder=StubDealFinder(compare_exc=ConnectionError("connection refused"))
-        )
+        tool = DealScraperTool(deal_finder=StubDealFinder(compare_exc=ConnectionError("connection refused")))
         result = await tool.deal_compare_prices(["https://example.com/product"])
         assert result.success is False
         assert "connection refused" in result.message
@@ -1584,9 +1537,6 @@ class TestDealComparePrices:
         tool = DealScraperTool(deal_finder=StubDealFinder(comparison=comparison))
         result = await tool.deal_compare_prices(["https://amazon.com/dp/B001"])
         assert "FORMAT" in result.message
-
-
-
 
 
 class TestDealFindCoupons:
@@ -1771,9 +1721,7 @@ class TestDealFindCoupons:
 
     @pytest.mark.asyncio
     async def test_exception_returns_failure(self) -> None:
-        tool = DealScraperTool(
-            deal_finder=StubDealFinder(coupon_exc=ValueError("api error"))
-        )
+        tool = DealScraperTool(deal_finder=StubDealFinder(coupon_exc=ValueError("api error")))
         result = await tool.deal_find_coupons("Amazon")
         assert result.success is False
         assert "api error" in result.message
@@ -1838,5 +1786,3 @@ class TestDealFindCoupons:
         result = await tool.deal_find_coupons("Amazon")
         assert "FORMAT" in result.message
         assert "Verify at checkout" in result.message
-
-

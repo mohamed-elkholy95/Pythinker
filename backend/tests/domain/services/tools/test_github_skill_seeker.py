@@ -285,13 +285,13 @@ class TestPythonASTAnalyzer:
 
     def test_analyze_file_skips_private_functions(self, tmp_path: Path) -> None:
         src = textwrap.dedent(
-            '''\
+            """\
             def _helper():
                 pass
 
             def public_fn():
                 pass
-            '''
+            """
         )
         py_file = tmp_path / "mod.py"
         py_file.write_text(src, encoding="utf-8")
@@ -340,13 +340,13 @@ class TestPythonASTAnalyzer:
 
     def test_analyze_file_skips_private_classes(self, tmp_path: Path) -> None:
         src = textwrap.dedent(
-            '''\
+            """\
             class _Internal:
                 pass
 
             class Public:
                 pass
-            '''
+            """
         )
         py_file = tmp_path / "mod.py"
         py_file.write_text(src, encoding="utf-8")
@@ -375,7 +375,7 @@ class TestPythonASTAnalyzer:
 
     def test_analyze_file_class_excludes_private_methods_except_init(self, tmp_path: Path) -> None:
         src = textwrap.dedent(
-            '''\
+            """\
             class Service:
                 def public_method(self) -> None:
                     pass
@@ -385,7 +385,7 @@ class TestPythonASTAnalyzer:
 
                 def __init__(self) -> None:
                     pass
-            '''
+            """
         )
         py_file = tmp_path / "mod.py"
         py_file.write_text(src, encoding="utf-8")
@@ -434,13 +434,13 @@ class TestPythonASTAnalyzer:
 
     def test_analyze_file_extracts_function_decorators(self, tmp_path: Path) -> None:
         src = textwrap.dedent(
-            '''\
+            """\
             import functools
 
             @functools.cache
             def cached_fn(x: int) -> int:
                 return x
-            '''
+            """
         )
         py_file = tmp_path / "mod.py"
         py_file.write_text(src, encoding="utf-8")
@@ -469,10 +469,10 @@ class TestPythonASTAnalyzer:
 
     def test_analyze_file_class_base_classes(self, tmp_path: Path) -> None:
         src = textwrap.dedent(
-            '''\
+            """\
             class MyService(BaseService, Mixin):
                 pass
-            '''
+            """
         )
         py_file = tmp_path / "mod.py"
         py_file.write_text(src, encoding="utf-8")
@@ -750,7 +750,7 @@ class TestExtractRepoName:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         config = git_dir / "config"
-        config.write_text("[remote \"origin\"]\n\turl = https://github.com/owner/awesome-lib.git\n")
+        config.write_text('[remote "origin"]\n\turl = https://github.com/owner/awesome-lib.git\n')
         name = self.seeker._extract_repo_name(tmp_path)
         assert name == "awesome-lib"
 
@@ -892,25 +892,19 @@ class TestExtractDependencies:
         assert result == []
 
     def test_parses_requirements_txt(self, tmp_path: Path) -> None:
-        (tmp_path / "requirements.txt").write_text(
-            "requests==2.31.0\npydantic>=2.0\nhttpx\n"
-        )
+        (tmp_path / "requirements.txt").write_text("requests==2.31.0\npydantic>=2.0\nhttpx\n")
         result = self.seeker._extract_dependencies(tmp_path)
         assert "requests" in result
         assert "pydantic" in result
         assert "httpx" in result
 
     def test_skips_comment_lines_in_requirements(self, tmp_path: Path) -> None:
-        (tmp_path / "requirements.txt").write_text(
-            "# comment\nrequests\n"
-        )
+        (tmp_path / "requirements.txt").write_text("# comment\nrequests\n")
         result = self.seeker._extract_dependencies(tmp_path)
         assert "requests" in result
 
     def test_skips_option_lines_in_requirements(self, tmp_path: Path) -> None:
-        (tmp_path / "requirements.txt").write_text(
-            "-r base.txt\nflask\n"
-        )
+        (tmp_path / "requirements.txt").write_text("-r base.txt\nflask\n")
         result = self.seeker._extract_dependencies(tmp_path)
         assert "flask" in result
 
@@ -1236,40 +1230,85 @@ class TestFormatReadmeAnalysis:
         self.seeker = _make_seeker()
 
     def test_includes_title_when_present(self) -> None:
-        info = {"title": "My Lib", "description": None, "features": [], "installation": None, "usage": None, "examples": []}
+        info = {
+            "title": "My Lib",
+            "description": None,
+            "features": [],
+            "installation": None,
+            "usage": None,
+            "examples": [],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "My Lib" in result
 
     def test_includes_description_when_present(self) -> None:
-        info = {"title": None, "description": "Great lib.", "features": [], "installation": None, "usage": None, "examples": []}
+        info = {
+            "title": None,
+            "description": "Great lib.",
+            "features": [],
+            "installation": None,
+            "usage": None,
+            "examples": [],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "Great lib." in result
 
     def test_includes_features(self) -> None:
-        info = {"title": None, "description": None, "features": ["Fast", "Simple"], "installation": None, "usage": None, "examples": []}
+        info = {
+            "title": None,
+            "description": None,
+            "features": ["Fast", "Simple"],
+            "installation": None,
+            "usage": None,
+            "examples": [],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "Fast" in result
         assert "Simple" in result
 
     def test_includes_installation(self) -> None:
-        info = {"title": None, "description": None, "features": [], "installation": "pip install x", "usage": None, "examples": []}
+        info = {
+            "title": None,
+            "description": None,
+            "features": [],
+            "installation": "pip install x",
+            "usage": None,
+            "examples": [],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "pip install x" in result
 
     def test_includes_usage(self) -> None:
-        info = {"title": None, "description": None, "features": [], "installation": None, "usage": "import x; x.run()", "examples": []}
+        info = {
+            "title": None,
+            "description": None,
+            "features": [],
+            "installation": None,
+            "usage": "import x; x.run()",
+            "examples": [],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "import x" in result
 
     def test_includes_examples_header_when_examples_present(self) -> None:
-        info = {"title": None, "description": None, "features": [], "installation": None, "usage": None, "examples": ["print('hello')"]}
+        info = {
+            "title": None,
+            "description": None,
+            "features": [],
+            "installation": None,
+            "usage": None,
+            "examples": ["print('hello')"],
+        }
         result = self.seeker._format_readme_analysis(info)
         assert "Code Examples" in result
 
     def test_shows_only_first_example_preview(self) -> None:
         info = {
-            "title": None, "description": None, "features": [],
-            "installation": None, "usage": None,
+            "title": None,
+            "description": None,
+            "features": [],
+            "installation": None,
+            "usage": None,
             "examples": ["first = 1", "second = 2"],
         }
         result = self.seeker._format_readme_analysis(info)
