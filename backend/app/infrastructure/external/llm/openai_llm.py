@@ -541,7 +541,7 @@ class OpenAILLM(LLM):
         Examples::
 
             _netloc_matches("api.deepseek.com", "deepseek.com")  # True
-            _netloc_matches("deepseek.com", "deepseek.com")      # True
+            _netloc_matches("deepseek.com", "deepseek.com")  # True
             _netloc_matches("api.deepseek.com:443", "deepseek.com")  # True
             _netloc_matches("evil.deepseek.com.attacker.com", "deepseek.com")  # False
         """
