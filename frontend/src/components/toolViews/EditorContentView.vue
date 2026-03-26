@@ -31,7 +31,7 @@
         :value="content"
         :filename="filename"
         :read-only="true"
-        theme="vs"
+        :theme="monacoTheme"
         :line-numbers="'off'"
         :word-wrap="'on'"
         :minimap="false"
@@ -49,9 +49,13 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { useShiki } from '@/composables/useShiki';
+import { useThemeMode } from '@/composables/useThemeMode';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import ErrorState from '@/components/toolViews/shared/ErrorState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+
+const { isDark } = useThemeMode();
+const monacoTheme = computed(() => isDark.value ? 'vs-dark' : 'vs');
 
 const props = withDefaults(defineProps<{
   content: string;
@@ -194,7 +198,7 @@ onMounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 14.5px;
   line-height: 1.6;
-  color: #24292e;
+  color: var(--text-primary, #24292e);
   word-wrap: break-word;
 }
 
@@ -202,7 +206,7 @@ onMounted(() => {
 .markdown-body :deep(h1) {
   font-size: 1.8em;
   font-weight: 800;
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   margin: 0 0 12px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--border-light);
@@ -213,7 +217,7 @@ onMounted(() => {
 .markdown-body :deep(h2) {
   font-size: 1.4em;
   font-weight: 700;
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   margin: 24px 0 10px;
   padding-bottom: 5px;
   border-bottom: 1px solid var(--border-light);
@@ -223,7 +227,7 @@ onMounted(() => {
 .markdown-body :deep(h3) {
   font-size: 1.15em;
   font-weight: 700;
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   margin: 20px 0 8px;
   line-height: 1.35;
 }
@@ -231,7 +235,7 @@ onMounted(() => {
 .markdown-body :deep(h4) {
   font-size: 1.05em;
   font-weight: 700;
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   margin: 16px 0 6px;
   line-height: 1.35;
 }
@@ -240,7 +244,7 @@ onMounted(() => {
 .markdown-body :deep(h6) {
   font-size: 1em;
   font-weight: 700;
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   margin: 14px 0 4px;
   line-height: 1.35;
 }
@@ -281,12 +285,12 @@ onMounted(() => {
 /* Bold & italic */
 .markdown-body :deep(strong) {
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--text-primary, #1a1a1a);
 }
 
 /* Links */
 .markdown-body :deep(a) {
-  color: #1e3a5f;
+  color: var(--text-primary, #1e3a5f);
   text-decoration: none;
   font-weight: 500;
 }
@@ -313,10 +317,15 @@ onMounted(() => {
 .markdown-body :deep(th) {
   background: var(--bolt-elements-bg-depth-2, #f8f9fa);
   font-weight: 600;
+  color: var(--text-primary, inherit);
 }
 
 .markdown-body :deep(tr:nth-child(even)) {
   background: var(--bolt-elements-bg-depth-1, #fafbfc);
+}
+
+.markdown-body :deep(td) {
+  color: var(--text-primary, inherit);
 }
 
 /* Inline code */
@@ -363,6 +372,11 @@ onMounted(() => {
   max-width: 100%;
   border-radius: 6px;
   margin: 10px 0;
+}
+
+/* Dark mode: links get a lighter accent for visibility */
+:global(.dark) .markdown-body :deep(a) {
+  color: #7cacdf;
 }
 
 /* Subtle pulsing effect when file is being written */
