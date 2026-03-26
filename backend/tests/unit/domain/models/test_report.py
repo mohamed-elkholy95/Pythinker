@@ -21,7 +21,6 @@ from app.domain.models.report import (
     StructuredReportOutput,
 )
 
-
 # ── ReportType ───────────────────────────────────────────────────────
 
 

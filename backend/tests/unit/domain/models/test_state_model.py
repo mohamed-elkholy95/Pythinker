@@ -18,7 +18,6 @@ from app.domain.models.state_model import (
     validate_transition,
 )
 
-
 # ── AgentStatus ──────────────────────────────────────────────────────
 
 

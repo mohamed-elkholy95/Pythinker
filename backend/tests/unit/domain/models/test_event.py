@@ -4,7 +4,7 @@ Covers BaseEvent, ErrorEvent, PlanEvent, ToolEvent, MessageEvent,
 DoneEvent, ProgressEvent, ReportEvent, and key content models.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from app.domain.models.event import (
     AgentModeToolContent,
@@ -44,7 +44,6 @@ from app.domain.models.event import (
     ToolStatus,
     WaitEvent,
 )
-
 
 # ── Enums ────────────────────────────────────────────────────────────
 
