@@ -111,5 +111,6 @@ jobs:
             GIT_VERSION=${{ github.ref_name }}
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp || steps.build_date.outputs.date }}
+            DOCKER_GID=988
           cache-from: type=gha
           cache-to: type=gha,mode=max

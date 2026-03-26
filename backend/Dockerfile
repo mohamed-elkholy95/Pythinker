@@ -102,8 +102,13 @@ RUN chmod +x run.sh
 RUN mkdir -p /app/data/dspy_cache
 
 # Non-root user for security (OWASP container hardening)
+# Create docker group (GID from DOCKER_GID build arg, default 988) so
+# appuser can access the Docker socket for ephemeral sandbox lifecycle.
+ARG DOCKER_GID=988
 RUN addgroup --system --gid 1001 appuser && \
     adduser --system --uid 1001 --ingroup appuser appuser && \
+    addgroup --system --gid ${DOCKER_GID} docker || true && \
+    adduser appuser docker || true && \
     chown -R appuser:appuser /app
 USER appuser
 
