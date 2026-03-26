@@ -49,6 +49,10 @@ export const apiClient = axios.create({
 
 // Track if we're currently refreshing token to prevent multiple concurrent requests
 let isRefreshing = false;
+
+/** Timestamp of last SSE heartbeat token refresh attempt (ms) — debounce guard */
+let _lastHeartbeatRefreshMs = 0;
+const _HEARTBEAT_REFRESH_DEBOUNCE_MS = 120_000; // 2 minutes between refreshes
 interface QueueItem {
   resolve: (value: string | null) => void;
   reject: (reason: unknown) => void;
@@ -1035,8 +1039,15 @@ export const createSSEConnection = async <T = unknown>(
                 // Check if token is nearing expiry (within 10 minutes)
                 if (typeof progressData.token_expires_at === 'number') {
                   const secondsUntilExpiry = progressData.token_expires_at - Math.floor(Date.now() / 1000);
-                  if (secondsUntilExpiry > 0 && secondsUntilExpiry <= 600) {
-                    // Token expires within 10 minutes — trigger proactive refresh
+                  const now = Date.now();
+                  if (
+                    secondsUntilExpiry > 0 &&
+                    secondsUntilExpiry <= 600 &&
+                    !isRefreshing &&
+                    now - _lastHeartbeatRefreshMs > _HEARTBEAT_REFRESH_DEBOUNCE_MS
+                  ) {
+                    // Token expires within 10 minutes — trigger proactive refresh (debounced)
+                    _lastHeartbeatRefreshMs = now;
                     refreshAuthToken().then((newToken) => {
                       if (newToken) {
                         requestHeaders.Authorization = `Bearer ${newToken}`;

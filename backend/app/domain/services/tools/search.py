@@ -30,6 +30,7 @@ _SPIDER_DENYLIST_DOMAINS: frozenset[str] = frozenset(
 )
 
 
+
 def _should_skip_spider(url: str) -> bool:
     """Check if URL should be skipped by the spider (domain denylist)."""
     try:
