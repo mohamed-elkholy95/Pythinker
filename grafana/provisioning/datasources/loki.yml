@@ -17,4 +17,10 @@ datasources:
           url: '/explore?left={"queries":[{"expr":"{compose_project=\"pythinker\"} | json | request_id=\"${__value.raw}\"","refId":"A"}]}'
           datasourceUid: loki
           urlDisplayLabel: "View Request Logs"
+        # Link trace_id across log lines for trace-to-log correlation
+        - name: TraceID
+          matcherRegex: '"trace_id"\s*:\s*"([a-f0-9-]+)"'
+          url: '/explore?left={"queries":[{"expr":"{compose_project=\"pythinker\"} | json | trace_id=\"${__value.raw}\"","refId":"A"}]}'
+          datasourceUid: loki
+          urlDisplayLabel: "View Trace Logs"
 

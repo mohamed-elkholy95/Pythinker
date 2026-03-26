@@ -195,6 +195,8 @@ def add_correlation_ids(logger: logging.Logger, method_name: str, event_dict: Ev
             event_dict["user_id"] = ctx.user_id
         if ctx.agent_id and "agent_id" not in event_dict:
             event_dict["agent_id"] = ctx.agent_id
+        if ctx.trace_id and "trace_id" not in event_dict:
+            event_dict["trace_id"] = ctx.trace_id
 
     return event_dict
 

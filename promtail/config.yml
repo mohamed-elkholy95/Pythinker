@@ -55,6 +55,7 @@ scrape_configs:
             event: event
             logger: logger
             request_id: request_id
+            trace_id: trace_id
             # Agent-specific fields for diagnostics
             duration_ms: duration_ms
             tool_name: tool_name
@@ -119,6 +120,7 @@ scrape_configs:
           event:
           logger:
           request_id:
+          trace_id:
           tool_name:
           method:
           path:
