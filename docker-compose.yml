@@ -436,6 +436,11 @@ services:
       - |
         sleep 3 && \
         mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc mb myminio/pythinker --ignore-existing && \
+        mc mb myminio/screenshots --ignore-existing && \
+        mc mb myminio/thumbnails --ignore-existing && \
+        mc mb myminio/sandbox-snapshots --ignore-existing && \
+        echo "Buckets ready: pythinker, screenshots, thumbnails, sandbox-snapshots" && \
         mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>/dev/null || true && \
         mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>/dev/null || true && \
         echo "MinIO service user '$$MINIO_SERVICE_USER' ready with readwrite policy"
