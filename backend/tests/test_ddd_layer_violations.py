@@ -137,6 +137,7 @@ KNOWN_IFACE_EXCEPTIONS = {
     "gateway_runner.py",  # Composition root for channel gateway service
     "channel_link_routes.py",  # Wires infra repos for account linking endpoints
     "session_routes.py",  # Uses HTTPClientPool for sandbox VNC pre-flight health check
+    "telemetry_routes.py",  # Wires MongoSessionRepository in DI factory for session replay
 }
 
 

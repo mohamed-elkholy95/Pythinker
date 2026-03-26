@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field
 
 from app.core.prometheus_metrics import FRONTEND_ERRORS
 from app.domain.models.user import User
+from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.session_replay import build_session_replay
-from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
 from app.interfaces.dependencies import require_admin_user
 
 logger = logging.getLogger(__name__)
@@ -138,8 +138,10 @@ async def receive_frontend_errors(
 # ---------------------------------------------------------------------------
 
 
-def _get_session_repository() -> MongoSessionRepository:
+def _get_session_repository() -> SessionRepository:
     """Get session repository instance for dependency injection."""
+    from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
+
     return MongoSessionRepository()
 
 
@@ -148,7 +150,7 @@ async def get_session_replay(
     session_id: str,
     errors_only: bool = Query(default=False, description="Only return steps that contain errors"),
     current_user: User = Depends(require_admin_user),
-    session_repo: MongoSessionRepository = Depends(_get_session_repository),
+    session_repo: SessionRepository = Depends(_get_session_repository),
 ) -> dict:
     """Get structured session replay for debugging.
 
