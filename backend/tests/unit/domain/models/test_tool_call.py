@@ -7,10 +7,7 @@ calculation, result truncation, and to_log_dict serialization.
 
 import time
 
-import pytest
-
 from app.domain.models.tool_call import ToolCallEnvelope, ToolCallStatus
-
 
 # ── ToolCallStatus ───────────────────────────────────────────────────
 

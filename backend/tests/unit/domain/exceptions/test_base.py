@@ -44,7 +44,6 @@ from app.domain.exceptions.base import (
     WorkflowConfigurationException,
 )
 
-
 # ── DomainException ──────────────────────────────────────────────────
 
 

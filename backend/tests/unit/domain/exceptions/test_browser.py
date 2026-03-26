@@ -4,8 +4,6 @@ Covers BrowserErrorCode enum, BrowserErrorContext, BrowserError base class,
 all specialized subclasses, to_dict serialization, and string formatting.
 """
 
-import pytest
-
 from app.domain.exceptions.browser import (
     BrowserCrashedError,
     BrowserError,
@@ -17,7 +15,6 @@ from app.domain.exceptions.browser import (
     ConnectionTimeoutError,
     SandboxNotReadyError,
 )
-
 
 # ── BrowserErrorCode ─────────────────────────────────────────────────
 

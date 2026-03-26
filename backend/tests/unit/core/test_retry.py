@@ -19,7 +19,6 @@ from app.core.retry import (
     with_retry,
 )
 
-
 # ── RetryConfig defaults ─────────────────────────────────────────────
 
 
@@ -410,9 +409,7 @@ class TestPreConfiguredDecorators:
 
     def test_all_providers_use_transient_exceptions(self) -> None:
         for name, config in PROVIDER_RETRY_CONFIGS.items():
-            assert config.retryable_exceptions == TRANSIENT_EXCEPTIONS, (
-                f"{name} should use TRANSIENT_EXCEPTIONS"
-            )
+            assert config.retryable_exceptions == TRANSIENT_EXCEPTIONS, f"{name} should use TRANSIENT_EXCEPTIONS"
 
 
 # ── with_validation_retry ────────────────────────────────────────────
