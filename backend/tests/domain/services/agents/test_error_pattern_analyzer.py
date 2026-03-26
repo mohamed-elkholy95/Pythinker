@@ -36,7 +36,9 @@ def _fill_rate_limit_errors(analyzer: ErrorPatternAnalyzer, tool: str = "api", c
         analyzer.record_error(tool, _make_error_context(ErrorType.LLM_API, "rate limit exceeded"))
 
 
-def _fill_same_errors(analyzer: ErrorPatternAnalyzer, tool: str = "search", msg: str = "Connection refused", count: int = 3) -> None:
+def _fill_same_errors(
+    analyzer: ErrorPatternAnalyzer, tool: str = "search", msg: str = "Connection refused", count: int = 3
+) -> None:
     for _ in range(count):
         analyzer.record_error(tool, _make_error_context(ErrorType.TOOL_EXECUTION, msg))
 
@@ -390,10 +392,7 @@ class TestEmptyHistory:
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("tool", _make_error_context(ErrorType.TIMEOUT))
         # 1 timeout is below threshold of 3
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 0
 
 
@@ -411,77 +410,53 @@ class TestTimeoutPattern:
     def test_no_detection_below_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=2)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 0
 
     def test_most_affected_tool_in_affected_tools(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=3)
         _fill_timeout_errors(analyzer, "browser", count=1)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert timeout_patterns[0].affected_tools == ["shell"]
 
     def test_most_affected_tool_is_browser_when_more(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=2)
         _fill_timeout_errors(analyzer, "browser", count=3)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert timeout_patterns[0].affected_tools == ["browser"]
 
     def test_confidence_scales_with_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=5)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert timeout_patterns[0].confidence == 1.0  # 5/5 = 1.0
 
     def test_confidence_partial(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=3)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         # confidence = min(3/5, 1.0) = 0.6
         assert timeout_patterns[0].confidence == pytest.approx(0.6)
 
     def test_suggestion_mentions_tool(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=3)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert "shell" in timeout_patterns[0].suggestion
 
     def test_details_contain_timeout_counts(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=4)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert "timeout_counts" in timeout_patterns[0].details
         assert timeout_patterns[0].details["timeout_counts"]["shell"] == 4
 
     def test_uses_pattern_window_time_window(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=3)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert timeout_patterns[0].time_window == ErrorPatternAnalyzer.PATTERN_WINDOW
 
     def test_non_timeout_errors_not_counted(self):
@@ -489,10 +464,7 @@ class TestTimeoutPattern:
         analyzer.record_error("shell", _make_error_context(ErrorType.JSON_PARSE, "bad json"))
         analyzer.record_error("shell", _make_error_context(ErrorType.TOOL_EXECUTION, "exec error"))
         analyzer.record_error("shell", _make_error_context(ErrorType.LLM_API, "api error"))
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 0
 
 
@@ -503,38 +475,26 @@ class TestJsonParsePattern:
     def test_detects_at_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_json_errors(analyzer, "llm", count=2)
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         assert len(json_patterns) == 1
 
     def test_no_detection_below_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_json_errors(analyzer, "llm", count=1)
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         assert len(json_patterns) == 0
 
     def test_confidence_scales_with_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_json_errors(analyzer, "llm", count=4)
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         # confidence = min(4/4, 1.0) = 1.0
         assert json_patterns[0].confidence == 1.0
 
     def test_confidence_partial(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_json_errors(analyzer, "llm", count=2)
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         # confidence = min(2/4, 1.0) = 0.5
         assert json_patterns[0].confidence == pytest.approx(0.5)
 
@@ -542,10 +502,7 @@ class TestJsonParsePattern:
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("llm", _make_error_context(ErrorType.JSON_PARSE, "bad json 1"))
         analyzer.record_error("parser", _make_error_context(ErrorType.JSON_PARSE, "bad json 2"))
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         affected = set(json_patterns[0].affected_tools)
         assert "llm" in affected
         assert "parser" in affected
@@ -554,20 +511,14 @@ class TestJsonParsePattern:
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("llm", _make_error_context(ErrorType.JSON_PARSE, "unexpected token"))
         analyzer.record_error("llm", _make_error_context(ErrorType.JSON_PARSE, "trailing comma"))
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         assert "error_samples" in json_patterns[0].details
         assert len(json_patterns[0].details["error_samples"]) <= 3
 
     def test_suggestion_mentions_json_formatting(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_json_errors(analyzer, "llm", count=2)
-        json_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.JSON_PARSE_LOOP
-        ]
+        json_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.JSON_PARSE_LOOP]
         suggestion = json_patterns[0].suggestion.lower()
         assert "json" in suggestion
 
@@ -580,10 +531,7 @@ class TestFailureStreakPattern:
         analyzer = ErrorPatternAnalyzer()
         for _ in range(3):
             analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert len(streak_patterns) == 1
         assert "search" in streak_patterns[0].affected_tools
 
@@ -591,10 +539,7 @@ class TestFailureStreakPattern:
         analyzer = ErrorPatternAnalyzer()
         for _ in range(2):
             analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert len(streak_patterns) == 0
 
     def test_success_breaks_streak(self):
@@ -603,30 +548,21 @@ class TestFailureStreakPattern:
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION))
         analyzer.record_success("search")
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert len(streak_patterns) == 0
 
     def test_confidence_scales_with_count(self):
         analyzer = ErrorPatternAnalyzer()
         for _ in range(5):
             analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert streak_patterns[0].confidence == 1.0
 
     def test_suggestion_mentions_tool_name(self):
         analyzer = ErrorPatternAnalyzer()
         for _ in range(3):
             analyzer.record_error("browser", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert "browser" in streak_patterns[0].suggestion
 
     def test_details_contain_error_types(self):
@@ -634,10 +570,7 @@ class TestFailureStreakPattern:
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION, "exec fail"))
         analyzer.record_error("search", _make_error_context(ErrorType.TIMEOUT, "timed out"))
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION, "exec fail 2"))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         assert "error_types" in streak_patterns[0].details
         assert "last_error" in streak_patterns[0].details
 
@@ -647,10 +580,7 @@ class TestFailureStreakPattern:
             analyzer.record_error("tool_a", _make_error_context(ErrorType.TOOL_EXECUTION))
         for _ in range(3):
             analyzer.record_error("tool_b", _make_error_context(ErrorType.TOOL_EXECUTION))
-        streak_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TOOL_FAILURE_STREAK
-        ]
+        streak_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TOOL_FAILURE_STREAK]
         # At least one streak detected
         assert len(streak_patterns) >= 1
 
@@ -662,86 +592,59 @@ class TestRateLimitPattern:
     def test_detects_rate_limit_burst(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_rate_limit_errors(analyzer, count=2)
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert len(rate_patterns) == 1
 
     def test_no_detection_below_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("api", _make_error_context(ErrorType.LLM_API, "rate limit exceeded"))
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert len(rate_patterns) == 0
 
     def test_no_detection_for_non_rate_llm_errors(self):
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("api", _make_error_context(ErrorType.LLM_API, "server error 500"))
         analyzer.record_error("api", _make_error_context(ErrorType.LLM_API, "connection refused"))
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert len(rate_patterns) == 0
 
     def test_rate_message_case_insensitive(self):
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("api", _make_error_context(ErrorType.LLM_API, "RATE LIMIT EXCEEDED"))
         analyzer.record_error("api", _make_error_context(ErrorType.LLM_API, "Rate limit hit"))
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert len(rate_patterns) == 1
 
     def test_affected_tools_empty_for_rate_limit(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_rate_limit_errors(analyzer, count=2)
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert rate_patterns[0].affected_tools == []
 
     def test_details_contain_rate_limit_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_rate_limit_errors(analyzer, count=3)
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert rate_patterns[0].details["rate_limit_count"] == 3
 
     def test_confidence_scales_with_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_rate_limit_errors(analyzer, count=4)
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         # confidence = min(4/4, 1.0) = 1.0
         assert rate_patterns[0].confidence == 1.0
 
     def test_suggestion_mentions_wait(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_rate_limit_errors(analyzer, count=2)
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert "wait" in rate_patterns[0].suggestion.lower()
 
     def test_non_llm_api_errors_not_counted(self):
         analyzer = ErrorPatternAnalyzer()
         analyzer.record_error("api", _make_error_context(ErrorType.TIMEOUT, "rate limit timed out"))
         analyzer.record_error("api", _make_error_context(ErrorType.TIMEOUT, "rate limit timed out"))
-        rate_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.RATE_LIMIT_BURST
-        ]
+        rate_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.RATE_LIMIT_BURST]
         assert len(rate_patterns) == 0
 
 
@@ -752,19 +655,13 @@ class TestSameErrorPattern:
     def test_detects_same_error_at_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, msg="Connection refused", count=3)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert len(same_patterns) == 1
 
     def test_no_detection_below_threshold(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, msg="Connection refused", count=2)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert len(same_patterns) == 0
 
     def test_different_errors_no_detection(self):
@@ -772,28 +669,19 @@ class TestSameErrorPattern:
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION, "Error A"))
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION, "Error B"))
         analyzer.record_error("search", _make_error_context(ErrorType.TOOL_EXECUTION, "Error C"))
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert len(same_patterns) == 0
 
     def test_suggestion_mentions_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, msg="File not found", count=3)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert "3" in same_patterns[0].suggestion
 
     def test_details_contain_repeated_error(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, msg="DNS lookup failed", count=3)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert "repeated_error" in same_patterns[0].details
         assert "dns lookup failed" in same_patterns[0].details["repeated_error"]
 
@@ -802,29 +690,20 @@ class TestSameErrorPattern:
         analyzer.record_error("tool", _make_error_context(ErrorType.TOOL_EXECUTION, "connection REFUSED"))
         analyzer.record_error("tool", _make_error_context(ErrorType.TOOL_EXECUTION, "Connection Refused"))
         analyzer.record_error("tool", _make_error_context(ErrorType.TOOL_EXECUTION, "CONNECTION refused"))
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert len(same_patterns) == 1
 
     def test_confidence_scales_with_count(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, msg="same error", count=5)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         # confidence = min(5/5, 1.0) = 1.0
         assert same_patterns[0].confidence == 1.0
 
     def test_affected_tools_set_to_tool_with_most_recent(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_same_errors(analyzer, tool="search", msg="Network error", count=3)
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert "search" in same_patterns[0].affected_tools
 
 
@@ -846,10 +725,7 @@ class TestWindowFiltering:
                 )
             )
         # All old — no timeout pattern should be detected
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 0
 
     def test_recent_errors_only_in_window(self):
@@ -867,10 +743,7 @@ class TestWindowFiltering:
             )
         # 3 fresh ones via record_error
         _fill_timeout_errors(analyzer, "shell", count=3)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 1
         # Only 3 recent ones contributed
         assert timeout_patterns[0].occurrences == 3
@@ -1176,7 +1049,13 @@ class TestGetStats:
     def test_stats_structure(self):
         analyzer = ErrorPatternAnalyzer()
         stats = analyzer.get_stats()
-        expected_keys = {"total_errors", "tool_error_counts", "consecutive_failures", "active_patterns", "prewarned_tools"}
+        expected_keys = {
+            "total_errors",
+            "tool_error_counts",
+            "consecutive_failures",
+            "active_patterns",
+            "prewarned_tools",
+        }
         assert expected_keys.issubset(stats.keys())
 
     def test_total_errors_count(self):
@@ -1614,19 +1493,13 @@ class TestEdgeCases:
     def test_exactly_at_timeout_threshold_triggers(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=ErrorPatternAnalyzer.TIMEOUT_THRESHOLD)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 1
 
     def test_one_below_timeout_threshold_no_trigger(self):
         analyzer = ErrorPatternAnalyzer()
         _fill_timeout_errors(analyzer, "shell", count=ErrorPatternAnalyzer.TIMEOUT_THRESHOLD - 1)
-        timeout_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.TIMEOUT_REPEATED
-        ]
+        timeout_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.TIMEOUT_REPEATED]
         assert len(timeout_patterns) == 0
 
     def test_error_message_at_exactly_100_chars_normalized(self):
@@ -1634,10 +1507,7 @@ class TestEdgeCases:
         msg = "x" * 100  # Exactly 100 chars
         for _ in range(3):
             analyzer.record_error("tool", _make_error_context(ErrorType.TOOL_EXECUTION, msg))
-        same_patterns = [
-            p for p in analyzer.analyze_patterns()
-            if p.pattern_type == PatternType.SAME_ERROR_REPEATED
-        ]
+        same_patterns = [p for p in analyzer.analyze_patterns() if p.pattern_type == PatternType.SAME_ERROR_REPEATED]
         assert len(same_patterns) == 1
 
     def test_large_number_of_errors_doesnt_crash(self):
