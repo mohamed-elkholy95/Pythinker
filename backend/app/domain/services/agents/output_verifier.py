@@ -648,10 +648,12 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >block_threshold: rewrite unsupported claims + disclaimer
-                    # - warn_threshold-block_threshold: reliability notice (non-blocking)
+                    # - >block_threshold: rewrite unsupported claims + disclaimer (blocking)
+                    # - >escalate_threshold: strong disclaimer + yellow gate promotion
+                    # - >warn_threshold: reliability notice (non-blocking, green gate)
                     # - <warn_threshold: pass through (noise-level, not actionable)
                     _block_threshold = settings.hallucination_block_threshold
+                    _escalate_threshold = getattr(settings, "hallucination_escalate_threshold", 0.30)
                     _warn_threshold = settings.hallucination_warn_threshold
                     if grounding_result.hallucination_score > _block_threshold:
                         # Attempt to rewrite the content with flagged claims removed
@@ -695,26 +697,35 @@ class OutputVerifier:
                         )
                     if grounding_result.hallucination_score > _warn_threshold:
                         ratio_pct = grounding_result.hallucination_score * 100
-                        disclaimer = (
-                            f"\n\n> ⚠️ **Reliability Notice ({ratio_pct:.1f}% unverified):** "
-                            f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
-                            "fully verified against available sources. Treat specific facts, version numbers, "
-                            "and statistics with caution."
-                        )
-                        logger.info(
-                            "LLM grounding: appending disclaimer for moderate score %.1f%%",
-                            ratio_pct,
-                        )
+                        is_escalated = grounding_result.hallucination_score > _escalate_threshold
 
-                        # Fix 4: Collect unsupported claim texts for re-research.
-                        # When hallucination ratio exceeds 40% (score > 0.40),
-                        # the caller can trigger targeted re-research on these
-                        # specific claims before finalizing the report.
-                        _reresearch_threshold = 0.40
+                        if is_escalated:
+                            disclaimer = (
+                                f"\n\n> ⚠️ **Reliability Warning ({ratio_pct:.1f}% unverified):** "
+                                f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
+                                "verified against gathered sources. Specific facts, salary figures, "
+                                "and statistics should be independently verified before relying on them."
+                            )
+                            logger.warning(
+                                "LLM grounding: escalated warning for high score %.1f%% (>%.0f%% escalate threshold)",
+                                ratio_pct,
+                                _escalate_threshold * 100,
+                            )
+                        else:
+                            disclaimer = (
+                                f"\n\n> ⚠️ **Reliability Notice ({ratio_pct:.1f}% unverified):** "
+                                f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
+                                "fully verified against available sources. Treat specific facts, version numbers, "
+                                "and statistics with caution."
+                            )
+                            logger.info(
+                                "LLM grounding: appending disclaimer for moderate score %.1f%%",
+                                ratio_pct,
+                            )
+
+                        # Collect unsupported claim texts for re-research when escalated.
                         _reresearch_claims: list[str] = []
-                        if grounding_result.hallucination_score > _reresearch_threshold:
-                            from app.domain.services.agents.llm_grounding_verifier import ClaimVerdict
-
+                        if is_escalated:
                             _reresearch_claims = [
                                 getattr(c, "claim_text", str(c))[:200]
                                 for c in grounding_result.flagged_claims
@@ -726,7 +737,6 @@ class OutputVerifier:
                                     len(_reresearch_claims),
                                     grounding_result.hallucination_score,
                                 )
-                                # Register BLOCKER insight for the re-research claims
                                 self._context_manager.add_insight(
                                     insight_type=InsightType.BLOCKER,
                                     content=(
@@ -738,9 +748,14 @@ class OutputVerifier:
                                     tags=["reresearch", "hallucination", "grounding"],
                                 )
 
+                        # Escalated (>30%): add warning that promotes delivery gate to YELLOW
+                        _warnings = ["hallucination_ratio_moderate"]
+                        if is_escalated:
+                            _warnings.append("hallucination_verification_ungrounded")
+
                         return HallucinationVerificationResult(
                             content=content + disclaimer,
-                            warnings=["hallucination_ratio_moderate"],
+                            warnings=_warnings,
                             hallucination_ratio=grounding_result.hallucination_score,
                             span_count=len(grounding_result.flagged_claims),
                             needs_reresearch_claims=_reresearch_claims,
