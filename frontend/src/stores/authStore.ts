@@ -216,6 +216,9 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await apiRefreshToken({ refresh_token: refreshTokenValue })
       storeToken(response.access_token)
       setAuthToken(response.access_token)
+      if (response.refresh_token) {
+        storeRefreshToken(response.refresh_token)
+      }
       scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS)
       return true
     } catch {

@@ -140,6 +140,7 @@ export interface RefreshTokenRequest {
  */
 export interface RefreshTokenResponse {
   access_token: string;
+  refresh_token?: string;
   token_type: string;
   expires_in?: number;
 }
@@ -497,7 +498,17 @@ export function getStoredRefreshToken(): string | null {
     return null;
   }
 
-  return localStorage.getItem('refresh_token');
+  const value = localStorage.getItem('refresh_token');
+  // Reject non-JWT strings (stale artifacts like "null", "undefined", etc.)
+  // A valid JWT always has at least one dot separating header.payload
+  if (!value || !value.includes('.')) {
+    // Clean up stale/corrupted value to prevent repeated backend 401s
+    if (value) {
+      localStorage.removeItem('refresh_token');
+    }
+    return null;
+  }
+  return value;
 }
 
 /**
