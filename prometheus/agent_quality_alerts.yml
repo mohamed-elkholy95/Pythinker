@@ -106,15 +106,17 @@ groups:
           description: "p99 LLM latency is {{ $value | humanizeDuration }}. Requests likely timing out."
 
       # Token consumption spike (cost alert)
+      # Threshold: 5000 tok/s sustained for 10m catches runaway loops while
+      # tolerating normal single-agent research (~2k tok/s with large contexts).
       - alert: TokenConsumptionSpike
-        expr: pythinker:total_token_rate:5m > 500
-        for: 5m
+        expr: pythinker:total_token_rate:5m > 5000
+        for: 10m
         labels:
           severity: warning
           category: cost
         annotations:
           summary: "High token consumption rate"
-          description: "Token rate is {{ $value | humanize }} tokens/sec. Check for runaway loops or oversized contexts."
+          description: "Token rate is {{ $value | humanize }} tokens/sec for 10+ minutes. Check for runaway loops or oversized contexts."
 
   # ─────────────────────────────────────────────────────────────────────
   # Tool Reliability Alerts
