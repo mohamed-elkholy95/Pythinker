@@ -4,8 +4,6 @@ Covers numbered/bullet/conjunction extraction, priority detection,
 deduplication, coverage metrics, and requirement matching.
 """
 
-import pytest
-
 from app.domain.services.agents.requirement_extractor import (
     Requirement,
     RequirementExtractor,
@@ -14,7 +12,6 @@ from app.domain.services.agents.requirement_extractor import (
     extract_requirements,
     get_requirement_extractor,
 )
-
 
 # ─────────────────────────────────────────────────────────────
 # Requirement dataclass
@@ -374,25 +371,19 @@ class TestDeduplication:
 class TestMatchRequirementToStep:
     def test_perfect_overlap(self):
         extractor = RequirementExtractor()
-        req = Requirement(
-            id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x"
-        )
+        req = Requirement(id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x")
         score = extractor.match_requirement_to_step(req, "Read CSV file")
         assert score > 0.5
 
     def test_partial_overlap(self):
         extractor = RequirementExtractor()
-        req = Requirement(
-            id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x"
-        )
+        req = Requirement(id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x")
         score = extractor.match_requirement_to_step(req, "Parse the CSV data from input")
         assert 0.0 < score < 1.0
 
     def test_no_overlap(self):
         extractor = RequirementExtractor()
-        req = Requirement(
-            id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x"
-        )
+        req = Requirement(id="1", description="Read CSV file", priority=RequirementPriority.MUST_HAVE, source_text="x")
         score = extractor.match_requirement_to_step(req, "Deploy to production server")
         assert score < 0.2
 
@@ -403,9 +394,7 @@ class TestMatchRequirementToStep:
 
     def test_empty_step(self):
         extractor = RequirementExtractor()
-        req = Requirement(
-            id="1", description="Read file", priority=RequirementPriority.MUST_HAVE, source_text="x"
-        )
+        req = Requirement(id="1", description="Read file", priority=RequirementPriority.MUST_HAVE, source_text="x")
         assert extractor.match_requirement_to_step(req, "") == 0.0
 
     def test_stop_words_ignored(self):

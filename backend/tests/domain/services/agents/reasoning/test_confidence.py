@@ -62,9 +62,7 @@ def _make_chain(thoughts=None, steps_count=0, uncertainties=0):
         chain.add_step(step)
     for _ in range(uncertainties):
         step = ReasoningStep(name="Uncertainty step")
-        step.add_thought(
-            Thought(type=ThoughtType.UNCERTAINTY, content="Uncertain about X", confidence=0.3)
-        )
+        step.add_thought(Thought(type=ThoughtType.UNCERTAINTY, content="Uncertain about X", confidence=0.3))
         chain.add_step(step)
     return chain
 

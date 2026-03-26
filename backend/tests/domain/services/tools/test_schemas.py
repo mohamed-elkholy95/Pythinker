@@ -24,7 +24,6 @@ from app.domain.services.tools.schemas import (
     validate_tool_args,
 )
 
-
 # ─────────────────────────────────────────────────────────────
 # ShellExecuteArgs
 # ─────────────────────────────────────────────────────────────

@@ -109,7 +109,9 @@ class TestQuickAnalyze:
 
     def test_simple_only_short_tasks(self, analyzer):
         # Simple patterns only match if < 15 words
-        long_task = "read this file and then process it and then do a lot of other things with the output and more stuff"
+        long_task = (
+            "read this file and then process it and then do a lot of other things with the output and more stuff"
+        )
         result = analyzer.quick_analyze(long_task)
         # Should NOT match as simple because it's too long
         assert result is None or result.complexity != TaskComplexity.SIMPLE
