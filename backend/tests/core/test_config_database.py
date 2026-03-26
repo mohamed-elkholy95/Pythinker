@@ -153,8 +153,8 @@ class TestQdrantSettingsMixin:
     def test_legacy_collection_still_defined(self) -> None:
         assert QdrantSettingsMixin.qdrant_collection == "agent_memories"
 
-    def test_quantization_disabled_by_default(self) -> None:
-        assert QdrantSettingsMixin.qdrant_quantization_enabled is False
+    def test_quantization_enabled_by_default(self) -> None:
+        assert QdrantSettingsMixin.qdrant_quantization_enabled is True
         assert QdrantSettingsMixin.qdrant_quantization_type == "scalar"
 
     def test_hnsw_tenant_aware_config(self) -> None:
