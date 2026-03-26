@@ -1,5 +1,5 @@
 """Tests for telemetry initialization."""
-import pytest
+
 from unittest.mock import patch, MagicMock
 
 
@@ -12,6 +12,7 @@ class TestTelemetrySetup:
 
             mock_app = MagicMock()
             from app.core.telemetry import setup_telemetry
+
             # Should not raise
             setup_telemetry(mock_app)
 
@@ -22,5 +23,6 @@ class TestTelemetrySetup:
             mock_settings.SENTRY_DSN = None
 
             from app.core.telemetry import _setup_sentry
+
             # Should not raise
             _setup_sentry()

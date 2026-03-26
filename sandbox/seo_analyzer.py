@@ -111,9 +111,7 @@ if __name__ == "__main__":
         print(html_content)
     else:
         analysis = analyze_content(html_content)
-        readability = calculate_readability(
-            Adaptor(html_content).get_all_text()
-        )
+        readability = calculate_readability(Adaptor(html_content).get_all_text())
         report_content = generate_seo_report(target_url, analysis, readability)
 
         with open("seo_report.md", "w") as f:

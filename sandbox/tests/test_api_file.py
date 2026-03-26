@@ -80,7 +80,9 @@ def test_list_directory_success(client: TestClient, tmp_path: Path):
 def test_delete_file_success(client: TestClient, tmp_path: Path):
     """Test deleting an existing file."""
     target = tmp_path / "to_delete.txt"
-    client.post("/api/v1/file/write", json={"file": str(target), "content": "remove me"})
+    client.post(
+        "/api/v1/file/write", json={"file": str(target), "content": "remove me"}
+    )
 
     delete_response = client.post("/api/v1/file/delete", json={"path": str(target)})
     assert delete_response.status_code == 200

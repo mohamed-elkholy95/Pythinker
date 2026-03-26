@@ -668,15 +668,18 @@ class EnvironmentScanner:
         # GitHub CLI auth status
         try:
             gh_result = subprocess.run(
-                ["gh", "auth", "status"],
-                capture_output=True, text=True, timeout=5
+                ["gh", "auth", "status"], capture_output=True, text=True, timeout=5
             )
             cloud_auth["github_cli_authenticated"] = gh_result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             cloud_auth["github_cli_authenticated"] = False
 
-        cloud_auth["google_drive_available"] = bool(os.environ.get("GOOGLE_DRIVE_TOKEN"))
-        cloud_auth["google_workspace_available"] = bool(os.environ.get("GOOGLE_WORKSPACE_CLI_TOKEN"))
+        cloud_auth["google_drive_available"] = bool(
+            os.environ.get("GOOGLE_DRIVE_TOKEN")
+        )
+        cloud_auth["google_workspace_available"] = bool(
+            os.environ.get("GOOGLE_WORKSPACE_CLI_TOKEN")
+        )
 
         return cloud_auth
 
