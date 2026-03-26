@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 SANDBOX_ALLOWED_DIRS: list[Path] = [
     Path("/home/ubuntu"),
     Path("/workspace"),
+    Path("/tmp"),
 ]
 
 
