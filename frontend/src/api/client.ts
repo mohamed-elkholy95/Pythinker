@@ -999,7 +999,10 @@ export const createSSEConnection = async <T = unknown>(
                   ? details.first_available_event_id
                   : undefined;
                 const checkpointEventId = streamError.checkpoint_event_id || firstAvailableEventId;
-                if (checkpointEventId) {
+                // Only use Redis stream IDs (format: "digits-digits") as the resume
+                // cursor.  UUID checkpoint IDs from gap warnings would cause a format
+                // mismatch on the backend, forcing full event replay on reconnect.
+                if (checkpointEventId && /^\d+-\d+$/.test(checkpointEventId)) {
                   lastReceivedEventId = checkpointEventId;
                 }
                 if (onGapDetected) {
@@ -1444,7 +1447,9 @@ export const createEventSourceConnection = async <T = unknown>(
           ? details.first_available_event_id
           : undefined;
         const checkpointEventId = streamError.checkpoint_event_id || firstAvailableEventId;
-        if (checkpointEventId) {
+        // Only use Redis stream IDs (format: "digits-digits") as the resume
+        // cursor.  UUID checkpoint IDs cause format mismatch on the backend.
+        if (checkpointEventId && /^\d+-\d+$/.test(checkpointEventId)) {
           lastReceivedEventId = checkpointEventId;
         }
         if (onGapDetected) {

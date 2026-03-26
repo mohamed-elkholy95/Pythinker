@@ -888,7 +888,9 @@ class AgentService:
                 # event.event_id fields that carry Redis stream IDs, guaranteeing a
                 # mismatch.  Disable skip mode immediately and emit a gap warning so
                 # the client knows it may have missed events.
-                logger.warning(
+                # This is a known, gracefully-handled edge case (e.g. first reconnect
+                # before any Redis stream ID has been received), so log at INFO level.
+                logger.info(
                     "Resume cursor %s is not a Redis stream ID; disabling skip mode to prevent event starvation",
                     event_id,
                 )
