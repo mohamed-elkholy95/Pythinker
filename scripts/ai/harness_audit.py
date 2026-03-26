@@ -16,8 +16,16 @@ REQUIRED_FILES = [
 REQUIRED_SIGNALS = [
     ("AGENTS.md", "repo law", "AGENTS.md should state that it is repo law"),
     ("AGENTS.md", ".codex", "AGENTS.md should mention the Codex-local harness layer"),
-    (".opencode/agents/build.md", ".codex", "OpenCode build adapter should reference .codex"),
-    (".opencode/agents/plan.md", ".codex", "OpenCode plan adapter should reference .codex"),
+    (
+        ".opencode/agents/build.md",
+        ".codex",
+        "OpenCode build adapter should reference .codex",
+    ),
+    (
+        ".opencode/agents/plan.md",
+        ".codex",
+        "OpenCode plan adapter should reference .codex",
+    ),
     (".cursor/rules/core.mdc", ".codex", "Cursor core rules should reference .codex"),
 ]
 

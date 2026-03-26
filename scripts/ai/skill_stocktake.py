@@ -59,7 +59,11 @@ def stocktake_skills(skills_root: Path) -> dict[str, object]:
         intersection = left_words & right_words
         union = left_words | right_words
         similarity = len(intersection) / len(union)
-        if left["description"] and left["description"] == right["description"] or similarity >= 0.8:
+        if (
+            left["description"]
+            and left["description"] == right["description"]
+            or similarity >= 0.8
+        ):
             warnings.append(
                 f"Potential overlap: {Path(left['path']).parent.name} vs {Path(right['path']).parent.name}"
             )

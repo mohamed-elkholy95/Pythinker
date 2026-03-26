@@ -6,7 +6,9 @@ from pathlib import Path
 
 
 def load_session_summary_module() -> object:
-    module_path = Path(__file__).resolve().parents[2] / "scripts" / "ai" / "session_summary.py"
+    module_path = (
+        Path(__file__).resolve().parents[2] / "scripts" / "ai" / "session_summary.py"
+    )
     spec = importlib.util.spec_from_file_location("session_summary", module_path)
     if spec is None or spec.loader is None:
         raise AssertionError("Failed to load session_summary module")
@@ -24,7 +26,11 @@ def test_build_session_summary_uses_latest_session_and_summary(tmp_path: Path) -
     module = load_session_summary_module()
     write_json(
         tmp_path / ".codex" / "session" / "latest-session.json",
-        {"branch": "feature-x", "head": "abc123", "modified_files": ["skills/a", "scripts/b"]},
+        {
+            "branch": "feature-x",
+            "head": "abc123",
+            "modified_files": ["skills/a", "scripts/b"],
+        },
     )
     write_json(
         tmp_path / ".codex" / "session" / "latest-summary.json",
@@ -53,7 +59,11 @@ def test_build_session_summary_normalizes_git_status_lines(tmp_path: Path) -> No
     module = load_session_summary_module()
     write_json(
         tmp_path / ".codex" / "session" / "latest-session.json",
-        {"branch": "feature-y", "head": "def456", "modified_files": [" M skills/a", "?? scripts/b"]},
+        {
+            "branch": "feature-y",
+            "head": "def456",
+            "modified_files": [" M skills/a", "?? scripts/b"],
+        },
     )
     write_json(
         tmp_path / ".codex" / "session" / "latest-summary.json",

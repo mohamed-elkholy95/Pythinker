@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 def load_skill_stocktake_module() -> object:
-    module_path = Path(__file__).resolve().parents[2] / "scripts" / "ai" / "skill_stocktake.py"
+    module_path = (
+        Path(__file__).resolve().parents[2] / "scripts" / "ai" / "skill_stocktake.py"
+    )
     spec = importlib.util.spec_from_file_location("skill_stocktake", module_path)
     if spec is None or spec.loader is None:
         raise AssertionError("Failed to load skill_stocktake module")

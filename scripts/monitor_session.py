@@ -36,7 +36,9 @@ sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 # ─── Configuration ──────────────────────────────────────────────────────────
 BASE_URL = os.getenv("PYTHINKER_URL", "http://localhost:8000")
 EMAIL = os.getenv("PYTHINKER_EMAIL", os.getenv("LOCAL_AUTH_EMAIL", "admin@example.com"))
-PASSWORD = os.getenv("PYTHINKER_PASSWORD", os.getenv("LOCAL_AUTH_PASSWORD", "change-me-local-password"))
+PASSWORD = os.getenv(
+    "PYTHINKER_PASSWORD", os.getenv("LOCAL_AUTH_PASSWORD", "change-me-local-password")
+)
 
 # ─── ANSI Colors ────────────────────────────────────────────────────────────
 C_RESET = "\033[0m"
@@ -116,7 +118,9 @@ class SessionMonitor:
         self.nudge_count: int = 0
         self.stream_events: int = 0
 
-    def _api(self, path: str, method: str = "GET", data: dict | None = None) -> dict | None:
+    def _api(
+        self, path: str, method: str = "GET", data: dict | None = None
+    ) -> dict | None:
         """Make authenticated API call."""
         url = f"{BASE_URL}{path}"
         headers = {
@@ -170,18 +174,28 @@ class SessionMonitor:
                 filled = int(pct / 5)
                 bar = f" [{'█' * filled}{'░' * (20 - filled)}] {pct}%"
             step_info = f" ({steps} steps)" if steps else ""
-            print(f"{C_DIM}{ts}{C_RESET} {color}▶ {phase.upper():<12}{C_RESET} {msg}{bar}{step_info}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}▶ {phase.upper():<12}{C_RESET} {msg}{bar}{step_info}"
+            )
             self.current_phase = phase
 
         elif event_type == "plan":
             status = data.get("status", "?")
             # Backend may store steps at top level or nested under 'plan'
             plan = data.get("plan", {})
-            steps = data.get("steps") or (plan.get("steps") if isinstance(plan, dict) else []) or []
+            steps = (
+                data.get("steps")
+                or (plan.get("steps") if isinstance(plan, dict) else [])
+                or []
+            )
             if steps:
-                self.plan_steps = [s.get("title", s.get("description", "?")) for s in steps]
+                self.plan_steps = [
+                    s.get("title", s.get("description", "?")) for s in steps
+                ]
                 self.steps_total = len(steps)
-                print(f"\n{C_DIM}{ts}{C_RESET} {color}📋 PLAN ({status}) — {len(steps)} steps:{C_RESET}")
+                print(
+                    f"\n{C_DIM}{ts}{C_RESET} {color}📋 PLAN ({status}) — {len(steps)} steps:{C_RESET}"
+                )
                 for i, step in enumerate(steps, 1):
                     title = step.get("title", step.get("description", "?"))
                     print(f"         {C_DIM}{i}.{C_RESET} {title}")
@@ -196,14 +210,28 @@ class SessionMonitor:
             else:
                 # Flat format: description is at top level
                 title = data.get("description") or data.get("title") or "?"
-            step_id = data.get("id") or (step.get("id") if isinstance(step, dict) else "?")
-            icons = {"started": "▶", "running": "⏳", "completed": "✅", "failed": "❌", "skipped": "⏭"}
+            step_id = data.get("id") or (
+                step.get("id") if isinstance(step, dict) else "?"
+            )
+            icons = {
+                "started": "▶",
+                "running": "⏳",
+                "completed": "✅",
+                "failed": "❌",
+                "skipped": "⏭",
+            }
             icon = icons.get(status, "•")
             if status == "completed":
                 self.steps_completed += 1
             self.current_step = title
-            step_counter = f"[{self.steps_completed}/{self.steps_total}]" if self.steps_total else ""
-            print(f"{C_DIM}{ts}{C_RESET} {color}{icon} STEP {step_id} {step_counter} {status.upper():<10}{C_RESET} {title}")
+            step_counter = (
+                f"[{self.steps_completed}/{self.steps_total}]"
+                if self.steps_total
+                else ""
+            )
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}{icon} STEP {step_id} {step_counter} {status.upper():<10}{C_RESET} {title}"
+            )
 
         elif event_type == "tool":
             # Backend uses: name, function, args, command, display_command
@@ -228,10 +256,19 @@ class SessionMonitor:
                 risk_badge = ""
                 if risk and risk not in ("safe", "none", ""):
                     risk_badge = f" {C_BG_RED} {risk.upper()} {C_RESET}"
-                print(f"{C_DIM}{ts}{C_RESET} {color}🔧 TOOL {C_BOLD}{tool}{C_RESET}{color}.{func} → {cmd}{risk_badge}{C_RESET}")
+                print(
+                    f"{C_DIM}{ts}{C_RESET} {color}🔧 TOOL {C_BOLD}{tool}{C_RESET}{color}.{func} → {cmd}{risk_badge}{C_RESET}"
+                )
             elif status in ("called", "completed", "done"):
                 dur_str = f" ({dur}ms)" if dur else ""
-                self.tool_calls.append({"tool": tool, "func": func, "duration_ms": dur, "time": time.time()})
+                self.tool_calls.append(
+                    {
+                        "tool": tool,
+                        "func": func,
+                        "duration_ms": dur,
+                        "time": time.time(),
+                    }
+                )
                 if dur:
                     self.tool_durations.append(dur)
                 # Show truncated output if available
@@ -242,13 +279,17 @@ class SessionMonitor:
                     output_preview = f" → {content[:80]}..."
                 elif stdout:
                     output_preview = f" → {stdout[:80]}..."
-                print(f"{C_DIM}{ts}{C_RESET} {color}  └─ done{dur_str}{output_preview}{C_RESET}")
+                print(
+                    f"{C_DIM}{ts}{C_RESET} {color}  └─ done{dur_str}{output_preview}{C_RESET}"
+                )
 
         elif event_type == "message":
             role = data.get("role", "?")
             content = data.get("content", "")
             if role == "user":
-                print(f"\n{C_DIM}{ts}{C_RESET} {C_BOLD}💬 USER:{C_RESET} {content[:120]}")
+                print(
+                    f"\n{C_DIM}{ts}{C_RESET} {C_BOLD}💬 USER:{C_RESET} {content[:120]}"
+                )
             else:
                 # Truncate long assistant messages
                 preview = content[:200] + "..." if len(content) > 200 else content
@@ -266,15 +307,23 @@ class SessionMonitor:
             headline = data.get("headline", "?")
             step_idx = data.get("step_index", "?")
             sources = data.get("sources_count", 0)
-            print(f"{C_DIM}{ts}{C_RESET} {color}💡 Finding [{step_idx}]:{C_RESET} {headline} {C_DIM}({sources} sources){C_RESET}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}💡 Finding [{step_idx}]:{C_RESET} {headline} {C_DIM}({sources} sources){C_RESET}"
+            )
 
         elif event_type == "error":
             error = data.get("error", "?")
             error_type = data.get("error_type", "")
             recoverable = data.get("recoverable", False)
             self.errors.append(data)
-            rec_str = f"{C_GREEN}recoverable{C_RESET}" if recoverable else f"{C_RED}fatal{C_RESET}"
-            print(f"\n{C_DIM}{ts}{C_RESET} {color}⚠ ERROR [{error_type}] ({rec_str}):{C_RESET}")
+            rec_str = (
+                f"{C_GREEN}recoverable{C_RESET}"
+                if recoverable
+                else f"{C_RED}fatal{C_RESET}"
+            )
+            print(
+                f"\n{C_DIM}{ts}{C_RESET} {color}⚠ ERROR [{error_type}] ({rec_str}):{C_RESET}"
+            )
             print(f"         {error[:200]}")
 
         elif event_type == "done":
@@ -285,7 +334,9 @@ class SessionMonitor:
             to_s = data.get("to_state", "?")
             reason = data.get("reason", "")
             elapsed_ms = data.get("elapsed_ms", "")
-            print(f"{C_DIM}{ts}{C_RESET} {color}⇄ FLOW:{C_RESET} {from_s} → {to_s} {C_DIM}({reason}) {elapsed_ms}ms{C_RESET}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}⇄ FLOW:{C_RESET} {from_s} → {to_s} {C_DIM}({reason}) {elapsed_ms}ms{C_RESET}"
+            )
 
         elif event_type == "flow_selection":
             mode = data.get("flow_mode", "?")
@@ -299,14 +350,23 @@ class SessionMonitor:
             status = data.get("status", "?")
             verdict = data.get("verdict", "")
             confidence = data.get("confidence", "")
-            icons = {"started": "🔍", "passed": "✅", "revision_needed": "🔄", "failed": "❌"}
+            icons = {
+                "started": "🔍",
+                "passed": "✅",
+                "revision_needed": "🔄",
+                "failed": "❌",
+            }
             icon = icons.get(status, "•")
-            print(f"{C_DIM}{ts}{C_RESET} {color}{icon} VERIFY:{C_RESET} {status} {C_DIM}(conf={confidence}){C_RESET} {verdict[:100]}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}{icon} VERIFY:{C_RESET} {status} {C_DIM}(conf={confidence}){C_RESET} {verdict[:100]}"
+            )
 
         elif event_type == "reflection":
             status = data.get("status", "?")
             decision = data.get("decision", "")
-            print(f"{C_DIM}{ts}{C_RESET} {color}🪞 REFLECT:{C_RESET} {status} → {decision}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}🪞 REFLECT:{C_RESET} {status} → {decision}"
+            )
 
         elif event_type == "wide_research":
             status = data.get("status", "?")
@@ -319,7 +379,9 @@ class SessionMonitor:
                 pct = int((completed_q / total_q) * 100)
                 filled = int(pct / 5)
                 bar = f" [{'█' * filled}{'░' * (20 - filled)}] {completed_q}/{total_q}"
-            print(f"{C_DIM}{ts}{C_RESET} {color}🔎 RESEARCH:{C_RESET} {status}{bar} {C_DIM}({sources} sources){C_RESET}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}🔎 RESEARCH:{C_RESET} {status}{bar} {C_DIM}({sources} sources){C_RESET}"
+            )
             if current:
                 print(f"         {C_DIM}Query: {current[:80]}{C_RESET}")
 
@@ -334,7 +396,9 @@ class SessionMonitor:
             remaining = data.get("remaining", 0)
             icons = {"warning": "⚠", "exhausted": "🚫", "resumed": "▶"}
             icon = icons.get(action, "•")
-            print(f"{C_DIM}{ts}{C_RESET} {color}{icon} BUDGET:{C_RESET} {action} ({pct:.0f}% used, {remaining} remaining)")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}{icon} BUDGET:{C_RESET} {action} ({pct:.0f}% used, {remaining} remaining)"
+            )
 
         elif event_type == "thought":
             content = data.get("content", "")
@@ -362,7 +426,9 @@ class SessionMonitor:
             score = data.get("hallucination_score", "?")
             passed = data.get("passed", False)
             status = "✅ PASSED" if passed else "❌ FAILED"
-            print(f"{C_DIM}{ts}{C_RESET} {color}📊 EVAL: {status}{C_RESET} (hallucination={score})")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}📊 EVAL: {status}{C_RESET} (hallucination={score})"
+            )
 
         elif event_type == "mcp_health":
             server = data.get("server_name", "?")
@@ -374,11 +440,15 @@ class SessionMonitor:
             decision = data.get("decision", "?")
             level = data.get("level", "?")
             conf = data.get("confidence", "?")
-            print(f"{C_DIM}{ts}{C_RESET} {color}🎯 CONF: {decision} ({level}, {conf}){C_RESET}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}🎯 CONF: {decision} ({level}, {conf}){C_RESET}"
+            )
 
         elif event_type == "suggestion":
             suggestions = data.get("suggestions", [])
-            print(f"{C_DIM}{ts}{C_RESET} {color}💡 SUGGESTIONS:{C_RESET} {', '.join(suggestions[:3])}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}💡 SUGGESTIONS:{C_RESET} {', '.join(suggestions[:3])}"
+            )
 
         elif event_type == "skill_delivery":
             name = data.get("name", "?")
@@ -386,7 +456,9 @@ class SessionMonitor:
 
         else:
             # Unknown event type — still show it
-            print(f"{C_DIM}{ts}{C_RESET} {color}[{event_type}]{C_RESET} {json.dumps(data)[:120]}")
+            print(
+                f"{C_DIM}{ts}{C_RESET} {color}[{event_type}]{C_RESET} {json.dumps(data)[:120]}"
+            )
 
         self.event_counts[event_type] += 1
         self.last_event_time = time.time()
@@ -403,7 +475,9 @@ class SessionMonitor:
             avg_tool_ms = sum(self.tool_durations) / len(self.tool_durations)
 
         err_color = C_RED if errs > 0 else C_GREEN
-        step_str = f"{self.steps_completed}/{self.steps_total}" if self.steps_total else "0/?"
+        step_str = (
+            f"{self.steps_completed}/{self.steps_total}" if self.steps_total else "0/?"
+        )
 
         bar = (
             f"{C_DIM}┌─ {elapsed} │ "
@@ -426,16 +500,24 @@ class SessionMonitor:
         print(f"\n{C_BG_GREEN}{C_WHITE}{C_BOLD}  SESSION MONITOR SUMMARY  {C_RESET}")
         print(f"{C_DIM}{'─' * 70}{C_RESET}")
         print(f"  Duration:       {elapsed}")
-        print(f"  Total events:   {total_events} ({self.stream_events} stream chunks filtered)")
+        print(
+            f"  Total events:   {total_events} ({self.stream_events} stream chunks filtered)"
+        )
         print(f"  Steps:          {self.steps_completed}/{self.steps_total}")
         print(f"  Tool calls:     {len(self.tool_calls)}")
         print(f"  Errors:         {len(self.errors)}")
 
         if self.tool_durations:
             avg = sum(self.tool_durations) / len(self.tool_durations)
-            p95 = sorted(self.tool_durations)[int(len(self.tool_durations) * 0.95)] if len(self.tool_durations) > 1 else self.tool_durations[0]
+            p95 = (
+                sorted(self.tool_durations)[int(len(self.tool_durations) * 0.95)]
+                if len(self.tool_durations) > 1
+                else self.tool_durations[0]
+            )
             mx = max(self.tool_durations)
-            print(f"\n  Tool Latency:   avg={avg:.0f}ms  p95={p95:.0f}ms  max={mx:.0f}ms")
+            print(
+                f"\n  Tool Latency:   avg={avg:.0f}ms  p95={p95:.0f}ms  max={mx:.0f}ms"
+            )
 
         if self.tool_calls:
             tool_counter: Counter[str] = Counter()
@@ -453,7 +535,9 @@ class SessionMonitor:
         if self.errors:
             print(f"\n  {C_RED}Errors:{C_RESET}")
             for err in self.errors[:5]:
-                print(f"    [{err.get('error_type', '?')}] {err.get('error', '?')[:80]}")
+                print(
+                    f"    [{err.get('error_type', '?')}] {err.get('error', '?')[:80]}"
+                )
 
         # Fetch final prometheus metrics
         self._print_prometheus_snapshot()
@@ -528,12 +612,16 @@ class SessionMonitor:
         self._print_stats_bar()
 
         if status in ("completed", "failed", "cancelled"):
-            print(f"{C_YELLOW}Session already {status}. Showing final summary.{C_RESET}")
+            print(
+                f"{C_YELLOW}Session already {status}. Showing final summary.{C_RESET}"
+            )
             self._print_final_summary()
             return
 
         # Poll for new events
-        print(f"\n{C_DIM}── Live monitoring (polling every 3s, Ctrl+C to stop) ──{C_RESET}\n")
+        print(
+            f"\n{C_DIM}── Live monitoring (polling every 3s, Ctrl+C to stop) ──{C_RESET}\n"
+        )
         poll_interval = 3
         stats_interval = 30
         last_stats = time.time()
@@ -572,7 +660,9 @@ class SessionMonitor:
                 # Stale detection
                 idle = time.time() - self.last_event_time
                 if idle > 120:
-                    print(f"{C_YELLOW}⚠ No events for {idle:.0f}s — session may be stale{C_RESET}")
+                    print(
+                        f"{C_YELLOW}⚠ No events for {idle:.0f}s — session may be stale{C_RESET}"
+                    )
 
             except KeyboardInterrupt:
                 break
@@ -588,7 +678,9 @@ class SessionMonitor:
                 os.system("clear")
 
                 now = datetime.now().strftime("%H:%M:%S")
-                print(f"{C_BG_BLUE}{C_WHITE}{C_BOLD}  PYTHINKER DASHBOARD — {now}  {C_RESET}\n")
+                print(
+                    f"{C_BG_BLUE}{C_WHITE}{C_BOLD}  PYTHINKER DASHBOARD — {now}  {C_RESET}\n"
+                )
 
                 # Health
                 health = self._api("/api/v1/monitoring/health")
@@ -596,7 +688,9 @@ class SessionMonitor:
                     overall = health.get("overall_status", "?")
                     components = health.get("components", {})
                     color = C_GREEN if overall == "healthy" else C_RED
-                    print(f"  {C_BOLD}Health:{C_RESET} {color}{overall.upper()}{C_RESET}")
+                    print(
+                        f"  {C_BOLD}Health:{C_RESET} {color}{overall.upper()}{C_RESET}"
+                    )
                     for comp, status in components.items():
                         icon = "✅" if status == "healthy" else "❌"
                         print(f"    {icon} {comp}")
@@ -607,7 +701,9 @@ class SessionMonitor:
                     print(f"\n  {C_BOLD}Pressure:{C_RESET}")
                     print(f"    CPU:      {pressure.get('cpu_percent', '?')}%")
                     print(f"    Memory:   {pressure.get('memory_percent', '?')}%")
-                    print(f"    Avail:    {pressure.get('memory_available_gb', '?')} GB")
+                    print(
+                        f"    Avail:    {pressure.get('memory_available_gb', '?')} GB"
+                    )
                     can = pressure.get("can_accept_new_task", False)
                     icon = "✅" if can else "❌"
                     print(f"    Accept:   {icon}")
@@ -617,12 +713,19 @@ class SessionMonitor:
                 if sessions and "data" in sessions:
                     slist = sessions["data"].get("sessions", [])
                     running = [s for s in slist if s.get("status") == "running"]
-                    print(f"\n  {C_BOLD}Sessions:{C_RESET} {len(running)} running, {len(slist)} recent")
+                    print(
+                        f"\n  {C_BOLD}Sessions:{C_RESET} {len(running)} running, {len(slist)} recent"
+                    )
                     for s in slist[:5]:
                         status = s.get("status", "?")
                         title = s.get("title") or "untitled"
                         sid = s.get("session_id", "?")[:8]
-                        icons = {"running": "▶", "completed": "✅", "failed": "❌", "cancelled": "⏹"}
+                        icons = {
+                            "running": "▶",
+                            "completed": "✅",
+                            "failed": "❌",
+                            "cancelled": "⏹",
+                        }
                         icon = icons.get(status, "•")
                         print(f"    {icon} {sid}  {title[:40]} ({status})")
 
@@ -657,7 +760,10 @@ def find_latest_session(token: str) -> str | None:
     """Find the most recent running session, or latest session."""
     req = urllib.request.Request(
         f"{BASE_URL}/api/v1/sessions?page=1&limit=10",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
     )
     try:
         resp = urllib.request.urlopen(req, timeout=10)
@@ -679,7 +785,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Pythinker Agent Session Monitor")
     parser.add_argument("session_id", nargs="?", help="Session ID to monitor")
     parser.add_argument("--latest", action="store_true", help="Monitor latest session")
-    parser.add_argument("--dashboard", action="store_true", help="System dashboard mode")
+    parser.add_argument(
+        "--dashboard", action="store_true", help="System dashboard mode"
+    )
     args = parser.parse_args()
 
     token = get_token()
