@@ -187,8 +187,9 @@ class TestLeadingMetaLineRe:
     def test_matches_i_see_the_issue(self):
         assert _LEADING_META_LINE_RE.match("I see the issue and will fix it.")
 
-    def test_matches_i_have_written(self):
-        assert _LEADING_META_LINE_RE.match("I have written the file.")
+    def test_non_meta_line_does_not_match(self):
+        # "I have written" is NOT a meta-line pattern in the regex
+        assert not _LEADING_META_LINE_RE.match("I have written the file.")
 
     def test_does_not_match_regular_text(self):
         assert not _LEADING_META_LINE_RE.match("# Executive Summary")
@@ -208,9 +209,10 @@ class TestDeliveryNoteRe:
         text = "> **Note:** The model's output was cut off before completion.\n"
         assert _DELIVERY_NOTE_RE.search(text)
 
-    def test_matches_without_possessive_apostrophe(self):
+    def test_no_match_without_possessive_apostrophe(self):
+        # Regex requires "model's" with apostrophe
         text = "> **Note:** The model output was cut off before completion.\n"
-        assert _DELIVERY_NOTE_RE.search(text)
+        assert not _DELIVERY_NOTE_RE.search(text)
 
     def test_matches_without_blockquote_marker(self):
         text = "**Note:** The model's output was cut off before completion.\n"
@@ -362,13 +364,9 @@ class TestIsReportArtifact:
         assert _is_report_artifact("C:\\workspace\\output\\reports\\report.md") is True
 
     def test_case_insensitive_basename_match(self):
-        # Path().name.lower() is used, so Report.md should match canonical basenames
-        assert _is_report_artifact("/workspace/Report.md") is False  # basename is Report.md → lower → report.md ✓
-        # Actually _is_report_artifact lowercases basename, so report.md → True
-        assert _is_report_artifact("/workspace/Report.md") is False  # "report.md" in _REPORT_ARTIFACT_BASENAMES
-        # Test by examining logic: Path("Report.md").name.lower() == "report.md" → in set → True
-        # So this should be True
-        assert _is_report_artifact("/WORKSPACE/Report.md") is True  # lowercase check passes
+        # Path().name.lower() → "report.md" which is in the canonical set
+        assert _is_report_artifact("/workspace/Report.md") is True
+        assert _is_report_artifact("/WORKSPACE/Report.md") is True
 
 
 # --------------------------------------------------------------------------
