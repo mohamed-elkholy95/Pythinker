@@ -117,7 +117,7 @@ watch(debouncedContent, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--background-white-main);
+  background: var(--background-white-main, #fff);
   z-index: 1;
 }
 
