@@ -1,4 +1,5 @@
 import asyncio
+import gc
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 
@@ -798,6 +799,23 @@ async def lifespan(app: FastAPI):
                 "Event archival background task started (retention: %d days)",
                 settings.mongodb_event_retention_days,
             )
+
+        # GC tuning: after all modules are loaded and singletons initialized,
+        # freeze long-lived startup objects so the cyclic collector never
+        # rescans them, and raise the gen-0 threshold to let refcounting
+        # reclaim most short-lived objects before triggering collection.
+        # Production-validated pattern (Close.com): ~80-100ms p95 latency
+        # reduction, GC overhead from ~3% to ~0.5%.
+        # NOTE: gc.freeze()/set_threshold() are CPython APIs — not officially
+        # recommended for web services, but well-tested in production ASGI
+        # deployments.  Revert if memory profiling shows uncollected cycles.
+        gc.collect(2)  # Full collection of all generations
+        gc.freeze()  # Mark all current objects as permanent
+        gc.set_threshold(50_000, 10, 10)  # Reduce gen-0 collection frequency
+        logger.info(
+            "GC tuned: frozen %d objects, threshold set to (50000, 10, 10)",
+            gc.get_freeze_count(),
+        )
 
         try:
             yield
