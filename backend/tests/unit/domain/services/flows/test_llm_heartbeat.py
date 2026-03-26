@@ -545,7 +545,7 @@ class TestInterleaveHeartbeatErrorPropagation:
         async with hb:
             with pytest.raises(RuntimeError, match="generator error"):
                 async for event in interleave_heartbeat(_raise_mid_stream(at=2), hb):
-                    collected.append(event)
+                    collected.append(event)  # noqa: PERF401
 
         stub_events = [e for e in collected if isinstance(e, _StubEvent)]
         assert len(stub_events) == 2
