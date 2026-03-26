@@ -142,14 +142,15 @@ _pin_chrome_window() {
         return 1
     fi
 
-    # Continuous pin loop — 10s interval is sufficient for window drift correction.
-    # Reduced from 2s to cut xdotool wake-ups and associated X11 round-trips.
+    # Continuous pin loop — 30s interval for window drift correction.
+    # Reduced from 10s to cut xdotool wake-ups and associated X11 round-trips.
+    # Window drift is rare; 30s is sufficient to catch it without wasting CPU.
     while true; do
         for wid in $(DISPLAY=:99 xdotool search --class chromium 2>/dev/null); do
             DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
             DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
         done
-        sleep 10
+        sleep 30
     done
 }
 _pin_chrome_window &
