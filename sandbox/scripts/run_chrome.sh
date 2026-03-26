@@ -50,7 +50,11 @@ CHROME_FLAGS=(
     --start-maximized
     --disable-gpu
     --disable-gpu-sandbox
-    --disable-gpu-compositing
+    # NOTE: --disable-gpu-compositing removed — it disables Chrome's compositor,
+    # which is required for OOPIF (Out-of-Process IFrame) rendering. The built-in
+    # PDF viewer renders via an OOPIF; without the compositor, the PDF extension
+    # loads but content appears as a blank gray page. SwiftShader (--use-gl=swiftshader)
+    # provides software compositing so this is safe to leave enabled.
     --disable-vulkan
     --enable-unsafe-swiftshader
     # Disable WebGL/WebGL2 — eliminates "GPU stall due to ReadPixels" warnings
