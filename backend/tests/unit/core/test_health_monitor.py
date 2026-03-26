@@ -195,7 +195,7 @@ class TestHealthMonitorLifecycle:
     @pytest.mark.asyncio
     async def test_start_monitoring_creates_tasks_for_all_components(self) -> None:
         monitor = HealthMonitor()
-        expected_count = 6  # error_manager, sandbox_manager, database, redis, redis_cache, qdrant
+        expected_count = 7  # error_manager, sandbox_manager, database, redis, redis_cache, qdrant, minio
         with patch.object(HealthMonitor, "_monitor_component", new=AsyncMock(return_value=None)):
             with patch("asyncio.create_task", wraps=asyncio.create_task) as mock_create:
                 await monitor.start_monitoring()
@@ -247,7 +247,7 @@ class TestHealthMonitorLifecycle:
             await monitor.stop_monitoring()
 
         # stop_monitoring must call .cancel() on every task it holds
-        assert len(mock_tasks) == 6
+        assert len(mock_tasks) == 7
         for t in mock_tasks:
             t.cancel.assert_called_once()
 
