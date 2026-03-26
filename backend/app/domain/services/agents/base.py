@@ -1786,7 +1786,7 @@ class BaseAgent:
         self._recent_truncation_count = 0  # Prevent stale count from prior step
         self._stuck_recovery_exhausted = False
         self._consecutive_cap_hits = 0
-        self._set_context_cap_file_read_block(blocked=False)
+        self._set_context_cap_read_block(blocked=False, escalation=0)
         self._json_nudge_sent = False  # Proactive JSON nudge gate (one per step)
 
         # ── Middleware context for this execution ──
@@ -2739,11 +2739,12 @@ class BaseAgent:
     # Now configurable via settings: hard_context_char_cap / hard_context_char_cap_deep_research
     _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000  # Fallback if settings unavailable
 
-    def _set_context_cap_file_read_block(self, *, blocked: bool) -> None:
-        """Toggle file_read blocking on the efficiency monitor middleware.
+    def _set_context_cap_read_block(self, *, blocked: bool, escalation: int = 0) -> None:
+        """Toggle read blocking on the efficiency monitor middleware.
 
-        Called when consecutive hard context cap hits indicate that reads are
-        adding context faster than graduated truncation can remove it.
+        At escalation 3-4: blocks file_read/file_read_range only.
+        At escalation 5+: blocks ALL read-only tools (search, browser, shell_view, etc.)
+        to prevent any tool from re-flooding context.
         """
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import (
             EfficiencyMonitorMiddleware,
@@ -2752,6 +2753,7 @@ class BaseAgent:
         for mw in self._pipeline.middleware:
             if isinstance(mw, EfficiencyMonitorMiddleware):
                 mw._context_cap_file_read_blocked = blocked
+                mw._context_cap_escalation = escalation
                 break
 
     @property
@@ -2862,14 +2864,16 @@ class BaseAgent:
                                 }
                         self.memory.messages = trimmed
 
-            # Escalation 3+: block file_read via middleware and inject nudge.
+            # Escalation 3+: block reads via middleware and inject nudge.
             if _escalation >= 3:
                 logger.warning(
-                    "Context cap hit %d consecutive times — blocking file_read and injecting step-advance nudge",
+                    "Context cap hit %d consecutive times — blocking reads and injecting step-advance nudge",
                     _escalation,
                 )
-                # Activate file_read blocking on the efficiency monitor middleware
-                self._set_context_cap_file_read_block(blocked=True)
+                # Activate read blocking on the efficiency monitor middleware.
+                # Pass escalation level so the middleware can broaden the block
+                # from file_read-only (3-4) to ALL read tools (5+).
+                self._set_context_cap_read_block(blocked=True, escalation=_escalation)
                 self._efficiency_nudges.append(
                     {
                         "message": (
@@ -2878,14 +2882,27 @@ class BaseAgent:
                             "what you have and produce your final output for this step."
                         ),
                         "confidence": 0.95,
-                        "hard_stop": _escalation >= 7,
+                        "hard_stop": _escalation >= 5,
                     }
                 )
+
+            # Escalation 5+: hard circuit breaker — force step advancement.
+            # The nudge alone relies on the LLM choosing to stop, which doesn't
+            # reliably break the loop.  Setting _stuck_recovery_exhausted triggers
+            # a real break in the execute() loop via plan_act.
+            if _escalation >= 5:
+                logger.warning(
+                    "Context cap escalation %d >= 5: forcing step advancement via stuck_recovery_exhausted",
+                    _escalation,
+                )
+                self._stuck_recovery_exhausted = True
         else:
-            # Context is under cap — reset consecutive counter and unblock file_read
-            if self._consecutive_cap_hits > 0 and total_chars < _cap * 0.90:
+            # Context is under cap — reset consecutive counter and unblock reads.
+            # Use 75% threshold (not 90%) so trivial dips don't reset the counter
+            # only for the next tool response to immediately re-flood context.
+            if self._consecutive_cap_hits > 0 and total_chars < _cap * 0.75:
                 self._consecutive_cap_hits = 0
-                self._set_context_cap_file_read_block(blocked=False)
+                self._set_context_cap_read_block(blocked=False, escalation=0)
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
         if self._efficiency_nudges:

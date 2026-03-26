@@ -59,10 +59,13 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
         self._duplicate_skip_count = 0
         self._last_step_iteration: int = -1
         # Context-cap escalation: set by BaseAgent when consecutive hard-cap
-        # hits reach the threshold.  When True, file_read calls are blocked
+        # hits reach the threshold.  When True, read calls are blocked
         # to stop the "bathtub problem" (reads add context faster than
         # truncation can remove it).
+        # At escalation 3-4: only file_read/file_read_range are blocked.
+        # At escalation 5+: ALL read-only tools are blocked (search, browser, etc.)
         self._context_cap_file_read_blocked: bool = False
+        self._context_cap_escalation: int = 0
 
     @property
     def name(self) -> str:
@@ -106,21 +109,30 @@ class EfficiencyMonitorMiddleware(BaseMiddleware):
             self.reset_browser_budget()
         self._last_step_iteration = ctx.step_iteration_count
 
-        # Block file_read when context cap escalation is active.
+        # Block reads when context cap escalation is active.
         # This stops the "bathtub problem" where reads add context faster
         # than graduated truncation can remove it.
-        if self._context_cap_file_read_blocked and tool_call.function_name in _FILE_READ_TOOLS:
-            logger.info(
-                "Context cap escalation: blocking %s to prevent further context growth",
-                tool_call.function_name,
-            )
-            return MiddlewareResult(
-                signal=MiddlewareSignal.SKIP_TOOL,
-                message=(
-                    "Context size is critically high. Stop reading files and produce "
-                    "your output immediately using the information you already have."
-                ),
-            )
+        # Escalation 3-4: block file_read only.
+        # Escalation 5+: block ALL read-only tools (search, browser, shell_view, etc.)
+        if self._context_cap_file_read_blocked:
+            from app.domain.models.tool_name import ToolName
+
+            _is_file_read = tool_call.function_name in _FILE_READ_TOOLS
+            _is_any_read = self._context_cap_escalation >= 5 and ToolName.is_read_tool(tool_call.function_name)
+            if _is_file_read or _is_any_read:
+                logger.info(
+                    "Context cap escalation (%d): blocking %s to prevent further context growth",
+                    self._context_cap_escalation,
+                    tool_call.function_name,
+                )
+                return MiddlewareResult(
+                    signal=MiddlewareSignal.SKIP_TOOL,
+                    message=(
+                        "Context size is critically high. Stop reading files and gathering "
+                        "information. Produce your output immediately using the information "
+                        "you already have."
+                    ),
+                )
 
         if tool_call.function_name not in _BROWSER_NAV_TOOLS:
             return MiddlewareResult.ok()
