@@ -36,6 +36,14 @@ async def handle_chart_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
     elif tool_success and not html_path and not png_path:
         sync_errors.append("Chart generation returned no output files")
 
+    chart_title = data.get("title", "Chart")
+    chart_metadata: dict[str, object] = {
+        "is_chart": True,
+        "chart_engine": "plotly",
+        "chart_type": data.get("chart_type", "bar"),
+        "chart_title": chart_title,
+    }
+
     sync_plan: list[tuple[str, str, str]] = []
     if isinstance(html_path, str) and html_path:
         sync_plan.append(("html", html_path, "text/html"))
@@ -47,6 +55,7 @@ async def handle_chart_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
             ctx._sync_file_to_storage_with_retry(
                 artifact_path,
                 content_type=content_type,
+                metadata=chart_metadata,
                 max_attempts=3,
             )
             for _, artifact_path, content_type in sync_plan
