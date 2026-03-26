@@ -22,7 +22,8 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 >
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
-> - **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
+> - **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/<relevant-dir-or-file>`
+> - **Testing rule**: Always run **targeted tests** (specific file or directory) — never the full test suite unless explicitly asked
 >
 > **Git commit strategy (MANDATORY):**
 > - When committing multiple files, ALWAYS split into **multiple atomic commits** grouped by logical concern
@@ -344,8 +345,10 @@ The `build: context:` directive still works (sends tarball, not a bind mount).
 cd backend && conda activate pythinker
 ruff check . && ruff format --check .   # Lint
 ruff check --fix . && ruff format .     # Auto-fix
-pytest tests/                           # Test
+pytest tests/path/to/test_file.py       # Run targeted tests (ALWAYS prefer this)
+pytest tests/path/to/directory/         # Run tests for a specific area
 pytest -p no:cov -o addopts= tests/test_file.py  # Single test without coverage
+# NEVER run `pytest tests/` (full suite) unless explicitly asked
 ```
 
 ### Frontend
