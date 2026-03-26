@@ -157,7 +157,7 @@ const showAgentActions = computed(() => !props.viewOnly)
 const showBrowserInteractionOverlay = computed(() => !props.viewOnly)
 const liveStreamCursorStyle = computed(() => (
   props.viewOnly
-    ? { cursor: 'none' }
+    ? { cursor: 'default' }
     : { cursor: getApplePointerCursorCss() }
 ))
 
