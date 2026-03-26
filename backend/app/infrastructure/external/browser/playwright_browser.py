@@ -1932,7 +1932,7 @@ class PlaywrightBrowser:
         self.browser = None
         self.playwright = None
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Clean up Playwright resources safely
 
         Closes pages, contexts, browser connection, and Playwright instance

@@ -393,7 +393,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
                 "skipped_video_urls": skipped_urls,
             }
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Clean up browser-use session and resources"""
         if self.session:
             try:

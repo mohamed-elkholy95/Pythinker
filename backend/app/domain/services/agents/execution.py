@@ -34,6 +34,7 @@ from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType
 from app.domain.models.source_citation import SourceCitation
 from app.domain.models.tool_name import ToolName
+from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.context_manager import ContextManager, InsightType
@@ -394,7 +395,7 @@ class ExecutionAgent(BaseAgent):
         function_name: str,
         arguments: dict[str, Any],
         skip_security: bool = False,
-    ):
+    ) -> ToolResult:
         """Override to apply skill enforcement tracking and search fidelity."""
         # Phase 4a: Track skill_invoke calls and reset tool_choice after first turn
         if function_name == "skill_invoke":
