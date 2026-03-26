@@ -53,6 +53,12 @@ CHROME_FLAGS=(
     --disable-gpu-compositing
     --disable-vulkan
     --enable-unsafe-swiftshader
+    # Disable WebGL/WebGL2 — eliminates "GPU stall due to ReadPixels" warnings
+    # from SwiftShader's CPU-emulated GL pipeline. The sandbox browser is used
+    # for text extraction and page screenshots, not WebGL rendering. Sites fall
+    # back to non-WebGL content gracefully.
+    --disable-webgl
+    --disable-webgl2
     --disable-dev-shm-usage
     --disable-accelerated-jpeg-decoding
     --disable-accelerated-mjpeg-decode
@@ -64,13 +70,15 @@ CHROME_FLAGS=(
     --noerrdialogs
     --disable-session-crashed-bubble
     --hide-crash-restore-bubble
-    "--disable-features=WelcomeExperience,SigninPromo,TranslateUI,AudioServiceOutOfProcess,InfiniteSessionRestore,GCMChannelStatusRequest,MediaRouter,DialMediaRouteProvider,PushMessaging,OptimizationHints,AutofillServerCommunication,HardwareMediaKeyHandling"
+    "--disable-features=WelcomeExperience,SigninPromo,TranslateUI,AudioServiceOutOfProcess,InfiniteSessionRestore,GCMChannelStatusRequest,MediaRouter,DialMediaRouteProvider,PushMessaging,OptimizationHints,AutofillServerCommunication,HardwareMediaKeyHandling,WebGPU"
     "--enable-features=NetworkService,NetworkServiceInProcess"
     --disable-infobars
     --disable-notifications
     --disable-popup-blocking
     --disable-prompt-on-repost
-    --disable-component-extensions-with-background-pages
+    # NOTE: --disable-component-extensions-with-background-pages removed — it disables
+    # Chrome's built-in PDF viewer extension (mhjfbmdgcfjbbpaeojofohoefgiehjai), causing
+    # pdf_viewer_wrapper.js / index.css / main.js to fail with net::ERR_FAILED.
     --disable-component-update
     --disable-component-cloud-policy
     --disable-background-networking
