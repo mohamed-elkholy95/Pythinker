@@ -15,7 +15,6 @@ from app.domain.models.plan import (
     StepType,
 )
 
-
 # ── ExecutionStatus ──────────────────────────────────────────────────
 
 
@@ -264,71 +263,87 @@ class TestPlan:
         assert plan.is_done() is True
 
     def test_get_next_step(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.PENDING,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.PENDING,
+                ExecutionStatus.PENDING,
+            ]
+        )
         next_step = plan.get_next_step()
         assert next_step is not None
         assert next_step.id == "step-1"
 
     def test_get_next_step_none_when_all_done(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.COMPLETED,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.COMPLETED,
+            ]
+        )
         assert plan.get_next_step() is None
 
     def test_get_next_step_skips_running(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.RUNNING,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.RUNNING,
+                ExecutionStatus.PENDING,
+            ]
+        )
         next_step = plan.get_next_step()
         assert next_step is not None
         assert next_step.id == "step-1"
 
     def test_has_blocked_steps(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.BLOCKED,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.BLOCKED,
+                ExecutionStatus.PENDING,
+            ]
+        )
         assert plan.has_blocked_steps() is True
 
     def test_has_no_blocked_steps(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.PENDING,
+            ]
+        )
         assert plan.has_blocked_steps() is False
 
     def test_get_blocked_steps(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.BLOCKED,
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.BLOCKED,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.BLOCKED,
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.BLOCKED,
+            ]
+        )
         blocked = plan.get_blocked_steps()
         assert len(blocked) == 2
 
     def test_get_running_step(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.RUNNING,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.RUNNING,
+                ExecutionStatus.PENDING,
+            ]
+        )
         running = plan.get_running_step()
         assert running is not None
         assert running.id == "step-1"
 
     def test_get_running_step_none(self) -> None:
-        plan = self._make_plan([
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.PENDING,
-        ])
+        plan = self._make_plan(
+            [
+                ExecutionStatus.COMPLETED,
+                ExecutionStatus.PENDING,
+            ]
+        )
         assert plan.get_running_step() is None
 
     def test_status_coercion(self) -> None:
