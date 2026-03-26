@@ -150,7 +150,10 @@ class MinIOStorage:
                         delay = base_delay * (2 ** (attempt - 1))
                         logger.warning(
                             "MinIO init attempt %d/%d failed: %s — retrying in %.0fs",
-                            attempt, max_attempts, e, delay,
+                            attempt,
+                            max_attempts,
+                            e,
+                            delay,
                         )
                         await asyncio.sleep(delay)
                     else:

@@ -1165,17 +1165,15 @@ class PlaywrightBrowser:
                             logger.debug(f"Recovery callback failed: {cb_err}")
                 else:
                     # Increase backoff for next attempt
-                    self._reconnect_backoff = min(
-                        self._reconnect_backoff * 2, self._reconnect_backoff_max
-                    )
+                    self._reconnect_backoff = min(self._reconnect_backoff * 2, self._reconnect_backoff_max)
             except Exception as e:
                 # Increase backoff for next attempt
-                self._reconnect_backoff = min(
-                    self._reconnect_backoff * 2, self._reconnect_backoff_max
-                )
+                self._reconnect_backoff = min(self._reconnect_backoff * 2, self._reconnect_backoff_max)
                 logger.warning(
                     "Proactive reconnect failed (CDP: %s, next backoff: %.1fs): %s — will retry on next operation",
-                    self.cdp_url, self._reconnect_backoff, e,
+                    self.cdp_url,
+                    self._reconnect_backoff,
+                    e,
                 )
         finally:
             self._reconnect_in_progress = False
