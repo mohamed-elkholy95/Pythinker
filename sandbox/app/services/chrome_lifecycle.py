@@ -14,7 +14,6 @@ import asyncio
 import enum
 import logging
 import os
-import signal
 import time
 import xmlrpc.client
 

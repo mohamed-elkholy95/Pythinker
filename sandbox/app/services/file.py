@@ -446,7 +446,9 @@ class FileService:
                 )
                 _, stderr = await process.communicate()
                 if process.returncode != 0:
-                    raise BadRequestException(f"Failed to delete path: {stderr.decode()}")
+                    raise BadRequestException(
+                        f"Failed to delete path: {stderr.decode()}"
+                    )
             else:
                 if os.path.isdir(path):
                     await asyncio.to_thread(shutil.rmtree, path)

@@ -3,6 +3,7 @@
 Fire-and-forget HTTP client for reporting sandbox events, progress, and
 resource requests back to the backend.  No-op when RUNTIME_API_HOST is unset.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,11 +40,14 @@ class CallbackClient:
         """Report a sandbox event (crash, OOM, timeout, ready)."""
         if not self.enabled:
             return
-        await self._post("/api/v1/sandbox/callback/event", {
-            "type": event_type,
-            "details": details,
-            "session_id": session_id,
-        })
+        await self._post(
+            "/api/v1/sandbox/callback/event",
+            {
+                "type": event_type,
+                "details": details,
+                "session_id": session_id,
+            },
+        )
 
     async def report_progress(
         self,
@@ -55,12 +59,15 @@ class CallbackClient:
         """Report progress on an ongoing operation."""
         if not self.enabled:
             return
-        await self._post("/api/v1/sandbox/callback/progress", {
-            "session_id": session_id,
-            "step": step,
-            "percent": percent,
-            "message": message,
-        })
+        await self._post(
+            "/api/v1/sandbox/callback/progress",
+            {
+                "session_id": session_id,
+                "step": step,
+                "percent": percent,
+                "message": message,
+            },
+        )
 
     async def request_resource(
         self, resource_type: str, params: dict[str, Any] | None = None
@@ -68,12 +75,17 @@ class CallbackClient:
         """Request a resource from the backend (upload URL, secret, etc.)."""
         if not self.enabled:
             return None
-        return await self._post("/api/v1/sandbox/callback/request", {
-            "type": resource_type,
-            "params": params or {},
-        })
+        return await self._post(
+            "/api/v1/sandbox/callback/request",
+            {
+                "type": resource_type,
+                "params": params or {},
+            },
+        )
 
-    async def _post(self, path: str, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    async def _post(
+        self, path: str, payload: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
         """Fire-and-forget POST. Swallows all errors."""
         if not self._client:
             return None

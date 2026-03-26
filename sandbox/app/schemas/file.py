@@ -68,4 +68,6 @@ class FileListRequest(BaseModel):
     """Directory listing request."""
 
     path: str = Field(..., description="Directory path to list")
-    include_hidden: Optional[bool] = Field(False, description="Whether to include dotfiles")
+    include_hidden: Optional[bool] = Field(
+        False, description="Whether to include dotfiles"
+    )

@@ -162,9 +162,7 @@ class ShellService:
             if exec_dir == "/workspace" or exec_dir.startswith("/workspace/"):
                 try:
                     os.makedirs(exec_dir, exist_ok=True)
-                    logger.info(
-                        f"Created missing workspace directory: {exec_dir}"
-                    )
+                    logger.info(f"Created missing workspace directory: {exec_dir}")
                 except OSError as e:
                     logger.error(
                         f"Failed to create workspace directory {exec_dir}: {e}"

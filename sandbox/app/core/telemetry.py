@@ -2,6 +2,7 @@
 
 All imports are lazy — zero overhead when OTEL_ENABLED=false and SENTRY_DSN is unset.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,10 +39,12 @@ def _setup_otel(app: "FastAPI") -> None:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-        resource = Resource.create({
-            "service.name": settings.OTEL_SERVICE_NAME,
-            "service.env": "sandbox",
-        })
+        resource = Resource.create(
+            {
+                "service.name": settings.OTEL_SERVICE_NAME,
+                "service.env": "sandbox",
+            }
+        )
 
         provider = TracerProvider(resource=resource)
         exporter = OTLPSpanExporter(
