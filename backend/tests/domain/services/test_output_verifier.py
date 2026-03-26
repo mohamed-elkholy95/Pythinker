@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-from dataclasses import fields
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,7 +8,6 @@ from app.domain.services.agents.output_verifier import (
     HallucinationVerificationResult,
     OutputVerifier,
 )
-
 
 # ── HallucinationVerificationResult Tests ─────────────────────────────
 
@@ -275,31 +272,17 @@ class TestStripUnverifiableContent:
         assert "Middle" in result
 
     def test_strip_reference_section(self) -> None:
-        text = (
-            "Main content here.\n"
-            "## References\n"
-            "https://example.com/1\n"
-            "https://example.com/2\n"
-        )
+        text = "Main content here.\n## References\nhttps://example.com/1\nhttps://example.com/2\n"
         result = OutputVerifier._strip_unverifiable_content(text)
         assert "Main content here." in result
 
     def test_strip_sources_section(self) -> None:
-        text = (
-            "Main content.\n"
-            "### Sources\n"
-            "https://example.com/source1\n"
-            "https://example.com/source2\n"
-        )
+        text = "Main content.\n### Sources\nhttps://example.com/source1\nhttps://example.com/source2\n"
         result = OutputVerifier._strip_unverifiable_content(text)
         assert "Main content." in result
 
     def test_strip_bibliography_section(self) -> None:
-        text = (
-            "Main content.\n"
-            "## Bibliography\n"
-            "https://example.com/bib1\n"
-        )
+        text = "Main content.\n## Bibliography\nhttps://example.com/bib1\n"
         result = OutputVerifier._strip_unverifiable_content(text)
         assert "Main content." in result
 
@@ -315,13 +298,7 @@ class TestStripUnverifiableContent:
         assert "According to" in result
 
     def test_combined_stripping(self) -> None:
-        text = (
-            "Facts here.\n"
-            "```mermaid\ngraph TD\nA-->B\n```\n"
-            "More facts.\n"
-            "## References\n"
-            "https://example.com\n"
-        )
+        text = "Facts here.\n```mermaid\ngraph TD\nA-->B\n```\nMore facts.\n## References\nhttps://example.com\n"
         result = OutputVerifier._strip_unverifiable_content(text)
         assert "Facts here." in result
         assert "More facts." in result
@@ -369,11 +346,7 @@ class TestStripCitedTables:
         assert "$0.03" not in result
 
     def test_mixed_tables(self) -> None:
-        text = (
-            "| No Data |\n| --- |\n| just text |\n"
-            "---\n"
-            "| Cited [1] |\n| --- |\n| data [2] |"
-        )
+        text = "| No Data |\n| --- |\n| just text |\n---\n| Cited [1] |\n| --- |\n| data [2] |"
         result = OutputVerifier._strip_cited_tables(text)
         assert "just text" in result
         assert "[2]" not in result
@@ -426,18 +399,21 @@ class TestNeedsVerification:
         content = "x" * 250
         assert verifier.needs_verification(content, "GPT-4 vs Claude comparison") is True
 
-    @pytest.mark.parametrize("query", [
-        "create a design for a dashboard",
-        "design a landing page",
-        "build a component for user profiles",
-        "generate a logo",
-        "create a page layout",
-        "implement a chat widget",
-        "make a todo app",
-        "write a component for notifications",
-        "code a REST API",
-        "develop a microservice",
-    ])
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "create a design for a dashboard",
+            "design a landing page",
+            "build a component for user profiles",
+            "generate a logo",
+            "create a page layout",
+            "implement a chat widget",
+            "make a todo app",
+            "write a component for notifications",
+            "code a REST API",
+            "develop a microservice",
+        ],
+    )
     def test_creative_tasks_return_false(self, verifier: OutputVerifier, query: str) -> None:
         content = "Here is the design with 95.2% completion rate " + "x" * 200
         assert verifier.needs_verification(content, query) is False
@@ -454,9 +430,17 @@ class TestNeedsVerification:
         content = "The model scores on HumanEval benchmark " + "x" * 200
         assert verifier.needs_verification(content, "any query here") is True
 
-    @pytest.mark.parametrize("benchmark", [
-        "mmlu", "humaneval", "gsm8k", "hellaswag", "arc", "winogrande",
-    ])
+    @pytest.mark.parametrize(
+        "benchmark",
+        [
+            "mmlu",
+            "humaneval",
+            "gsm8k",
+            "hellaswag",
+            "arc",
+            "winogrande",
+        ],
+    )
     def test_known_benchmarks(self, verifier: OutputVerifier, benchmark: str) -> None:
         content = f"Results on {benchmark} " + "x" * 250
         assert verifier.needs_verification(content, "review") is True
@@ -820,14 +804,17 @@ class TestRewriteWithoutUnsupportedClaims:
             nonlocal call_count
             call_count += 1
             import asyncio
+
             await asyncio.sleep(1)
 
         verifier._llm.ask = slow_ask
         claim = MagicMock()
         claim.claim_text = "some claim"
         # Patch class-level constants for this test
-        with patch.object(OutputVerifier, "_REWRITE_TIMEOUT_S", 0.01), \
-             patch.object(OutputVerifier, "_REWRITE_MAX_RETRIES", 2):
+        with (
+            patch.object(OutputVerifier, "_REWRITE_TIMEOUT_S", 0.01),
+            patch.object(OutputVerifier, "_REWRITE_MAX_RETRIES", 2),
+        ):
             result = await verifier._rewrite_without_unsupported_claims("content " * 50, [claim])
         assert result is None
         assert call_count == 2

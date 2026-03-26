@@ -43,22 +43,28 @@ class TestDetectProvider:
 
     # ── Model name prefix detection ───────────────────────────────────
 
-    @pytest.mark.parametrize("model", [
-        "claude-opus-4-5",
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5",
-        "claude-3-opus-20240229",
-        "Claude-Sonnet-4-5",  # case variations
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-5",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "claude-3-opus-20240229",
+            "Claude-Sonnet-4-5",  # case variations
+        ],
+    )
     def test_claude_model_detected_as_anthropic(self, model: str) -> None:
         result = detect_provider(model_name=model)
         assert result == "anthropic"
 
-    @pytest.mark.parametrize("model", [
-        "glm-5",
-        "glm-5-turbo",
-        "GLM-5",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "glm-5",
+            "glm-5-turbo",
+            "GLM-5",
+        ],
+    )
     def test_glm_model_detected_as_openai(self, model: str) -> None:
         result = detect_provider(model_name=model)
         assert result == "openai"
@@ -67,33 +73,42 @@ class TestDetectProvider:
         result = detect_provider(model_name="some-glm-z-variant")
         assert result == "openai"
 
-    @pytest.mark.parametrize("model", [
-        "gpt-4",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "o3-mini",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-4",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o3-mini",
+        ],
+    )
     def test_gpt_models_fall_through(self, model: str) -> None:
         result = detect_provider(model_name=model, api_key="sk-123")
         assert result == "openai"
 
     # ── API base URL detection ────────────────────────────────────────
 
-    @pytest.mark.parametrize("base", [
-        "http://localhost:11434",
-        "http://127.0.0.1:11434",
-        "http://host.docker.internal:11434",
-        "http://localhost:8081",
-    ])
+    @pytest.mark.parametrize(
+        "base",
+        [
+            "http://localhost:11434",
+            "http://127.0.0.1:11434",
+            "http://host.docker.internal:11434",
+            "http://localhost:8081",
+        ],
+    )
     def test_local_base_url_detected_as_ollama(self, base: str) -> None:
         result = detect_provider(api_base=base)
         assert result == "ollama"
 
-    @pytest.mark.parametrize("base", [
-        "https://open.z.ai/v1",
-        "https://open.bigmodel.cn/api/v1",
-        "https://api.zhipuai.cn",
-    ])
+    @pytest.mark.parametrize(
+        "base",
+        [
+            "https://open.z.ai/v1",
+            "https://open.bigmodel.cn/api/v1",
+            "https://api.zhipuai.cn",
+        ],
+    )
     def test_zhipu_base_url_detected_as_openai(self, base: str) -> None:
         result = detect_provider(api_base=base)
         assert result == "openai"

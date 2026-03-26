@@ -836,9 +836,7 @@ class TestReviewStats:
         assert stats["issues_found"] == 1
 
     def test_reset_stats_clears_history(self, critic):
-        critic._review_history = [
-            CriticReview(verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok")
-        ]
+        critic._review_history = [CriticReview(verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok")]
         critic._revision_count = 3
         critic.reset_stats()
         assert critic._review_history == []
@@ -898,9 +896,7 @@ class TestGetRevisionGuidance:
 class TestReviewOutput:
     @pytest.mark.asyncio
     async def test_disabled_critic_returns_auto_approve(self, disabled_critic):
-        result = await disabled_critic.review_output(
-            user_request="anything", output=_LONG_TEXT
-        )
+        result = await disabled_critic.review_output(user_request="anything", output=_LONG_TEXT)
         assert result.verdict == CriticVerdict.APPROVE
         assert result.confidence == 1.0
         assert "disabled" in result.summary.lower()
@@ -1028,9 +1024,7 @@ class TestReviewOutput:
 
     @pytest.mark.asyncio
     async def test_records_review_in_history(self, mock_llm, mock_json_parser):
-        mock_llm.ask_structured.return_value = CriticReview(
-            verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok"
-        )
+        mock_llm.ask_structured.return_value = CriticReview(verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok")
         agent = CriticAgent(llm=mock_llm, json_parser=mock_json_parser)
         await agent.review_output(user_request="build X", output=_LONG_TEXT)
         assert len(agent._review_history) == 1
@@ -1259,9 +1253,7 @@ class TestQuickValidate:
 class TestRunFiveChecks:
     @pytest.mark.asyncio
     async def test_disabled_critic_returns_all_pass(self, disabled_critic):
-        result = await disabled_critic.run_five_checks(
-            output=_LONG_TEXT, user_request="do research"
-        )
+        result = await disabled_critic.run_five_checks(output=_LONG_TEXT, user_request="do research")
         assert result.overall_passed is True
         assert result.overall_confidence == 1.0
 
@@ -1402,9 +1394,7 @@ class TestDetectContentHallucinations:
         assert isinstance(result.has_high_risk_patterns, bool)
 
     def test_engagement_metric_text_may_flag_risk(self, critic):
-        result = critic.detect_content_hallucinations(
-            "This post received 10,000 claps and 5,000 views."
-        )
+        result = critic.detect_content_hallucinations("This post received 10,000 claps and 5,000 views.")
         assert isinstance(result, object)
 
 
@@ -1558,13 +1548,9 @@ class TestReviewAndRevise:
 
     @pytest.mark.asyncio
     async def test_revision_count_incremented(self, mock_llm, mock_json_parser):
-        mock_llm.ask_structured.return_value = CriticReview(
-            verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok"
-        )
+        mock_llm.ask_structured.return_value = CriticReview(verdict=CriticVerdict.APPROVE, confidence=0.9, summary="ok")
         agent = CriticAgent(llm=mock_llm, json_parser=mock_json_parser)
-        async for _ in agent.review_and_revise(
-            user_request="x", output=_LONG_TEXT, revision_handler=AsyncMock()
-        ):
+        async for _ in agent.review_and_revise(user_request="x", output=_LONG_TEXT, revision_handler=AsyncMock()):
             pass
         assert agent._revision_count == 1
 

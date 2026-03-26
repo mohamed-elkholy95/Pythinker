@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -42,7 +42,6 @@ from app.domain.services.flows.parallel_executor import (
     ResourceThrottleLevel,
     StepResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -77,10 +76,7 @@ async def make_step_func(result: str | None = "done", success: bool = True):
 
 async def collect_events(gen: AsyncGenerator[BaseEvent, None]) -> list[BaseEvent]:
     """Drain an async generator and return all events as a list."""
-    events = []
-    async for event in gen:
-        events.append(event)
-    return events
+    return [event async for event in gen]
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +181,9 @@ class TestParallelExecutorConfig:
         "throttle,max_c,expected",
         [
             (ResourceThrottleLevel.NONE, 8, 8),
-            (ResourceThrottleLevel.LIGHT, 8, 6),   # 8 * 0.75 = 6
-            (ResourceThrottleLevel.MODERATE, 8, 4), # 8 * 0.5 = 4
-            (ResourceThrottleLevel.HEAVY, 8, 2),    # 8 * 0.25 = 2
+            (ResourceThrottleLevel.LIGHT, 8, 6),  # 8 * 0.75 = 6
+            (ResourceThrottleLevel.MODERATE, 8, 4),  # 8 * 0.5 = 4
+            (ResourceThrottleLevel.HEAVY, 8, 2),  # 8 * 0.25 = 2
         ],
     )
     def test_get_effective_concurrency(
@@ -770,10 +766,7 @@ class TestExecuteStepWithLimit:
             return StepResult(step_id=s.id, success=True)
 
         steps = [make_step(f"Step {i}") for i in range(5)]
-        tasks = [
-            asyncio.create_task(executor._execute_step_with_limit(s, slow_step))
-            for s in steps
-        ]
+        tasks = [asyncio.create_task(executor._execute_step_with_limit(s, slow_step)) for s in steps]
         await asyncio.gather(*tasks)
         assert max_active_seen <= max_concurrent
 
@@ -896,6 +889,7 @@ class TestExecutePlanParallel:
 
         async def record_start(s: Step) -> StepResult:
             import time
+
             start_times.append(time.monotonic())
             await asyncio.sleep(0.01)
             return StepResult(step_id=s.id, success=True)
@@ -1033,9 +1027,7 @@ class TestProcessResult:
         step = make_step()
         result = StepResult(step_id=step.id, success=True, result="output")
 
-        events = []
-        async for event in executor._process_result(plan, step, result):
-            events.append(event)
+        _ = [event async for event in executor._process_result(plan, step, result)]
 
         assert step.status == ExecutionStatus.COMPLETED
         assert step.result == "output"
@@ -1069,9 +1061,7 @@ class TestProcessResult:
         fake_event = MagicMock(spec=BaseEvent)
         result = StepResult(step_id=step.id, success=True, events=[fake_event])
 
-        events = []
-        async for event in executor._process_result(plan, step, result):
-            events.append(event)
+        events = [event async for event in executor._process_result(plan, step, result)]
 
         assert fake_event in events
 
@@ -1083,9 +1073,7 @@ class TestProcessResult:
         step = make_step()
         result = StepResult(step_id=step.id, success=True)
 
-        events = []
-        async for event in executor._process_result(plan, step, result):
-            events.append(event)
+        events = [event async for event in executor._process_result(plan, step, result)]
 
         plan_events = [e for e in events if isinstance(e, PlanEvent)]
         assert len(plan_events) == 1

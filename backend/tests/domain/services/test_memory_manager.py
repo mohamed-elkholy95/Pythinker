@@ -677,10 +677,13 @@ class TestExtractFileResults:
         assert len(facts) >= 1  # At minimum the line count
         assert any("lines" in f for f in facts)
 
-    @pytest.mark.parametrize("content_start,label", [
-        ('{"items": []}', "JSON"),
-        ('[1, 2, 3]', "JSON"),
-    ])
+    @pytest.mark.parametrize(
+        "content_start,label",
+        [
+            ('{"items": []}', "JSON"),
+            ("[1, 2, 3]", "JSON"),
+        ],
+    )
     def test_json_detection_parametrized(self, content_start: str, label: str):
         facts = self.mgr._extract_file_results(content_start)
         assert any(label in f for f in facts)
@@ -844,9 +847,7 @@ class TestCompactMessagesBatch:
         messages = [_tool_message(function_name="shell_exec", content=big_content) for _ in range(20)]
         messages.extend({"role": "user", "content": "follow-up"} for _ in range(10))
 
-        result, saved = self.mgr.compact_messages_batch(
-            messages, preserve_recent=10, token_threshold=1
-        )
+        result, saved = self.mgr.compact_messages_batch(messages, preserve_recent=10, token_threshold=1)
         assert len(result) == len(messages)
         assert saved > 0
 
@@ -953,18 +954,21 @@ class TestGetPressureStatus:
     def setup_method(self):
         self.mgr = MemoryManager()
 
-    @pytest.mark.parametrize("current,expected_level", [
-        (0, PressureLevel.NORMAL),
-        (59_999, PressureLevel.NORMAL),
-        (70_000, PressureLevel.WARNING),
-        (75_000, PressureLevel.WARNING),
-        (84_999, PressureLevel.WARNING),
-        (85_000, PressureLevel.CRITICAL),
-        (90_000, PressureLevel.CRITICAL),
-        (94_999, PressureLevel.CRITICAL),
-        (95_000, PressureLevel.OVERFLOW),
-        (100_000, PressureLevel.OVERFLOW),
-    ])
+    @pytest.mark.parametrize(
+        "current,expected_level",
+        [
+            (0, PressureLevel.NORMAL),
+            (59_999, PressureLevel.NORMAL),
+            (70_000, PressureLevel.WARNING),
+            (75_000, PressureLevel.WARNING),
+            (84_999, PressureLevel.WARNING),
+            (85_000, PressureLevel.CRITICAL),
+            (90_000, PressureLevel.CRITICAL),
+            (94_999, PressureLevel.CRITICAL),
+            (95_000, PressureLevel.OVERFLOW),
+            (100_000, PressureLevel.OVERFLOW),
+        ],
+    )
     def test_pressure_levels_at_boundaries(self, current: int, expected_level: PressureLevel):
         status = self.mgr.get_pressure_status(current, max_tokens=100_000)
         assert status.level == expected_level
@@ -1177,14 +1181,7 @@ class TestExtractWithLlm:
     @pytest.mark.asyncio
     async def test_unknown_tool_calls_llm(self):
         mock_response = MagicMock()
-        mock_response.content = (
-            "STATUS: success\n"
-            "KEY_FACTS:\n"
-            "- Fact one\n"
-            "- Fact two\n"
-            "URLS:\n"
-            "- https://example.com\n"
-        )
+        mock_response.content = "STATUS: success\nKEY_FACTS:\n- Fact one\n- Fact two\nURLS:\n- https://example.com\n"
         mock_llm = AsyncMock()
         mock_llm.ask.return_value = mock_response
 
@@ -1196,12 +1193,7 @@ class TestExtractWithLlm:
     @pytest.mark.asyncio
     async def test_unknown_tool_llm_extracts_facts(self):
         mock_response = MagicMock()
-        mock_response.content = (
-            "STATUS: success\n"
-            "KEY_FACTS:\n"
-            "- Data processed successfully\n"
-            "- 42 records updated\n"
-        )
+        mock_response.content = "STATUS: success\nKEY_FACTS:\n- Data processed successfully\n- 42 records updated\n"
         mock_llm = AsyncMock()
         mock_llm.ask.return_value = mock_response
 
@@ -1242,14 +1234,7 @@ class TestParseLlmExtraction:
         self.mgr = MemoryManager()
 
     def test_parses_structured_key_facts(self):
-        response = (
-            "STATUS: success\n"
-            "KEY_FACTS:\n"
-            "- Fact one\n"
-            "- Fact two\n"
-            "URLS:\n"
-            "- https://example.com\n"
-        )
+        response = "STATUS: success\nKEY_FACTS:\n- Fact one\n- Fact two\nURLS:\n- https://example.com\n"
         facts = self.mgr._parse_llm_extraction(response)
         assert "Fact one" in facts
         assert "Fact two" in facts
@@ -1804,7 +1789,9 @@ class TestStructuredCompact:
         messages = self._make_messages(n_history=5, n_recent=6)
         mock_llm = AsyncMock()
         # Must be > 50 chars to pass the length guard in structured_compact
-        long_summary = "Detailed structured summary of the conversation covering all relevant context and decisions made."
+        long_summary = (
+            "Detailed structured summary of the conversation covering all relevant context and decisions made."
+        )
         mock_llm.ask.return_value = {"content": long_summary}
 
         result, _ = await self.mgr.structured_compact(messages, mock_llm, preserve_recent=6)

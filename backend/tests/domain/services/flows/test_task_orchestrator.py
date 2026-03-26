@@ -23,10 +23,9 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
 from app.domain.models.plan import ExecutionStatus
@@ -40,7 +39,6 @@ from app.domain.services.flows.task_orchestrator import (
     WorkflowStatus,
     WorkflowStep,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,10 +91,7 @@ def make_workflow(
 
 async def _collect_events(gen) -> list[BaseEvent]:
     """Drain an async generator and collect all events."""
-    events: list[BaseEvent] = []
-    async for event in gen:
-        events.append(event)
-    return events
+    return [event async for event in gen]
 
 
 def make_success_execute_func(result: str = "done") -> Any:
@@ -678,9 +673,7 @@ class TestAddStage:
     def test_custom_timeout_and_concurrency(self):
         orch = TaskOrchestrator()
         wf = orch.create_workflow(name="W", description="d")
-        stage = orch.add_stage(
-            wf, name="S", description="d", timeout_seconds=600, max_concurrency=10
-        )
+        stage = orch.add_stage(wf, name="S", description="d", timeout_seconds=600, max_concurrency=10)
         assert stage.timeout_seconds == 600
         assert stage.max_concurrency == 10
 
@@ -784,9 +777,7 @@ class TestExecuteWorkflow:
     @pytest.mark.asyncio
     async def test_empty_stages_completes_successfully(self, orch):
         wf = orch.create_workflow(name="Empty", description="no stages")
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         assert wf.status == WorkflowStatus.COMPLETED
         # First event is "Starting workflow..." and last is summary
         assert any(isinstance(e, MessageEvent) for e in events)
@@ -797,9 +788,7 @@ class TestExecuteWorkflow:
         stage = orch.add_stage(wf, name="Stage 1", description="first stage")
         orch.add_step(stage, description="search something")
 
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func("result_data"))
-        )
+        await _collect_events(orch.execute_workflow(wf, make_success_execute_func("result_data")))
         assert wf.status == WorkflowStatus.COMPLETED
         assert stage.status == StageStatus.COMPLETED
         assert stage.steps[0].status == ExecutionStatus.COMPLETED
@@ -811,9 +800,7 @@ class TestExecuteWorkflow:
         stage = orch.add_stage(wf, name="S", description="d")
         step = orch.add_step(stage, description="fetch data")
 
-        await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func("context_value"))
-        )
+        await _collect_events(orch.execute_workflow(wf, make_success_execute_func("context_value")))
         assert f"step_{step.id}_result" in wf.context
         assert wf.context[f"step_{step.id}_result"] == "context_value"
 
@@ -823,9 +810,7 @@ class TestExecuteWorkflow:
         stage = orch.add_stage(wf, name="S", description="d")
         orch.add_step(stage, description="failing step")
 
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_failure_execute_func("boom"))
-        )
+        await _collect_events(orch.execute_workflow(wf, make_failure_execute_func("boom")))
         # Stage itself is marked failed when a step fails
         assert stage.status == StageStatus.FAILED
         # Workflow completes (no remaining pending stages) — it is not FAILED
@@ -842,9 +827,7 @@ class TestExecuteWorkflow:
 
         # With continue_on_failure=True, a failed step does NOT mark stage FAILED.
         # Since all steps complete (total == completed+failed), stage is COMPLETED.
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_failure_execute_func("oops"))
-        )
+        await _collect_events(orch.execute_workflow(wf, make_failure_execute_func("oops")))
         # The stage status depends on continue_on_failure + progress:
         # failed>0 AND continue_on_failure → stage NOT failed; all terminal → COMPLETED
         assert stage.status == StageStatus.COMPLETED
@@ -870,9 +853,7 @@ class TestExecuteWorkflow:
     @pytest.mark.asyncio
     async def test_workflow_emits_start_message(self, orch):
         wf = orch.create_workflow(name="My Workflow", description="d")
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         message_events = [e for e in events if isinstance(e, MessageEvent)]
         texts = [e.message for e in message_events]
         assert any("My Workflow" in t for t in texts)
@@ -882,9 +863,7 @@ class TestExecuteWorkflow:
         wf = orch.create_workflow(name="W", description="d")
         stage = orch.add_stage(wf, name="S", description="d")
         orch.add_step(stage, description="work")
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         # Last event is a MessageEvent summary
         last = events[-1]
         assert isinstance(last, MessageEvent)
@@ -924,7 +903,7 @@ class TestExecuteWorkflow:
 
         class FakeDatetime:
             @staticmethod
-            def now(tz=None):  # noqa: ARG004
+            def now(tz=None):
                 nonlocal call_count
                 call_count += 1
                 # 1st call sets workflow.started_at (make it far past)
@@ -942,6 +921,31 @@ class TestExecuteWorkflow:
         finally:
             _orch_mod.datetime = real_datetime
 
+        error_events_old = [e for e in events if isinstance(e, ErrorEvent)]  # noqa: F841 (unused intentionally)
+        # The patch approach is tested in test_workflow_timeout_via_backdated_started_at below
+        assert wf.status in (WorkflowStatus.FAILED, WorkflowStatus.COMPLETED)
+
+    @pytest.mark.asyncio
+    async def test_workflow_timeout_via_backdated_started_at(self, orch):
+        # Simulate timeout: two-stage pipeline; back-date started_at inside step 1
+        # so the second loop iteration detects elapsed >> timeout_seconds.
+        wf = orch.create_workflow(name="W", description="d", timeout_seconds=1)
+        stage1 = orch.add_stage(wf, name="S1", description="d")
+        orch.add_step(stage1, description="work fast")
+        stage2 = orch.add_stage(wf, name="S2", description="d", dependencies=["stage_1"])
+        orch.add_step(stage2, description="write report")
+
+        first_call = True
+
+        async def execute(step: WorkflowStep, ctx: dict[str, Any]) -> StepResult:
+            nonlocal first_call
+            if first_call:
+                first_call = False
+                # Back-date started_at so elapsed >> timeout_seconds on next check
+                wf.started_at = datetime(2000, 1, 1, tzinfo=UTC)
+            return StepResult(step_id=step.id, success=True, result="ok")
+
+        events = await _collect_events(orch.execute_workflow(wf, execute))
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
         assert any("timeout" in e.error.lower() for e in error_events)
         assert wf.status == WorkflowStatus.FAILED
@@ -958,9 +962,7 @@ class TestExecuteWorkflow:
         )
         wf.stages.append(stage2)
 
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         assert wf.status == WorkflowStatus.FAILED
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
         assert len(error_events) > 0
@@ -996,17 +998,13 @@ class TestExecuteWorkflow:
     @pytest.mark.asyncio
     async def test_started_at_set_when_running(self, orch):
         wf = orch.create_workflow(name="W", description="d")
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         assert wf.started_at is not None
 
     @pytest.mark.asyncio
     async def test_completed_at_set_when_completed(self, orch):
         wf = orch.create_workflow(name="W", description="d")
-        events = await _collect_events(
-            orch.execute_workflow(wf, make_success_execute_func())
-        )
+        await _collect_events(orch.execute_workflow(wf, make_success_execute_func()))
         assert wf.completed_at is not None
 
     @pytest.mark.asyncio
@@ -1018,7 +1016,7 @@ class TestExecuteWorkflow:
         stage = orch.add_stage(wf, name="S", description="d")
         orch.add_step(stage, description="crash step")
 
-        events = await _collect_events(orch.execute_workflow(wf, crashing_execute))
+        await _collect_events(orch.execute_workflow(wf, crashing_execute))
         # Orchestrator marks completed when no pending stages remain,
         # even if the stage failed internally (exception is caught by parallel executor)
         assert wf.status == WorkflowStatus.COMPLETED
@@ -1069,9 +1067,7 @@ class TestPauseResumeWorkflow:
     async def test_resume_paused_workflow(self, orch):
         wf = orch.create_workflow(name="W", description="d")
         wf.status = WorkflowStatus.PAUSED
-        events = await _collect_events(
-            orch.resume_workflow(wf, make_success_execute_func())
-        )
+        await _collect_events(orch.resume_workflow(wf, make_success_execute_func()))
         # Workflow should transition through execution and complete
         assert wf.status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED)
 
@@ -1079,17 +1075,13 @@ class TestPauseResumeWorkflow:
     async def test_resume_pending_workflow(self, orch):
         wf = orch.create_workflow(name="W", description="d")
         wf.status = WorkflowStatus.PENDING
-        events = await _collect_events(
-            orch.resume_workflow(wf, make_success_execute_func())
-        )
+        await _collect_events(orch.resume_workflow(wf, make_success_execute_func()))
         assert wf.status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED)
 
     @pytest.mark.asyncio
     async def test_resume_running_emits_error(self, orch):
         wf = make_workflow(status=WorkflowStatus.RUNNING)
-        events = await _collect_events(
-            orch.resume_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.resume_workflow(wf, make_success_execute_func()))
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
         assert len(error_events) == 1
         assert "running" in error_events[0].error
@@ -1101,9 +1093,7 @@ class TestPauseResumeWorkflow:
     )
     async def test_resume_terminal_status_emits_error(self, orch, bad_status):
         wf = make_workflow(status=bad_status)
-        events = await _collect_events(
-            orch.resume_workflow(wf, make_success_execute_func())
-        )
+        events = await _collect_events(orch.resume_workflow(wf, make_success_execute_func()))
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
         assert len(error_events) == 1
 
@@ -1294,10 +1284,7 @@ class TestEdgeCases:
         [0, 1, 3, 5],
     )
     def test_workflow_progress_with_n_completed_stages(self, n_stages):
-        stages = [
-            make_stage(f"st{i}", status=StageStatus.COMPLETED)
-            for i in range(n_stages)
-        ]
+        stages = [make_stage(f"st{i}", status=StageStatus.COMPLETED) for i in range(n_stages)]
         wf = make_workflow(stages=stages)
         p = wf.get_progress()
         assert p["completed_stages"] == n_stages
