@@ -4,8 +4,6 @@ Covers all Pydantic model validators, field constraints,
 the validate_tool_args decorator, and the schema registry.
 """
 
-import asyncio
-
 import pytest
 from pydantic import ValidationError
 
@@ -495,14 +493,12 @@ class TestMCPToolCallArgs:
 
 
 class TestValidateToolArgs:
-    def test_async_decorator(self):
+    async def test_async_decorator(self):
         @validate_tool_args(ShellExecuteArgs)
         async def fake_shell(**kwargs):
             return kwargs
 
-        result = asyncio.get_event_loop().run_until_complete(
-            fake_shell(command="ls", timeout=30)
-        )
+        result = await fake_shell(command="ls", timeout=30)
         assert result["command"] == "ls"
         assert result["timeout"] == 30
 
@@ -514,15 +510,13 @@ class TestValidateToolArgs:
         result = fake_read(file="/tmp/test.txt")
         assert result["file"] == "/tmp/test.txt"
 
-    def test_decorator_rejects_invalid(self):
+    async def test_decorator_rejects_invalid(self):
         @validate_tool_args(ShellExecuteArgs)
         async def fake_shell(**kwargs):
             return kwargs
 
         with pytest.raises(ValidationError):
-            asyncio.get_event_loop().run_until_complete(
-                fake_shell(command="")
-            )
+            await fake_shell(command="")
 
 
 # ─────────────────────────────────────────────────────────────
