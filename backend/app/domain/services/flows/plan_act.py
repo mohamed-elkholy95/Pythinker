@@ -3477,6 +3477,9 @@ class PlanActFlow(BaseFlow):
                     # and middleware pipeline. step_executor is resolved later per step.
                     if hasattr(self.executor, "_stuck_detector"):
                         self.executor._stuck_detector.reset_for_new_step()
+                        # Propagate step description so research_without_output
+                        # suppresses during research-focused steps.
+                        self.executor._stuck_detector._current_step_description = step.description
                     if hasattr(self.executor, "_pipeline"):
                         self.executor._pipeline.reset_for_new_step()
                     # Clear verifier per-step sources

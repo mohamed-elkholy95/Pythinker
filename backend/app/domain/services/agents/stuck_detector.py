@@ -256,6 +256,8 @@ class StuckDetector:
         # Enhanced: Tool action tracking for OpenHands-style pattern detection
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
         self._stuck_analysis: StuckAnalysis | None = None
+        # Step context: set by middleware to suppress false positives during research steps
+        self._current_step_description: str | None = None
 
         # Time-based debounce for action-pattern warnings: prevents the same
         # pattern type from being logged multiple times in rapid succession
@@ -1203,7 +1205,26 @@ class StuckDetector:
         Cross-tool progress tracking: after 6+ consecutive search/browse tool calls
         without any file_write, shell_exec, or message_notify_user, the agent is
         stuck in a research loop without synthesizing findings.
+
+        Suppressed when the current step description indicates a research/search
+        phase, where multiple consecutive searches are expected behavior.
         """
+        # Suppress during research-focused steps where gathering IS the goal
+        _step = (self._current_step_description or "").lower()
+        _research_keywords = {
+            "research",
+            "search",
+            "find",
+            "gather",
+            "investigate",
+            "explore",
+            "browse",
+            "look up",
+            "collect",
+        }
+        if any(kw in _step for kw in _research_keywords):
+            return None
+
         research_only_threshold = 6
 
         if len(self._tool_action_history) < research_only_threshold:

@@ -42,6 +42,12 @@ class StuckDetectionMiddleware(BaseMiddleware):
         return MiddlewareResult.ok()
 
     async def after_step(self, ctx: MiddlewareContext) -> MiddlewareResult:
+        # Propagate step description so research_without_output can suppress
+        # false positives during research-focused steps.
+        step_desc = ctx.metadata.get("current_step_description")
+        if step_desc is not None:
+            self._detector._current_step_description = step_desc
+
         # track_response expects a dict with "content" and optionally "tool_calls"
         last_response = ctx.metadata.get("last_response", {})
         if not last_response:
