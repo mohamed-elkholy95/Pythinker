@@ -140,6 +140,10 @@ class PlaywrightBrowser:
     - Efficient page load waiting using Playwright's native methods
     """
 
+    # Class-level flag — the asyncio exception handler is process-global,
+    # so it must only be installed once across all PlaywrightBrowser instances.
+    _exception_handler_installed: bool = False
+
     def __init__(
         self,
         cdp_url: str | None = None,
@@ -1126,7 +1130,7 @@ class PlaywrightBrowser:
             with contextlib.suppress(RuntimeError):
                 self._track_background_task(self._proactive_reconnect())
 
-    async def _proactive_reconnect(self, delay: float = 3.0) -> None:
+    async def _proactive_reconnect(self) -> None:
         """Reconnect after browser disconnect with debounce and exponential backoff.
 
         Only one reconnect attempt runs at a time.  Successive failures increase
@@ -1944,40 +1948,42 @@ class PlaywrightBrowser:
                 # Playwright creates fire-and-forget futures for page navigation that may
                 # timeout or abort; without retrieving the exception Python logs noisy
                 # warnings that are not actionable.
-                try:
-                    loop = asyncio.get_running_loop()
-                    _orig = loop.get_exception_handler()
+                if not self._exception_handler_installed:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        _orig = loop.get_exception_handler()
 
-                    def _playwright_exception_handler(
-                        _loop: asyncio.AbstractEventLoop,
-                        context: dict[str, Any],
-                        _original_handler: Any = _orig,
-                    ) -> None:
-                        exc = context.get("exception")
-                        if exc is not None:
-                            exc_type_name = type(exc).__name__
-                            exc_str = str(exc)
-                            if (
-                                "Timeout" in exc_type_name
-                                or "ERR_ABORTED" in exc_str
-                                or "Execution context was destroyed" in exc_str
-                                or "Target page, context or browser has been closed" in exc_str
-                                or "net::ERR_" in exc_str
-                            ):
-                                logger.debug(
-                                    "Suppressed Playwright internal future error: %s: %s",
-                                    exc_type_name,
-                                    exc_str[:200],
-                                )
-                                return
-                        if _original_handler:
-                            _original_handler(_loop, context)
-                        else:
-                            _loop.default_exception_handler(context)
+                        def _playwright_exception_handler(
+                            _loop: asyncio.AbstractEventLoop,
+                            context: dict[str, Any],
+                            _original_handler: Any = _orig,
+                        ) -> None:
+                            exc = context.get("exception")
+                            if exc is not None:
+                                exc_type_name = type(exc).__name__
+                                exc_str = str(exc)
+                                if (
+                                    "Timeout" in exc_type_name
+                                    or "ERR_ABORTED" in exc_str
+                                    or "Execution context was destroyed" in exc_str
+                                    or "Target page, context or browser has been closed" in exc_str
+                                    or "net::ERR_" in exc_str
+                                ):
+                                    logger.debug(
+                                        "Suppressed Playwright internal future error: %s: %s",
+                                        exc_type_name,
+                                        exc_str[:200],
+                                    )
+                                    return
+                            if _original_handler:
+                                _original_handler(_loop, context)
+                            else:
+                                _loop.default_exception_handler(context)
 
-                    loop.set_exception_handler(_playwright_exception_handler)
-                except RuntimeError:
-                    pass  # No running event loop — skip handler installation
+                        loop.set_exception_handler(_playwright_exception_handler)
+                        PlaywrightBrowser._exception_handler_installed = True
+                    except RuntimeError:
+                        pass  # No running event loop — skip handler installation
 
                 return True
 
