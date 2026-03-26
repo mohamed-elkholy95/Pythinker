@@ -1868,7 +1868,7 @@ const stopFallbackStatusPolling = () => {
 };
 
 const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
-  if (!sessionId.value || responsePhase.value !== 'timed_out') {
+  if (!sessionId.value || responsePhase.value !== 'timed_out' || isSessionComplete.value) {
     return 'stop';
   }
 
@@ -4597,6 +4597,8 @@ const handleContinueAfterTimeout = () => {
 const handleRetryConnection = async () => {
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
+  // Don't retry connections for sessions that already reached a terminal state
+  if (isSessionComplete.value) return;
   stopFallbackStatusPolling();
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();

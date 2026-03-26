@@ -392,6 +392,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
         return
       }
 
+      // Guard: phase may have left timed_out while the timer was pending
+      if (responsePhase.value !== 'timed_out') {
+        return
+      }
+
       reconnectCoordinatorOptions.autoRetryCount.value += 1
       void Promise.resolve(reconnectCoordinatorOptions.onRetryConnection()).catch((error) => {
         log('retry:auto_failed', {
