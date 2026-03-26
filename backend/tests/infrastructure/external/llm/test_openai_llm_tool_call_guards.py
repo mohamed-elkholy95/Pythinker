@@ -31,6 +31,8 @@ def _build_llm() -> OpenAILLM:
     llm._slow_tool_cooldown = 300.0
     llm._slow_breaker_max_tokens = 1024
     llm._slow_breaker_timeout = 60.0
+    llm._fallback_provider = None
+    llm._fallback_active = False
     llm._record_usage = AsyncMock()
     return llm
 
