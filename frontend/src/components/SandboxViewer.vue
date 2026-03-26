@@ -257,6 +257,10 @@ function debouncedInitConnection(): void {
   if (_initDebounceTimer) clearTimeout(_initDebounceTimer)
   _initDebounceTimer = setTimeout(() => {
     _initDebounceTimer = null
+    // Guard: session may have completed during the debounce window
+    if (props.isSessionComplete) {
+      return
+    }
     initConnection()
   }, INIT_DEBOUNCE_MS)
 }
