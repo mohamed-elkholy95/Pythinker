@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable
 from typing import ClassVar
 
+import anyio
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -73,6 +74,12 @@ class RequestLoggingMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
+        except anyio.WouldBlock:
+            # Client disconnected during SSE streaming or hot-reload cancelled the
+            # connection.  Starlette's BaseHTTPMiddleware raises WouldBlock when its
+            # internal memory-object stream is drained after the producer task is
+            # cancelled.  This is a normal lifecycle event, not an error.
+            logger.debug("client_disconnected", method=request.method, path=path)
         except Exception:
             logger.error("request_failed", exc_info=True)
             raise
