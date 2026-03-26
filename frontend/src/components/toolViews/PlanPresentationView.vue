@@ -461,8 +461,10 @@ function getStepNumberClass(status: string): string {
   100% { background-position: -100% 0; }
 }
 
-/* Dark mode */
-:global(.dark) .plan-streaming-title {
+/* Dark mode — use :global(.dark .child) to keep full selector intact.
+   :global(.dark) .child compiles to just .dark in Vite scoped CSS,
+   leaking properties like -webkit-text-fill-color globally. */
+:global(.dark .plan-streaming-title) {
   background: linear-gradient(90deg, #e5e7eb 0%, #e5e7eb 40%, #6b7280 50%, #e5e7eb 60%, #e5e7eb 100%);
   background-size: 300% 100%;
   -webkit-background-clip: text;
@@ -471,17 +473,17 @@ function getStepNumberClass(status: string): string {
   animation: plan-title-shimmer 4s linear infinite;
 }
 
-:global(.dark) .skeleton-circle {
+:global(.dark .skeleton-circle) {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-:global(.dark) .skeleton-circle-active {
+:global(.dark .skeleton-circle-active) {
   background: rgba(96, 165, 250, 0.12);
   border-color: rgba(96, 165, 250, 0.25);
 }
 
-:global(.dark) .skeleton-line {
+:global(.dark .skeleton-line) {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.06) 25%,
@@ -492,7 +494,7 @@ function getStepNumberClass(status: string): string {
   animation: skeleton-shimmer 1.8s ease-in-out infinite;
 }
 
-:global(.dark) .skeleton-connector {
+:global(.dark .skeleton-connector) {
   background: rgba(255, 255, 255, 0.08);
 }
 </style>

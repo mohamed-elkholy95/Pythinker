@@ -199,6 +199,7 @@ defineExpose({
   min-height: 120px;
   background: var(--terminal-tool-viewport-bg);
   color: var(--terminal-tool-text);
+  -webkit-text-fill-color: currentColor; /* Reset any inherited transparent fill */
   border: none;
   border-radius: 0;
   overflow: hidden;

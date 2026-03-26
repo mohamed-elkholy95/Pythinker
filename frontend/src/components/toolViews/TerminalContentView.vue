@@ -268,6 +268,7 @@ watch(
   height: 100%;
   background: var(--terminal-tool-viewport-bg);
   color: var(--terminal-tool-text);
+  -webkit-text-fill-color: currentColor; /* Reset any inherited transparent fill */
   border: none;
   border-radius: 0;
   box-sizing: border-box;
