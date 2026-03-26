@@ -21,6 +21,7 @@ from . import (
     session_routes,
     settings_routes,
     skills_routes,
+    telemetry_routes,
     usage_routes,
     webhook_routes,
     workspace_routes,
@@ -55,6 +56,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(sandbox_callback_routes.router)
     api_router.include_router(llm_proxy_routes.router)
     api_router.include_router(webhook_routes.router)
+    api_router.include_router(telemetry_routes.router)
 
     return api_router
 

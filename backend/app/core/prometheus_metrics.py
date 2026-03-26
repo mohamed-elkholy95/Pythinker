@@ -887,6 +887,13 @@ telegram_pdf_sent_total = Counter(
     labels=[],
 )
 
+# Frontend error tracking
+FRONTEND_ERRORS = Counter(
+    name="pythinker_frontend_errors_total",
+    help_text="Frontend errors reported by browser",
+    labels=["category", "severity", "component"],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -970,6 +977,8 @@ _metrics_registry = [
     citation_fabricated_total,
     telegram_pdf_generation_failed_total,
     telegram_pdf_sent_total,
+    # Frontend error tracking
+    FRONTEND_ERRORS,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)

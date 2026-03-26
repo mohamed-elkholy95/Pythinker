@@ -11,6 +11,7 @@ import { router } from './router'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
 import autoFollowScrollPlugin from './plugins/autoFollowScroll'
 import apiResiliencePlugin from './plugins/apiResilience'
+import { useErrorTracking } from './composables/useErrorTracking'
 import { configure } from "vue-gtag";
 
 // FOUC prevention — runs synchronously before Vue mounts.
@@ -120,4 +121,5 @@ app.use(i18n)
 app.use(VueKonva)
 app.use(apiResiliencePlugin, { maxRetries: 3 })
 app.use(autoFollowScrollPlugin)
+app.use({ install: useErrorTracking().install })
 app.mount('#app')
