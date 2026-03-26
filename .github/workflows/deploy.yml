@@ -151,6 +151,7 @@ jobs:
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.build_date.outputs.date }}
             ENABLE_SANDBOX_ADDONS=${{ inputs.sandbox_addons == true && '1' || '0' }}
+            DOCKER_GID=988
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,scope=${{ matrix.component }},mode=max
 
