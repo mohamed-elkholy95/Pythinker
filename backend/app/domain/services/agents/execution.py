@@ -755,9 +755,19 @@ class ExecutionAgent(BaseAgent):
                             _tool_latency = 0.0
                             if event.tool_call_id and event.tool_call_id in _tool_call_start_times:
                                 _tool_latency = time.monotonic() - _tool_call_start_times.pop(event.tool_call_id)
+
+                            # Classify: HTTP 4xx from pre-checks are client errors, not tool errors
+                            _metric_status = "success"
+                            if not success:
+                                _result_data = getattr(event.function_result, "data", None)
+                                _status_code = (
+                                    _result_data.get("status_code", 0) if isinstance(_result_data, dict) else 0
+                                )
+                                _metric_status = "client_error" if 400 <= _status_code < 500 else "error"
+
                             record_tool_call(
                                 tool=func_name,
-                                status="success" if success else "error",
+                                status=_metric_status,
                                 latency=_tool_latency,
                             )
 
