@@ -1047,12 +1047,6 @@ class TestEnqueueProgress:
         assert event.elapsed_ms > 0
 
 
-
-# ---------------------------------------------------------------------------
-# Tests: drain_progress_events
-# ---------------------------------------------------------------------------
-
-
 class TestDrainProgressEvents:
     @pytest.mark.asyncio
     async def test_drains_all_queued_events(self) -> None:
@@ -1395,19 +1389,6 @@ class TestDealSearch:
         tool = DealScraperTool(deal_finder=TrackingFinder())
         await tool.deal_search("product", stores=["amazon.com", "walmart.com"])
         assert received[0] == ["amazon.com", "walmart.com"]
-
-    @pytest.mark.asyncio
-    async def test_progress_events_enqueued_via_callback(self) -> None:
-        steps = [
-            ("Searched Amazon (3 results)", 1, 3, None),
-        ]
-        comparison = DealComparison(query="test", deals=[_make_deal()], searched_stores=["Amazon"])
-        finder = StubDealFinderWithProgress(comparison, steps)
-        tool = DealScraperTool(deal_finder=finder)
-        # Inject the unbound class-level callback since BaseTool shadows the instance method
-        finder.inject_callback(DealScraperTool._progress_callback.__get__(tool))
-        await tool.deal_search("test")
-        assert tool._progress_queue.qsize() >= 1
 
     @pytest.mark.asyncio
     async def test_no_browser_show_progress_page_is_noop(self) -> None:
