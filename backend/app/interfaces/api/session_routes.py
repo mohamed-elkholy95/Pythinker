@@ -1006,7 +1006,13 @@ async def stream_sessions(
         finally:
             await unregister_active_stream(stream_key)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{session_id}/chat")
