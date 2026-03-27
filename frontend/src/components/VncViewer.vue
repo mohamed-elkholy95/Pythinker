@@ -221,9 +221,19 @@ defineExpose({ reconnect })
 .vnc-canvas-container {
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* noVNC injects a canvas and a div inside the container — make them fill */
+/* noVNC injects a screen div > canvas inside the container.
+   The screen div must not stretch to full height or the canvas stays top-aligned.
+   With flex centering on the parent, the screen div shrinks to its content (the canvas)
+   and gets centered vertically — fixing the mobile tall-viewport issue. */
+.vnc-canvas-container :deep(div) {
+  max-height: 100%;
+}
+
 .vnc-canvas-container :deep(canvas) {
   display: block;
   cursor: inherit !important;
