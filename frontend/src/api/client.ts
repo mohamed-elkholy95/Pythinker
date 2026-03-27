@@ -1171,7 +1171,21 @@ export const createSSEConnection = async <T = unknown>(
             message: error.message,
             resumeEventId: lastReceivedEventId ?? null,
           });
-          console.error('EventSource error:', error);
+
+          // Downgrade transient network errors to warn — these are expected
+          // during HTTP/2 stream resets, proxy timeouts, and connectivity blips.
+          const msg = error.message.toLowerCase();
+          const isTransient = msg.includes('network error')
+            || msg.includes('failed to fetch')
+            || msg.includes('err_http2')
+            || msg.includes('net::err_')
+            || msg.includes('the operation was aborted')
+            || msg.includes('connection was reset');
+          if (isTransient) {
+            console.warn(`SSE transient error on ${endpoint}:`, error.message);
+          } else {
+            console.error('EventSource error:', error);
+          }
 
           // Guard against dual reconnection: if onclose already scheduled a reconnect,
           // don't schedule another one here. onclose will be called immediately after.

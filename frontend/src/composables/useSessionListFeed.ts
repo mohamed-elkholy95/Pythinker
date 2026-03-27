@@ -128,11 +128,29 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
     }
   });
 
+  // Auto-reconnect SSE when user returns to the tab or comes back online.
+  // HTTP/2 streams are frequently reset by proxies/load balancers while the
+  // tab is backgrounded; this ensures the feed recovers without a page reload.
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && !isConnected.value && isAuthenticated.value) {
+      void fetchSessions();
+      void connectSSE();
+    }
+  };
+
+  const handleOnline = () => {
+    if (!isConnected.value && isAuthenticated.value) {
+      void connectSSE();
+    }
+  };
+
   onMounted(() => {
     if (initialFetch) {
       void fetchSessions(true);
     }
     void connectSSE();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
   });
 
   onUnmounted(() => {
@@ -140,6 +158,8 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
     unsubscribeStatusChange();
     disconnectSSE();
     stopFallbackPolling();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('online', handleOnline);
   });
 
   return {
