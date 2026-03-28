@@ -41,6 +41,19 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
                 sandbox_streaming_mode=StreamingMode.CDP_ONLY,
                 sandbox_api_secret=None,
                 sandbox_lifecycle_mode="static",
+                # Additional settings read by _create_task container_env builder
+                sandbox_enable_vnc=True,
+                supervisor_rpc_username="supervisor",
+                supervisor_rpc_password=None,
+                sandbox_log_level="INFO",
+                sandbox_tz="UTC",
+                sandbox_shell_structured_markers=True,
+                sandbox_runtime_api_host="http://backend:8000",
+                sandbox_callback_token=None,
+                sandbox_llm_proxy_key=None,
+                sandbox_gh_token=None,
+                sandbox_google_drive_token=None,
+                sandbox_google_workspace_token=None,
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]
@@ -74,4 +87,7 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
             assert "no-new-privileges:true" in call_kwargs["security_opt"]
             assert call_kwargs["cap_drop"] == ["ALL"]
             assert set(call_kwargs["cap_add"]) == {"CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE"}
-            assert "seccomp" in str(call_kwargs["security_opt"]).lower()
+            # Seccomp is NOT applied via Docker API for ephemeral containers
+            # (applied in docker-compose instead). Verify security_opt is
+            # limited to no-new-privileges only.
+            assert call_kwargs["security_opt"] == ["no-new-privileges:true"]
