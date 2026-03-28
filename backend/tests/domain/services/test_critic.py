@@ -725,10 +725,7 @@ class TestFormatPreVerificationIssues:
         )
         result = critic._format_pre_verification_issues(url_verification_results=batch)
         assert "URL Verification Failures" in result
-        assert any(
-            urlparse(token.strip("()[]<>,.;!?")).netloc == "fake.example.com"
-            for token in result.split()
-        )
+        assert any(urlparse(token.strip("()[]<>,.;!?")).netloc == "fake.example.com" for token in result.split())
         assert "FABRICATED URL" in result
 
     def test_url_placeholder_included(self, critic):

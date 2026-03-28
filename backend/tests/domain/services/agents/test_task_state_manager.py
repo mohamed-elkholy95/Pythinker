@@ -175,10 +175,7 @@ class TestTaskStateVisitedSummary:
         ts = TaskState()
         ts.record_url("https://example.com")
         summary = ts.get_visited_summary()
-        assert any(
-            urlparse(token.strip("()[]<>,.;!?")).netloc == "example.com"
-            for token in summary.split()
-        )
+        assert any(urlparse(token.strip("()[]<>,.;!?")).netloc == "example.com" for token in summary.split())
         assert "URLS ALREADY VISITED" in summary
 
     def test_includes_queries(self) -> None:

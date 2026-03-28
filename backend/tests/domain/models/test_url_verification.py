@@ -160,10 +160,7 @@ class TestBatchURLVerificationResult:
         )
         warnings = batch.get_warnings()
         assert len(warnings) == 1
-        assert any(
-            urlparse(token.strip("()[]<>,.;!?")).netloc == "bad.com"
-            for token in warnings[0].split()
-        )
+        assert any(urlparse(token.strip("()[]<>,.;!?")).netloc == "bad.com" for token in warnings[0].split())
 
     def test_get_summary(self) -> None:
         batch = BatchURLVerificationResult(

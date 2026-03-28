@@ -906,10 +906,7 @@ class TestFormatFindingsForContext:
             }
         ]
         result = executor._format_findings_for_context()
-        assert any(
-            urlparse(token.strip("()[]<>,.;!?")).netloc == "example.com"
-            for token in result.split()
-        )
+        assert any(urlparse(token.strip("()[]<>,.;!?")).netloc == "example.com" for token in result.split())
 
     def test_content_preview_included_and_truncated(self, executor):
         executor._multimodal_findings = [{"type": "file_view", "content_preview": "D" * 400}]
