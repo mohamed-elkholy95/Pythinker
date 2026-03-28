@@ -4,7 +4,7 @@
 
 **Goal:** Eliminate the current failing backend test, resolve the open actionable GitHub security alerts, and bring the repo back to a clean documented validation state.
 
-**Architecture:** Fix runtime and validation breakage before bulk alert cleanup. First align `DockerSandbox._create_task()` and its tests with the current settings and sandbox security contract, then patch the shipped security findings (`happy-dom` and sandbox path handling), then clean up the 40 test-only CodeQL alerts by normalizing test fixtures instead of changing product behavior.
+**Architecture:** Fix runtime and validation breakage before bulk alert cleanup. First align `DockerSandbox._create_task()` and its tests with the current settings and sandbox security contract, then patch the shipped security findings (`cryptography` and sandbox path handling), then clean up the 40 test-only CodeQL alerts by normalizing test fixtures instead of changing product behavior.
 
 **Tech Stack:** Python backend via `uv`, FastAPI, pytest, Ruff, Docker sandbox runtime, Vue/Vite frontend via Bun and Vitest, GitHub CodeQL, Dependabot.
 
@@ -84,11 +84,10 @@ Expected: no failing backend tests remain.
 **Files:**
 - Modify: `sandbox/app/services/shell.py`
 - Test: `sandbox/tests/test_service_path_normalization.py`
-- Test: `sandbox/tests/test_file_path_injection.py`
+- Test: `sandbox/tests/test_shell_path_validation.py`
 - Possibly Test: `sandbox/tests/test_api_file.py`
-- Modify: `frontend/package.json`
-- Modify: `frontend/package-lock.json`
-- Modify: `frontend/bun.lock`
+- Modify: `backend/requirements.txt`
+- Modify: `sandbox/requirements.runtime.txt`
 
 - [ ] **Step 1: Reproduce and inspect the sandbox path-injection alert**
 
@@ -124,27 +123,34 @@ Extend or add tests for:
 - blocked absolute paths such as `/etc`
 - any symlink/realpath escape already represented in sandbox tests
 
-Run: `cd sandbox && python3 -m pytest tests/test_service_path_normalization.py tests/test_file_path_injection.py -v`
+Run in the prepared sandbox test environment: `cd sandbox && pytest tests/test_service_path_normalization.py tests/test_shell_path_validation.py -v`
 
 Expected: PASS
 
-- [ ] **Step 4: Upgrade the vulnerable frontend dependency**
+- [ ] **Step 4: Upgrade the vulnerable runtime dependency**
 
-Reference: open Dependabot alert `#74` for `happy-dom` (`GHSA-6q6h-j7hj-3r64`, `CVE-2026-33943`), first patched in `20.8.8`.
-
-Run:
-
-- `cd frontend && bun up happy-dom@20.8.8`
-
-If `package-lock.json` does not update in lockstep, refresh it in a controlled way so both lockfiles agree on `20.8.8` or newer.
-
-- [ ] **Step 5: Re-run frontend validation**
+Reference: open Dependabot alert `#76` for `cryptography`, first patched in `46.0.6`.
 
 Run:
 
-- `cd frontend && bun run lint:check`
-- `cd frontend && bun run type-check`
-- `cd frontend && bun run test:run`
+- update `backend/requirements.txt` to require `cryptography>=46.0.6,<47.0.0`
+- update `sandbox/requirements.runtime.txt` to pin `cryptography==46.0.6`
+
+Rationale: the open alert is on the shipped sandbox manifest, but the backend dev/test environment should not keep a lower vulnerable floor than the sandbox runtime.
+
+- [ ] **Step 5: Re-run focused validation**
+
+Run:
+
+- `python3 - <<'PY'`
+- `from pathlib import Path`
+- `import re`
+- `backend = Path("backend/requirements.txt").read_text()`
+- `sandbox = Path("sandbox/requirements.runtime.txt").read_text()`
+- `assert re.search(r"^cryptography>=46\\.0\\.6,<47\\.0\\.0$", backend, re.M)`
+- `assert re.search(r"^cryptography==46\\.0\\.6$", sandbox, re.M)`
+- `PY`
+- `cd sandbox && pytest tests/test_service_path_normalization.py tests/test_shell_path_validation.py -v`
 
 Expected: PASS
 
@@ -237,7 +243,7 @@ Expected:
 ### Task 4: Confirm The Repo Is Clean After The Fixes
 
 **Files:**
-- Modify: `docs/superpowers/plans/2026-03-27-repo-issues-remediation.md`
+- Modify: `docs/superpowers/plans/2026-03-27-fix-all-issues-security-tests.md`
 
 - [ ] **Step 1: Re-run the documented validation commands**
 
