@@ -27,7 +27,7 @@ httpx>=0.28.1,<1.0.0
 # HTTP and encoding dependencies with pinned versions for E2E reliability
 # >=2.6.3 fixes CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 (decompression bomb + unbounded chain)
 urllib3>=2.6.3,<3.0.0
-charset-normalizer>=3.0,<3.4
+charset-normalizer>=3.0,<3.5
 
 # Utilities (let browser-use control rich and markdownify)
 tenacity>=8.2.0,<9.0.0
