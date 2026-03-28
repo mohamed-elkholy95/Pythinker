@@ -9,6 +9,7 @@ import socket
 import logging
 import asyncio
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from app.models.shell import (
     ShellExecResult,
@@ -50,6 +51,39 @@ class ShellService:
             suffix = path[len(self._HOME_ALIAS_FROM) + 1 :]
             return f"{self._HOME_ALIAS_TO}/{suffix}"
         return path
+
+    # Directories where command execution is allowed.
+    # Path traversal outside these roots is rejected.
+    _ALLOWED_EXEC_ROOTS: List[str] = [
+        "/home/ubuntu",
+        "/workspace",
+        "/tmp",
+        "/opt",
+    ]
+
+    def _validate_exec_dir(self, exec_dir: str) -> str:
+        """Resolve and validate exec_dir against allowed roots.
+
+        Prevents path traversal attacks by ensuring the resolved path is
+        contained within one of the allowed directory roots.
+
+        Raises:
+            BadRequestException: If the path escapes allowed roots.
+        """
+        resolved = Path(exec_dir).resolve()
+
+        for allowed_root in self._ALLOWED_EXEC_ROOTS:
+            root = Path(allowed_root).resolve()
+            try:
+                resolved.relative_to(root)
+                return str(resolved)
+            except ValueError:
+                continue
+
+        raise BadRequestException(
+            f"Directory not allowed: {exec_dir}. "
+            f"Must be within: {', '.join(self._ALLOWED_EXEC_ROOTS)}"
+        )
 
     def _remove_ansi_escape_codes(self, text: str) -> str:
         """Remove ANSI escape codes from text"""
@@ -156,6 +190,9 @@ class ShellService:
         exec_dir = self._resolve_home_alias(exec_dir)
         if not os.path.isabs(exec_dir):
             exec_dir = os.path.abspath(exec_dir)
+
+        # Validate exec_dir is within allowed directory roots (path injection fix)
+        exec_dir = self._validate_exec_dir(exec_dir)
 
         # Ensure directory exists
         if not os.path.exists(exec_dir):
