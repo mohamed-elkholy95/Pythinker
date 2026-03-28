@@ -9,7 +9,6 @@ import socket
 import logging
 import asyncio
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from app.models.shell import (
     ShellExecResult,
@@ -26,6 +25,7 @@ from app.core.exceptions import (
     BadRequestException,
 )
 from app.core.config import settings
+from app.services.file import SANDBOX_ALLOWED_DIRS, safe_resolve
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -52,38 +52,9 @@ class ShellService:
             return f"{self._HOME_ALIAS_TO}/{suffix}"
         return path
 
-    # Directories where command execution is allowed.
-    # Path traversal outside these roots is rejected.
-    _ALLOWED_EXEC_ROOTS: List[str] = [
-        "/home/ubuntu",
-        "/workspace",
-        "/tmp",
-        "/opt",
-    ]
-
     def _validate_exec_dir(self, exec_dir: str) -> str:
-        """Resolve and validate exec_dir against allowed roots.
-
-        Prevents path traversal attacks by ensuring the resolved path is
-        contained within one of the allowed directory roots.
-
-        Raises:
-            BadRequestException: If the path escapes allowed roots.
-        """
-        resolved = Path(exec_dir).resolve()
-
-        for allowed_root in self._ALLOWED_EXEC_ROOTS:
-            root = Path(allowed_root).resolve()
-            try:
-                resolved.relative_to(root)
-                return str(resolved)
-            except ValueError:
-                continue
-
-        raise BadRequestException(
-            f"Directory not allowed: {exec_dir}. "
-            f"Must be within: {', '.join(self._ALLOWED_EXEC_ROOTS)}"
-        )
+        """Normalize exec_dir using the shared sandbox path policy."""
+        return safe_resolve(exec_dir, allowed_dirs=list(SANDBOX_ALLOWED_DIRS))
 
     def _remove_ansi_escape_codes(self, text: str) -> str:
         """Remove ANSI escape codes from text"""
