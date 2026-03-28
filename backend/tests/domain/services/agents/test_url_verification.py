@@ -54,6 +54,33 @@ def _make_mock_response(
     return resp
 
 
+def _same_url(actual: str, expected: str) -> bool:
+    actual_parsed = urlparse(actual)
+    expected_parsed = urlparse(expected)
+    return (
+        actual_parsed.scheme,
+        actual_parsed.netloc,
+        actual_parsed.path,
+        actual_parsed.query,
+    ) == (
+        expected_parsed.scheme,
+        expected_parsed.netloc,
+        expected_parsed.path,
+        expected_parsed.query,
+    )
+
+
+def _collection_has_url(values: list[str] | set[str], expected: str) -> bool:
+    return any(_same_url(value, expected) for value in values)
+
+
+def _text_has_url(text: str, expected: str) -> bool:
+    return _collection_has_url(
+        [token.strip("()[]<>,.;!?") for token in text.split()],
+        expected,
+    )
+
+
 # ── URLVerificationStatus enum ───────────────────────────────────────
 
 
@@ -203,7 +230,7 @@ class TestURLVerificationResultWarningMessages:
         msg = r.get_warning_message()
         assert msg is not None
         assert "failed" in msg.lower()
-        assert "https://broken.com" in msg
+        assert _text_has_url(msg, "https://broken.com")
 
     def test_not_found_with_none_http_status(self):
         """get_warning_message should not crash when http_status is None."""
@@ -214,7 +241,7 @@ class TestURLVerificationResultWarningMessages:
         )
         msg = r.get_warning_message()
         assert msg is not None
-        assert "https://unreachable.com" in msg
+        assert _text_has_url(msg, "https://unreachable.com")
 
 
 # ── BatchURLVerificationResult model ────────────────────────────────
@@ -318,9 +345,9 @@ class TestBatchURLVerificationResultGetInvalidUrls:
             }
         )
         invalid = batch.get_invalid_urls()
-        assert "https://ok.com" not in invalid
-        assert "https://bad.com" in invalid
-        assert "https://fake.com" in invalid
+        assert not _collection_has_url(invalid, "https://ok.com")
+        assert _collection_has_url(invalid, "https://bad.com")
+        assert _collection_has_url(invalid, "https://fake.com")
         assert len(invalid) == 2
 
     def test_all_verified_returns_empty(self):
@@ -348,9 +375,9 @@ class TestBatchURLVerificationResultGetWarnings:
         warnings = batch.get_warnings()
         assert len(warnings) == 2
         combined = " ".join(warnings)
-        assert "https://gone.com" in combined
-        assert "https://fake.com" in combined
-        assert "https://ok.com" not in combined
+        assert _text_has_url(combined, "https://gone.com")
+        assert _text_has_url(combined, "https://fake.com")
+        assert not _text_has_url(combined, "https://ok.com")
 
     def test_no_warnings_when_all_verified(self):
         batch = BatchURLVerificationResult(
@@ -600,8 +627,9 @@ class TestNormalizeUrl:
 
     def test_lowercases_hostname(self):
         result = self.svc._normalize_url("https://GITHUB.COM/User/Repo")
-        assert "github.com" in result
-        assert "GITHUB.COM" not in result
+        parsed = urlparse(result)
+        assert parsed.netloc == "github.com"
+        assert parsed.path == "/User/Repo"
 
     def test_preserves_path_case(self):
         """Path is case-sensitive and must not be lowercased."""
@@ -712,12 +740,12 @@ class TestExtractUrlsFromText:
     def test_extracts_https_url(self):
         text = "Learn more at https://python.org/library."
         urls = self.svc.extract_urls_from_text(text)
-        assert any("python.org/library" in u for u in urls)
+        assert _collection_has_url(urls, "https://python.org/library")
 
     def test_extracts_http_url(self):
         text = "Visit http://httpbin.org/get for testing."
         urls = self.svc.extract_urls_from_text(text)
-        assert any("httpbin.org" in u for u in urls)
+        assert _collection_has_url(urls, "http://httpbin.org/get")
 
     def test_extracts_multiple_urls(self):
         text = "Sources: https://python.org and https://github.com/python."
@@ -772,7 +800,7 @@ class TestExtractUrlsFromText:
     def test_url_in_markdown_link(self):
         text = "Check [Python](https://python.org/docs) for reference."
         urls = self.svc.extract_urls_from_text(text)
-        assert any("python.org" in u for u in urls)
+        assert _collection_has_url(urls, "https://python.org/docs")
 
     def test_url_with_query_string_extracted(self):
         text = "Search at https://google.com/search?q=python+asyncio"
