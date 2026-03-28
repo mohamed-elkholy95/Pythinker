@@ -1,12 +1,12 @@
 """Tests for path normalization and path-traversal prevention in FileService."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 
 from app.core.exceptions import BadRequestException
-from app.services.file import FileService, safe_resolve
+from app.services.file import FileService, SANDBOX_ALLOWED_DIRS, safe_resolve
 from app.services.shell import ShellService
 
 
@@ -219,9 +219,17 @@ async def test_shell_exec_auto_creates_missing_workspace_dir() -> None:
 
     with (
         patch("app.services.shell.os.path.exists", return_value=False),
+        patch(
+            "app.services.shell.safe_resolve",
+            side_effect=[exec_dir, exec_dir],
+        ) as safe_resolve_mock,
         patch("app.services.shell.os.makedirs") as makedirs,
     ):
         result = await service.exec_command("shell-session", exec_dir, "echo hi")
 
+    assert safe_resolve_mock.call_args_list == [
+        call(exec_dir, allowed_dirs=list(SANDBOX_ALLOWED_DIRS)),
+        call(exec_dir, allowed_dirs=[Path("/workspace")]),
+    ]
     makedirs.assert_called_once_with(exec_dir, exist_ok=True)
     assert result.status == "running"

@@ -9,6 +9,7 @@ import socket
 import logging
 import asyncio
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from app.models.shell import (
     ShellExecResult,
@@ -167,20 +168,25 @@ class ShellService:
 
         # Ensure directory exists
         if not os.path.exists(exec_dir):
-            if exec_dir == "/workspace" or exec_dir.startswith("/workspace/"):
-                try:
-                    os.makedirs(exec_dir, exist_ok=True)
-                    logger.info(f"Created missing workspace directory: {exec_dir}")
-                except OSError as e:
-                    logger.error(
-                        f"Failed to create workspace directory {exec_dir}: {e}"
-                    )
-                    raise BadRequestException(
-                        f"Directory does not exist: {exec_dir}"
-                    ) from e
-            else:
+            try:
+                workspace_dir = safe_resolve(
+                    exec_dir,
+                    allowed_dirs=[Path("/workspace")],
+                )
+            except BadRequestException:
                 logger.error(f"Directory does not exist: {exec_dir}")
                 raise BadRequestException(f"Directory does not exist: {exec_dir}")
+            try:
+                os.makedirs(workspace_dir, exist_ok=True)
+                exec_dir = workspace_dir
+                logger.info(f"Created missing workspace directory: {exec_dir}")
+            except OSError as e:
+                logger.error(
+                    f"Failed to create workspace directory {exec_dir}: {e}"
+                )
+                raise BadRequestException(
+                    f"Directory does not exist: {exec_dir}"
+                ) from e
 
         try:
             # Create PS1 format
