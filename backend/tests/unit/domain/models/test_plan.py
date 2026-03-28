@@ -184,8 +184,7 @@ class TestStep:
             target_object="example.com",
         )
         label = step.display_label
-        assert "Browse" in label
-        assert "example.com" in label
+        assert label == "Browse example.com"
         assert "via" not in label
 
     def test_status_coercion_from_string(self) -> None:

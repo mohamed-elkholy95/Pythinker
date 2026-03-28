@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import pytest
 from pydantic import ValidationError
@@ -71,7 +72,7 @@ class TestResearchCheckpoint:
             query_context="best practices for X",
         )
         assert len(cp.sources) == 2
-        assert "https://example.com" in cp.sources  # lgtm[py/incomplete-url-scheme-check]
+        assert any(urlparse(url).netloc == "example.com" for url in cp.sources)
 
     def test_timestamp_default_is_utc_aware(self) -> None:
         cp = ResearchCheckpoint(

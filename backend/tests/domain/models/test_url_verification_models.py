@@ -1,5 +1,7 @@
 """Tests for URL verification domain models."""
 
+from urllib.parse import urlparse
+
 from app.domain.models.url_verification import (
     BatchURLVerificationResult,
     URLVerificationResult,
@@ -132,9 +134,9 @@ class TestBatchURLVerificationResult:
     def test_get_invalid_urls(self) -> None:
         batch = self._make_batch()
         invalid = batch.get_invalid_urls()
-        assert "https://b.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
-        assert "https://c.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
-        assert "https://a.com" not in invalid
+        assert any(urlparse(url).netloc == "b.com" for url in invalid)
+        assert any(urlparse(url).netloc == "c.com" for url in invalid)
+        assert all(urlparse(url).netloc != "a.com" for url in invalid)
 
     def test_get_warnings(self) -> None:
         batch = self._make_batch()

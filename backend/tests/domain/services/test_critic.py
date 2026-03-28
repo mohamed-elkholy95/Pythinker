@@ -32,6 +32,7 @@ Covers:
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from pydantic import ValidationError
@@ -724,7 +725,10 @@ class TestFormatPreVerificationIssues:
         )
         result = critic._format_pre_verification_issues(url_verification_results=batch)
         assert "URL Verification Failures" in result
-        assert "fake.example.com" in result
+        assert any(
+            urlparse(token.strip("()[]<>,.;!?")).netloc == "fake.example.com"
+            for token in result.split()
+        )
         assert "FABRICATED URL" in result
 
     def test_url_placeholder_included(self, critic):

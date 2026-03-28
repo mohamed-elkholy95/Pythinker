@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from app.domain.models.url_verification import (
     BatchURLVerificationResult,
     URLVerificationResult,
@@ -145,9 +147,9 @@ class TestBatchURLVerificationResult:
             },
         )
         invalid = batch.get_invalid_urls()
-        assert "https://bad.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
-        assert "https://fake.com" in invalid  # lgtm[py/incomplete-url-scheme-check]
-        assert "https://good.com" not in invalid
+        assert any(urlparse(url).netloc == "bad.com" for url in invalid)
+        assert any(urlparse(url).netloc == "fake.com" for url in invalid)
+        assert all(urlparse(url).netloc != "good.com" for url in invalid)
 
     def test_get_warnings(self) -> None:
         batch = BatchURLVerificationResult(
@@ -158,7 +160,10 @@ class TestBatchURLVerificationResult:
         )
         warnings = batch.get_warnings()
         assert len(warnings) == 1
-        assert "bad.com" in warnings[0]  # lgtm[py/incomplete-url-scheme-check]
+        assert any(
+            urlparse(token.strip("()[]<>,.;!?")).netloc == "bad.com"
+            for token in warnings[0].split()
+        )
 
     def test_get_summary(self) -> None:
         batch = BatchURLVerificationResult(

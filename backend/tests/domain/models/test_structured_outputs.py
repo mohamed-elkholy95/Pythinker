@@ -206,7 +206,9 @@ class TestCitationUrlValidator:
             source_type=SourceType.WEB,
             url="https://example.com/search?q=python&page=2",
         )
-        assert "example.com" in str(citation.url)  # lgtm[py/incomplete-url-scheme-check]
+        parsed = urlparse(str(citation.url))
+        assert parsed.netloc == "example.com"
+        assert parsed.query == "q=python&page=2"
 
 
 class TestCitationConfidenceBounds:

@@ -37,7 +37,7 @@ class TestTruncate:
 class TestFormatUrl:
     def test_simple_url(self) -> None:
         result = _format_url("https://example.com/page")
-        assert "example.com" in result  # lgtm[py/incomplete-url-scheme-check]
+        assert result == "example.com/page"
 
     def test_long_url_truncated(self) -> None:
         result = _format_url("https://example.com/" + "x" * 100, 30)

@@ -1,11 +1,13 @@
 """Tests for per-step source accumulation in OutputVerifier."""
 
+from urllib.parse import urlparse
+
+from app.domain.services.agents.output_verifier import OutputVerifier
+
 
 class TestStepSourceAccumulation:
     def _make_verifier(self):
         """Create a minimal OutputVerifier for testing step sources."""
-        from app.domain.services.agents.output_verifier import OutputVerifier
-
         # Use __new__ to avoid full __init__ dependencies
         v = object.__new__(OutputVerifier)
         v._step_sources = []
@@ -20,7 +22,9 @@ class TestStepSourceAccumulation:
         )
         assert len(v._step_sources) == 1
         assert "M5 Pro scored 15,200" in v._step_sources[0]
-        assert "example.com" in v._step_sources[0]  # lgtm[py/incomplete-url-scheme-check]
+        source_line = v._step_sources[0].splitlines()[0]
+        parsed = urlparse(source_line[source_line.index("(") + 1 : -1])
+        assert parsed.netloc == "example.com"
 
     def test_add_step_source_ignores_empty(self):
         v = self._make_verifier()

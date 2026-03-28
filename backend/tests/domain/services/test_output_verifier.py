@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -130,7 +131,9 @@ class TestStepSources:
         verifier.add_step_source("Title", "https://example.com", "Some content here")
         assert len(verifier._step_sources) == 1
         assert "Title" in verifier._step_sources[0]
-        assert "https://example.com" in verifier._step_sources[0]
+        source_line = verifier._step_sources[0].splitlines()[0]
+        parsed = urlparse(source_line[source_line.index("(") + 1 : -1])
+        assert parsed.netloc == "example.com"
 
     def test_add_step_source_empty_snippet_ignored(self, verifier: OutputVerifier) -> None:
         verifier.add_step_source("Title", "https://example.com", "")

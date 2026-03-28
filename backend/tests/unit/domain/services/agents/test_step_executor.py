@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -905,7 +906,10 @@ class TestFormatFindingsForContext:
             }
         ]
         result = executor._format_findings_for_context()
-        assert "https://example.com" in result
+        assert any(
+            urlparse(token.strip("()[]<>,.;!?")).netloc == "example.com"
+            for token in result.split()
+        )
 
     def test_content_preview_included_and_truncated(self, executor):
         executor._multimodal_findings = [{"type": "file_view", "content_preview": "D" * 400}]

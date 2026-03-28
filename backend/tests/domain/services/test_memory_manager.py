@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -549,7 +550,7 @@ class TestExtractBrowserResults:
     def test_extracts_urls(self):
         content = "Visit https://example.com and https://other.org for more."
         _facts, urls = self.mgr._extract_browser_results(content)
-        assert any("example.com" in u for u in urls)
+        assert any(urlparse(u).netloc == "example.com" for u in urls)
 
     def test_counts_links(self):
         content = "<a href='#'>link1</a><a href='#'>link2</a><a href='#'>link3</a>"
@@ -718,13 +719,13 @@ class TestExtractSearchResults:
         results = [{"title": "A", "url": "https://example.com"}]
         content = json.dumps(results)
         _, urls = self.mgr._extract_search_results(content)
-        assert any("example.com" in u for u in urls)
+        assert any(urlparse(u).netloc == "example.com" for u in urls)
 
     def test_json_list_uses_link_field_fallback(self):
         results = [{"title": "A", "link": "https://via-link.com"}]
         content = json.dumps(results)
         _, urls = self.mgr._extract_search_results(content)
-        assert any("via-link.com" in u for u in urls)
+        assert any(urlparse(u).netloc == "via-link.com" for u in urls)
 
     def test_non_json_fallback_counts_http_occurrences(self):
         content = "Result 1: http://a.com\nResult 2: https://b.com\n"
@@ -932,7 +933,7 @@ class TestBuildToolSummary:
         content = _json_tool_content(success=True, data=data)
         msg = _tool_message(function_name="browser_view", content=content)
         summary, _ = self.mgr._build_tool_summary(msg)
-        assert "example.com" in summary or "URLs" in summary
+        assert "URLs:" in summary
 
     def test_facts_truncated_at_500_chars(self):
         long_fact = "a" * 600
@@ -1289,11 +1290,11 @@ class TestExtractUrlsFromText:
 
     def test_extracts_https_url(self):
         urls = self.mgr._extract_urls_from_text("Visit https://example.com for more.")
-        assert any("example.com" in u for u in urls)
+        assert any(urlparse(u).netloc == "example.com" for u in urls)
 
     def test_extracts_http_url(self):
         urls = self.mgr._extract_urls_from_text("Old site: http://legacy.com/page")
-        assert any("legacy.com" in u for u in urls)
+        assert any(urlparse(u).netloc == "legacy.com" for u in urls)
 
     def test_deduplicates_urls(self):
         text = "https://example.com https://example.com https://example.com"
@@ -1359,7 +1360,7 @@ class TestFallbackExtraction:
     def test_extracts_urls_from_content(self):
         content = "Check https://example.com for details"
         result = self.mgr._fallback_extraction("tool", content)
-        assert any("example.com" in u for u in result.urls)
+        assert any(urlparse(u).netloc == "example.com" for u in result.urls)
 
 
 # ===========================================================================
