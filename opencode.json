@@ -1,13 +1,30 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
+  // ── CONFIG LAYERING — this file is Priority 4 (Project) ───────
+  // Global ~/.config/opencode/opencode.jsonc sets:
+  //   model, small_model, permission="allow" (YOLO), autoupdate, compaction, snapshot
+  // This file OVERRIDES with:
+  //   agents, commands, mcp, instructions
+  // Permissions inherit from global YOLO ("permission": "allow").
+
   // ── Plugins ──────────────────────────────────────────────────
   "plugin": ["@plannotator/opencode@latest"],
 
   // ── Model Configuration ─────────────────────────────────────
-  // Inherits global model (zai-anthropic/glm-5) from ~/.config/opencode/opencode.jsonc
+  // Inherits global model (zai-coding-plan/glm-5.1) from ~/.config/opencode/opencode.jsonc
   // Override per-project if needed:
   // "model": "anthropic/claude-sonnet-4-5",
+
+  // ── Default Agent ─────────────────────────────────────────────
+  "default_agent": "build",
+
+  // ── Compaction ────────────────────────────────────────────────
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 10000
+  },
 
   // ── Instructions ────────────────────────────────────────────
   "instructions": [
@@ -39,26 +56,6 @@
         "todoread": true,
         "skill": true
       },
-      "permission": {
-        "bash": {
-          "*": "ask",
-          "git *": "allow",
-          "ls *": "allow",
-          "pwd": "allow",
-          "which *": "allow",
-          "echo *": "allow",
-          "conda activate pythinker*": "allow",
-          "cd backend*": "allow",
-          "cd frontend*": "allow",
-          "ruff *": "allow",
-          "mypy *": "allow",
-          "pytest *": "allow",
-          "bun run *": "allow",
-          "docker compose *": "ask",
-          "docker *": "ask",
-          "./dev.sh *": "ask"
-        }
-      }
     },
 
     "plan": {
@@ -250,52 +247,6 @@
         "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
       }
     }
-  },
-
-  // ── Permissions ─────────────────────────────────────────────
-  "permission": {
-    "bash": {
-      "*": "ask",
-      "git status *": "allow",
-      "git diff *": "allow",
-      "git log *": "allow",
-      "git branch *": "allow",
-      "git show *": "allow",
-      "git add *": "allow",
-      "ls *": "allow",
-      "pwd": "allow",
-      "which *": "allow",
-      "echo *": "allow",
-      "cat *": "allow",
-      "head *": "allow",
-      "tail *": "allow",
-      "wc *": "allow",
-      "conda activate *": "allow",
-      "ruff *": "allow",
-      "mypy *": "allow",
-      "pytest *": "allow",
-      "python -m pytest *": "allow",
-      "bun run *": "allow",
-      "npm run *": "allow",
-      "cr *": "allow",
-      "coderabbit *": "allow",
-      "curl *": "allow",
-      "http *": "allow",
-      "docker compose ps*": "allow",
-      "docker compose logs *": "allow",
-      "docker compose exec *": "ask",
-      "docker exec *": "ask",
-      "docker logs *": "allow",
-      "docker ps *": "allow",
-      "./dev.sh *": "ask",
-      "rm *": "deny",
-      "git push *": "ask",
-      "git reset *": "ask"
-    },
-    "edit": "ask",
-    "webfetch": "allow",
-    "skill": {
-      "*": "allow"
-    }
   }
 }
+
