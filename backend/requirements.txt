@@ -95,7 +95,7 @@ mcp>=1.9.0,<2.0.0
 
 # Security
 pyjwt[crypto]>=2.9.0,<3.0.0
-cryptography>=46.0.5,<47.0.0
+cryptography>=46.0.6,<47.0.0
 
 # Token counting
 tiktoken>=0.8.0,<1.0.0
