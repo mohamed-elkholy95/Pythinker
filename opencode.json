@@ -1,6 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
+  // ── Plugins ──────────────────────────────────────────────────
+  "plugin": ["@plannotator/opencode@latest"],
+
   // ── Model Configuration ─────────────────────────────────────
   // Inherits global model (zai-anthropic/glm-5) from ~/.config/opencode/opencode.jsonc
   // Override per-project if needed:
@@ -235,6 +238,17 @@
       "template": "Run CodeRabbit in prompt-only mode for AI-optimized review:\n\n```bash\ncr --prompt-only $ARGUMENTS\n```\n\nUse @coderabbit-reviewer to parse the output and apply the most impactful fixes automatically.",
       "description": "CodeRabbit AI-assisted review + fix",
       "agent": "build"
+    }
+  },
+
+  // ── MCP Servers ─────────────────────────────────────────────
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
     }
   },
 
