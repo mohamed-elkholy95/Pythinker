@@ -6,6 +6,7 @@ plus the validate_llm_output and build_validation_feedback utilities.
 """
 
 import json
+from urllib.parse import urlparse
 
 import pytest
 from pydantic import ValidationError
@@ -153,7 +154,7 @@ class TestCitationUrlValidator:
             source_type=SourceType.WEB,
             url="https://example.com/page",
         )
-        assert str(citation.url).startswith("https://")
+        assert urlparse(str(citation.url)).scheme == "https"
 
     def test_valid_http_url(self):
         """A well-formed http URL is accepted."""
@@ -162,7 +163,7 @@ class TestCitationUrlValidator:
             source_type=SourceType.WEB,
             url="http://example.com/page",
         )
-        assert str(citation.url).startswith("http://")
+        assert urlparse(str(citation.url)).scheme == "http"
 
     def test_www_prefix_gets_https_prepended(self):
         """A URL starting with www. is upgraded to https://."""
@@ -171,7 +172,7 @@ class TestCitationUrlValidator:
             source_type=SourceType.WEB,
             url="www.example.com",
         )
-        assert str(citation.url).startswith("https://")
+        assert urlparse(str(citation.url)).scheme == "https"
 
     def test_none_url_stays_none(self):
         """Explicitly passing None keeps the field None."""

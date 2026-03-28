@@ -18,6 +18,7 @@ Run with: pytest tests/domain/services/agents/test_url_verification.py -v
 
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -640,7 +641,8 @@ class TestNormalizeUrl:
 
     def test_scheme_and_netloc_present_in_result(self):
         result = self.svc._normalize_url("https://EXAMPLE.COM/path")
-        assert result.startswith("https://example.com")
+        assert urlparse(result).scheme == "https"
+        assert urlparse(result).netloc == "example.com"
 
 
 # ── URLVerificationService — visit verification ──────────────────────

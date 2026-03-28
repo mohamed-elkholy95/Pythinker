@@ -10,6 +10,7 @@ Covers:
 """
 
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import pytest
 
@@ -173,7 +174,7 @@ class TestOpenAccessDomains:
 
     def test_no_scheme_prefixes(self) -> None:
         for domain in OPEN_ACCESS_DOMAINS:
-            assert not domain.startswith("http"), f"Domain {domain!r} should not have scheme prefix"
+            assert not urlparse(domain).scheme, f"Domain {domain!r} should not have scheme prefix"
 
     def test_no_trailing_slashes(self) -> None:
         for domain in OPEN_ACCESS_DOMAINS:
