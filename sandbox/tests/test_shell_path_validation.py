@@ -39,22 +39,26 @@ class TestExecDirPathValidation:
         assert Path(result).resolve() == Path("/tmp").resolve()
 
     def test_rejects_path_traversal(self, service: ShellService) -> None:
-        with pytest.raises(BadRequestException, match="not allowed"):
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
             service._validate_exec_dir("/home/ubuntu/../../etc/passwd")
 
     def test_rejects_absolute_escape(self, service: ShellService) -> None:
-        with pytest.raises(BadRequestException, match="not allowed"):
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
             service._validate_exec_dir("/etc/shadow")
 
     def test_rejects_root(self, service: ShellService) -> None:
-        with pytest.raises(BadRequestException, match="not allowed"):
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
             service._validate_exec_dir("/")
 
     def test_rejects_usr_bin(self, service: ShellService) -> None:
-        with pytest.raises(BadRequestException, match="not allowed"):
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
             service._validate_exec_dir("/usr/bin")
 
     def test_resolves_symlinks_before_check(self, service: ShellService) -> None:
         """Even resolved paths must stay within allowed roots."""
-        with pytest.raises(BadRequestException, match="not allowed"):
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
             service._validate_exec_dir("/tmp/../../etc/passwd")
+
+    def test_rejects_opt_directory(self, service: ShellService) -> None:
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
+            service._validate_exec_dir("/opt/base-python-venv")
