@@ -58,7 +58,7 @@ scrapling[fetchers]>=0.4,<1.0.0
 docker>=7.1.0,<8.0.0
 
 # WebSockets
-websockets>=13.1,<16.0.0
+websockets>=13.1,<17.0.0
 
 # Database clients
 motor>=3.6.0,<4.0.0
