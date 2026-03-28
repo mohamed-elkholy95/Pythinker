@@ -21,7 +21,7 @@ pydantic-settings>=2.6.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0
 
 # Async/SSE (let browser-use control httpx version)
-sse-starlette>=2.1.0,<3.0.0
+sse-starlette>=2.1.0,<4.0.0
 httpx>=0.28.1,<1.0.0
 
 # HTTP and encoding dependencies with pinned versions for E2E reliability
