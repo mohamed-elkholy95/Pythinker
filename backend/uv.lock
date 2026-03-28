@@ -4,5 +4,5 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "pythinker-backend"
-version = "1.0.1"
+version = "1.5.0"
 source = { virtual = "." }
