@@ -169,35 +169,30 @@ class ShellService:
         workspace_root = os.path.realpath("/workspace")
         tmp_root = os.path.realpath("/tmp")
 
-        is_home_exec_dir = exec_dir == home_root or exec_dir.startswith(
-            f"{home_root}{os.sep}"
-        )
-        is_workspace_exec_dir = exec_dir == workspace_root or exec_dir.startswith(
+        if exec_dir == workspace_root or exec_dir.startswith(
             f"{workspace_root}{os.sep}"
-        )
-        is_tmp_exec_dir = exec_dir == tmp_root or exec_dir.startswith(
-            f"{tmp_root}{os.sep}"
-        )
-
-        if not (is_home_exec_dir or is_workspace_exec_dir or is_tmp_exec_dir):
-            allowed_str = ", ".join((home_root, workspace_root, tmp_root))
-            raise BadRequestException(
-                f"Path traversal denied: path must be within one of: {allowed_str}"
-            )
-
-        # Ensure directory exists
-        if not os.path.exists(exec_dir):
-            if not is_workspace_exec_dir:
-                logger.error(f"Directory does not exist: {exec_dir}")
-                raise BadRequestException(f"Directory does not exist: {exec_dir}")
+        ):
             try:
                 os.makedirs(exec_dir, exist_ok=True)
-                logger.info(f"Created missing workspace directory: {exec_dir}")
+                logger.info(f"Ensured workspace directory exists: {exec_dir}")
             except OSError as e:
                 logger.error(f"Failed to create workspace directory {exec_dir}: {e}")
                 raise BadRequestException(
                     f"Directory does not exist: {exec_dir}"
                 ) from e
+        elif exec_dir == home_root or exec_dir.startswith(f"{home_root}{os.sep}"):
+            if not os.path.exists(exec_dir):
+                logger.error(f"Directory does not exist: {exec_dir}")
+                raise BadRequestException(f"Directory does not exist: {exec_dir}")
+        elif exec_dir == tmp_root or exec_dir.startswith(f"{tmp_root}{os.sep}"):
+            if not os.path.exists(exec_dir):
+                logger.error(f"Directory does not exist: {exec_dir}")
+                raise BadRequestException(f"Directory does not exist: {exec_dir}")
+        else:
+            allowed_str = ", ".join((home_root, workspace_root, tmp_root))
+            raise BadRequestException(
+                f"Path traversal denied: path must be within one of: {allowed_str}"
+            )
 
         try:
             # Create PS1 format
