@@ -163,30 +163,41 @@ class ShellService:
         if not os.path.isabs(exec_dir):
             exec_dir = os.path.abspath(exec_dir)
 
-        # Validate exec_dir is within allowed directory roots (path injection fix)
-        exec_dir = self._validate_exec_dir(exec_dir)
+        # Re-check the resolved path at the sink so CodeQL can see the path guard
+        # immediately before filesystem access.
+        exec_path = Path(self._validate_exec_dir(exec_dir)).resolve()
+        allowed_exec_roots = [
+            allowed_dir.resolve() for allowed_dir in SANDBOX_ALLOWED_DIRS
+        ]
+        if not any(
+            exec_path == allowed_root or exec_path.is_relative_to(allowed_root)
+            for allowed_root in allowed_exec_roots
+        ):
+            allowed_str = ", ".join(str(path) for path in allowed_exec_roots)
+            raise BadRequestException(
+                f"Path traversal denied: path must be within one of: {allowed_str}"
+            )
+
+        workspace_root = Path("/workspace").resolve()
+        is_workspace_exec_path = (
+            exec_path == workspace_root or exec_path.is_relative_to(workspace_root)
+        )
 
         # Ensure directory exists
-        if not os.path.exists(exec_dir):
+        if not exec_path.exists():
+            if not is_workspace_exec_path:
+                logger.error(f"Directory does not exist: {exec_path}")
+                raise BadRequestException(f"Directory does not exist: {exec_path}")
             try:
-                workspace_dir = safe_resolve(
-                    exec_dir,
-                    allowed_dirs=[Path("/workspace")],
-                )
-            except BadRequestException:
-                logger.error(f"Directory does not exist: {exec_dir}")
-                raise BadRequestException(f"Directory does not exist: {exec_dir}")
-            try:
-                os.makedirs(workspace_dir, exist_ok=True)
-                exec_dir = workspace_dir
-                logger.info(f"Created missing workspace directory: {exec_dir}")
+                exec_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created missing workspace directory: {exec_path}")
             except OSError as e:
-                logger.error(
-                    f"Failed to create workspace directory {exec_dir}: {e}"
-                )
+                logger.error(f"Failed to create workspace directory {exec_path}: {e}")
                 raise BadRequestException(
-                    f"Directory does not exist: {exec_dir}"
+                    f"Directory does not exist: {exec_path}"
                 ) from e
+
+        exec_dir = str(exec_path)
 
         try:
             # Create PS1 format
