@@ -12,6 +12,7 @@ const {
   sessionFeedData,
   refreshFeedMock,
   onStatusChangeMock,
+  useSessionListFeedMock,
 } = vi.hoisted(() => ({
   routeMock: {
     path: '/chat',
@@ -28,6 +29,7 @@ const {
   },
   refreshFeedMock: vi.fn(),
   onStatusChangeMock: vi.fn(),
+  useSessionListFeedMock: vi.fn(),
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -85,11 +87,12 @@ vi.mock('@/composables/useSessionStatus', () => ({
 
 vi.mock('@/composables/useSessionListFeed', async () => {
   const vue = await vi.importActual<typeof import('vue')>('vue')
+  useSessionListFeedMock.mockImplementation(() => ({
+    sessions: vue.ref(sessionFeedData.value),
+    refresh: refreshFeedMock,
+  }))
   return {
-    useSessionListFeed: () => ({
-      sessions: vue.ref(sessionFeedData.value),
-      refresh: refreshFeedMock,
-    }),
+    useSessionListFeed: useSessionListFeedMock,
   }
 })
 
@@ -174,6 +177,8 @@ describe('LeftPanel channel source filtering', () => {
   it('supports All / Telegram / Web filter controls in main workspace', async () => {
     const wrapper = mountLeftPanel()
     await flushPromises()
+
+    expect(useSessionListFeedMock).toHaveBeenCalledTimes(1)
 
     const homeLink = wrapper.find('[data-testid="workspace-sidebar-brand-link"]')
     expect(homeLink.exists()).toBe(true)

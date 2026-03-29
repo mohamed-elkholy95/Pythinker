@@ -60,6 +60,11 @@ interface QueueItem {
 
 let failedQueue: QueueItem[] = [];
 
+const buildAuthenticationRequiredError = (): ApiError => ({
+  code: 401,
+  message: 'Authentication required',
+})
+
 const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach(({ resolve, reject }) => {
     if (error) {
@@ -155,36 +160,57 @@ const refreshAuthToken = async (): Promise<string | null> => {
   }
 };
 
+const handleExpiredAuthBeforeRequest = () => {
+  clearStoredTokens();
+  delete apiClient.defaults.headers.Authorization;
+  window.dispatchEvent(new CustomEvent('auth:logout'));
+  redirectToLogin();
+}
+
 // Request interceptor — preemptively refresh expired tokens before sending
-apiClient.interceptors.request.use(
-  async (config) => {
-    const reqConfig = config as InternalAxiosRequestConfig & { __isRefreshRequest?: boolean };
-    // Skip for refresh requests and auth endpoints to avoid loops
-    if (reqConfig.__isRefreshRequest || /\/auth\/(login|logout|register|status)/.test(reqConfig.url ?? '')) {
-      const token = getStoredToken();
-      if (token && !config.headers.Authorization) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    }
-
-    let token = getStoredToken();
-
-    // If the access token is expired (or expires within 5s), refresh proactively
-    if (token && tokenExpiresIn(token) < 5 && getStoredRefreshToken()) {
-      try {
-        const newToken = await refreshAuthToken();
-        if (newToken) token = newToken;
-      } catch {
-        // Refresh failed — let the request proceed and the 401 interceptor handle it
-      }
-    }
-
+export const _requestInterceptorFulfilled = async (config: InternalAxiosRequestConfig) => {
+  const reqConfig = config as InternalAxiosRequestConfig & { __isRefreshRequest?: boolean };
+  // Skip for refresh requests and auth endpoints to avoid loops
+  if (reqConfig.__isRefreshRequest || /\/auth\/(login|logout|register|status)/.test(reqConfig.url ?? '')) {
+    const token = getStoredToken();
     if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
-  },
+  }
+
+  let token = getStoredToken();
+
+  // If the access token is expired (or expires within 5s), refresh proactively.
+  // If refresh is impossible or fails, stop before sending a guaranteed 401.
+  if (token && tokenExpiresIn(token) < 5) {
+    const refreshToken = getStoredRefreshToken();
+    if (!refreshToken) {
+      handleExpiredAuthBeforeRequest();
+      return Promise.reject(buildAuthenticationRequiredError());
+    }
+
+    try {
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        token = newToken;
+      } else {
+        handleExpiredAuthBeforeRequest();
+        return Promise.reject(buildAuthenticationRequiredError());
+      }
+    } catch {
+      return Promise.reject(buildAuthenticationRequiredError());
+    }
+  }
+
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}
+
+apiClient.interceptors.request.use(
+  _requestInterceptorFulfilled,
   (error) => Promise.reject(error),
 );
 
@@ -251,8 +277,7 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
       window.dispatchEvent(new CustomEvent('auth:logout'));
       redirectToLogin();
       return Promise.reject({
-        code: 401,
-        message: 'Authentication required',
+        ...buildAuthenticationRequiredError(),
         details: error.response?.data,
       } satisfies ApiError);
     }

@@ -235,7 +235,7 @@
     </div>
 
     <!-- Search Modal -->
-    <SearchModal v-model:open="showSearchModal" />
+    <SearchModal v-model:open="showSearchModal" :sessions="sessions" />
     <CreateProjectModal
       v-model:open="showCreateProjectModal"
       @created="(proj) => { addProject(proj); router.push(`/chat/projects/${proj.id}`) }"

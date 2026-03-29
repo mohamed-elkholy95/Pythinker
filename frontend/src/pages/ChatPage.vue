@@ -204,6 +204,13 @@
             :state="warmupState"
             @retry="handleRetryInitialize"
           />
+          <EmptyState
+            v-else-if="showEmptySessionState"
+            data-testid="chat-empty-session-state"
+            class="chat-empty-session-state flex-1"
+            icon="inbox"
+            message="This task does not have any messages yet. Send a prompt below to get started."
+          />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
           <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
@@ -634,6 +641,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
+import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
 import ResearchModeBadge from '@/components/ResearchModeBadge.vue';
@@ -664,6 +672,7 @@ import {
 } from '@/utils/chatRestoreGuards';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
+import { shouldShowEmptySessionState as shouldShowChatEmptySessionState } from '@/utils/chatEmptyState';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -1356,6 +1365,19 @@ const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
   }
   return 'thinking';
 });
+
+const showEmptySessionState = computed(() =>
+  shouldShowChatEmptySessionState({
+    sessionId: sessionId.value,
+    messageCount: messages.value.length,
+    hasPendingInitialMessage: !!pendingInitialMessage.value?.message?.trim(),
+    isInitializing: isInitializing.value,
+    isLoading: isLoading.value,
+    isSandboxInitializing: isSandboxInitializing.value,
+    isWaitingForSessionReady: isWaitingForSessionReady.value,
+    showSessionWarmupMessage: showSessionWarmupMessage.value,
+  }),
+);
 
 // Track the latest canvas update event so same-project updates still propagate.
 const activeCanvasUpdate = ref<CanvasUpdateEventData | null>(null);

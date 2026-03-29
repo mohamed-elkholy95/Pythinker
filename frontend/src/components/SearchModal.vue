@@ -94,13 +94,13 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Search, X, Plus } from 'lucide-vue-next'
-import { useSessionListFeed } from '@/composables/useSessionListFeed'
 import type { ListSessionItem } from '@/types/response'
 import { SessionStatus } from '@/types/response'
 import TaskIcon from '@/components/icons/TaskIcon.vue'
 
 const props = defineProps<{
   open: boolean
+  sessions: ListSessionItem[]
 }>()
 
 const emit = defineEmits<{
@@ -109,7 +109,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const router = useRouter()
-const { sessions } = useSessionListFeed()
 
 const searchQuery = ref('')
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -170,7 +169,7 @@ function isRunning(session: ListSessionItem): boolean {
 
 // Filter sessions by search query
 const filteredSessions = computed(() => {
-  const all = sessions.value.filter(s => {
+  const all = props.sessions.filter(s => {
     const title = getDisplayTitle(s)
     return title && title !== t('New Chat')
   })

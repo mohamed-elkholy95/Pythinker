@@ -17,7 +17,8 @@ export enum AgentMode {
 
 export enum ResearchMode {
     FAST_SEARCH = "fast_search",
-    DEEP_RESEARCH = "deep_research"
+    DEEP_RESEARCH = "deep_research",
+    DEAL_FINDING = "deal_finding",
 }
 
 export type StreamingMode = 'cdp_only'
