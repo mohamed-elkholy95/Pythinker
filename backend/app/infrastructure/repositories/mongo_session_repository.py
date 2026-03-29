@@ -86,7 +86,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def find_by_id(self, session_id: str) -> Session | None:
         """Find a session by its ID (lightweight — excludes events/files)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
             projection=self._LIGHT_PROJECTION,
@@ -102,7 +102,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def find_by_id_full(self, session_id: str) -> Session | None:
         """Find a session by its ID with full payload (includes events/files)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
         )
@@ -117,7 +117,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def find_by_id_with_files(self, session_id: str) -> Session | None:
         """Find a session by ID including files but excluding heavy events array."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
             projection={"events": 0},
@@ -141,7 +141,7 @@ class MongoSessionRepository(SessionRepository):
         Uses projection to exclude heavy fields (events, files) for listing queries.
         This reduces document size by ~90% for sessions with many events.
         """
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         cursor = collection.find(
             {"user_id": user_id},
             projection={"events": 0, "files": 0},
@@ -164,7 +164,7 @@ class MongoSessionRepository(SessionRepository):
         Uses a lightweight projection (session_id, title, created_at, files)
         to avoid loading events.  Skips sessions with no files.
         """
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         cursor = collection.find(
             {"user_id": user_id, "files": {"$exists": True, "$ne": []}},
             projection={
@@ -193,7 +193,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Session | None:
         """Find a session by ID and user ID (lightweight — excludes events/files)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id, "user_id": user_id},
             projection=self._LIGHT_PROJECTION,
@@ -209,7 +209,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def find_by_id_and_user_id_full(self, session_id: str, user_id: str) -> Session | None:
         """Find a session by ID and user ID with full payload (includes events/files)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id, "user_id": user_id},
         )
@@ -263,7 +263,7 @@ class MongoSessionRepository(SessionRepository):
 
         Uses atomic conditional $push to avoid TOCTOU race conditions.
         """
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         file_data = file_info.model_dump()
 
         # Build duplicate-exclusion filter: session must exist AND file must not already be present
@@ -299,7 +299,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_file_by_path(self, session_id: str, file_path: str) -> FileInfo | None:
         """Get file by path from a session (loads only files, not events)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
             projection={"files": 1},
@@ -317,12 +317,12 @@ class MongoSessionRepository(SessionRepository):
 
     async def delete(self, session_id: str) -> None:
         """Delete a session (atomic single-operation delete)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         await collection.delete_one({"session_id": session_id})
 
     async def get_all(self, limit: int = 100) -> list[Session]:
         """Get all sessions (lightweight — excludes events/files)."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         cursor = (
             collection.find(
                 {},
@@ -442,7 +442,7 @@ class MongoSessionRepository(SessionRepository):
 
         Note: Returns raw MongoDB dicts, not deserialized BaseEvent instances.
         """
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
             {"events": {"$slice": [offset, limit]}},
@@ -453,7 +453,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_events_in_range(self, session_id: str, start_time: datetime, end_time: datetime) -> list[BaseEvent]:
         """Get events within a time range using MongoDB aggregation $filter."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         pipeline = [
             {"$match": {"session_id": session_id}},
             {
@@ -479,7 +479,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_event_count(self, session_id: str) -> int:
         """Get the total number of events using MongoDB $size aggregation."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         pipeline = [
             {"$match": {"session_id": session_id}},
             {"$project": {"count": {"$size": {"$ifNull": ["$events", []]}}}},
@@ -490,7 +490,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_event_by_sequence(self, session_id: str, sequence: int) -> BaseEvent | None:
         """Get an event by its sequence number (0-indexed position) using $slice."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         doc = await collection.find_one(
             {"session_id": session_id},
             {"events": {"$slice": [sequence, 1]}},
@@ -501,7 +501,7 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_event_by_id(self, session_id: str, event_id: str) -> BaseEvent | None:
         """Get an event by its unique ID using aggregation $filter."""
-        collection = SessionDocument.get_motor_collection()
+        collection = SessionDocument.get_pymongo_collection()
         pipeline = [
             {"$match": {"session_id": session_id}},
             {

@@ -302,7 +302,7 @@ class MongoSkillRepository(SkillRepository):
         # Step 2: Recalculate community_rating and rating_count server-side using
         # a MongoDB aggregation pipeline update (4.2+). This ensures the avg is
         # computed from the authoritative server state, eliminating the race.
-        collection = SkillDocument.get_motor_collection()
+        collection = SkillDocument.get_pymongo_collection()
         await collection.update_one(
             {"skill_id": skill_id},
             [
