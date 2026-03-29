@@ -107,6 +107,15 @@ When implementing non-trivial logic:
 
 Tests are your loop condition. Use them.
 
+### Targeted Verification Default
+
+When validating changes, run the smallest test set that can actually prove the behavior you touched.
+
+- Prefer targeted test files or individual test nodes over repo-wide suites.
+- Use lint, format, and focused regression tests as the default verification path.
+- Do not run full test suites unless the human explicitly asks for them.
+- In summaries, say exactly which targeted checks you ran and which broader suites you intentionally did not run.
+
 ### Naive Then Optimize
 
 For algorithmic work:

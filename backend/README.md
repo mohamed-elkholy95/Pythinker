@@ -48,6 +48,10 @@ backend/
 - MongoDB 4.4+
 - Redis 6.0+
 
+## MongoDB Driver Boundary
+
+Beanie is initialized through PyMongo's native async client path. Motor remains in place for GridFS and repository code that still depends on Motor-specific collection/database types. Keep new Beanie startup code on the shared `initialize_beanie(...)` helper in `app.infrastructure.storage.mongodb` so future Beanie upgrades only need one initialization boundary reviewed.
+
 ## Installation and Configuration
 
 1. **Create a virtual environment**:

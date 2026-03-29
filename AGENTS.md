@@ -43,7 +43,8 @@ Working rules for automated agents in this repo.
 - Backend type checking is partial. Pyright configuration exists, but it is not part of the required pre-commit checks and is not uniformly strict across configs.
 - Current required validation commands are:
   - Frontend: `cd frontend && bun run lint:check && bun run type-check`
-  - Backend: `cd backend && ruff check . && ruff format --check . && pytest tests/`
+  - Backend: `cd backend && ruff check . && ruff format --check . && pytest -p no:cov -o addopts= tests/path/to/affected_test.py [tests/more_targeted_files.py ...]`
+- Backend validation must stay targeted to the files and behaviors affected by the change. Do not run `pytest tests/` or other full backend suites unless the user explicitly requests it.
 - For a single backend test without coverage: `cd backend && pytest -p no:cov -o addopts= tests/test_file.py`
 
 ## Environment Notes
