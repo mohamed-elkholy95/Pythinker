@@ -177,6 +177,24 @@ class GetSessionResponse(BaseModel):
     is_shared: bool = False
 
 
+class SessionReliabilityDiagnosticsRequest(BaseModel):
+    """Frontend-reported session reliability summary."""
+
+    auto_retry_count: int = Field(default=0, ge=0)
+    fallback_poll_attempts: int = Field(default=0, ge=0)
+    stale_detection_count: int = Field(default=0, ge=0)
+    duplicate_event_drops: int = Field(default=0, ge=0)
+    max_queue_depth: int = Field(default=0, ge=0)
+    average_flush_batch_size: float | None = Field(default=None, ge=0.0)
+    max_chunk_processing_duration_ms: float | None = Field(default=None, ge=0.0)
+
+
+class SessionReliabilityDiagnosticsResponse(SessionReliabilityDiagnosticsRequest):
+    """Session reliability payload returned from status polling."""
+
+    submitted_at: float | None = None
+
+
 class SessionStatusResponse(BaseModel):
     """Lightweight session status response for polling."""
 
@@ -185,6 +203,7 @@ class SessionStatusResponse(BaseModel):
     sandbox_id: str | None = None
     streaming_mode: StreamingMode | None = None
     created_at: float | None = None
+    reliability: SessionReliabilityDiagnosticsResponse | None = None
 
 
 class ActiveSessionResponse(BaseModel):

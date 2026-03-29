@@ -8,7 +8,7 @@ import shlex
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
@@ -24,10 +24,17 @@ from app.application.schemas.workspace import (
 )
 from app.application.services.session_lifecycle_service import SessionLifecycleService
 from app.application.services.settings_service import get_settings_service
+from app.application.services.stale_session_cleanup_policy import StaleSessionCleanupPolicy
 from app.application.services.usage_service import get_usage_service
 from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
+from app.core.workflow_timing_contract import (
+    CHAT_EVENT_HARD_TIMEOUT_SECONDS,
+    CHAT_EVENT_TIMEOUT_SECONDS,
+    CHAT_WAIT_BEACON_INTERVAL_SECONDS,
+    MAX_CREATE_SESSION_WAIT_SECONDS,
+)
 from app.domain.exceptions.base import InvalidStateException, SecurityViolation
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
@@ -44,7 +51,6 @@ from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_domain_service import AgentDomainService
 from app.domain.services.browser_login_state_store import BrowserLoginStateStore
-from app.domain.services.stream_guard import has_active_stream
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
@@ -55,13 +61,15 @@ logger = logging.getLogger(__name__)
 
 
 class AgentService:
-    MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
-    CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # Soft idle warning threshold between domain events.
-    CHAT_EVENT_HARD_TIMEOUT_SECONDS = 1800.0  # Hard idle cutoff to prevent infinite hangs.
+    MAX_CREATE_SESSION_WAIT_SECONDS = MAX_CREATE_SESSION_WAIT_SECONDS
+    CHAT_EVENT_TIMEOUT_SECONDS = CHAT_EVENT_TIMEOUT_SECONDS  # Soft idle warning threshold between domain events.
+    CHAT_EVENT_HARD_TIMEOUT_SECONDS = CHAT_EVENT_HARD_TIMEOUT_SECONDS  # Hard idle cutoff to prevent infinite hangs.
     CHAT_RESUME_MAX_SKIPPED_EVENTS = 1000  # Disable skip mode if resume cursor appears stale.
     CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Balance stale-cursor fallback with slower backlog streams.
     CHAT_WARMUP_WAIT_SECONDS = 10.0
-    CHAT_WAIT_BEACON_INTERVAL_SECONDS = 20.0  # Emit non-heartbeat wait progress during long-running operations.
+    CHAT_WAIT_BEACON_INTERVAL_SECONDS = (
+        CHAT_WAIT_BEACON_INTERVAL_SECONDS  # Emit non-heartbeat wait progress during long-running operations.
+    )
     FILE_VIEW_CACHE_TTL_SECONDS = 2.0
     FILE_VIEW_CACHE_MAX_ENTRIES = 256
 
@@ -104,6 +112,13 @@ class AgentService:
         self._session_lifecycle_service = SessionLifecycleService(
             self._session_repository,
             self._agent_domain_service,
+            before_stop_hook=lambda session: self._cancel_sandbox_warmup_task(session.id),
+            after_delete_hook=lambda session: self._cleanup_login_state(session.user_id, session.id),
+        )
+        self._stale_session_cleanup_policy = StaleSessionCleanupPolicy(
+            session_repository=self._session_repository,
+            stop_session=lambda session_id: self._agent_domain_service.stop_session(session_id),
+            close_browser_for_sandbox=lambda sandbox_id: self._close_browser_for_sandbox(sandbox_id),
         )
         self._llm = llm
         self._search_engine = search_engine
@@ -256,7 +271,7 @@ class AgentService:
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
 
         # Auto-stop any stale running sessions to release sandbox/browser resources
-        await self._cleanup_stale_sessions(user_id)
+        await self._stale_session_cleanup_policy.cleanup_for_user(user_id)
 
         # Phase 4 P0: Intent classification for simple queries
         if initial_message and mode == AgentMode.AGENT:
@@ -363,85 +378,8 @@ class AgentService:
         return session
 
     async def _cleanup_stale_sessions(self, user_id: str) -> None:
-        """Stop any stale sessions with active runtime state for this user.
-
-        When a user starts a new task, any previously running sessions should be
-        stopped to release sandbox and browser resources, preventing connection
-        pool exhaustion (BROWSER_1004).
-
-        Also closes browser connections for the sandbox CDP URL and unregisters
-        sandbox ownership to ensure the browser is clean for the next session.
-        """
-        active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING, SessionStatus.PENDING}
-        try:
-            stale_age_seconds = max(
-                0.0,
-                float(getattr(get_settings(), "stale_session_autostop_min_age_seconds", 30.0)),
-            )
-            stale_cutoff = datetime.now(UTC) - timedelta(seconds=stale_age_seconds)
-            sessions = await self._session_repository.find_by_user_id(user_id)
-            stale: list[Session] = []
-            for session in sessions:
-                if session.status not in active_statuses:
-                    continue
-
-                # Do not stop actively streaming sessions while user is still connected.
-                if await has_active_stream(session_id=session.id, endpoint="chat"):
-                    logger.info(
-                        "Skipping auto-stop for session %s (status=%s): active chat stream detected",
-                        session.id,
-                        session.status,
-                    )
-                    continue
-
-                # Avoid racing against newly-created/running sessions that are not stale yet.
-                updated_at = session.updated_at
-                if updated_at is not None:
-                    if updated_at.tzinfo is None:
-                        updated_at = updated_at.replace(tzinfo=UTC)
-                    if updated_at >= stale_cutoff:
-                        logger.debug(
-                            "Skipping auto-stop for recent session %s (status=%s, updated_at=%s)",
-                            session.id,
-                            session.status,
-                            updated_at.isoformat(),
-                        )
-                        continue
-
-                stale.append(session)
-
-            async def _stop_one(s: Session) -> None:
-                """Stop a single stale session with a hard per-session cap."""
-                try:
-                    async with asyncio.timeout(10.0):
-                        logger.info(
-                            "Auto-stopping stale session %s (status=%s) for user %s",
-                            s.id,
-                            s.status,
-                            user_id,
-                        )
-                        if s.sandbox_id:
-                            await self._close_browser_for_sandbox(s.sandbox_id)
-                        await self._agent_domain_service.stop_session(s.id)
-                except TimeoutError:
-                    logger.warning("Auto-stop of stale session %s timed out after 10s", s.id)
-                except Exception as e:
-                    logger.warning("Failed to auto-stop stale session %s: %s", s.id, e)
-
-            # Stop all stale sessions in parallel with a total cap of 12 seconds
-            # so that create_session never blocks on an unbounded cleanup phase.
-            if stale:
-                try:
-                    async with asyncio.timeout(12.0):
-                        await asyncio.gather(*[_stop_one(s) for s in stale])
-                except TimeoutError:
-                    logger.warning(
-                        "Stale session cleanup exceeded 12s cap; %d session(s) may not have been fully stopped",
-                        len(stale),
-                    )
-                logger.info("Cleaned up %d stale session(s) for user %s", len(stale), user_id)
-        except Exception as e:
-            logger.warning(f"Stale session cleanup failed for user {user_id}: {e}")
+        """Backward-compatible wrapper around the extracted stale cleanup policy."""
+        await self._stale_session_cleanup_policy.cleanup_for_user(user_id)
 
     async def _close_browser_for_sandbox(self, sandbox_id: str) -> None:
         """Close all browser connections for a sandbox to free the browser for reuse."""
@@ -465,6 +403,13 @@ class AgentService:
                     await DockerSandbox.unregister_session(address)
         except Exception as e:
             logger.debug(f"Browser cleanup for sandbox {sandbox_id} failed (non-critical): {e}")
+
+    async def _cleanup_login_state(self, user_id: str, session_id: str) -> None:
+        """Best-effort cleanup for persisted browser login state."""
+        try:
+            BrowserLoginStateStore().delete_state(user_id, session_id)
+        except Exception as e:  # pragma: no cover — best-effort cleanup
+            logger.debug("Failed to clean up login state for session %s: %s", session_id, e)
 
     async def _warm_sandbox_for_session(self, session_id: str) -> None:
         """Background task to pre-warm sandbox for session.
@@ -1259,71 +1204,16 @@ class AgentService:
         return await self._session_repository.find_by_user_id(user_id)
 
     async def delete_session(self, session_id: str, user_id: str) -> None:
-        """Delete a session, ensuring it belongs to the user.
-
-        Destroys the associated sandbox container before deleting the session
-        record to prevent orphaned Docker containers.
-        Idempotent: returns silently if session no longer exists (e.g. already
-        deleted by a concurrent browser cleanup after a crash).
-        """
-        logger.info(f"Deleting session {session_id} for user {user_id}")
-        # First verify the session belongs to the user
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.info(f"Session {session_id} already gone — delete is a no-op")
-            return
-
-        # Stop any running task first
-        await self._cancel_sandbox_warmup_task(session_id)
-        try:
-            await self._agent_domain_service.stop_session(session_id)
-        except Exception as e:
-            logger.warning(f"Failed to stop session {session_id} before deletion: {e}")
-
-        await self._session_repository.delete(session_id)
-        logger.info(f"Session {session_id} deleted successfully")
-
-        # Clean up persisted login-state files to prevent orphaned auth snapshots
-        try:
-            BrowserLoginStateStore().delete_state(user_id, session_id)
-        except Exception as e:  # pragma: no cover — best-effort cleanup
-            logger.debug("Failed to clean up login state for session %s: %s", session_id, e)
+        """Delete a session via the lifecycle service."""
+        await self._session_lifecycle_service.delete_session(session_id, user_id)
 
     async def stop_session(self, session_id: str, user_id: str) -> None:
-        """Stop a session, ensuring it belongs to the user.
-
-        Idempotent: returns silently if session no longer exists (e.g. already
-        cleaned up after a browser crash or race with delete).
-        """
-        logger.info(f"Stopping session {session_id} for user {user_id}")
-        # First verify the session belongs to the user
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.info(f"Session {session_id} already gone — stop is a no-op")
-            return
-        if session.status in (SessionStatus.RUNNING, SessionStatus.INITIALIZING):
-            try:
-                from app.domain.external.observability import get_metrics
-
-                get_metrics().record_counter("user_stop_before_done_total")
-            except Exception as e:
-                logger.debug("Could not record user_stop_before_done metric: %s", e)
-        await self._cancel_sandbox_warmup_task(session_id)
-        await self._agent_domain_service.stop_session(session_id)
-        logger.info(f"Session {session_id} stopped successfully")
+        """Stop a session via the lifecycle service."""
+        await self._session_lifecycle_service.stop_session(session_id, user_id)
 
     async def pause_session(self, session_id: str, user_id: str) -> bool:
-        """Pause a session for user takeover, ensuring it belongs to the user"""
-        logger.info(f"Pausing session {session_id} for user {user_id}")
-        # First verify the session belongs to the user
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
-        result = await self._agent_domain_service.pause_session(session_id)
-        if result:
-            logger.info(f"Session {session_id} paused successfully")
-        return result
+        """Pause a session via the lifecycle service."""
+        return await self._session_lifecycle_service.pause_session(session_id, user_id)
 
     async def resume_session(
         self, session_id: str, user_id: str, context: str | None = None, persist_login_state: bool | None = None
@@ -1336,18 +1226,12 @@ class AgentService:
             context: Optional context about changes made during takeover
             persist_login_state: Optional flag to persist browser login state
         """
-        logger.info(f"Resuming session {session_id} for user {user_id}")
-        # First verify the session belongs to the user
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
-        result = await self._agent_domain_service.resume_session(
-            session_id, context=context, persist_login_state=persist_login_state
+        return await self._session_lifecycle_service.resume_session(
+            session_id,
+            user_id,
+            context=context,
+            persist_login_state=persist_login_state,
         )
-        if result:
-            logger.info(f"Session {session_id} resumed successfully")
-        return result
 
     async def start_takeover(self, session_id: str, user_id: str, reason: str = "manual") -> bool:
         """Start browser takeover, pausing agent first.

@@ -22,7 +22,9 @@ from app.domain.models.session import (
     ReasoningVisibility,
     ResearchMode,
     Session,
+    SessionReliabilityDiagnostics,
     SessionStatus,
+    SessionWorkloadClass,
     TakeoverReason,
     TakeoverState,
     ThinkingLevel,
@@ -216,6 +218,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
     research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy
+    workload_class: SessionWorkloadClass | None = None
+    reliability: SessionReliabilityDiagnostics | None = None
     pending_action: PendingAction | None = None
     pending_action_status: PendingActionStatus | None = None
     # Workspace metadata (sanitized)

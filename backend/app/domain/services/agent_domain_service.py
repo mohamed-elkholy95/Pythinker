@@ -34,7 +34,7 @@ from app.domain.models.event import (
     WaitEvent,
 )
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus, SessionWorkloadClass
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
@@ -57,6 +57,8 @@ class AgentDomainService:
     Coordinates the work of planning agent and execution agent by composing
     AgentSessionLifecycle and AgentTaskFactory sub-services.
     """
+
+    MAX_INTERACTIVE_EXECUTION_BURST = 3
 
     def __init__(
         self,
@@ -119,7 +121,108 @@ class AgentDomainService:
         _settings = _init_settings()
         self._sandbox_init_semaphore = asyncio.Semaphore(_settings.max_concurrent_agents)
         self._agent_execution_semaphore = asyncio.Semaphore(_settings.max_concurrent_executions)
+        self._max_execution_slots = _settings.max_concurrent_executions
+        self._execution_slots_in_use = 0
+        self._execution_admission_lock = asyncio.Lock()
+        self._waiting_execution_slots = {
+            SessionWorkloadClass.INTERACTIVE: 0,
+            SessionWorkloadClass.HEAVY: 0,
+        }
+        self._last_execution_slot_class: SessionWorkloadClass | None = None
+        self._consecutive_execution_slot_grants = 0
         logger.info("AgentDomainService initialization completed")
+
+    def _classify_workload_class(self, session: Session) -> SessionWorkloadClass:
+        if session.workload_class is not None:
+            return session.workload_class
+        if session.mode == AgentMode.DISCUSS or session.research_mode == ResearchMode.FAST_SEARCH:
+            return SessionWorkloadClass.INTERACTIVE
+        return SessionWorkloadClass.HEAVY
+
+    def _select_next_execution_workload_class(
+        self,
+        *,
+        interactive_waiting: int,
+        heavy_waiting: int,
+    ) -> SessionWorkloadClass | None:
+        if interactive_waiting > 0 and heavy_waiting > 0:
+            if (
+                self._last_execution_slot_class == SessionWorkloadClass.INTERACTIVE
+                and self._consecutive_execution_slot_grants >= self.MAX_INTERACTIVE_EXECUTION_BURST
+            ):
+                return SessionWorkloadClass.HEAVY
+            return SessionWorkloadClass.INTERACTIVE
+        if interactive_waiting > 0:
+            return SessionWorkloadClass.INTERACTIVE
+        if heavy_waiting > 0:
+            return SessionWorkloadClass.HEAVY
+        return None
+
+    def _record_execution_slot_grant(self, workload_class: SessionWorkloadClass) -> None:
+        if self._last_execution_slot_class == workload_class:
+            self._consecutive_execution_slot_grants += 1
+        else:
+            self._last_execution_slot_class = workload_class
+            self._consecutive_execution_slot_grants = 1
+
+    async def _decrement_waiting_execution_slot(self, workload_class: SessionWorkloadClass) -> None:
+        async with self._execution_admission_lock:
+            self._waiting_execution_slots[workload_class] = max(
+                0,
+                self._waiting_execution_slots[workload_class] - 1,
+            )
+
+    async def _release_reserved_execution_slot(self) -> None:
+        async with self._execution_admission_lock:
+            self._execution_slots_in_use = max(0, self._execution_slots_in_use - 1)
+
+    async def _acquire_execution_slot(self, session: Session) -> SessionWorkloadClass:
+        workload_class = self._classify_workload_class(session)
+        session.workload_class = workload_class
+        is_registered = False
+        try:
+            while True:
+                async with self._execution_admission_lock:
+                    if not is_registered:
+                        self._waiting_execution_slots[workload_class] += 1
+                        is_registered = True
+
+                    selected = self._select_next_execution_workload_class(
+                        interactive_waiting=self._waiting_execution_slots[SessionWorkloadClass.INTERACTIVE],
+                        heavy_waiting=self._waiting_execution_slots[SessionWorkloadClass.HEAVY],
+                    )
+                    if selected == workload_class and self._execution_slots_in_use < self._max_execution_slots:
+                        self._waiting_execution_slots[workload_class] -= 1
+                        is_registered = False
+                        self._execution_slots_in_use += 1
+                        self._record_execution_slot_grant(workload_class)
+                        break
+                await asyncio.sleep(0.01)
+
+            try:
+                await self._agent_execution_semaphore.acquire()
+            except asyncio.CancelledError:
+                await self._release_reserved_execution_slot()
+                raise
+            except Exception:
+                await self._release_reserved_execution_slot()
+                raise
+            return workload_class
+        except asyncio.CancelledError:
+            if is_registered:
+                await self._decrement_waiting_execution_slot(workload_class)
+            raise
+        except Exception:
+            if is_registered:
+                await self._decrement_waiting_execution_slot(workload_class)
+            raise
+
+    async def _release_execution_slot(self, workload_class: SessionWorkloadClass | None) -> None:
+        if workload_class is None:
+            return
+        self._agent_execution_semaphore.release()
+        async with self._execution_admission_lock:
+            self._execution_slots_in_use = max(0, self._execution_slots_in_use - 1)
 
     @staticmethod
     def _ensure_aware_utc(timestamp: datetime | None) -> datetime | None:
@@ -318,6 +421,7 @@ class AgentDomainService:
         # (acquired/released around task creation only), while the LLM execution loop
         # uses _agent_execution_semaphore (higher limit, held for full event loop).
         execution_slot_acquired = False
+        execution_workload_class: SessionWorkloadClass | None = None
 
         try:
             session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
@@ -678,18 +782,20 @@ class AgentDomainService:
             from app.core.config import get_settings as _get_cfg
 
             stream_poll_block_ms = max(1, _get_cfg().redis_stream_poll_block_ms)
-
             # Acquire execution slot for the LLM event loop (higher concurrency limit).
             # Emit progress event if waiting >5s so user knows the system is queued.
             try:
-                await asyncio.wait_for(self._agent_execution_semaphore.acquire(), timeout=5.0)
+                execution_workload_class = await asyncio.wait_for(self._acquire_execution_slot(session), timeout=5.0)
             except TimeoutError:
                 logger.info("Session %s waiting for execution slot...", session_id)
                 yield ProgressEvent(
-                    progress="Waiting for an available execution slot...",
-                    percent=0,
+                    phase=PlanningPhase.WAITING,
+                    message="Waiting for an available execution slot...",
+                    progress_percent=0,
+                    wait_elapsed_seconds=5,
+                    wait_stage="execution_wait",
                 )
-                await self._agent_execution_semaphore.acquire()
+                execution_workload_class = await self._acquire_execution_slot(session)
             execution_slot_acquired = True
 
             received_events = False
@@ -1041,7 +1147,7 @@ class AgentDomainService:
             yield event
         finally:
             if execution_slot_acquired:
-                self._agent_execution_semaphore.release()
+                await self._release_execution_slot(execution_workload_class)
             await self._session_repository.update_unread_message_count(session_id, 0)
             # Flush remaining conversation context turns (non-blocking)
             if self._conversation_context_service:

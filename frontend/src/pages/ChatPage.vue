@@ -266,7 +266,7 @@
             <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-amber-800 dark:text-amber-300">
-                {{ autoRetryCount < 4
+                {{ autoRetryCount < DEFAULT_SESSION_RECONNECT_POLICY.maxAutoRetries
                   ? $t('Connection interrupted. Reconnecting automatically...')
                   : (isFallbackStatusPolling
                     ? $t('Connection interrupted. Checking task status in background...')
@@ -670,6 +670,11 @@ import {
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
+import { DEFAULT_SESSION_RECONNECT_POLICY } from '@/core/session/reconnectPolicy';
+import {
+  hasSessionReliabilitySignals,
+  serializeSessionReliabilitySummary,
+} from '@/core/session/sessionReliability';
 import { logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { isEventSourceResumeEnabled } from '@/utils/sseTransport';
 import { useToolStore } from '@/stores/toolStore';
@@ -751,6 +756,7 @@ const isStreamDegraded = computed(() => connectionStore.connectionState === 'deg
 const connectionBannerRetryAttempt = ref<number | undefined>(undefined)
 const connectionBannerMaxRetries = ref<number | undefined>(undefined)
 const connectionBannerRetryDelayMs = ref<number | undefined>(undefined)
+const lastSubmittedReliabilitySignature = ref<string | null>(null)
 
 const dismissConnectionBanner = () => {
   connectionBannerRetryAttempt.value = undefined
@@ -1391,7 +1397,7 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
   }
 
   try {
-    const statusResp = await agentApi.getSessionStatus(activeSessionId);
+    const statusResp = await readSessionStatus(activeSessionId);
     sessionStatus.value = statusResp.status as SessionStatus;
     if (sessionStatus.value !== SessionStatus.INITIALIZING) {
       sessionInitTimedOut.value = false;
@@ -1403,6 +1409,23 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
     }
     // Other errors are non-critical
   }
+};
+
+const syncSessionReliabilityFromStatus = (
+  reliability: agentApi.SessionReliabilityDiagnosticsResponse | null | undefined,
+) => {
+  if (!reliability) {
+    return;
+  }
+  lastSubmittedReliabilitySignature.value = serializeSessionReliabilitySummary(
+    agentApi.toSessionReliabilitySummary(reliability),
+  );
+};
+
+const readSessionStatus = async (targetSessionId: string): Promise<agentApi.SessionStatusResponse> => {
+  const statusResp = await agentApi.getSessionStatus(targetSessionId);
+  syncSessionReliabilityFromStatus(statusResp.reliability);
+  return statusResp;
 };
 
 const maybeSendPendingInitialMessage = () => {
@@ -1734,7 +1757,7 @@ const reconcileSessionStatus = async () => {
   logChatSseDiagnostics('reconcile:start');
 
   try {
-    const statusResp = await agentApi.getSessionStatus(sid);
+    const statusResp = await readSessionStatus(sid);
     const status = statusResp.status as SessionStatus;
 
     if (sessionId.value !== sid) return; // guard again after async
@@ -1774,6 +1797,30 @@ const streamController = useSessionStreamController({
   log: logChatSseDiagnostics,
 })
 
+const submitSessionReliabilitySummary = async (targetSessionId: string) => {
+  const summary = streamController.getReliabilitySummary();
+  if (!hasSessionReliabilitySignals(summary)) {
+    return;
+  }
+
+  const summarySignature = serializeSessionReliabilitySummary(summary);
+  if (lastSubmittedReliabilitySignature.value === summarySignature) {
+    return;
+  }
+
+  try {
+    await agentApi.submitSessionReliabilityDiagnostics(targetSessionId, summary);
+    if (sessionId.value === targetSessionId) {
+      lastSubmittedReliabilitySignature.value = summarySignature;
+    }
+  } catch (error) {
+    logChatSseDiagnostics('reliability:submit_failed', {
+      sessionId: targetSessionId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 // Reset all refs to their initial values
 const resetState = () => {
   invalidateRestoreEpoch('reset_state');
@@ -1789,6 +1836,8 @@ const resetState = () => {
   // handleStop, done handler, or explicit session deletion.
 
   researchWorkflow.reset();
+  streamController.resetReliabilitySummary();
+  lastSubmittedReliabilitySignature.value = null;
 
   // Clear streaming content buffer and search sources cache
   streamingContentBuffer.clear();
@@ -1855,13 +1904,9 @@ watch(isLoading, (loading) => {
 // React to stale detection from connectionStore (triggers reconnection)
 watch(() => connectionStore.isStale, (stale) => {
   if (!stale) return
+  streamController.recordStaleDetection()
   handleStaleConnection()
 });
-
-// Auto-retry after timeout: progressive backoff (5s, 15s, 45s, 60s), max 4 attempts
-const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000];
-const FALLBACK_STATUS_POLL_INTERVAL_MS = 5000;
-const FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 24; // ~2 minutes
 
 const stopFallbackStatusPolling = () => {
   streamController.clearReconnectCoordinator();
@@ -1873,7 +1918,7 @@ const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
   }
 
   try {
-    const statusResp = await agentApi.getSessionStatus(sessionId.value);
+    const statusResp = await readSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
     if (isTerminalSessionStatus(status)) {
       if (status === SessionStatus.FAILED && !lastError.value) {
@@ -3614,6 +3659,7 @@ const finalizeSession = (
   transitionTo(reason === 'stop' ? 'stopped' : 'completing');
 
   if (sessionId.value) {
+    void submitSessionReliabilitySummary(sessionId.value);
     emitStatusChange(sessionId.value, status);
     if (options.cleanupStorage ?? true) {
       connectionStore.cleanupSessionStorage(sessionId.value);
@@ -3775,6 +3821,7 @@ const processEvent = (event: AgentSSEEvent) => {
   // Deduplicate events based on event_id to prevent duplicate messages
   const eventId = event.data?.event_id;
   if (streamController.isDuplicateEvent(eventId)) {
+    streamController.recordDuplicateEventDrop();
     logChatSseDiagnostics('event:duplicate_skipped', {
       event: event.event,
       eventId,
@@ -4147,7 +4194,7 @@ const restoreSession = async (
       // handler), the condition above will be false and we skip auto-resume. But if the
       // server returned "running" AND events didn't include a DoneEvent (edge case),
       // do a lightweight status re-check to avoid restarting a completed task.
-      const freshStatus = await agentApi.getSessionStatus(targetSessionId);
+      const freshStatus = await readSessionStatus(targetSessionId);
       if (shouldAbortRestore('after_status_recheck')) return;
       if (freshStatus && isTerminalSessionStatus(freshStatus.status as SessionStatus)) {
         finalizeSession('reconcile', freshStatus.status as SessionStatus);
@@ -4352,7 +4399,7 @@ watch(documentVisibility, async (newVisibility) => {
 
   try {
     const activeSessionId = sessionId.value;
-    const status = await agentApi.getSessionStatus(activeSessionId);
+    const status = await readSessionStatus(activeSessionId);
     if (sessionId.value !== activeSessionId) return;
     if (status.status !== sessionStatus.value) {
       const nextStatus = status.status as SessionStatus;
@@ -4610,7 +4657,7 @@ const handleRetryConnection = async () => {
 
   // Status reconciliation: if session already completed/failed, skip SSE and settle
   try {
-    const statusResp = await agentApi.getSessionStatus(sessionId.value);
+    const statusResp = await readSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
     if (isTerminalSessionStatus(status)) {
       finalizeSession('retry_reconcile', status);
@@ -4672,10 +4719,11 @@ streamController.setupReconnectCoordinator({
   isFallbackStatusPolling,
   onRetryConnection: handleRetryConnection,
   pollFallbackStatus: pollSessionStatusFallback,
-  maxAutoRetries: 4,
-  autoRetryDelaysMs: AUTO_RETRY_DELAYS_MS,
-  fallbackPollInitialIntervalMs: FALLBACK_STATUS_POLL_INTERVAL_MS,
-  fallbackPollMaxAttempts: FALLBACK_STATUS_POLL_MAX_ATTEMPTS,
+  maxAutoRetries: DEFAULT_SESSION_RECONNECT_POLICY.maxAutoRetries,
+  autoRetryDelaysMs: DEFAULT_SESSION_RECONNECT_POLICY.autoRetryDelaysMs,
+  fallbackPollInitialIntervalMs: DEFAULT_SESSION_RECONNECT_POLICY.fallbackPollInitialIntervalMs,
+  fallbackPollMaxIntervalMs: DEFAULT_SESSION_RECONNECT_POLICY.fallbackPollMaxIntervalMs,
+  fallbackPollMaxAttempts: DEFAULT_SESSION_RECONNECT_POLICY.fallbackPollMaxAttempts,
 })
 
 const handleFileListShow = () => {

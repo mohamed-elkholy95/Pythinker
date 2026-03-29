@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock as MockAsyncMock
 from unittest.mock import MagicMock
 
 import pytest
@@ -45,17 +46,21 @@ def _build_service() -> AgentService:
 
 @pytest.mark.asyncio
 async def test_delete_session_is_idempotent_for_missing_session() -> None:
-    """delete_session is idempotent — returns silently if session not found."""
+    """AgentService delegates delete_session to SessionLifecycleService."""
     service = _build_service()
+    service._session_lifecycle_service.delete_session = MockAsyncMock()
 
-    # Should NOT raise: idempotent delete returns silently
     await service.delete_session("missing-session", "user-1")
+
+    service._session_lifecycle_service.delete_session.assert_awaited_once_with("missing-session", "user-1")
 
 
 @pytest.mark.asyncio
 async def test_stop_session_is_idempotent_for_missing_session() -> None:
-    """stop_session is idempotent — returns silently if session not found."""
+    """AgentService delegates stop_session to SessionLifecycleService."""
     service = _build_service()
+    service._session_lifecycle_service.stop_session = MockAsyncMock()
 
-    # Should NOT raise: idempotent stop returns silently
     await service.stop_session("missing-session", "user-1")
+
+    service._session_lifecycle_service.stop_session.assert_awaited_once_with("missing-session", "user-1")

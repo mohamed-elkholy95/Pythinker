@@ -6,10 +6,11 @@ Follows Single Responsibility Principle - one service for session lifecycle.
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from app.application.errors.exceptions import NotFoundError
-from app.domain.models.session import SessionStatus, TakeoverReason
+from app.domain.models.session import Session, SessionStatus, TakeoverReason
 from app.domain.repositories.session_repository import SessionRepository
 
 if TYPE_CHECKING:
@@ -25,6 +26,8 @@ class SessionLifecycleService:
         self,
         session_repository: SessionRepository,
         agent_domain_service: "AgentDomainService",
+        before_stop_hook: Callable[[Session], Awaitable[object] | None] | None = None,
+        after_delete_hook: Callable[[Session], Awaitable[object] | None] | None = None,
     ):
         """Initialize SessionLifecycleService
 
@@ -34,7 +37,25 @@ class SessionLifecycleService:
         """
         self._session_repository = session_repository
         self._agent_domain_service = agent_domain_service
+        self._before_stop_hook = before_stop_hook
+        self._after_delete_hook = after_delete_hook
         self._session_cancel_events: dict[str, asyncio.Event] = {}
+
+    async def _run_hook(
+        self,
+        hook: Callable[[Session], Awaitable[object] | None] | None,
+        session: Session,
+        *,
+        hook_name: str,
+    ) -> None:
+        if hook is None:
+            return
+        try:
+            result = hook(session)
+            if result is not None:
+                await result
+        except Exception as exc:
+            logger.warning("Session lifecycle hook %s failed for session %s: %s", hook_name, session.id, exc)
 
     def request_cancellation(self, session_id: str) -> None:
         """Signal that a session's processing should stop (e.g. SSE disconnect).
@@ -86,8 +107,10 @@ class SessionLifecycleService:
         # Verify session belongs to user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
+            logger.info(f"Session {session_id} already gone — delete is a no-op")
+            return
+
+        await self._run_hook(self._before_stop_hook, session, hook_name="before_stop")
 
         # Stop session first
         try:
@@ -99,6 +122,7 @@ class SessionLifecycleService:
         self.unregister_cancel_event(session_id)
 
         await self._session_repository.delete(session_id)
+        await self._run_hook(self._after_delete_hook, session, hook_name="after_delete")
         logger.info(f"Session {session_id} deleted successfully")
 
     async def stop_session(self, session_id: str, user_id: str) -> None:
@@ -116,8 +140,8 @@ class SessionLifecycleService:
         # Verify session belongs to user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
+            logger.info(f"Session {session_id} already gone — stop is a no-op")
+            return
 
         # Record metric if stopping active session
         if session.status in (SessionStatus.RUNNING, SessionStatus.INITIALIZING):
@@ -128,6 +152,7 @@ class SessionLifecycleService:
             except Exception as e:
                 logger.debug("Could not record user_stop_before_done metric: %s", e)
 
+        await self._run_hook(self._before_stop_hook, session, hook_name="before_stop")
         await self._agent_domain_service.stop_session(session_id)
 
         # Clean up cancel event to prevent memory leak

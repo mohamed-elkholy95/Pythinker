@@ -367,3 +367,48 @@ async def test_chat_marks_cancelled_when_task_finishes_without_terminal_event_af
     assert isinstance(events[1], ErrorEvent)
     assert "interrupted" in events[1].error
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.CANCELLED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
+async def test_chat_emits_valid_waiting_progress_when_execution_slot_is_queued(monkeypatch) -> None:
+    done_event = DoneEvent()
+    task = SimpleNamespace(
+        id="task-id",
+        output_stream=SimpleNamespace(get=AsyncMock(return_value=("1-0", done_event.model_dump_json()))),
+        done=False,
+    )
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id="task-id",
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+    )
+
+    service, teardown = _build_service(session, task)
+
+    real_wait_for = asyncio.wait_for
+    wait_for_calls = {"count": 0}
+
+    async def _wait_for_with_forced_timeout(awaitable, *args, **kwargs):
+        wait_timeout = kwargs.get("timeout", args[0] if args else None)
+        wait_for_calls["count"] += 1
+        if wait_for_calls["count"] == 1 and wait_timeout == 5.0:
+            awaitable.close()
+            raise TimeoutError
+        return await real_wait_for(awaitable, *args, **kwargs)
+
+    monkeypatch.setattr("app.domain.services.agent_domain_service.asyncio.wait_for", _wait_for_with_forced_timeout)
+
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 2
+    assert isinstance(events[0], ProgressEvent)
+    assert events[0].phase == PlanningPhase.WAITING
+    assert events[0].message == "Waiting for an available execution slot..."
+    assert events[0].progress_percent == 0
+    assert events[0].wait_stage == "execution_wait"
+    assert isinstance(events[1], DoneEvent)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)

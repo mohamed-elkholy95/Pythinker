@@ -12,16 +12,20 @@ import dataclasses
 import logging
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.core import prometheus_metrics as pm
 from app.core.prometheus_metrics import FRONTEND_ERRORS
+from app.domain.models.session import SessionReliabilityDiagnostics
 from app.domain.models.user import User
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.session_replay import build_session_replay
-from app.interfaces.dependencies import require_admin_user
+from app.interfaces.dependencies import get_current_user, require_admin_user
+from app.interfaces.schemas.session import SessionReliabilityDiagnosticsRequest
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,13 @@ class FrontendErrorBatch(BaseModel):
     """Batched payload from the frontend error tracker."""
 
     errors: list[FrontendError] = Field(max_length=25)
+
+
+def _get_session_repository() -> SessionRepository:
+    """Get session repository instance for dependency injection."""
+    from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
+
+    return MongoSessionRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -133,18 +144,49 @@ async def receive_frontend_errors(
     return {"status": "accepted", "count": str(len(payload.errors))}
 
 
+@router.post("/sessions/{session_id}/reliability", status_code=202)
+async def receive_session_reliability_diagnostics(
+    session_id: str,
+    payload: SessionReliabilityDiagnosticsRequest,
+    current_user: User = Depends(get_current_user),
+    session_repo: SessionRepository = Depends(_get_session_repository),
+) -> dict[str, str]:
+    """Persist a per-session reliability summary reported by the frontend."""
+    session = await session_repo.find_by_id_and_user_id(session_id, current_user.id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        )
+
+    session.reliability = SessionReliabilityDiagnostics(
+        auto_retry_count=payload.auto_retry_count,
+        fallback_poll_attempts=payload.fallback_poll_attempts,
+        stale_detection_count=payload.stale_detection_count,
+        duplicate_event_drops=payload.duplicate_event_drops,
+        max_queue_depth=payload.max_queue_depth,
+        average_flush_batch_size=payload.average_flush_batch_size,
+        max_chunk_processing_duration_ms=payload.max_chunk_processing_duration_ms,
+        submitted_at=datetime.now(UTC),
+    )
+    await session_repo.save(session)
+
+    pm.record_session_reliability_diagnostics(
+        auto_retry_count=payload.auto_retry_count,
+        fallback_poll_attempts=payload.fallback_poll_attempts,
+        stale_detection_count=payload.stale_detection_count,
+        duplicate_event_drops=payload.duplicate_event_drops,
+        max_queue_depth=payload.max_queue_depth,
+        average_flush_batch_size=payload.average_flush_batch_size,
+        max_chunk_processing_duration_ms=payload.max_chunk_processing_duration_ms,
+    )
+
+    return {"status": "accepted", "session_id": session_id}
+
+
 # ---------------------------------------------------------------------------
 # Session Replay endpoint (admin-only)
 # ---------------------------------------------------------------------------
-
-
-def _get_session_repository() -> SessionRepository:
-    """Get session repository instance for dependency injection."""
-    from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
-
-    return MongoSessionRepository()
-
-
 @router.get("/session-replay/{session_id}")
 async def get_session_replay(
     session_id: str,

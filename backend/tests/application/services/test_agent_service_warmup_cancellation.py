@@ -62,13 +62,11 @@ async def test_cancel_sandbox_warmup_task_removes_and_cancels_task():
 async def test_stop_session_cancels_warmup_before_domain_stop():
     session = Session(id="session-2", user_id="user-2", agent_id="agent-2")
     service = _build_service(session)
-    service._cancel_sandbox_warmup_task = AsyncMock()
-    service._agent_domain_service.stop_session = AsyncMock()
+    service._session_lifecycle_service.stop_session = AsyncMock()
 
     await service.stop_session("session-2", "user-2")
 
-    service._cancel_sandbox_warmup_task.assert_awaited_once_with("session-2")
-    service._agent_domain_service.stop_session.assert_awaited_once_with("session-2")
+    service._session_lifecycle_service.stop_session.assert_awaited_once_with("session-2", "user-2")
 
 
 @pytest.mark.asyncio

@@ -38,9 +38,13 @@ def agent_domain_service():
 @pytest.fixture
 def service(session_repository, agent_domain_service):
     """Create SessionLifecycleService instance"""
+    before_stop_hook = AsyncMock()
+    after_delete_hook = AsyncMock()
     return SessionLifecycleService(
         session_repository=session_repository,
         agent_domain_service=agent_domain_service,
+        before_stop_hook=before_stop_hook,
+        after_delete_hook=after_delete_hook,
     )
 
 
@@ -49,13 +53,19 @@ class TestSessionLifecycleServiceInit:
 
     def test_initializes_with_required_dependencies(self, session_repository, agent_domain_service):
         """Service initializes with session_repository and agent_domain_service"""
+        before_stop_hook = AsyncMock()
+        after_delete_hook = AsyncMock()
         service = SessionLifecycleService(
             session_repository=session_repository,
             agent_domain_service=agent_domain_service,
+            before_stop_hook=before_stop_hook,
+            after_delete_hook=after_delete_hook,
         )
 
         assert service._session_repository == session_repository
         assert service._agent_domain_service == agent_domain_service
+        assert service._before_stop_hook == before_stop_hook
+        assert service._after_delete_hook == after_delete_hook
         assert isinstance(service._session_cancel_events, dict)
         assert len(service._session_cancel_events) == 0
 
@@ -104,17 +114,18 @@ class TestDeleteSession:
 
         # Verify session was stopped
         agent_domain_service.stop_session.assert_called_once_with(session_id)
+        service._before_stop_hook.assert_awaited_once_with(session)
 
         # Verify session was deleted
         session_repository.delete.assert_called_once_with(session_id)
+        service._after_delete_hook.assert_awaited_once_with(session)
 
     @pytest.mark.asyncio
-    async def test_raises_not_found_when_session_missing(self, service, session_repository):
-        """Raises NotFoundError when session doesn't exist"""
+    async def test_returns_silently_when_session_missing(self, service, session_repository):
+        """delete_session is idempotent when the session no longer exists"""
         session_repository.find_by_id_and_user_id.return_value = None
 
-        with pytest.raises(NotFoundError, match="Session not found"):
-            await service.delete_session("missing-session", "user-123")
+        await service.delete_session("missing-session", "user-123")
 
 
 class TestStopSession:
@@ -138,14 +149,14 @@ class TestStopSession:
 
         # Verify session was stopped
         agent_domain_service.stop_session.assert_called_once_with(session_id)
+        service._before_stop_hook.assert_awaited_once_with(session)
 
     @pytest.mark.asyncio
-    async def test_raises_not_found_when_session_missing(self, service, session_repository):
-        """Raises NotFoundError when session doesn't exist"""
+    async def test_returns_silently_when_session_missing(self, service, session_repository):
+        """stop_session is idempotent when the session no longer exists"""
         session_repository.find_by_id_and_user_id.return_value = None
 
-        with pytest.raises(NotFoundError, match="Session not found"):
-            await service.stop_session("missing-session", "user-123")
+        await service.stop_session("missing-session", "user-123")
 
 
 class TestTakeoverLifecycle:

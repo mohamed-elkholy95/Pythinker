@@ -768,6 +768,57 @@ sse_stream_events_total = Counter(
     labels=["endpoint", "event_type", "phase"],
 )
 
+session_reliability_reports_total = Counter(
+    name="pythinker_session_reliability_reports_total",
+    help_text="Total frontend reliability scorecard submissions",
+    labels=[],
+)
+
+session_reliability_auto_retries_total = Counter(
+    name="pythinker_session_reliability_auto_retries_total",
+    help_text="Total auto-retry attempts reported by the frontend",
+    labels=[],
+)
+
+session_reliability_fallback_polls_total = Counter(
+    name="pythinker_session_reliability_fallback_polls_total",
+    help_text="Total fallback status polls reported by the frontend",
+    labels=[],
+)
+
+session_reliability_stale_detections_total = Counter(
+    name="pythinker_session_reliability_stale_detections_total",
+    help_text="Total stale-connection detections reported by the frontend",
+    labels=[],
+)
+
+session_reliability_duplicate_event_drops_total = Counter(
+    name="pythinker_session_reliability_duplicate_event_drops_total",
+    help_text="Total duplicate SSE events dropped by the frontend",
+    labels=[],
+)
+
+session_reliability_max_queue_depth = Histogram(
+    name="pythinker_session_reliability_max_queue_depth",
+    help_text="Maximum queued SSE events observed by the frontend controller",
+    labels=[],
+    buckets=[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0],
+)
+
+session_reliability_flush_batch_size = Histogram(
+    name="pythinker_session_reliability_flush_batch_size",
+    help_text="Average frontend SSE flush batch size per scorecard submission",
+    labels=[],
+    buckets=[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0],
+)
+
+session_reliability_chunk_duration_ms = Histogram(
+    name="pythinker_session_reliability_chunk_duration_ms",
+    help_text="Maximum frontend SSE chunk processing duration per scorecard submission",
+    labels=[],
+    buckets=[1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0],
+)
+
 # Orphaned Task Cleanup Metrics
 orphaned_task_cleanup_runs_total = Counter(
     name="pythinker_orphaned_task_cleanup_runs_total",
@@ -955,6 +1006,14 @@ _metrics_registry = [
     sse_resume_cursor_fallback_total,
     sse_reconnect_first_non_heartbeat_seconds,
     sse_stream_events_total,
+    session_reliability_reports_total,
+    session_reliability_auto_retries_total,
+    session_reliability_fallback_polls_total,
+    session_reliability_stale_detections_total,
+    session_reliability_duplicate_event_drops_total,
+    session_reliability_max_queue_depth,
+    session_reliability_flush_batch_size,
+    session_reliability_chunk_duration_ms,
     # Orphaned Task Cleanup
     orphaned_task_cleanup_runs_total,
     orphaned_redis_streams_cleaned_total,
@@ -2098,6 +2157,29 @@ def record_sse_stream_event(endpoint: str = "chat", event_type: str = "unknown",
             "phase": normalized_phase,
         }
     )
+
+
+def record_session_reliability_diagnostics(
+    *,
+    auto_retry_count: int = 0,
+    fallback_poll_attempts: int = 0,
+    stale_detection_count: int = 0,
+    duplicate_event_drops: int = 0,
+    max_queue_depth: int = 0,
+    average_flush_batch_size: float | None = None,
+    max_chunk_processing_duration_ms: float | None = None,
+) -> None:
+    """Record a frontend reliability scorecard submission."""
+    session_reliability_reports_total.inc()
+    session_reliability_auto_retries_total.inc(value=max(0, int(auto_retry_count)))
+    session_reliability_fallback_polls_total.inc(value=max(0, int(fallback_poll_attempts)))
+    session_reliability_stale_detections_total.inc(value=max(0, int(stale_detection_count)))
+    session_reliability_duplicate_event_drops_total.inc(value=max(0, int(duplicate_event_drops)))
+    session_reliability_max_queue_depth.observe(value=max(0.0, float(max_queue_depth)))
+    if average_flush_batch_size is not None:
+        session_reliability_flush_batch_size.observe(value=max(0.0, float(average_flush_batch_size)))
+    if max_chunk_processing_duration_ms is not None:
+        session_reliability_chunk_duration_ms.observe(value=max(0.0, float(max_chunk_processing_duration_ms)))
 
 
 # Orphaned Task Cleanup Metric Functions

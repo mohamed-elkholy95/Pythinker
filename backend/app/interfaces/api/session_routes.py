@@ -23,10 +23,18 @@ from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
 from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
+from app.core.workflow_timing_contract import (
+    SSE_HEARTBEAT_INTERVAL_SECONDS,
+    SSE_PROTOCOL_VERSION,
+    SSE_RETRY_BASE_DELAY_MS,
+    SSE_RETRY_JITTER_RATIO,
+    SSE_RETRY_MAX_ATTEMPTS,
+    SSE_RETRY_MAX_DELAY_MS,
+)
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import Session, SessionReliabilityDiagnostics, SessionStatus
 from app.domain.models.user import User, UserRole
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.stream_guard import (
@@ -74,6 +82,7 @@ from app.interfaces.schemas.session import (
     ReportPdfDownloadRequest,
     ResumeSessionRequest,
     SandboxInfo,
+    SessionReliabilityDiagnosticsResponse,
     SessionStatusResponse,
     SharedSessionResponse,
     ShareSessionResponse,
@@ -238,12 +247,6 @@ def _redact_query_params(url: str, sensitive_keys: set[str] | None = None) -> st
         return url
 
 
-SSE_PROTOCOL_VERSION = "2"
-SSE_RETRY_MAX_ATTEMPTS = 7
-SSE_RETRY_BASE_DELAY_MS = 1000
-SSE_RETRY_MAX_DELAY_MS = 45000
-SSE_RETRY_JITTER_RATIO = 0.25
-SSE_HEARTBEAT_INTERVAL_SECONDS = 30.0
 SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS = 45.0
 SSE_TERMINAL_STATUS_CLOSE_REASONS: dict[str, str] = {
     "completed": "session_terminal_completed",
@@ -374,6 +377,26 @@ def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEA
         "X-Accel-Buffering": "no",
         "Access-Control-Expose-Headers": ", ".join(expose_headers),
     }
+
+
+def _map_session_reliability(
+    reliability: SessionReliabilityDiagnostics | None,
+) -> SessionReliabilityDiagnosticsResponse | None:
+    if reliability is None:
+        return None
+    submitted_at = reliability.submitted_at
+    if submitted_at is not None and submitted_at.tzinfo is None:
+        submitted_at = submitted_at.replace(tzinfo=UTC)
+    return SessionReliabilityDiagnosticsResponse(
+        auto_retry_count=reliability.auto_retry_count,
+        fallback_poll_attempts=reliability.fallback_poll_attempts,
+        stale_detection_count=reliability.stale_detection_count,
+        duplicate_event_drops=reliability.duplicate_event_drops,
+        max_queue_depth=reliability.max_queue_depth,
+        average_flush_batch_size=reliability.average_flush_batch_size,
+        max_chunk_processing_duration_ms=reliability.max_chunk_processing_duration_ms,
+        submitted_at=submitted_at.timestamp() if submitted_at else None,
+    )
 
 
 def _filter_sessions_for_listing(
@@ -593,6 +616,7 @@ async def get_session_status(
             sandbox_id=session.sandbox_id,
             streaming_mode=str(get_settings().sandbox_streaming_mode),
             created_at=session.created_at.timestamp() if session.created_at else None,
+            reliability=_map_session_reliability(session.reliability),
         )
     )
 
@@ -622,6 +646,7 @@ async def get_active_session(
                 sandbox_id=active.sandbox_id,
                 streaming_mode=str(get_settings().sandbox_streaming_mode),
                 created_at=active.created_at.timestamp() if active.created_at else None,
+                reliability=_map_session_reliability(active.reliability),
             )
         )
     )

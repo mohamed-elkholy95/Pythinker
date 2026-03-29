@@ -7,6 +7,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+import {
+  SSE_HEARTBEAT_LIVENESS_MS,
+  SSE_STALE_CHECK_INTERVAL_MS,
+  SSE_STALE_TIMEOUT_MS,
+} from '@/core/session/workflowTimingContract'
+
 // ── Response Phase Types ────────────────────────────────────────────
 export type ResponsePhase =
   | 'idle'
@@ -235,13 +241,6 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   // ── Stale Detection ──────────────────────────────────────────────
-  // Backend heartbeat interval is 30s. Thresholds are multiples of this:
-  //   Liveness: 1.5× (45s) — tolerates one delayed heartbeat
-  //   Stale:    4× (120s) — requires 4 missed heartbeats before declaring stale
-  const HEARTBEAT_LIVENESS_MS = 45_000
-  const STALE_TIMEOUT_MS = 120_000
-  const STALE_CHECK_INTERVAL_MS = 5_000
-
   const isStale = ref(false)
   let _staleCheckInterval: ReturnType<typeof setInterval> | null = null
   let _heartbeatBridgeHandler: ((event: Event) => void) | null = null
@@ -249,7 +248,7 @@ export const useConnectionStore = defineStore('connection', () => {
   /** True when heartbeats are arriving within liveness threshold. */
   const isReceivingHeartbeats = computed(() => {
     if (lastHeartbeatTime.value === 0) return false
-    return (Date.now() - lastHeartbeatTime.value) < HEARTBEAT_LIVENESS_MS
+    return (Date.now() - lastHeartbeatTime.value) < SSE_HEARTBEAT_LIVENESS_MS
   })
 
   function checkStaleConnection() {
@@ -263,12 +262,12 @@ export const useConnectionStore = defineStore('connection', () => {
       : Infinity
 
     if (
-      timeSinceLastEvent > STALE_TIMEOUT_MS
-      && timeSinceHeartbeat > STALE_TIMEOUT_MS
+      timeSinceLastEvent > SSE_STALE_TIMEOUT_MS
+      && timeSinceHeartbeat > SSE_STALE_TIMEOUT_MS
       && lastRealEventTime.value > 0
     ) {
       isStale.value = true
-    } else if (isStale.value && timeSinceHeartbeat < HEARTBEAT_LIVENESS_MS) {
+    } else if (isStale.value && timeSinceHeartbeat < SSE_HEARTBEAT_LIVENESS_MS) {
       // Heartbeat arrived while stale — connection recovered
       isStale.value = false
     }
@@ -292,7 +291,7 @@ export const useConnectionStore = defineStore('connection', () => {
 
     // Start periodic stale check
     if (!_staleCheckInterval) {
-      _staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS)
+      _staleCheckInterval = setInterval(checkStaleConnection, SSE_STALE_CHECK_INTERVAL_MS)
     }
   }
 

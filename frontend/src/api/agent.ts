@@ -10,6 +10,7 @@ import {
   GetSessionResponseSchema,
   ListSessionResponseSchema,
 } from '@/contracts/agent.schema';
+import type { SessionReliabilitySummary } from '@/core/session/sessionReliability';
 import { validateResponse } from './validatedClient';
 
 const FILE_VIEW_CACHE_TTL_MS = 1500;
@@ -216,12 +217,61 @@ export async function cancelSession(sessionId: string): Promise<void> {
   }
 }
 
+export interface SessionReliabilityDiagnosticsRequest {
+  auto_retry_count: number
+  fallback_poll_attempts: number
+  stale_detection_count: number
+  duplicate_event_drops: number
+  max_queue_depth: number
+  average_flush_batch_size: number | null
+  max_chunk_processing_duration_ms: number | null
+}
+
+export interface SessionReliabilityDiagnosticsResponse extends SessionReliabilityDiagnosticsRequest {
+  submitted_at: number | null
+}
+
+const toSessionReliabilityDiagnosticsRequest = (
+  summary: SessionReliabilitySummary,
+): SessionReliabilityDiagnosticsRequest => ({
+  auto_retry_count: summary.autoRetryCount,
+  fallback_poll_attempts: summary.fallbackPollAttempts,
+  stale_detection_count: summary.staleDetectionCount,
+  duplicate_event_drops: summary.duplicateEventDrops,
+  max_queue_depth: summary.maxQueueDepth,
+  average_flush_batch_size: summary.averageFlushBatchSize,
+  max_chunk_processing_duration_ms: summary.maxChunkProcessingDurationMs,
+})
+
+export const toSessionReliabilitySummary = (
+  reliability: SessionReliabilityDiagnosticsResponse,
+): SessionReliabilitySummary => ({
+  autoRetryCount: reliability.auto_retry_count,
+  fallbackPollAttempts: reliability.fallback_poll_attempts,
+  staleDetectionCount: reliability.stale_detection_count,
+  duplicateEventDrops: reliability.duplicate_event_drops,
+  maxQueueDepth: reliability.max_queue_depth,
+  averageFlushBatchSize: reliability.average_flush_batch_size ?? 0,
+  maxChunkProcessingDurationMs: reliability.max_chunk_processing_duration_ms ?? 0,
+})
+
+export async function submitSessionReliabilityDiagnostics(
+  sessionId: string,
+  summary: SessionReliabilitySummary,
+): Promise<void> {
+  await apiClient.post<ApiResponse<{ status: string; session_id: string }>>(
+    `/telemetry/sessions/${sessionId}/reliability`,
+    toSessionReliabilityDiagnosticsRequest(summary),
+  )
+}
+
 export interface SessionStatusResponse {
   session_id: string
   status: SessionStatus
   sandbox_id: string | null
   streaming_mode: StreamingMode | null
   created_at: number | null
+  reliability: SessionReliabilityDiagnosticsResponse | null
 }
 
 export interface ActiveSessionResponse {

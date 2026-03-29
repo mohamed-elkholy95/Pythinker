@@ -1,6 +1,18 @@
 import { getCurrentInstance, onUnmounted, watch, type Ref } from 'vue'
 
 import type { SSECallbacks, SSECloseInfo, SSEGapInfo } from '@/api/client'
+import {
+  resolveSessionReconnectPolicy,
+  type SessionReconnectPolicy,
+} from '@/core/session/reconnectPolicy'
+import {
+  createSessionReliabilityAccumulator,
+  incrementSessionReliabilityCounter,
+  recordSessionChunkProcessingDuration,
+  recordSessionFlushBatchSize,
+  recordSessionQueueDepth,
+  snapshotSessionReliability,
+} from '@/core/session/sessionReliability'
 import type { AgentSSEEvent } from '@/types/event'
 
 import type { ResponsePhase } from '@/stores/connectionStore'
@@ -31,6 +43,9 @@ interface ReconnectCoordinatorOptions {
   fallbackPollMaxAttempts?: number
 }
 
+type ResolvedReconnectCoordinatorOptions =
+  Omit<ReconnectCoordinatorOptions, keyof SessionReconnectPolicy> & SessionReconnectPolicy
+
 interface UseSessionStreamControllerOptions {
   responsePhase: Ref<ResponsePhase>
   receivedDoneEvent: Ref<boolean>
@@ -48,11 +63,6 @@ interface UseSessionStreamControllerOptions {
 
 const MAX_SEEN_EVENT_IDS = 1000
 const YIELD_BATCH_SIZE = 50
-const DEFAULT_MAX_AUTO_RETRIES = 4
-const DEFAULT_AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000]
-const DEFAULT_FALLBACK_STATUS_POLL_INITIAL_INTERVAL_MS = 5000
-const DEFAULT_FALLBACK_STATUS_POLL_MAX_INTERVAL_MS = 60000
-const DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 12
 
 const hasBrowserRaf = (): boolean => {
   return typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function'
@@ -84,6 +94,13 @@ const calcBackoffWithJitter = (attempt: number, initialMs: number, maxMs: number
   return Math.round(exponential * jitterFactor)
 }
 
+const getNowMs = (): number => {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now()
+  }
+  return Date.now()
+}
+
 export function useSessionStreamController(options: UseSessionStreamControllerOptions) {
   const {
     responsePhase,
@@ -104,11 +121,12 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
   let eventBatchQueue: AgentSSEEvent[] = []
   let batchFrameHandle: FrameHandle | null = null
   let chunkTimeoutHandle: ReturnType<typeof setTimeout> | null = null
-  let reconnectCoordinatorOptions: ReconnectCoordinatorOptions | null = null
+  let reconnectCoordinatorOptions: ResolvedReconnectCoordinatorOptions | null = null
   let autoRetryTimer: ReturnType<typeof setTimeout> | null = null
   let fallbackStatusPollTimer: ReturnType<typeof setTimeout> | null = null
   let fallbackStatusPollAttempts = 0
   let stopReconnectWatcher: (() => void) | null = null
+  let reliabilityAccumulator = createSessionReliabilityAccumulator()
 
   const isTerminalPhase = (): boolean => {
     return responsePhase.value === 'settled' || responsePhase.value === 'error' || responsePhase.value === 'stopped'
@@ -138,6 +156,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
 
     const eventsToProcess = eventBatchQueue
     eventBatchQueue = []
+    recordSessionFlushBatchSize(reliabilityAccumulator, eventsToProcess.length)
 
     log('batch:flush', {
       eventCount: eventsToProcess.length,
@@ -150,9 +169,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     // Yield to the browser between chunks to prevent main-thread jank
     // when a large burst of SSE events arrives at once
     if (eventsToProcess.length <= YIELD_BATCH_SIZE) {
+      const chunkStartedAt = getNowMs()
       for (const event of eventsToProcess) {
         eventProcessor(event)
       }
+      recordSessionChunkProcessingDuration(reliabilityAccumulator, getNowMs() - chunkStartedAt)
       return
     }
 
@@ -160,9 +181,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     const processChunk = () => {
       chunkTimeoutHandle = null
       const end = Math.min(offset + YIELD_BATCH_SIZE, eventsToProcess.length)
+      const chunkStartedAt = getNowMs()
       for (let i = offset; i < end; i += 1) {
         eventProcessor!(eventsToProcess[i])
       }
+      recordSessionChunkProcessingDuration(reliabilityAccumulator, getNowMs() - chunkStartedAt)
       offset = end
       if (offset < eventsToProcess.length) {
         chunkTimeoutHandle = setTimeout(processChunk, 0)
@@ -192,6 +215,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     })
 
     eventBatchQueue.push(event)
+    recordSessionQueueDepth(reliabilityAccumulator, eventBatchQueue.length)
 
     if (batchFrameHandle === null) {
       batchFrameHandle = scheduleFrame(() => {
@@ -314,6 +338,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     }
 
     fallbackStatusPollAttempts += 1
+    incrementSessionReliabilityCounter(reliabilityAccumulator, 'fallbackPollAttempts')
 
     let outcome: FallbackPollOutcome = 'continue'
     try {
@@ -330,14 +355,14 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       return
     }
 
-    const maxAttempts = reconnectCoordinatorOptions.fallbackPollMaxAttempts ?? DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS
+    const maxAttempts = reconnectCoordinatorOptions.fallbackPollMaxAttempts
     if (fallbackStatusPollAttempts >= maxAttempts) {
       reconnectCoordinatorOptions.isFallbackStatusPolling.value = false
       return
     }
 
-    const initialMs = reconnectCoordinatorOptions.fallbackPollInitialIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_INITIAL_INTERVAL_MS
-    const maxMs = reconnectCoordinatorOptions.fallbackPollMaxIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_MAX_INTERVAL_MS
+    const initialMs = reconnectCoordinatorOptions.fallbackPollInitialIntervalMs
+    const maxMs = reconnectCoordinatorOptions.fallbackPollMaxIntervalMs
     // attempt index is 0-based: first poll already happened, so use (attempts - 1)
     const intervalMs = calcBackoffWithJitter(fallbackStatusPollAttempts - 1, initialMs, maxMs)
 
@@ -375,11 +400,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       return
     }
 
-    const autoRetryDelays = reconnectCoordinatorOptions.autoRetryDelaysMs && reconnectCoordinatorOptions.autoRetryDelaysMs.length > 0
-      ? reconnectCoordinatorOptions.autoRetryDelaysMs
-      : DEFAULT_AUTO_RETRY_DELAYS_MS
-    const retryIndex = Math.min(reconnectCoordinatorOptions.autoRetryCount.value, autoRetryDelays.length - 1)
-    const delayMs = autoRetryDelays[retryIndex]
+    const retryIndex = Math.min(
+      reconnectCoordinatorOptions.autoRetryCount.value,
+      reconnectCoordinatorOptions.autoRetryDelaysMs.length - 1,
+    )
+    const delayMs = reconnectCoordinatorOptions.autoRetryDelaysMs[retryIndex]
 
     log('retry:auto_scheduled', {
       retryCount: reconnectCoordinatorOptions.autoRetryCount.value,
@@ -398,6 +423,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       }
 
       reconnectCoordinatorOptions.autoRetryCount.value += 1
+      incrementSessionReliabilityCounter(reliabilityAccumulator, 'autoRetryCount')
       void Promise.resolve(reconnectCoordinatorOptions.onRetryConnection()).catch((error) => {
         log('retry:auto_failed', {
           message: error instanceof Error ? error.message : String(error),
@@ -420,8 +446,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       autoRetryCount: reconnectCoordinatorOptions.autoRetryCount.value,
     })
 
-    const maxAutoRetries = reconnectCoordinatorOptions.maxAutoRetries ?? DEFAULT_MAX_AUTO_RETRIES
-    if (reconnectCoordinatorOptions.autoRetryCount.value < maxAutoRetries) {
+    if (reconnectCoordinatorOptions.autoRetryCount.value < reconnectCoordinatorOptions.maxAutoRetries) {
       scheduleAutoRetry()
       return
     }
@@ -430,7 +455,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
   }
 
   const setupReconnectCoordinator = (setupOptions: ReconnectCoordinatorOptions): void => {
-    reconnectCoordinatorOptions = setupOptions
+    const reconnectPolicy = resolveSessionReconnectPolicy(setupOptions)
+    reconnectCoordinatorOptions = {
+      ...setupOptions,
+      ...reconnectPolicy,
+    }
 
     if (stopReconnectWatcher) {
       stopReconnectWatcher()
@@ -450,6 +479,22 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     }
 
     reconnectCoordinatorOptions = null
+  }
+
+  const getReliabilitySummary = () => {
+    return snapshotSessionReliability(reliabilityAccumulator)
+  }
+
+  const resetReliabilitySummary = (): void => {
+    reliabilityAccumulator = createSessionReliabilityAccumulator()
+  }
+
+  const recordDuplicateEventDrop = (): void => {
+    incrementSessionReliabilityCounter(reliabilityAccumulator, 'duplicateEventDrops')
+  }
+
+  const recordStaleDetection = (): void => {
+    incrementSessionReliabilityCounter(reliabilityAccumulator, 'staleDetectionCount')
   }
 
   if (getCurrentInstance()) {
@@ -525,6 +570,10 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     enqueueEvent,
     isDuplicateEvent,
     trackSeenEventId,
+    getReliabilitySummary,
+    resetReliabilitySummary,
+    recordDuplicateEventDrop,
+    recordStaleDetection,
     createTransportCallbacks,
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref } from 'vue'
 
 import type { SSECloseInfo } from '@/api/client'
+import { DEFAULT_SESSION_RECONNECT_POLICY } from '@/core/session/reconnectPolicy'
 import type { AgentSSEEvent } from '@/types/event'
 
 import { useSessionStreamController } from '../useSessionStreamController'
@@ -250,6 +251,32 @@ describe('useSessionStreamController', () => {
     expect(isFallbackStatusPolling.value).toBe(false)
   })
 
+  it('uses the shared reconnect policy defaults when overrides are omitted', async () => {
+    vi.useFakeTimers()
+    const { controller, responsePhase } = createController({
+      responsePhase: 'streaming',
+    })
+    const autoRetryCount = ref(0)
+    const isFallbackStatusPolling = ref(false)
+    const onRetryConnection = vi.fn().mockResolvedValue(undefined)
+    const pollFallbackStatus = vi.fn().mockResolvedValue('continue')
+
+    controller.setupReconnectCoordinator({
+      autoRetryCount,
+      isFallbackStatusPolling,
+      onRetryConnection,
+      pollFallbackStatus,
+    })
+
+    responsePhase.value = 'timed_out'
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(DEFAULT_SESSION_RECONNECT_POLICY.autoRetryDelaysMs[0])
+
+    expect(autoRetryCount.value).toBe(1)
+    expect(onRetryConnection).toHaveBeenCalledTimes(1)
+    expect(controller.getReliabilitySummary().autoRetryCount).toBe(1)
+  })
+
   it('starts fallback polling after max retries and stops when poll returns stop', async () => {
     vi.useFakeTimers()
     const { controller, responsePhase } = createController({
@@ -286,5 +313,62 @@ describe('useSessionStreamController', () => {
     await Promise.resolve()
     expect(pollFallbackStatus).toHaveBeenCalledTimes(2)
     expect(isFallbackStatusPolling.value).toBe(false)
+  })
+
+  it('tracks reliability summary for queue depth, flush batches, duplicates, and stale detections', () => {
+    const { controller } = createController()
+    controller.setEventProcessor(vi.fn())
+
+    controller.enqueueEvent(buildDoneEvent('evt-1'))
+    controller.enqueueEvent(buildDoneEvent('evt-2'))
+    controller.recordDuplicateEventDrop()
+    controller.recordStaleDetection()
+    controller.flushPendingEvents()
+
+    expect(controller.getReliabilitySummary()).toEqual({
+      autoRetryCount: 0,
+      fallbackPollAttempts: 0,
+      staleDetectionCount: 1,
+      duplicateEventDrops: 1,
+      maxQueueDepth: 2,
+      averageFlushBatchSize: 2,
+      maxChunkProcessingDurationMs: expect.any(Number),
+    })
+  })
+
+  it('tracks fallback poll attempts and can reset the reliability summary', async () => {
+    vi.useFakeTimers()
+    const { controller, responsePhase } = createController({
+      responsePhase: 'streaming',
+    })
+    const autoRetryCount = ref(DEFAULT_SESSION_RECONNECT_POLICY.maxAutoRetries)
+    const isFallbackStatusPolling = ref(false)
+    const onRetryConnection = vi.fn().mockResolvedValue(undefined)
+    const pollFallbackStatus = vi.fn().mockResolvedValue('stop')
+
+    controller.setupReconnectCoordinator({
+      autoRetryCount,
+      isFallbackStatusPolling,
+      onRetryConnection,
+      pollFallbackStatus,
+    })
+
+    responsePhase.value = 'timed_out'
+    await nextTick()
+    await Promise.resolve()
+
+    expect(controller.getReliabilitySummary().fallbackPollAttempts).toBe(1)
+
+    controller.resetReliabilitySummary()
+
+    expect(controller.getReliabilitySummary()).toEqual({
+      autoRetryCount: 0,
+      fallbackPollAttempts: 0,
+      staleDetectionCount: 0,
+      duplicateEventDrops: 0,
+      maxQueueDepth: 0,
+      averageFlushBatchSize: 0,
+      maxChunkProcessingDurationMs: 0,
+    })
   })
 })

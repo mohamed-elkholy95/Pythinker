@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -66,7 +67,10 @@ async def test_create_session_auto_stops_stale_active_session(monkeypatch):
     service = _build_service()
     stop_session_mock = AsyncMock()
     monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
-    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.application.services.stale_session_cleanup_policy._has_active_chat_stream",
+        AsyncMock(return_value=False),
+    )
 
     stale_session = Session(
         id="stale-session",
@@ -84,11 +88,30 @@ async def test_create_session_auto_stops_stale_active_session(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_create_session_delegates_stale_cleanup_to_policy(monkeypatch):
+    service = _build_service()
+    cleanup_for_user = AsyncMock()
+    service._stale_session_cleanup_policy = SimpleNamespace(cleanup_for_user=cleanup_for_user)
+    monkeypatch.setattr(
+        service,
+        "_cleanup_stale_sessions",
+        AsyncMock(side_effect=AssertionError("legacy stale cleanup path should not run")),
+    )
+
+    await service.create_session(user_id="user-1", require_fresh_sandbox=False)
+
+    cleanup_for_user.assert_awaited_once_with("user-1")
+
+
+@pytest.mark.asyncio
 async def test_create_session_does_not_stop_completed_sessions(monkeypatch):
     service = _build_service()
     stop_session_mock = AsyncMock()
     monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
-    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.application.services.stale_session_cleanup_policy._has_active_chat_stream",
+        AsyncMock(return_value=False),
+    )
 
     completed_session = Session(
         id="completed-session",
@@ -110,7 +133,10 @@ async def test_create_session_does_not_stop_session_with_active_chat_stream(monk
     service = _build_service()
     stop_session_mock = AsyncMock()
     monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
-    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        "app.application.services.stale_session_cleanup_policy._has_active_chat_stream",
+        AsyncMock(return_value=True),
+    )
 
     active_session = Session(
         id="active-session",
