@@ -43,7 +43,7 @@ class TestArchiveEventsBefore:
 
         with patch.object(
             AgentEventDocument,
-            "get_motor_collection",
+            "get_pymongo_collection",
             create=True,
             return_value=mock_source,
         ):
@@ -67,7 +67,7 @@ class TestArchiveEventsBefore:
 
         with patch.object(
             AgentEventDocument,
-            "get_motor_collection",
+            "get_pymongo_collection",
             create=True,
             return_value=mock_source,
         ):
@@ -113,7 +113,7 @@ class TestArchiveEventsBefore:
 
         with patch.object(
             AgentEventDocument,
-            "get_motor_collection",
+            "get_pymongo_collection",
             create=True,
             return_value=mock_source,
         ):

@@ -27,7 +27,7 @@ def repo():
 
 @pytest.fixture
 def mock_collection():
-    """Mock pymongo collection returned by SessionDocument.get_motor_collection()."""
+    """Mock pymongo collection returned by SessionDocument.get_pymongo_collection()."""
     return AsyncMock()
 
 
@@ -106,7 +106,7 @@ class TestProjectionDiscipline:
             }
         )
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.find_by_id("s1")
 
             # Verify projection was passed
@@ -130,7 +130,7 @@ class TestProjectionDiscipline:
             }
         )
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.find_by_id_and_user_id("s1", "u1")
 
             call_args = mock_collection.find_one.call_args
@@ -146,7 +146,7 @@ class TestProjectionDiscipline:
 
         file_info = FileInfo(file_id="f1", filename="test.py", file_path="/test.py")
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.add_file("s1", file_info)
 
         mock_collection.find_one.assert_not_called()
@@ -166,7 +166,7 @@ class TestProjectionDiscipline:
             }
         )
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.get_file_by_path("s1", "/test.py")
 
             call_args = mock_collection.find_one.call_args
@@ -182,7 +182,7 @@ class TestEventQueryOptimizations:
         """get_event_by_sequence should use $slice projection."""
         mock_collection.find_one = AsyncMock(return_value={"events": [{"type": "message", "id": "e5"}]})
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.get_event_by_sequence("s1", 5)
 
             call_args = mock_collection.find_one.call_args
@@ -199,7 +199,7 @@ class TestEventQueryOptimizations:
         mock_cursor.__anext__ = AsyncMock(side_effect=[*results, StopAsyncIteration()])
         mock_collection.aggregate = MagicMock(return_value=mock_cursor)
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.get_event_by_id("s1", "e1")
 
             # Verify aggregation pipeline was used
@@ -220,7 +220,7 @@ class TestEventQueryOptimizations:
         mock_cursor.__anext__ = AsyncMock(side_effect=[*results, StopAsyncIteration()])
         mock_collection.aggregate = MagicMock(return_value=mock_cursor)
 
-        with patch.object(SessionDocument, "get_motor_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
             await repo.get_events_in_range("s1", start, end)
 
             pipeline = mock_collection.aggregate.call_args[0][0]

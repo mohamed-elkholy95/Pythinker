@@ -76,9 +76,7 @@ def _patch_beanie_collection():
 
     mock_collection = MagicMock()
     with (
-        patch.object(PromptProfileDocument, "get_motor_collection", create=True, return_value=mock_collection),
         patch.object(PromptProfileDocument, "get_pymongo_collection", create=True, return_value=mock_collection),
-        patch.object(OptimizationRunDocument, "get_motor_collection", create=True, return_value=mock_collection),
         patch.object(OptimizationRunDocument, "get_pymongo_collection", create=True, return_value=mock_collection),
     ):
         yield
