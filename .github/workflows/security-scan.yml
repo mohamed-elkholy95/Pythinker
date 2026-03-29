@@ -56,7 +56,7 @@ jobs:
         continue-on-error: false
         working-directory: frontend
         run: |
-          bun pm trust || true
+          bun pm trust --all || true
           npm audit --json > ../npm-audit-report.json; audit_exit=$?
           if [ $audit_exit -ne 0 ] && [ ! -s ../npm-audit-report.json ]; then
             echo "::error::npm audit JSON export failed (exit code $audit_exit) and produced no output"
