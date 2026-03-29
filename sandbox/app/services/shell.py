@@ -9,7 +9,6 @@ import socket
 import logging
 import asyncio
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from app.models.shell import (
     ShellExecResult,
@@ -163,41 +162,42 @@ class ShellService:
         if not os.path.isabs(exec_dir):
             exec_dir = os.path.abspath(exec_dir)
 
-        # Re-check the resolved path at the sink so CodeQL can see the path guard
-        # immediately before filesystem access.
-        exec_path = Path(self._validate_exec_dir(exec_dir)).resolve()
-        allowed_exec_roots = [
-            allowed_dir.resolve() for allowed_dir in SANDBOX_ALLOWED_DIRS
-        ]
-        if not any(
-            exec_path == allowed_root or exec_path.is_relative_to(allowed_root)
-            for allowed_root in allowed_exec_roots
-        ):
-            allowed_str = ", ".join(str(path) for path in allowed_exec_roots)
+        # Duplicate the shared path policy at the filesystem sink in a simple,
+        # string-based form that CodeQL recognizes as a safe-access guard.
+        exec_dir = os.path.realpath(self._validate_exec_dir(exec_dir))
+        home_root = os.path.realpath("/home/ubuntu")
+        workspace_root = os.path.realpath("/workspace")
+        tmp_root = os.path.realpath("/tmp")
+
+        is_home_exec_dir = exec_dir == home_root or exec_dir.startswith(
+            f"{home_root}{os.sep}"
+        )
+        is_workspace_exec_dir = exec_dir == workspace_root or exec_dir.startswith(
+            f"{workspace_root}{os.sep}"
+        )
+        is_tmp_exec_dir = exec_dir == tmp_root or exec_dir.startswith(
+            f"{tmp_root}{os.sep}"
+        )
+
+        if not (is_home_exec_dir or is_workspace_exec_dir or is_tmp_exec_dir):
+            allowed_str = ", ".join((home_root, workspace_root, tmp_root))
             raise BadRequestException(
                 f"Path traversal denied: path must be within one of: {allowed_str}"
             )
 
-        workspace_root = Path("/workspace").resolve()
-        is_workspace_exec_path = (
-            exec_path == workspace_root or exec_path.is_relative_to(workspace_root)
-        )
-
         # Ensure directory exists
-        if not exec_path.exists():
-            if not is_workspace_exec_path:
-                logger.error(f"Directory does not exist: {exec_path}")
-                raise BadRequestException(f"Directory does not exist: {exec_path}")
+        if not os.path.exists(exec_dir):
+            if not is_workspace_exec_dir:
+                logger.error(f"Directory does not exist: {exec_dir}")
+                raise BadRequestException(f"Directory does not exist: {exec_dir}")
             try:
-                exec_path.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created missing workspace directory: {exec_path}")
+                os.makedirs(exec_dir, exist_ok=True)
+                logger.info(f"Created missing workspace directory: {exec_dir}")
             except OSError as e:
-                logger.error(f"Failed to create workspace directory {exec_path}: {e}")
+                logger.error(f"Failed to create workspace directory {exec_dir}: {e}")
                 raise BadRequestException(
-                    f"Directory does not exist: {exec_path}"
+                    f"Directory does not exist: {exec_dir}"
                 ) from e
-
-        exec_dir = str(exec_path)
 
         try:
             # Create PS1 format

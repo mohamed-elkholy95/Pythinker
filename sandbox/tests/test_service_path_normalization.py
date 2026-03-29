@@ -222,15 +222,15 @@ async def test_shell_exec_auto_creates_missing_workspace_dir() -> None:
             "app.services.shell.safe_resolve",
             return_value=exec_dir,
         ) as safe_resolve_mock,
-        patch.object(Path, "exists", return_value=False),
-        patch.object(Path, "mkdir") as mkdir_mock,
+        patch("app.services.shell.os.path.exists", return_value=False),
+        patch("app.services.shell.os.makedirs") as makedirs_mock,
     ):
         result = await service.exec_command("shell-session", exec_dir, "echo hi")
 
     safe_resolve_mock.assert_called_once_with(
         exec_dir, allowed_dirs=list(SANDBOX_ALLOWED_DIRS)
     )
-    mkdir_mock.assert_called_once_with(parents=True, exist_ok=True)
+    makedirs_mock.assert_called_once_with(exec_dir, exist_ok=True)
     assert service.active_shells["shell-session"]["exec_dir"] == exec_dir
     assert result.status == "running"
 
@@ -244,10 +244,10 @@ async def test_shell_exec_rejects_missing_non_workspace_dir() -> None:
 
     with (
         patch("app.services.shell.safe_resolve", return_value=missing_exec_dir),
-        patch.object(Path, "exists", return_value=False),
-        patch.object(Path, "mkdir") as mkdir_mock,
+        patch("app.services.shell.os.path.exists", return_value=False),
+        patch("app.services.shell.os.makedirs") as makedirs_mock,
     ):
         with pytest.raises(BadRequestException, match="Directory does not exist"):
             await service.exec_command("shell-session", missing_exec_dir, "echo hi")
 
-    mkdir_mock.assert_not_called()
+    makedirs_mock.assert_not_called()
