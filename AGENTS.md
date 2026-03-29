@@ -20,6 +20,9 @@ Working rules for automated agents in this repo.
 
 - Reuse existing components, utilities, and services before creating new ones.
 - Prefer simple, robust solutions over clever abstractions.
+- Apply `DRY` and `KISS` by default when debugging or implementing code.
+- Before adding new debugging code, reuse existing logs, metrics, traces, and verification hooks when they can answer the question.
+- Keep new debugging instrumentation narrowly scoped, factual, and removable. Remove temporary debug code before closing the task unless the user asks to keep it.
 - Consider frontend and backend impact together for cross-cutting changes.
 - Keep dependency direction moving inward: `interfaces` and `infrastructure` may depend on `application` and `domain`; `application` may depend on `domain`; `domain` should not depend on outer layers. The repo has existing violations, but do not add new ones.
 - Keep business logic out of routes and components when practical. The repo has large orchestration files already; prefer incremental extraction over broad refactors.

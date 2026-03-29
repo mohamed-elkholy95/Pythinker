@@ -9,8 +9,8 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 ## Quick Reference
 
 > **Core Principles:**
-> 1. **Reuse First**: Search existing codebase for components, utilities, and services before creating new ones
-> 2. **Simplicity First**: Design with simplicity and directness — prefer straightforward solutions that maintain robustness, reliability, and best practices; avoid unnecessary complexity or overcomplication
+> 1. **Reuse First (DRY)**: Search existing codebase for components, utilities, and services before creating new ones — never duplicate logic, constants, or structure that already exists
+> 2. **Simplicity First (KISS)**: Design with simplicity and directness — prefer the simplest solution that works; avoid unnecessary abstraction, indirection, or complexity in both implementation and debugging code
 > 3. **Full-Stack Design**: Design each feature by thoroughly evaluating and integrating front-end and back-end architecture considerations, ensuring seamless compatibility, optimal performance, and cohesive system integration across all components
 > 4. **Self-Hosted First**: When integrating solutions and services, prioritize self-hosted, zero-cost, open-source options that do not rely on external dependencies; ensure all integrations are self-contained and require no additional external resources or dependencies
 > 5. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
@@ -549,9 +549,10 @@ sparse = encoder.encode("query text")  # Returns {index: score} dict
 3. **Circular Dependencies** - Maintain strict layer boundaries
 4. **Magic Strings** - Use enums and constants
 5. **Deep Nesting** - Prefer early returns and guard clauses
-6. **Redundant Code** - Never create new files, components, utilities, or services without first searching for existing ones that serve the same or similar purpose
-7. **Over-Engineering** - Avoid unnecessary abstractions, premature generalization, or complex patterns when a simple direct solution works equally well
+6. **Redundant Code (DRY violation)** - Never create new files, components, utilities, or services without first searching for existing ones that serve the same or similar purpose; never duplicate logic, debug helpers, or constants
+7. **Over-Engineering (KISS violation)** - Avoid unnecessary abstractions, premature generalization, or complex patterns when a simple direct solution works equally well; applies equally to debugging code — use the simplest diagnostic approach first
 8. **Direct HTTP Clients** - Never create `httpx.AsyncClient` directly; always use `HTTPClientPool` for connection pooling and metrics
+9. **Complex Debug Code** - Debug/diagnostic code must be KISS-compliant: simple, targeted, and removed or scoped behind flags when no longer needed; never add elaborate debug infrastructure for a transient problem
 
 ---
 

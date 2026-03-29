@@ -64,6 +64,17 @@ Before finishing any implementation, ask yourself:
 
 If you build 1000 lines and 100 would suffice, you have failed. Prefer the boring, obvious solution. Cleverness is expensive.
 
+### 4A. DRY and KISS for Debugging and Implementation (High Priority)
+
+When debugging or implementing code, default to `DRY` and `KISS`.
+
+- Reuse existing helpers, services, components, queries, loggers, and telemetry before adding new ones.
+- Do not create parallel code paths, duplicate branches, or near-copy-paste helpers when extending behavior.
+- Keep debugging instrumentation minimal, local to the problem, and easy to remove.
+- Prefer existing logs, metrics, traces, and focused assertions over broad new debug scaffolding.
+- Remove temporary debug code before finishing unless the human explicitly asks to keep it.
+- If a small direct fix works, prefer it over a new abstraction.
+
 ### 5. Scope Discipline (High Priority)
 
 Touch only what you're asked to touch.
