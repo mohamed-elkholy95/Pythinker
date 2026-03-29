@@ -114,11 +114,12 @@ class LLMTimeoutSettingsMixin:
 
     # HTTPX read timeout (seconds) applied to streaming requests.
     # This is the maximum silence between consecutive chunks from the LLM.
-    # Free-tier providers (Kimi, GLM) can pause 30-60s between sections when
-    # generating complex content (charts, tables, references).
-    # Too low → httpx.ReadTimeout kills valid streams mid-report.
+    # Long-form summarization and report generation can legitimately pause for
+    # well over a minute between sections on GLM and other OpenAI-compatible
+    # providers when the context is large.
+    # Too low → httpx.ReadTimeout kills valid summary/report streams mid-output.
     # Too high → genuinely stalled streams hang for minutes.
-    llm_stream_read_timeout: float = 90.0
+    llm_stream_read_timeout: float = 150.0
 
     # Optional hard timeout (seconds) applied to every LLM call via asyncio.wait_for.
     # Set to 0 to disable.

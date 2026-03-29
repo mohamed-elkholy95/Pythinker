@@ -23,7 +23,7 @@ def _make_llm(*, api_base: str, is_glm: bool = False, is_deepseek: bool = False)
 def test_create_timeout_uses_streaming_read_timeout_cap() -> None:
     llm = _make_llm(api_base="https://api.z.ai/api/paas/v4", is_glm=True)
 
-    # GLM profile read=90, stream cap=60 → min(90, 60) = 60, then min(60, 45) = 45
+    # GLM profile read=150, stream cap=60 → min(150, 60) = 60, then min(60, 45) = 45
     with patch(
         "app.infrastructure.external.llm.openai_llm.get_settings",
         return_value=SimpleNamespace(llm_request_timeout=45.0, llm_stream_read_timeout=60.0),
@@ -36,19 +36,19 @@ def test_create_timeout_uses_streaming_read_timeout_cap() -> None:
     assert timeout.pool == 30.0
 
 
-def test_create_timeout_streaming_defaults_to_90s_read_timeout() -> None:
-    """Default llm_stream_read_timeout=90 replaces old hardcoded 30s cap."""
+def test_create_timeout_streaming_defaults_to_150s_read_timeout() -> None:
+    """Default llm_stream_read_timeout=150 gives long summaries more room."""
     llm = _make_llm(api_base="https://api.openai.com/v1")
 
-    # OpenAI profile read=120, stream cap=90 (default) → min(120, 90) = 90
+    # OpenAI profile read=150, stream cap=150 (default) → min(150, 150) = 150
     # No global timeout override
     with patch(
         "app.infrastructure.external.llm.openai_llm.get_settings",
-        return_value=SimpleNamespace(llm_request_timeout=0.0, llm_stream_read_timeout=90.0),
+        return_value=SimpleNamespace(llm_request_timeout=0.0, llm_stream_read_timeout=150.0),
     ):
         timeout = llm._create_timeout(is_streaming=True)
 
-    assert timeout.read == 90.0
+    assert timeout.read == 150.0
 
 
 def test_create_timeout_caps_tool_read_timeout_by_global_budget() -> None:

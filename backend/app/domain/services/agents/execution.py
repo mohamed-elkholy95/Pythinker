@@ -2075,6 +2075,41 @@ class ExecutionAgent(BaseAgent):
                     )
                     return
 
+            # No streamed content was recoverable. Fall back to any cached report
+            # artifacts captured before summarization started so users still get
+            # the work that was already produced upstream.
+            _cached_candidates: list[str] = []
+            if self._pre_trim_report_cache:
+                _cached_candidates.append(self._pre_trim_report_cache)
+            _memory_fallback = self._extract_fallback_summary()
+            if _memory_fallback:
+                _cached_candidates.append(_memory_fallback)
+
+            _seen_candidates: set[str] = set()
+            for _candidate in _cached_candidates:
+                _candidate_stripped = (_candidate or "").strip()
+                if not _candidate_stripped or _candidate_stripped in _seen_candidates:
+                    continue
+                _seen_candidates.add(_candidate_stripped)
+                _candidate_clean = self._clean_report_content(_candidate_stripped)
+                if _candidate_clean and len(_candidate_clean) > 200:
+                    _candidate_clean = sanitize_report_output(_candidate_clean)
+                    _candidate_title = self._extract_title(_candidate_clean) or "Research Summary"
+                    _candidate_notice = (
+                        "> **Partial Report:** Summary generation failed before the final pass completed. "
+                        "The content below was recovered from cached execution output.\n\n"
+                    )
+                    yield ReportEvent(
+                        id=str(uuid.uuid4()),
+                        title=f"[Partial] {_candidate_title}",
+                        content=_candidate_notice + _candidate_clean,
+                    )
+                    logger.warning(
+                        "Summarize error recovery: emitted %d-char partial report from cached fallback",
+                        len(_candidate_clean),
+                    )
+                    return
+
             yield ErrorEvent(error=f"Failed to generate summary: {_exc_label}")
 
     # ── Response generation helpers (delegated to ResponseGenerator) ──

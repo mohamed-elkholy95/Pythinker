@@ -261,9 +261,9 @@ class OpenAILLM(LLM):
 
         profiles: dict[str, dict[str, float]] = {
             "default": {"connect": 10.0, "read": 300.0, "write": 30.0, "pool": 30.0},
-            "openai": {"connect": 5.0, "read": 120.0, "write": 30.0, "pool": 30.0},
+            "openai": {"connect": 5.0, "read": 150.0, "write": 30.0, "pool": 30.0},
             "anthropic": {"connect": 5.0, "read": 180.0, "write": 30.0, "pool": 30.0},
-            "glm": {"connect": 10.0, "read": 90.0, "write": 30.0, "pool": 30.0},
+            "glm": {"connect": 10.0, "read": 150.0, "write": 30.0, "pool": 30.0},
             "deepseek": {"connect": 5.0, "read": 180.0, "write": 30.0, "pool": 30.0},
             "ollama": {"connect": 3.0, "read": 600.0, "write": 30.0, "pool": 10.0},
         }
@@ -460,6 +460,14 @@ class OpenAILLM(LLM):
         # If client already set (e.g., by tests), return it
         if hasattr(self, "client") and self.client is not None:
             return self.client
+
+        # Fallback-provider calls use a dedicated one-shot client and must not
+        # consult the primary key pool again. Re-querying the primary pool here
+        # would rebuild a client with the wrong credentials against the fallback
+        # base URL and can incorrectly exhaust the primary key on fallback auth
+        # failures.
+        if self._fallback_active and self._cached_client is not None and self._cached_client_base == self._api_base:
+            return self._cached_client
 
         key = await self.get_api_key()
         if not key:
@@ -2423,6 +2431,8 @@ To extract data from a webpage:
                 ) from e
 
             except RateLimitError as e:
+                if self._fallback_active:
+                    raise
                 # Parse rate limit TTL and mark key exhausted
                 key = await self.get_api_key()
                 if key:
@@ -2457,6 +2467,8 @@ To extract data from a webpage:
                 # can recover — transient auth issues are common with some providers.
                 error_msg = str(e).lower()
                 if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
+                    if self._fallback_active:
+                        raise
                     key = await self.get_api_key()
                     if key:
                         await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
@@ -3408,6 +3420,8 @@ To extract data from a webpage:
                         ) from None
 
                 except RateLimitError as e:
+                    if self._fallback_active:
+                        raise
                     self._last_stream_metadata = {
                         "finish_reason": "error",
                         "truncated": False,
@@ -3452,6 +3466,8 @@ To extract data from a webpage:
                             "provider": "openai",
                             "error": "authentication_error",
                         }
+                        if self._fallback_active:
+                            raise
                         key = await self.get_api_key()
                         if key:
                             await self._key_pool.mark_exhausted(key, ttl_seconds=3600)

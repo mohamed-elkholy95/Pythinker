@@ -514,6 +514,36 @@ class TestCancelledErrorPartialReport:
         report_events = [e for e in collected_events if isinstance(e, ReportEvent)]
         assert len(report_events) == 0
 
+    @pytest.mark.asyncio
+    async def test_exception_with_cached_report_emits_partial_report_instead_of_error(self):
+        """If summarize crashes before streaming, cached report content should still be delivered."""
+        from app.domain.models.event import ErrorEvent, ReportEvent
+
+        agent = _make_execution_agent_for_summarize()
+        cached_report = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            + ("Grounded detail with source support [1].\n" * 20)
+            + "\n## References\n[1] https://example.com/source\n"
+        )
+        agent._extract_report_from_file_write_memory = MagicMock(return_value=cached_report)
+        agent._can_deliver_pretrim_report_directly = MagicMock(return_value=False)
+
+        async def _immediately_fail(*_args, **_kwargs):
+            raise RuntimeError("All 1 OpenAI/OpenRouter API keys exhausted")
+            yield  # pragma: no cover
+
+        agent.llm.ask_stream = _immediately_fail
+
+        events = [event async for event in agent.summarize(all_steps_completed=True)]
+
+        report_events = [event for event in events if isinstance(event, ReportEvent)]
+        assert len(report_events) == 1
+        assert "[Partial]" in report_events[0].title
+        assert "Partial Report" in report_events[0].content
+        assert "Grounded detail with source support" in report_events[0].content
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+
 
 class TestDirectDeliveryShortCircuit:
     def test_can_deliver_pretrim_report_directly_requires_completed_steps_and_quality(self):

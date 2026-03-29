@@ -249,6 +249,66 @@ class TestOpenAILLMAuthenticationRotation:
             await openai_llm_multikey.ask(messages)
 
 
+class TestOpenAILLMFallbackProviderIsolation:
+    """Fallback-provider calls must not poison the primary key pool."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_auth_error_does_not_exhaust_primary_pool_key(self, mock_redis):
+        messages = [{"role": "user", "content": "test"}]
+        primary_timeout = TimeoutError()
+        fallback_auth_error = Exception("401 Unauthorized: Invalid fallback API key")
+
+        primary_client = AsyncMock()
+        primary_client.chat = AsyncMock()
+        primary_client.chat.completions = AsyncMock()
+        primary_client.chat.completions.create = AsyncMock(side_effect=primary_timeout)
+
+        fallback_client = AsyncMock()
+        fallback_client.chat = AsyncMock()
+        fallback_client.chat.completions = AsyncMock()
+        fallback_client.chat.completions.create = AsyncMock(side_effect=fallback_auth_error)
+
+        constructed_clients: list[tuple[str, str]] = []
+
+        def _client_factory(*, api_key, base_url, **kwargs):
+            constructed_clients.append((api_key, base_url))
+            if api_key == "fallback-key":
+                return fallback_client
+            return primary_client
+
+        llm = OpenAILLM(
+            api_key="primary-key",
+            redis_client=mock_redis,
+            model_name="gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=1000,
+            api_base="https://primary.example/v1",
+            fallback_provider={
+                "api_base": "https://fallback.example/v1",
+                "model_name": "MiniMax-M2.7",
+                "api_key": "fallback-key",
+            },
+        )
+        llm.get_api_key = AsyncMock(return_value="primary-key")
+        llm._key_pool.mark_exhausted = AsyncMock()
+
+        with (
+            patch("app.infrastructure.external.llm.openai_llm.AsyncOpenAI", side_effect=_client_factory),
+            pytest.raises(
+                Exception,
+                match=r"LLM request timed out after 300.0s \(model=gpt-4o-mini, tools=no\)",
+            ),
+        ):
+            await llm.ask(messages)
+
+        assert llm.get_api_key.await_count == 1
+        llm._key_pool.mark_exhausted.assert_not_called()
+        assert constructed_clients == [
+            ("primary-key", "https://primary.example/v1"),
+            ("fallback-key", "https://fallback.example/v1"),
+        ]
+
+
 class TestOpenAILLMStreamRotation:
     """Test automatic key rotation in streaming mode."""
 
