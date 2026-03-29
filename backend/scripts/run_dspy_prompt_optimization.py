@@ -99,8 +99,6 @@ async def run_and_publish(
     publish: bool,
     max_sessions: int,
 ) -> None:
-    from beanie import init_beanie
-
     from app.core.config import get_settings
     from app.domain.models.prompt_optimization import OptimizationRun, OptimizerType
     from app.domain.models.prompt_profile import PromptPatch, PromptProfile, PromptTarget
@@ -116,7 +114,7 @@ async def run_and_publish(
     from app.infrastructure.repositories.mongo_prompt_profile_repository import (
         MongoPromptProfileRepository,
     )
-    from app.infrastructure.storage.mongodb import get_mongodb
+    from app.infrastructure.storage.mongodb import get_mongodb, initialize_beanie
 
     settings = get_settings()
     target = PromptTarget(target_str)
@@ -132,13 +130,12 @@ async def run_and_publish(
 
     # Initialize MongoDB
     await get_mongodb().initialize()
-    await init_beanie(
-        database=get_mongodb().client[settings.mongodb_database],
-        document_models=[
+    await initialize_beanie(
+        [
             SessionDocument,
             OptimizationRunDocument,
             PromptProfileDocument,
-        ],
+        ]
     )
 
     # Create run record

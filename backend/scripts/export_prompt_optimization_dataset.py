@@ -31,19 +31,12 @@ logger = logging.getLogger(__name__)
 
 async def run_export(output_path: pathlib.Path, max_sessions: int, min_quality: float) -> None:
     """Run the dataset export."""
-    from beanie import init_beanie
-
-    from app.core.config import get_settings
     from app.domain.services.prompt_optimization.dataset_builder import DatasetBuilder
     from app.infrastructure.models.documents import SessionDocument
-    from app.infrastructure.storage.mongodb import get_mongodb
+    from app.infrastructure.storage.mongodb import get_mongodb, initialize_beanie
 
-    settings = get_settings()
     await get_mongodb().initialize()
-    await init_beanie(
-        database=get_mongodb().client[settings.mongodb_database],
-        document_models=[SessionDocument],
-    )
+    await initialize_beanie([SessionDocument])
 
     logger.info("Fetching up to %d completed sessions from MongoDB...", max_sessions)
     sessions = (

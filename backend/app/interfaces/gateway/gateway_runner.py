@@ -25,7 +25,7 @@ import sys
 
 from app.core.config import get_settings
 from app.infrastructure.storage.minio_storage import get_minio_storage
-from app.infrastructure.storage.mongodb import get_mongodb
+from app.infrastructure.storage.mongodb import get_mongodb, initialize_beanie
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +50,9 @@ async def run_gateway() -> None:
     # access (e.g. AgentDocument.agent_id).  The main backend does this
     # inside lifespan.py; the gateway runs outside FastAPI so we repeat
     # it here with the same model list.
-    from beanie import init_beanie
-
     from app.core.lifespan import BEANIE_DOCUMENT_MODELS
 
-    await init_beanie(
-        database=mongodb.client[settings.mongodb_database],
-        document_models=BEANIE_DOCUMENT_MODELS,
-    )
+    await initialize_beanie(BEANIE_DOCUMENT_MODELS)
     logger.info("Beanie ODM initialised for gateway")
 
     # ------------------------------------------------------------------

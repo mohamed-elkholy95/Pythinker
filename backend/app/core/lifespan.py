@@ -3,7 +3,6 @@ import gc
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 
-from beanie import init_beanie
 from fastapi import FastAPI
 
 from app.application.services.maintenance_service import MaintenanceService
@@ -36,7 +35,7 @@ from app.infrastructure.models.prompt_optimization_documents import (
     PromptProfileDocument,
 )
 from app.infrastructure.repositories.event_store_repository import AgentEventDocument
-from app.infrastructure.storage.mongodb import get_mongodb
+from app.infrastructure.storage.mongodb import get_mongodb, initialize_beanie
 from app.infrastructure.storage.qdrant import get_qdrant
 from app.infrastructure.storage.redis import get_cache_redis, get_redis
 from app.infrastructure.structured_logging import get_logger
@@ -393,10 +392,7 @@ async def lifespan(app: FastAPI):
         _health_state["mongodb"] = True
 
         # Initialize Beanie
-        await init_beanie(
-            database=get_mongodb().client[settings.mongodb_database],
-            document_models=BEANIE_DOCUMENT_MODELS,
-        )
+        await initialize_beanie(BEANIE_DOCUMENT_MODELS)
         logger.info("Successfully initialized Beanie")
 
         # Idempotent migration: grandfather existing users as email_verified=True
