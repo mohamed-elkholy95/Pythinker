@@ -1,10 +1,14 @@
 import asyncio
 import logging
 import threading
+from collections.abc import Sequence
 from functools import lru_cache
+from typing import Any
 
+from beanie import init_beanie as _init_beanie
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from pymongo import AsyncMongoClient
 from pymongo.errors import ConnectionFailure
 
 from app.core.config import get_settings
@@ -16,12 +20,13 @@ class MongoDB:
     def __init__(self):
         self._client: AsyncIOMotorClient | None = None
         self._client_loop: asyncio.AbstractEventLoop | None = None
+        self._beanie_client: AsyncMongoClient | None = None
+        self._beanie_client_loop: asyncio.AbstractEventLoop | None = None
         self._settings = get_settings()
         self._artifacts_bucket: AsyncIOMotorGridFSBucket | None = None
 
-    def _build_client(self) -> AsyncIOMotorClient:
-        """Create a Motor client bound to the current asyncio loop."""
-        connection_params = {
+    def _build_connection_params(self) -> dict[str, Any]:
+        return {
             "maxPoolSize": self._settings.mongodb_max_pool_size,
             "minPoolSize": self._settings.mongodb_min_pool_size,
             "maxIdleTimeMS": self._settings.mongodb_max_idle_time_ms,
@@ -31,6 +36,10 @@ class MongoDB:
             "retryWrites": self._settings.mongodb_retry_writes,
             "retryReads": self._settings.mongodb_retry_reads,
         }
+
+    def _build_client(self) -> AsyncIOMotorClient:
+        """Create a Motor client bound to the current asyncio loop."""
+        connection_params = self._build_connection_params()
 
         if self._settings.mongodb_username and self._settings.mongodb_password:
             return AsyncIOMotorClient(
@@ -44,9 +53,25 @@ class MongoDB:
             **connection_params,
         )
 
-    def _refresh_client_for_current_loop(self) -> None:
-        """Recreate client when asyncio loop changes or closes."""
-        if self._client is None:
+    def _build_beanie_client(self) -> AsyncMongoClient:
+        """Create the async PyMongo client used exclusively by Beanie."""
+        connection_params = self._build_connection_params()
+
+        if self._settings.mongodb_username and self._settings.mongodb_password:
+            return AsyncMongoClient(
+                self._settings.mongodb_uri,
+                username=self._settings.mongodb_username,
+                password=self._settings.mongodb_password,
+                **connection_params,
+            )
+        return AsyncMongoClient(
+            self._settings.mongodb_uri,
+            **connection_params,
+        )
+
+    def _refresh_clients_for_current_loop(self) -> None:
+        """Recreate clients when the active asyncio loop changes or closes."""
+        if self._client is None or self._beanie_client is None:
             return
 
         try:
@@ -55,35 +80,47 @@ class MongoDB:
             # No active loop (e.g. sync context). Keep existing client.
             return
 
-        if self._client_loop is current_loop and not current_loop.is_closed():
+        if (
+            self._client_loop is current_loop
+            and self._beanie_client_loop is current_loop
+            and not current_loop.is_closed()
+        ):
             return
 
-        logger.warning("MongoDB client loop changed or closed; recreating client for active loop")
-        self._client.close()
+        logger.warning("MongoDB client loop changed or closed; recreating clients for active loop")
+        if self._client is not None:
+            self._client.close()
+        if self._beanie_client is not None:
+            self._beanie_client.close()
         self._client = self._build_client()
+        self._beanie_client = self._build_beanie_client()
         self._client_loop = current_loop
+        self._beanie_client_loop = current_loop
         db = self._client[self._settings.mongodb_database]
         self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
 
     async def initialize(self) -> None:
-        """Initialize MongoDB connection and Beanie ODM.
+        """Initialize MongoDB connection clients.
 
         Retries with exponential backoff (2s/4s/8s) to handle transient DNS
         failures during container startup — matches Redis circuit-breaker
         resilience pattern used elsewhere in this codebase.
         """
         if self._client is not None:
-            self._refresh_client_for_current_loop()
+            self._refresh_clients_for_current_loop()
             return
 
         max_retries = 3
         self._client = self._build_client()
+        self._beanie_client = self._build_beanie_client()
         self._client_loop = asyncio.get_running_loop()
+        self._beanie_client_loop = self._client_loop
 
         for attempt in range(1, max_retries + 1):
             try:
                 await self._client.admin.command("ping")
-                logger.info("Successfully connected to MongoDB")
+                await self._beanie_client.admin.command("ping")
+                logger.info("Successfully connected to MongoDB for Motor and Beanie clients")
                 break
             except ConnectionFailure as e:
                 if attempt == max_retries:
@@ -114,17 +151,30 @@ class MongoDB:
             self._client.close()
             self._client = None
             self._client_loop = None
-            logger.info("Disconnected from MongoDB")
-            # Clear cache for this module
+        if self._beanie_client is not None:
+            self._beanie_client.close()
+            self._beanie_client = None
+            self._beanie_client_loop = None
+        self._artifacts_bucket = None
+        logger.info("Disconnected from MongoDB")
+        # Clear cache for this module
         get_mongodb.cache_clear()
 
     @property
     def client(self) -> AsyncIOMotorClient:
         """Return initialized MongoDB client"""
-        self._refresh_client_for_current_loop()
+        self._refresh_clients_for_current_loop()
         if self._client is None:
             raise RuntimeError("MongoDB client not initialized. Call initialize() first.")
         return self._client
+
+    @property
+    def beanie_client(self) -> AsyncMongoClient:
+        """Return the dedicated async PyMongo client used by Beanie."""
+        self._refresh_clients_for_current_loop()
+        if self._beanie_client is None:
+            raise RuntimeError("MongoDB client not initialized. Call initialize() first.")
+        return self._beanie_client
 
     @property
     def database(self):
@@ -133,6 +183,11 @@ class MongoDB:
         Backward-compatible accessor used across repositories/services.
         """
         return self.client[self._settings.mongodb_database]
+
+    @property
+    def beanie_database(self):
+        """Return the async PyMongo database handle used for Beanie initialization."""
+        return self.beanie_client[self._settings.mongodb_database]
 
     @property
     def artifacts_bucket(self) -> AsyncIOMotorGridFSBucket:
@@ -168,3 +223,11 @@ def get_mongodb() -> MongoDB:
     """Get the MongoDB instance (thread-safe singleton)."""
     with _mongodb_init_lock:
         return MongoDB()
+
+
+async def initialize_beanie(document_models: Sequence[type[Any] | str]) -> None:
+    """Initialize Beanie against the dedicated async PyMongo database."""
+    await _init_beanie(
+        database=get_mongodb().beanie_database,
+        document_models=document_models,
+    )
