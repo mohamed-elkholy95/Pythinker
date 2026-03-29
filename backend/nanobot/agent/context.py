@@ -3,10 +3,9 @@
 import base64
 import mimetypes
 import platform
-import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
@@ -15,7 +14,7 @@ from nanobot.agent.skills import SkillsLoader
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    BOOTSTRAP_FILES: ClassVar[list[str]] = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
     def __init__(self, workspace: Path):
@@ -77,14 +76,18 @@ Your workspace is at: {workspace_path}
 - After writing or editing a file, re-read it if accuracy matters.
 - If a tool call fails, analyze the error before retrying with a different approach.
 - Ask for clarification when the request is ambiguous.
+- When debugging or implementing code, apply DRY and KISS by default.
+- Reuse existing helpers, services, logs, metrics, and traces before adding new code or instrumentation.
+- Keep debugging instrumentation minimal, local to the issue, and removable. Remove temporary debug code unless explicitly told to keep it.
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        tz = time.strftime("%Z") or "UTC"
+        current_time = datetime.now(UTC).astimezone()
+        now = current_time.strftime("%Y-%m-%d %H:%M (%A)")
+        tz = current_time.tzname() or "UTC"
         lines = [f"Current Time: {now} ({tz})"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
@@ -135,7 +138,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
         if not images:
             return text
-        return images + [{"type": "text", "text": text}]
+        return [*images, {"type": "text", "text": text}]
 
     def add_tool_result(
         self, messages: list[dict[str, Any]],

@@ -23,8 +23,11 @@ Use the `exec` tool to run grep. Combine patterns: `grep -iE "meeting|deadline" 
 
 Write important facts immediately using `edit_file` or `write_file`:
 - User preferences ("I prefer dark mode")
+- Engineering preferences ("Use DRY and KISS when debugging or implementing code")
 - Project context ("The API uses OAuth2")
 - Relationships ("Alice is the project lead")
+
+When the user states coding or debugging preferences, preserve them verbatim enough to be actionable in future sessions.
 
 ## Auto-consolidation
 

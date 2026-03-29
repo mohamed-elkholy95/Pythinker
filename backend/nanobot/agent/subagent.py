@@ -108,7 +108,7 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
-            
+
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -173,7 +173,7 @@ class SubagentManager:
             await self._announce_result(task_id, label, task, final_result, origin, "ok")
 
         except Exception as e:
-            error_msg = f"Error: {str(e)}"
+            error_msg = f"Error: {e!s}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
 
@@ -208,7 +208,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
         await self.bus.publish_inbound(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
-    
+
     def _build_subagent_prompt(self) -> str:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.context import ContextBuilder
@@ -222,6 +222,11 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 You are a subagent spawned by the main agent to complete a specific task.
 Stay focused on the assigned task. Your final response will be reported back to the main agent.
 
+## Coding Rules
+- Apply DRY and KISS when debugging or implementing code.
+- Reuse existing helpers, services, logs, metrics, and traces before adding new code or instrumentation.
+- Keep debugging instrumentation narrow and removable. Do not leave temporary debug code behind unless explicitly requested.
+
 ## Workspace
 {self.workspace}"""]
 
@@ -230,7 +235,7 @@ Stay focused on the assigned task. Your final response will be reported back to 
             parts.append(f"## Skills\n\nRead SKILL.md with read_file to use a skill.\n\n{skills_summary}")
 
         return "\n\n".join(parts)
-    
+
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
         tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
