@@ -5,6 +5,7 @@ import re
 import socket
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
@@ -28,6 +29,22 @@ _SPIDER_DENYLIST_DOMAINS: frozenset[str] = frozenset(
         "twitter.com",  # Legacy domain for x.com
     }
 )
+
+
+@dataclass(frozen=True)
+class CompactionProfile:
+    """Mode-aware search result compaction parameters.
+
+    Standard mode keeps current defaults; deep-research mode uses higher
+    limits read from config so the LLM gets richer context for complex tasks.
+    """
+
+    max_results: int  # Cap on SearchResults.results list
+    max_summaries: int  # Number of result summaries in LLM message
+    summary_snippet_chars: int  # Chars per summary snippet in message
+    enrich_top_k: int  # URLs to auto-enrich via scraper
+    enrich_snippet_chars: int  # Max chars per enriched snippet
+    preview_count: int  # Background preview URLs to browse
 
 
 def _should_skip_spider(url: str) -> bool:
@@ -555,6 +572,36 @@ class SearchTool(BaseTool):
             max_wide_queries_complex if score is not None and score >= 0.8 else max_wide_queries
         )
 
+    def _get_compaction_profile(self) -> CompactionProfile:
+        """Return mode-aware compaction limits based on complexity_score.
+
+        Standard mode (complexity < 0.8 or None) keeps existing defaults.
+        Deep-research mode (complexity >= 0.8) uses expanded limits from config.
+        """
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        is_deep = self._complexity_score is not None and self._complexity_score >= 0.8
+
+        if is_deep:
+            return CompactionProfile(
+                max_results=getattr(settings, "search_compaction_max_results_deep", 15),
+                max_summaries=getattr(settings, "search_compaction_max_summaries_deep", 12),
+                summary_snippet_chars=getattr(settings, "search_compaction_summary_snippet_chars_deep", 250),
+                enrich_top_k=getattr(settings, "search_auto_enrich_top_k_deep", 8),
+                enrich_snippet_chars=getattr(settings, "search_auto_enrich_snippet_chars_deep", 3000),
+                preview_count=getattr(settings, "search_preview_count_deep", 8),
+            )
+
+        return CompactionProfile(
+            max_results=10,
+            max_summaries=8,
+            summary_snippet_chars=150,
+            enrich_top_k=settings.search_auto_enrich_top_k,
+            enrich_snippet_chars=settings.search_auto_enrich_snippet_chars,
+            preview_count=getattr(settings, "browser_background_preview_count", 5),
+        )
+
     async def _schedule_background_preview(self, search_data: Any, count: int | None = None) -> None:
         """Schedule at most one fire-and-forget preview task for top search URLs.
 
@@ -564,11 +611,9 @@ class SearchTool(BaseTool):
         if not self._browser or not search_data:
             return
 
-        # Resolve count from config if not explicitly provided
+        # Resolve count from compaction profile if not explicitly provided
         if count is None:
-            from app.core.config import get_settings as _get_settings
-
-            count = getattr(_get_settings(), "browser_background_preview_count", 5)
+            count = self._get_compaction_profile().preview_count
 
         if hasattr(self._browser, "allow_background_browsing"):
             self._browser.allow_background_browsing()
@@ -600,8 +645,9 @@ class SearchTool(BaseTool):
         if not settings.search_auto_enrich_enabled:
             return 0
 
-        top_k = settings.search_auto_enrich_top_k
-        max_snippet = settings.search_auto_enrich_snippet_chars
+        profile = self._get_compaction_profile()
+        top_k = profile.enrich_top_k
+        max_snippet = profile.enrich_snippet_chars
 
         # Extract items from SearchResults or raw list
         items = search_data.results if hasattr(search_data, "results") else search_data
@@ -1654,13 +1700,21 @@ wide_research(
         # Record wide_research invocation (individual API calls already tracked in _execute_typed_search)
         self._budget.record_wide_research()
 
+        # Resolve mode-aware compaction profile for result trimming and enrichment
+        profile = self._get_compaction_profile()
+
         # Optional spider enrichment: fetch full page content for top-K URLs
         if self._scraper and all_items:
             from app.core.config import get_settings as _get_settings
 
             _s = _get_settings()
             if _s.scraping_spider_enabled:
-                top_k = _s.scraping_spider_top_k
+                _is_deep = self._complexity_score is not None and self._complexity_score >= 0.8
+                top_k = (
+                    getattr(_s, "scraping_spider_top_k_deep", _s.scraping_spider_top_k)
+                    if _is_deep
+                    else _s.scraping_spider_top_k
+                )
                 spider_candidates = [
                     item.link for item in all_items[:top_k] if item.link and not _is_pdf_url(item.link)
                 ]
@@ -1680,7 +1734,7 @@ wide_research(
                         for item in all_items:
                             if item.link in url_to_content:
                                 r = url_to_content[item.link]
-                                item.snippet = r.text[:2000]
+                                item.snippet = r.text[: profile.enrich_snippet_chars]
                                 if r.title and not item.title:
                                     item.title = r.title
                         logger.info("Spider enriched %d/%d URLs", len(url_to_content), len(top_urls))
@@ -1692,7 +1746,7 @@ wide_research(
             query=topic,
             date_range=date_range,
             total_results=len(all_items),
-            results=all_items[:10],  # was :20; cap to reduce context injection
+            results=all_items[: profile.max_results],
         )
 
         # Return failure if no results found — distinguish error types
@@ -1726,8 +1780,8 @@ wide_research(
         )
 
         # Add result summaries to message for the LLM context
-        for i, item in enumerate(all_items[:8], 1):  # was :15; fewer summaries for LLM context
-            message += f"{i}. [{item.title}]({item.link})\n   {item.snippet[:150]}\n\n"  # was :200
+        for i, item in enumerate(all_items[: profile.max_summaries], 1):
+            message += f"{i}. [{item.title}]({item.link})\n   {item.snippet[: profile.summary_snippet_chars]}\n\n"
 
         if errors:
             message += f"\n{len(errors)} queries had errors."
