@@ -460,6 +460,14 @@ class BaseAgent:
         """
         self._user_thinking_mode = thinking_mode
 
+    def set_metrics(self, metrics: Any) -> None:
+        """Replace the default NullMetrics with a real MetricsPort implementation.
+
+        Called by the orchestration layer after agent construction to inject
+        Prometheus-backed metrics recording.
+        """
+        self._metrics = metrics
+
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list, filtered by active phase if set."""
         available_tools = []
@@ -2800,6 +2808,14 @@ class BaseAgent:
                 _escalation,
             )
 
+            # Record metric for cap hit observability
+            try:
+                from app.core.prometheus_metrics import context_cap_hits_total
+
+                context_cap_hits_total.inc({"escalation": str(min(_escalation, 5))})
+            except Exception:
+                logger.debug("context_cap_hits_total increment failed (non-fatal)", exc_info=True)
+
             # Graduated eviction: older tool results are truncated more
             # aggressively, recent ones are preserved with more context.
             # Target drops with each consecutive hit to break the growth cycle.
@@ -2904,6 +2920,14 @@ class BaseAgent:
                     _escalation,
                 )
                 self._stuck_recovery_exhausted = True
+
+                # Record metric for forced step advance observability
+                try:
+                    from app.core.prometheus_metrics import forced_step_advance_total
+
+                    forced_step_advance_total.inc({"reason": "context_cap_escalation"})
+                except Exception:
+                    logger.debug("forced_step_advance_total increment failed (non-fatal)", exc_info=True)
         else:
             # Context is under cap — reset consecutive counter and unblock reads.
             # Use 75% threshold (not 90%) so trivial dips don't reset the counter

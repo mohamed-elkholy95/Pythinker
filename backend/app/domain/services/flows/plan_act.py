@@ -55,6 +55,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.complexity_assessor import ComplexityAssessor
+from app.domain.services.agents.context_compression_pipeline import ContextCompressionPipeline
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
 
@@ -305,6 +306,10 @@ class PlanActFlow(BaseFlow):
         self._verification_confidence: float | None = None
         self._verification_loops = 0
         self._max_verification_loops = 2  # Allow one revision-and-reverify cycle before summarizing
+        # State-based report-file verification suppression:
+        # Once a report attachment is tracked AND one verification step has already
+        # failed, suppress further verification replanning to prevent filename-guessing loops.
+        self._report_verification_failed: bool = False
 
         # Plan validation failure tracking
         self._plan_validation_failures = 0
@@ -748,6 +753,61 @@ class PlanActFlow(BaseFlow):
         from app.core.alert_manager import get_alert_manager
 
         return get_alert_manager()
+
+    # ------------------------------------------------------------------
+    # Prompt context injection
+    # ------------------------------------------------------------------
+
+    def _inject_system_context(
+        self,
+        agent: BaseAgent,
+        context: str,
+        source: str,
+    ) -> None:
+        """Append *context* to *agent*'s system prompt and ensure it reaches the LLM.
+
+        Replaces bare ``agent.system_prompt += ...`` mutations that were invisible
+        when agent memory was already populated (BaseAgent._add_to_memory only
+        writes a system message when ``memory.empty`` is True).
+
+        The method:
+        1. Appends *context* to ``agent.system_prompt`` (backward-compatible).
+        2. If memory exists and is non-empty, also patches the existing system
+           message in-place so the LLM sees the new context immediately.
+        3. Records a Prometheus metric for observability.
+
+        Args:
+            agent: The agent (planner or executor) whose prompt should be extended.
+            context: The prompt fragment to inject.
+            source: Label for metrics (e.g. ``"workspace"``, ``"profile_patch"``,
+                ``"deep_research"``).
+        """
+        if not context:
+            return
+
+        agent.system_prompt += context
+
+        # If memory is already populated, patch the existing system message
+        # so the mutation is visible to the LLM on the next call.
+        if hasattr(agent, "memory") and agent.memory is not None and not agent.memory.empty:
+            messages = agent.memory.get_messages()
+            for msg in messages:
+                if msg.get("role") == "system":
+                    msg["content"] = msg.get("content", "") + context
+                    break
+
+        # Record metric
+        agent_name = getattr(agent, "name", "") or "unknown"
+        try:
+            from app.core.prometheus_metrics import record_system_prompt_injection
+
+            record_system_prompt_injection(
+                agent=agent_name,
+                source=source,
+                size_bytes=len(context),
+            )
+        except Exception:
+            logger.debug("Failed to record system prompt injection metric", exc_info=True)
 
     # ------------------------------------------------------------------
     # PR-7: Prompt profile resolver helpers
@@ -1504,6 +1564,62 @@ class PlanActFlow(BaseFlow):
         )
 
     @staticmethod
+    def _build_summarization_context(
+        *,
+        workspace_listing: str | None = None,
+        session_files_listing: str | None = None,
+        attachments: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Build an explicit summarization-context payload for ``ExecutionAgent.summarize()``.
+
+        Replaces direct ``system_prompt +=`` mutations that were invisible to the
+        LLM because memory was already populated at SUMMARIZING time.
+
+        Args:
+            workspace_listing: File listing from the workspace (deep research mode).
+            session_files_listing: Formatted file listing from session files
+                (used when workspace listing is not available).
+            attachments: Report attachment metadata from ``_report_attachments``.
+
+        Returns:
+            A string to pass as ``summarization_context=`` to ``summarize()``.
+            Returns empty string when nothing to inject (safe to pass regardless).
+        """
+        parts: list[str] = []
+
+        # 1. Workspace deliverables (deep-research mode)
+        if workspace_listing:
+            parts.append(
+                "\n\n## Workspace Deliverables\n"
+                "The following files were created during this research session:\n"
+                f"```\n{workspace_listing}\n```\n"
+                'Include a "## Deliverables" section in your final report '
+                "listing each file with a brief description of its contents. "
+                "Show only the filename (not the full internal path) — these paths are internal "
+                "to the sandbox and meaningless to the user."
+            )
+
+        # 2. Session deliverables (non-deep-research, or when no workspace listing)
+        elif session_files_listing:
+            parts.append(
+                "\n\n## Session Deliverables\n"
+                "The following files were created during this session:\n"
+                f"{session_files_listing}\n\n"
+                'Include a "## Deliverables" section in your final report '
+                "listing each file with a brief description of what it contains or demonstrates. "
+                "Show only the filename (not the full internal path) — these paths are internal "
+                "to the sandbox and meaningless to the user."
+            )
+
+        # 3. Artifact manifest from tracked report attachments
+        if attachments:
+            manifest = PlanActFlow._build_artifact_manifest(attachments)
+            if manifest:
+                parts.append(manifest)
+
+        return "".join(parts)
+
+    @staticmethod
     def _build_executor_artifact_references(
         session_files: list[FileInfo] | None,
         attachments: list[dict[str, str]] | None,
@@ -1883,6 +1999,17 @@ class PlanActFlow(BaseFlow):
         accept the plan to prevent death loops where borderline confidence (e.g. 0.75)
         causes endless revisions that never converge.
         """
+        # State-based suppression: if a report attachment is already tracked and verification
+        # has already failed once, suppress replanning — the deliverable exists so further
+        # revision loops are filename-guessing churn rather than meaningful improvement.
+        if self._report_attachments and self._report_verification_failed:
+            logger.info(
+                "Suppressing verification replan: report already tracked (%d attachment(s)) "
+                "and one verification pass already failed — proceeding to summarize",
+                len(self._report_attachments),
+            )
+            return AgentStatus.SUMMARIZING, "report attachment present; verification suppressed after first miss"
+
         # Good-enough acceptance: confidence >= 0.7 after at least 1 revision loop
         confidence = self._verification_confidence or 0.0
         if self._verification_loops >= 1 and confidence >= 0.7:
@@ -2268,6 +2395,16 @@ class PlanActFlow(BaseFlow):
         # Phase 2: Initialize proactive token budget at flow start
         self._initialize_token_budget()
 
+        # Log effective context cap at flow start for observability
+        _effective_cap = self.executor._effective_context_char_cap
+        logger.info(
+            "Flow starting: agent=%s session=%s research_mode=%s effective_context_char_cap=%d",
+            self._agent_id,
+            self._session_id,
+            self._research_mode,
+            _effective_cap,
+        )
+
         # Emit research mode event so frontend can adapt layout (e.g., auto-open browser panel)
         yield ResearchModeEvent(research_mode=self._research_mode)
 
@@ -2319,7 +2456,11 @@ class PlanActFlow(BaseFlow):
             # Inject workspace-aware instructions into executor prompt
             from app.domain.services.prompts.execution import build_workspace_context
 
-            self.executor.system_prompt += build_workspace_context(self._workspace_output_path)
+            self._inject_system_context(
+                self.executor,
+                build_workspace_context(self._workspace_output_path),
+                source="workspace",
+            )
             self.executor.set_report_output_path(self._resolve_report_output_path())
 
         original_message = message.message
@@ -2977,12 +3118,11 @@ class PlanActFlow(BaseFlow):
                         # Resolve SYSTEM patch early and apply to both planner and executor
                         _system_patch = await self._resolve_profile_patch(_PromptTarget.SYSTEM)
                         if _system_patch:
-                            self.planner.system_prompt += (
+                            _system_patch_wrapped = (
                                 f"\n<!-- profile_patch target=system -->\n{_system_patch}\n<!-- /profile_patch -->\n"
                             )
-                            self.executor.system_prompt += (
-                                f"\n<!-- profile_patch target=system -->\n{_system_patch}\n<!-- /profile_patch -->\n"
-                            )
+                            self._inject_system_context(self.planner, _system_patch_wrapped, source="profile_patch")
+                            self._inject_system_context(self.executor, _system_patch_wrapped, source="profile_patch")
 
                         _planner_patch = await self._resolve_profile_patch(_PromptTarget.PLANNER)
 
@@ -3023,7 +3163,7 @@ class PlanActFlow(BaseFlow):
                         if self._research_mode == "deep_research":
                             workspace_base = self._delivery_scope_root or f"/workspace/{self._session_id}"
                             wp = self._workspace_output_path or f"{workspace_base}/output"
-                            self.planner.system_prompt += (
+                            _deep_research_ctx = (
                                 "\n\n## Research Strategy: Browser-First Deep Research\n"
                                 "You are a researcher agent. Your PRIMARY instrument is the web browser. "
                                 "Always prefer browser_navigate and browser_agent_extract over simple API searches. "
@@ -3039,6 +3179,7 @@ class PlanActFlow(BaseFlow):
                                 f"- `{wp}/code/` — Scripts, code samples, notebooks\n\n"
                                 "Your FINAL step must compile and deliver all workspace files to the user."
                             )
+                            self._inject_system_context(self.planner, _deep_research_ctx, source="deep_research")
 
                         # Fast draft plan: use FAST_MODEL, skip expensive thinking phases
                         use_draft = settings.feature_fast_draft_plan and self._research_mode is not None
@@ -3198,6 +3339,10 @@ class PlanActFlow(BaseFlow):
                                             elif event.status == VerificationStatus.FAILED:
                                                 self._verification_verdict = "fail"
                                                 verify_span.set_attribute("verification.verdict", "fail")
+                                                # Mark that a verification pass failed so the
+                                                # suppression guard can short-circuit replanning
+                                                # when a report attachment is already tracked.
+                                                self._report_verification_failed = True
                                 for hb_event in _verifying_hb.drain():
                                     yield hb_event
                     except TimeoutError:
@@ -3905,8 +4050,65 @@ class PlanActFlow(BaseFlow):
                         except Exception as e:
                             logger.warning(f"File sweep failed before summarizing: {e}")
 
+                    # Pre-summarization compression: compact executor memory to keep
+                    # the summarization prompt within the effective context cap.
+                    _pre_summary_chars = 0
+                    if hasattr(self.executor, "memory") and self.executor.memory:
+                        _pre_summary_msgs = self.executor.memory.get_messages()
+                        _pre_summary_chars = sum(len(str(m.get("content", ""))) for m in _pre_summary_msgs)
+                    self._compact_prior_step_context(self.executor)
+                    if _pre_summary_chars > 0 and hasattr(self.executor, "memory") and self.executor.memory:
+                        _post_summary_msgs = self.executor.memory.get_messages()
+                        _post_summary_chars = sum(len(str(m.get("content", ""))) for m in _post_summary_msgs)
+                        _saved = _pre_summary_chars - _post_summary_chars
+                        if _saved > 0:
+                            metrics_port = get_metrics()
+                            metrics_port.record_counter(
+                                "pre_summarization_compression_total",
+                                labels={"agent_id": self._agent_id},
+                            )
+                            metrics_port.record_histogram(
+                                "pre_summarization_compression_chars_saved",
+                                value=_saved,
+                                labels={"agent_id": self._agent_id},
+                            )
+                            logger.info(
+                                "Pre-summarization compression: %dK → %dK chars (%dK saved)",
+                                _pre_summary_chars // 1000,
+                                _post_summary_chars // 1000,
+                                _saved // 1000,
+                            )
+
+                    # Pipeline compression: deeper token-aware pass using ContextCompressionPipeline
+                    # to bring memory within the effective context cap before summarization.
+                    if (
+                        hasattr(self.executor, "_token_manager")
+                        and hasattr(self.executor, "memory")
+                        and self.executor.memory
+                        and self.executor.memory.messages
+                    ):
+                        _cap = self.executor._effective_context_char_cap
+                        _target_tokens = max(4000, _cap // 4)  # ~4 chars per token
+                        _pipeline = ContextCompressionPipeline(self.executor._token_manager)
+                        try:
+                            _result = await _pipeline.compress(
+                                list(self.executor.memory.messages),
+                                target_tokens=_target_tokens,
+                            )
+                            if _result.tokens_saved > 0:
+                                self.executor.memory.messages = _result.messages
+                                logger.info(
+                                    "Pipeline compression: stages=%s tokens_saved=%d msgs_dropped=%d",
+                                    [s.value for s in _result.stages_applied],
+                                    _result.tokens_saved,
+                                    _result.messages_dropped,
+                                )
+                        except Exception as _pipeline_exc:
+                            logger.warning("ContextCompressionPipeline failed: %s", _pipeline_exc)
+
                     # Inject workspace deliverables listing into summarization context
                     workspace_file_count = 0
+                    _workspace_listing: str | None = None
                     if self._research_mode == "deep_research" and self._workspace_output_path:
                         try:
                             wp = self._workspace_output_path
@@ -3926,18 +4128,9 @@ class PlanActFlow(BaseFlow):
 
                             if listing:
                                 workspace_file_count = listing.count("\n") + 1
-                                deliverables_ctx = (
-                                    "\n\n## Workspace Deliverables\n"
-                                    "The following files were created during this research session:\n"
-                                    f"```\n{listing}\n```\n"
-                                    'Include a "## Deliverables" section in your final report '
-                                    "listing each file with a brief description of its contents. "
-                                    "Show only the filename (not the full internal path) — these paths are internal "
-                                    "to the sandbox and meaningless to the user."
-                                )
-                                self.executor.system_prompt += deliverables_ctx
+                                _workspace_listing = listing
                                 logger.info(
-                                    "Injected workspace listing (%d files) into summarization context",
+                                    "Collected workspace listing (%d files) for summarization context",
                                     workspace_file_count,
                                 )
                         except Exception as e:
@@ -3958,24 +4151,15 @@ class PlanActFlow(BaseFlow):
 
                     # For ALL modes: inject session files into summarization context
                     # so the LLM can reference them in the final report.
-                    # Skip if deep_research already injected workspace listing above.
+                    # Skip if deep_research already collected workspace listing above.
+                    _session_files_listing: str | None = None
                     if session_files and not (self._research_mode == "deep_research" and self._workspace_output_path):
-                        file_listing = "\n".join(
+                        _session_files_listing = "\n".join(
                             f"- {f.filename} ({f.size or 0:,} bytes) — {f.content_type or 'unknown type'}"
                             for f in session_files
                         )
-                        deliverables_ctx = (
-                            "\n\n## Session Deliverables\n"
-                            "The following files were created during this session:\n"
-                            f"{file_listing}\n\n"
-                            'Include a "## Deliverables" section in your final report '
-                            "listing each file with a brief description of what it contains or demonstrates. "
-                            "Show only the filename (not the full internal path) — these paths are internal "
-                            "to the sandbox and meaningless to the user."
-                        )
-                        self.executor.system_prompt += deliverables_ctx
                         logger.info(
-                            "Injected session files listing (%d files) into summarization context",
+                            "Collected session files listing (%d files) for summarization context",
                             len(session_files),
                         )
 
@@ -4003,14 +4187,11 @@ class PlanActFlow(BaseFlow):
                     # summarization context.  _report_attachments may also be populated by the
                     # file-sync pipeline before summarization runs (e.g. MinIO uploads that are
                     # not yet reflected in session.files).
-                    if self._report_attachments:
-                        manifest = self._build_artifact_manifest(self._report_attachments)
-                        if manifest:
-                            self.executor.system_prompt += manifest
-                            logger.info(
-                                "Injected artifact manifest (%d files) into summarization context",
-                                len(self._report_attachments),
-                            )
+                    _summarization_context = self._build_summarization_context(
+                        workspace_listing=_workspace_listing,
+                        session_files_listing=_session_files_listing,
+                        attachments=self._report_attachments or None,
+                    )
 
                     self.executor.set_artifact_references(
                         self._build_executor_artifact_references(session_files, self._report_attachments)
@@ -4037,6 +4218,7 @@ class PlanActFlow(BaseFlow):
                         async for event in self.executor.summarize(
                             response_policy=self._response_policy,
                             all_steps_completed=_all_steps_done,
+                            summarization_context=_summarization_context or None,
                         ):
                             await self._check_cancelled()
                             if isinstance(event, ErrorEvent):

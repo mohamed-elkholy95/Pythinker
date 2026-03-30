@@ -21,6 +21,7 @@ from app.domain.models.event import (
     MessageEvent,
     ReportEvent,
     SkillEvent,
+    SkillToolContent,
     StepEvent,
     StepStatus,
     StreamEvent,
@@ -554,8 +555,17 @@ class ExecutionAgent(BaseAgent):
                                     tool_call_id=_synth_id,
                                     tool_name="skill_invoke",
                                     function_name="skill_invoke",
-                                    function_args={"skill_name": sid},
+                                    function_args={"skill_name": skill.name},
                                     status=ToolStatus.CALLED,
+                                    function_result=ToolResult.ok(
+                                        message=f"Skill '{skill.name}' activated",
+                                    ),
+                                    tool_content=SkillToolContent(
+                                        skill_id=sid,
+                                        skill_name=skill.name,
+                                        operation="invoke",
+                                        status="activated",
+                                    ),
                                 )
                                 _already_emitted.add(sid)
                                 self._skill_chips_emitted = _already_emitted
@@ -910,6 +920,7 @@ class ExecutionAgent(BaseAgent):
         self,
         response_policy: ResponsePolicy | None = None,
         all_steps_completed: bool = False,
+        summarization_context: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Summarize the completed task, streaming tokens for live display.
@@ -923,7 +934,21 @@ class ExecutionAgent(BaseAgent):
                 coverage sections and only eligible non-critical delivery-gate
                 failures can be downgraded to warnings. Critical integrity
                 failures still block final delivery.
+            summarization_context: Additional summarize-time context prepared by
+                the flow (for example workspace deliverables or artifact manifest).
         """
+        # Record summarization context metrics
+        _metrics.record_counter(
+            "pythinker_summarization_context_total",
+            labels={"has_context": "true" if summarization_context else "false"},
+        )
+        if summarization_context:
+            _metrics.record_histogram(
+                "pythinker_summarization_context_size_bytes",
+                value=float(len(summarization_context)),
+                labels={"source": "flow"},
+            )
+
         active_policy = (
             response_policy
             or self._response_policy
@@ -1001,6 +1026,9 @@ class ExecutionAgent(BaseAgent):
                 f"Your report MUST address THIS topic. Do NOT write about any other topic."
             )
             summarize_prompt = topic_anchor + "\n\n" + summarize_prompt
+
+        if summarization_context:
+            summarize_prompt += f"\n\n{summarization_context.strip()}"
 
         if active_policy.mode == VerbosityMode.CONCISE:
             summarize_prompt += (

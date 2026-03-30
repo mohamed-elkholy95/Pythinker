@@ -624,13 +624,13 @@ def build_report_file_write_signal(report_output_path: str | None = None) -> str
     """Build a scoped report-writing signal.
 
     Avoids the legacy shared ``/workspace/deliverables`` path so report files stay
-    inside the active run/session workspace.
+    inside the active run/session workspace.  Includes verification instructions
+    that require the agent to confirm the file was written using the exact same
+    path it passed to ``file_write``.
     """
     report_dir = (report_output_path or "").rstrip("/")
     report_target = report_dir or "the active session workspace described elsewhere in the prompt"
-    example_report = f"{report_dir}/report.md" if report_dir else "<workspace>/report.md"
     mkdir_example = f"mkdir -p {report_dir}" if report_dir else "mkdir -p <workspace>"
-    wc_example = f"wc -w {example_report}" if report_dir else "wc -w <workspace>/report.md"
     ls_example = f"ls -lh {report_dir}/" if report_dir else "ls -lh <workspace>/"
 
     return f"""
@@ -644,16 +644,22 @@ This step produces a deliverable. Follow this professional workflow:
 - Include the file path in your "attachments" array
 - Keep "result" as a 1-2 sentence summary, NOT the full report content
 
-### 2. Use Terminal for Organization (RECOMMENDED)
+### 2. Verify the File Was Written (ONCE ONLY)
+After calling `file_write`, run **one** verification command using the exact path you used:
+- Use the **exact same full path you wrote with `file_write`** to check the file exists
+- Do NOT guess alternate filenames — use the exact path from step 1
+- If one verification command fails, proceed to step 4 anyway — `file_write` returning success means the file exists
+- Do NOT run `ls`, `find`, or `cat` in a loop; one check is sufficient
+
+### 3. Use Terminal for Organization (RECOMMENDED)
 - Use `execute_shell_command` to verify the output directory and report file:
   - `{mkdir_example}` — ensure output directory exists
-  - `{wc_example}` — verify word count
   - `{ls_example}` — show final deliverable listing
 - Terminal commands are visible in the live preview and show professional execution
 
-### 3. Return JSON Response
+### 4. Return JSON Response
 ```json
-{{"success": true, "result": "Compiled comprehensive report (X words)", "attachments": ["{example_report}"]}}
+{{"success": true, "result": "Compiled comprehensive report (X words)", "attachments": ["<exact path passed to file_write>"]}}
 ```
 
 DO NOT write report content directly into the "result" field.
