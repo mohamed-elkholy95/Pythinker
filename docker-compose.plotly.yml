@@ -1,0 +1,28 @@
+# =============================================================================
+# Pythinker — Docker Compose Override: Plotly-Capable Sandbox
+#
+# Usage (layered on top of the base docker-compose.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.plotly.yml up --build
+#
+# This override switches the sandbox to the Plotly-enabled Dockerfile variant
+# that installs Plotly + Kaleido in the base venv (not gated behind addons).
+# It also sets PLOTLY_RUNTIME_AVAILABLE=1 so the backend can short-circuit
+# capability probing.
+#
+# To use with dev.sh:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.plotly.yml ./dev.sh watch
+# =============================================================================
+
+services:
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile.plotly
+      args:
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
+    environment:
+      # ── Plotly capability flag ──
+      # The PlotlyCapabilityCheck module reads this to skip import probing.
+      # When set to "1", the backend trusts that Plotly + Kaleido are available
+      # without running a sandbox command, saving ~2s on first chart generation.
+      - PLOTLY_RUNTIME_AVAILABLE=1

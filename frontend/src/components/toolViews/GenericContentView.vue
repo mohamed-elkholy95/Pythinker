@@ -220,7 +220,9 @@ const showEmpty = computed(() =>
 );
 const statusMessage = computed(() => {
   if (props.status === 'interrupted') return t('Tool execution was interrupted');
-  return props.isExecuting ? t('Tool is executing...') : t('Waiting for result...');
+  if (props.isExecuting) return t('Tool is executing...');
+  if (props.status === 'called') return t('Completed');
+  return t('Waiting for result...');
 });
 </script>
 
