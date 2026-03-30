@@ -29,6 +29,8 @@ def test_chrome_stderr_filter_suppresses_known_benign_noise() -> None:
         "ALSA lib confmisc.c:855:(parse_card) cannot find card '0'",
         "[1118:1118:0303/155138.479711:ERROR:alsa_util.cc(204)] PcmOpen: default,No such file or directory",
         "[881:889:0303/155139.363044:ERROR:ssl_client_socket_impl.cc(878)] handshake failed; returned -1, SSL error code 1, net_error -101",
+        "[859:865:0330/034527.201250:ERROR:net/socket/ssl_client_socket_impl.cc:915] handshake failed; returned -1, SSL error code 1, net_error -201",
+        "[803:803:0330/034457.830437:ERROR:ui/compositor/compositor_animation_observer.cc:65] CompositorAnimationObserver is active for too long (159.946s) location=make_unique",
     ]
     actionable_line = (
         "[123:456:0213/191200.000000:ERROR:net/socket.cc:42] Actionable network failure"
@@ -40,7 +42,7 @@ def test_chrome_stderr_filter_suppresses_known_benign_noise() -> None:
     for line in noisy_lines:
         assert line not in proc.stderr
     assert (
-        "[chrome-stderr-filter] Final suppressed benign Chromium lines: 6"
+        "[chrome-stderr-filter] Final suppressed benign Chromium lines: 8"
         in proc.stderr
     )
     assert proc.stdout == ""

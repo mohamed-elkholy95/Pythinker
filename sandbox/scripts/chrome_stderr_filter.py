@@ -48,8 +48,12 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^ALSA lib "),
     re.compile(r"alsa_util\.cc[:(]\d+[)\]].*PcmOpen"),
     # Transient SSL handshake noise from blocked/ephemeral third-party subresources
-    # and Chrome background connectivity checks (CRLSet, component updates)
+    # and Chrome background connectivity checks (CRLSet, component updates).
+    # -101: connection reset; -201: certificate verification or similar in container.
+    re.compile(r"ssl_client_socket_impl\.cc.*handshake failed.*net_error -20[01]"),
     re.compile(r"ssl_client_socket_impl\.cc.*handshake failed.*net_error -10[01]"),
+    # Long compositor animations on heavy pages — benign in automation/screencast use.
+    re.compile(r"compositor_animation_observer\.cc.*CompositorAnimationObserver is active for too long"),
     # STUN server DNS resolution failures — WebRTC NAT traversal is not needed
     # in the sandbox (CDP screencast does not use WebRTC).
     re.compile(r"socket_manager\.cc.*Failed to resolve address for stun"),

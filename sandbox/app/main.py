@@ -156,6 +156,7 @@ async def get_sandbox_context():
     from datetime import datetime
 
     candidate_paths = [
+        "/home/ubuntu/sandbox_context.json",
         "/app/sandbox_context.json",
         os.path.expanduser("~/sandbox_context.json"),
     ]
