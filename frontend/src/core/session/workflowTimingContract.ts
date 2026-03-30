@@ -14,6 +14,9 @@ export const SSE_STALE_CHECK_INTERVAL_MS = 5_000
 export const SSE_HEARTBEAT_LIVENESS_MS = Math.trunc(SSE_HEARTBEAT_INTERVAL_SECONDS * 1.5 * 1000)
 export const SSE_STALE_TIMEOUT_MS = Math.trunc(SSE_HEARTBEAT_INTERVAL_SECONDS * 4 * 1000)
 
+/** No substantive SSE events while heartbeats continue — typical during long LLM turns. */
+export const HANDLER_QUIET_THRESHOLD_MS = 35_000
+
 export const WORKFLOW_TIMING_CONTRACT = Object.freeze({
   MAX_CREATE_SESSION_WAIT_SECONDS,
   CHAT_EVENT_TIMEOUT_SECONDS,
@@ -28,4 +31,5 @@ export const WORKFLOW_TIMING_CONTRACT = Object.freeze({
   SSE_STALE_CHECK_INTERVAL_MS,
   SSE_HEARTBEAT_LIVENESS_MS,
   SSE_STALE_TIMEOUT_MS,
+  HANDLER_QUIET_THRESHOLD_MS,
 })
