@@ -89,8 +89,15 @@ services:
     # 15s grace period gives SSE streams time to drain during dev reloads
     # (default 10s is too short for long-lived research sessions).
     stop_grace_period: 15s
+    # Docker socket: Linux is usually root:docker (set DOCKER_GID from host:
+    # getent group docker | cut -d: -f3). OrbStack / Docker Desktop often expose it as
+    # root:root (660); supplementary group 0 lets appuser use the socket without root.
+    group_add:
+      - "${DOCKER_GID:-988}"
+      - "0"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Must be read-write: the API client writes HTTP to the Unix socket; :ro can cause EACCES.
+      - /var/run/docker.sock:/var/run/docker.sock
       - dspy_cache:/app/data/dspy_cache
     ports:
       - "8000:8000"
@@ -160,7 +167,7 @@ services:
       dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - dspy_cache:/app/data/dspy_cache
     depends_on:
       backend:
