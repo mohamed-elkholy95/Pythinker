@@ -123,6 +123,16 @@ class SearchSettingsMixin:
     # --- Feature Flag ---
     search_quota_manager_enabled: bool = False  # Opt-in, zero behavior change until enabled
 
+    # --- Mode-Aware Compaction (deep-research overrides) ---
+    # When complexity_score >= 0.8 (deep_research), these higher limits replace
+    # the standard-mode defaults.  Standard-mode behaviour is unchanged.
+    search_compaction_max_results_deep: int = 15  # wide_research result cap (standard: 10)
+    search_compaction_max_summaries_deep: int = 12  # summary entries in LLM message (standard: 8)
+    search_compaction_summary_snippet_chars_deep: int = 250  # chars per summary snippet (standard: 150)
+    search_auto_enrich_top_k_deep: int = 8  # URLs to enrich (standard: 5)
+    search_auto_enrich_snippet_chars_deep: int = 3000  # max chars per enriched snippet (standard: 2000)
+    search_preview_count_deep: int = 8  # background preview URLs (standard: 5)
+
 
 class AgentSafetySettingsMixin:
     """Safety limits, autonomy controls, and agent execution configuration."""

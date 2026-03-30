@@ -443,6 +443,20 @@ errors_total = Counter(
     labels=["type", "component"],
 )
 
+# System prompt injection metrics — tracks every context injection into agent prompts
+system_prompt_injection_total = Counter(
+    name="pythinker_system_prompt_injection_total",
+    help_text="Total system prompt context injections",
+    labels=["agent", "source"],  # agent: planner|executor, source: workspace|profile_patch|deep_research
+)
+
+system_prompt_injection_size_bytes = Histogram(
+    name="pythinker_system_prompt_injection_size_bytes",
+    help_text="Size in bytes of injected prompt context",
+    labels=["agent", "source"],
+    buckets=[100, 500, 1000, 5000, 10000, 50000, 100000],
+)
+
 # Phase 6: Circuit Breaker Metrics
 circuit_breaker_state = Gauge(
     name="pythinker_circuit_breaker_state",
@@ -1760,6 +1774,33 @@ _metrics_registry.extend(
 )
 
 
+# Context Cap & Summarization Handoff Metrics (deep-research reliability plan)
+context_cap_hits_total = Counter(
+    name="pythinker_context_cap_hits_total",
+    help_text="Total hard context cap hits during agent execution",
+    labels=["escalation"],  # escalation level (1-5+)
+)
+
+forced_step_advance_total = Counter(
+    name="pythinker_forced_step_advance_total",
+    help_text="Total forced step advancements via stuck_recovery_exhausted",
+    labels=["reason"],  # reason: context_cap_escalation, stuck_recovery, etc.
+)
+
+pre_summarization_compression_total = Counter(
+    name="pythinker_pre_summarization_compression_total",
+    help_text="Pre-summarization context compression outcomes",
+    labels=["outcome"],  # outcome: success, skipped, failed
+)
+
+_metrics_registry.extend(
+    [
+        context_cap_hits_total,
+        forced_step_advance_total,
+        pre_summarization_compression_total,
+    ]
+)
+
 # URL Failure Guard metrics
 url_guard_actions_total = Counter(
     name="pythinker_url_failure_guard_actions_total",
@@ -2055,6 +2096,23 @@ def record_error(error_type: str, component: str) -> None:
         component: Component where error occurred
     """
     errors_total.inc({"type": error_type, "component": component})
+
+
+def record_system_prompt_injection(agent: str, source: str, size_bytes: int) -> None:
+    """Record a system prompt context injection.
+
+    Args:
+        agent: Which agent received the injection (planner, executor).
+        source: What was injected (workspace, profile_patch, deep_research).
+        size_bytes: Size of the injected context in bytes.
+    """
+    normalized_agent = (agent or "").strip().lower() or "unknown"
+    normalized_source = (source or "").strip().lower() or "unknown"
+    system_prompt_injection_total.inc({"agent": normalized_agent, "source": normalized_source})
+    system_prompt_injection_size_bytes.observe(
+        {"agent": normalized_agent, "source": normalized_source},
+        float(max(0, size_bytes)),
+    )
 
 
 def update_active_sessions(count: int) -> None:

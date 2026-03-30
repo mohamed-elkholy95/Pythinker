@@ -13,6 +13,7 @@ class ScrapingSettingsMixin:
     scraping_tool_enabled: bool = False  # Enable dedicated ScrapingTool in agent toolset
     scraping_spider_enabled: bool = False  # Use Spider for per-domain throttled batch fetch
     scraping_spider_top_k: int = 5  # How many search result URLs to spider-fetch in wide_research
+    scraping_spider_top_k_deep: int = 3  # Spider top-k in deep-research mode (lower = less memory pressure)
 
     # Tier escalation
     scraping_escalation_enabled: bool = True  # Auto-escalate HTTP → Dynamic → Stealthy
