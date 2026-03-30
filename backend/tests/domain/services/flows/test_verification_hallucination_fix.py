@@ -23,6 +23,8 @@ def _make_flow(
     plan_validation_failures: int = 0,
     max_plan_validation_failures: int = 3,
     verification_confidence: float | None = None,
+    report_attachments: list | None = None,
+    report_verification_failed: bool = False,
 ) -> PlanActFlow:
     """Create a minimal PlanActFlow with verification state pre-configured."""
     flow = PlanActFlow.__new__(PlanActFlow)
@@ -31,6 +33,9 @@ def _make_flow(
     flow._plan_validation_failures = plan_validation_failures
     flow._max_plan_validation_failures = max_plan_validation_failures
     flow._verification_confidence = verification_confidence
+    # Report-attachment suppression guard (Task 7)
+    flow._report_attachments = report_attachments if report_attachments is not None else []
+    flow._report_verification_failed = report_verification_failed
     return flow
 
 

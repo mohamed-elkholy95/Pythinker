@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.core.config_features import SearchSettingsMixin
 from app.core.config_scraping import ScrapingSettingsMixin
 
 
@@ -72,3 +73,47 @@ class TestScrapingSettingsMixin:
     def test_hf_token_default_empty(self) -> None:
         mixin = ScrapingSettingsMixin()
         assert mixin.scraping_hf_token == ""
+
+    def test_spider_deep_top_k_lower_than_standard(self) -> None:
+        """Deep-research spider top-k must be lower to reduce memory pressure."""
+        mixin = ScrapingSettingsMixin()
+        assert mixin.scraping_spider_top_k_deep < mixin.scraping_spider_top_k
+
+
+@pytest.mark.unit
+class TestDeepResearchSearchBudgets:
+    """Deep-research mode uses strictly higher compaction limits and enrichment budgets.
+
+    These tests prove that the mode-aware knobs in SearchSettingsMixin are larger
+    than the standard-mode defaults in ScrapingSettingsMixin, so deep-research
+    flows get more aggressive enrichment while standard flows remain unchanged.
+    """
+
+    def test_enrich_top_k_deep_larger_than_standard(self) -> None:
+        scraping = ScrapingSettingsMixin()
+        search = SearchSettingsMixin()
+        assert search.search_auto_enrich_top_k_deep > scraping.search_auto_enrich_top_k
+
+    def test_enrich_snippet_chars_deep_larger_than_standard(self) -> None:
+        scraping = ScrapingSettingsMixin()
+        search = SearchSettingsMixin()
+        assert search.search_auto_enrich_snippet_chars_deep > scraping.search_auto_enrich_snippet_chars
+
+    def test_preview_count_deep_larger_than_standard(self) -> None:
+        """Background preview count is higher in deep-research mode."""
+        search = SearchSettingsMixin()
+        assert search.search_preview_count_deep > 5  # standard default in CompactionProfile
+
+    def test_compaction_max_results_deep_larger_than_standard(self) -> None:
+        """Wide-research result cap is higher in deep mode."""
+        search = SearchSettingsMixin()
+        assert search.search_compaction_max_results_deep > 10  # standard CompactionProfile.max_results
+
+    def test_deep_knobs_are_strictly_positive(self) -> None:
+        search = SearchSettingsMixin()
+        assert search.search_auto_enrich_top_k_deep > 0
+        assert search.search_auto_enrich_snippet_chars_deep > 0
+        assert search.search_preview_count_deep > 0
+        assert search.search_compaction_max_results_deep > 0
+        assert search.search_compaction_max_summaries_deep > 0
+        assert search.search_compaction_summary_snippet_chars_deep > 0

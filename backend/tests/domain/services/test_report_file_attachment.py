@@ -180,6 +180,63 @@ class TestReportFileAttachment:
         assert event.attachments[0].file_path == "/workspace/test-session/output/reports/report-report-output-1.md"
 
     @pytest.mark.asyncio
+    async def test_existing_human_named_report_attachment_skips_canonical_rewrite(self, runner, mock_sandbox):
+        runner._generate_report_pdf = AsyncMock(return_value=None)
+        event = ReportEvent(
+            id="report-existing-1",
+            title="Existing Report",
+            content="# Hello\n\nExisting body.",
+            attachments=[
+                FileInfo(
+                    filename="dgx-spark-vs-m3-ultra-96-report.md",
+                    file_path="/workspace/test-session/output/reports/dgx-spark-vs-m3-ultra-96-report.md",
+                    content_type="text/markdown",
+                    size=100,
+                )
+            ],
+        )
+
+        await runner._ensure_report_file(event)
+
+        mock_sandbox.file_write.assert_not_called()
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].filename == "dgx-spark-vs-m3-ultra-96-report.md"
+
+    @pytest.mark.asyncio
+    async def test_repeated_calls_do_not_write_file_when_attachment_already_tracked(self, runner, mock_sandbox):
+        """Simulates a verification retry loop: calling _ensure_report_file multiple times
+        when the human-named attachment is already present must never trigger additional
+        file_write calls — i.e. the runner-side guard is idempotent and loop-resistant.
+        """
+        runner._generate_report_pdf = AsyncMock(return_value=None)
+        existing_attachment = FileInfo(
+            filename="my-deep-research-report.md",
+            file_path="/workspace/test-session/output/reports/my-deep-research-report.md",
+            content_type="text/markdown",
+            size=200,
+        )
+        event = ReportEvent(
+            id="report-loop-guard-1",
+            title="Loop Guard Test",
+            content="# Loop Guard\n\nContent.",
+            attachments=[existing_attachment],
+        )
+
+        # First call: no write expected
+        await runner._ensure_report_file(event)
+        mock_sandbox.file_write.assert_not_called()
+
+        # Second call (simulates retry after failed verification): still no write
+        await runner._ensure_report_file(event)
+        mock_sandbox.file_write.assert_not_called()
+
+        # Attachment list is stable — no duplicates added
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].filename == "my-deep-research-report.md"
+
+    @pytest.mark.asyncio
     async def test_resolve_workspace_deliverables_root_avoids_shared_deliverables_directory(self, runner):
         runner._session_repository.find_by_id = AsyncMock(
             return_value=MagicMock(workspace_structure={"deliverables": "Final outputs"})
