@@ -185,8 +185,22 @@ export default defineConfig({
             let suppressedCount = 0;
             let suppressResetTimer: ReturnType<typeof setTimeout> | null = null;
 
+            const isTransientProxyError = (err: NodeJS.ErrnoException): boolean => {
+              if (TRANSIENT.has(err.code ?? '')) return true;
+              const msg = (err.message || '').toLowerCase();
+              // Backend reload / SSE upgrade teardown — not actionable in dev.
+              if (
+                msg.includes('ended by the other party') ||
+                msg.includes('socket hang up') ||
+                msg.includes('write after end')
+              ) {
+                return true;
+              }
+              return false;
+            };
+
             proxy.on('error', (err: NodeJS.ErrnoException, _req, res) => {
-              const isTransient = TRANSIENT.has(err.code ?? '');
+              const isTransient = isTransientProxyError(err);
 
               if (isTransient) {
                 // Batch-log transient errors to avoid flooding the console during rapid reloads
