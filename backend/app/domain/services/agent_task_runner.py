@@ -2176,7 +2176,11 @@ class AgentTaskRunner(TaskRunner):
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
     async def on_done(self, task: Task) -> None:
-        """Called when the task is done — run final workspace sweep to catch all files."""
+        """Run final workspace file sweep after task completion.
+
+        Runs before ``release_task_resources`` so the sandbox is still available.
+        Non-fatal if sandbox was already destroyed by a concurrent teardown.
+        """
         logger.info(f"Agent {self._agent_id} task done, running final file sweep")
         try:
             synced = await self._sweep_workspace_files()
@@ -2188,7 +2192,11 @@ class AgentTaskRunner(TaskRunner):
                     self._session_id,
                 )
         except Exception as e:
-            logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
+            logger.warning(
+                "Agent %s: Final file sweep failed (sandbox may be destroyed): %s",
+                self._agent_id,
+                e,
+            )
 
     async def release_task_resources(self) -> None:
         """Release memory after a single task completes without tearing down the sandbox.

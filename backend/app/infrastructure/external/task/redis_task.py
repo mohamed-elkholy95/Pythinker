@@ -154,17 +154,27 @@ class RedisStreamTask(Task):
             handler(sources)
 
     def _on_task_done(self) -> None:
-        """Called when the task is done."""
+        """Called when the task is done.
+
+        Cleanup is sequential: on_done (file sweep) → release_task_resources
+        (free runner memory) → cleanup_registry (remove from registry and set
+        Redis stream TTL).  This ordering ensures the sandbox is still available
+        when the file sweep runs.
+        """
         self._task_done = True
         if self._runner:
 
             async def _finalize_runner() -> None:
                 try:
+                    logger.info(
+                        "Task %s finalizing runner on_done (session=%s)",
+                        self._id,
+                        self._session_id,
+                    )
                     await self._runner.on_done(self)
                 except Exception as e:
                     logger.warning("Runner on_done failed for task %s: %s", self._id, e)
                 try:
-                    # Memory only: keep sandbox/MCP/factory for follow-up tasks in the same session
                     _release = getattr(self._runner, "release_task_resources", None)
                     if callable(_release):
                         await _release()
@@ -172,6 +182,12 @@ class RedisStreamTask(Task):
                         await self._runner.destroy()
                 except Exception as e:
                     logger.warning("Runner task resource release failed for task %s: %s", self._id, e)
+                finally:
+                    logger.info(
+                        "Task %s runner finalization complete (session=%s)",
+                        self._id,
+                        self._session_id,
+                    )
 
             task = asyncio.create_task(_finalize_runner())
             self._background_tasks.add(task)
