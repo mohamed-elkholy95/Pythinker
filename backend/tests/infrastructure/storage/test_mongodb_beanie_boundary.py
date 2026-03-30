@@ -53,10 +53,11 @@ async def test_shutdown_closes_motor_and_pymongo_clients() -> None:
     mongodb = MongoDB()
     motor_client = MagicMock()
     pymongo_client = MagicMock()
+    pymongo_client.close = AsyncMock()
     mongodb._client = motor_client
     mongodb._beanie_client = pymongo_client
 
     await mongodb.shutdown()
 
     motor_client.close.assert_called_once()
-    pymongo_client.close.assert_called_once()
+    pymongo_client.close.assert_awaited_once()

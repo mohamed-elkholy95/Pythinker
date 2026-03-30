@@ -16,14 +16,21 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+async def _await_close_async_mongo_client(client: AsyncMongoClient) -> None:
+    """PyMongo ``AsyncMongoClient.close()`` is a coroutine and must be awaited."""
+    await client.close()
+
+
 class MongoDB:
-    def __init__(self):
+    def __init__(self) -> None:
         self._client: AsyncIOMotorClient | None = None
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self._beanie_client: AsyncMongoClient | None = None
         self._beanie_client_loop: asyncio.AbstractEventLoop | None = None
         self._settings = get_settings()
         self._artifacts_bucket: AsyncIOMotorGridFSBucket | None = None
+        # Retain fire-and-forget async closes so RUF006 / GC do not drop them mid-flight.
+        self._pending_beanie_close_tasks: set[asyncio.Task[None]] = set()
 
     def _build_connection_params(self) -> dict[str, Any]:
         return {
@@ -88,16 +95,24 @@ class MongoDB:
             return
 
         logger.warning("MongoDB client loop changed or closed; recreating clients for active loop")
-        if self._client is not None:
-            self._client.close()
-        if self._beanie_client is not None:
-            self._beanie_client.close()
+        old_client = self._client
+        old_beanie = self._beanie_client
         self._client = self._build_client()
         self._beanie_client = self._build_beanie_client()
         self._client_loop = current_loop
         self._beanie_client_loop = current_loop
         db = self._client[self._settings.mongodb_database]
         self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
+        if old_client is not None:
+            old_client.close()
+        if old_beanie is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                close_task = loop.create_task(_await_close_async_mongo_client(old_beanie))
+                self._pending_beanie_close_tasks.add(close_task)
+                close_task.add_done_callback(self._pending_beanie_close_tasks.discard)
+            except RuntimeError:
+                asyncio.run(_await_close_async_mongo_client(old_beanie))
 
     async def initialize(self) -> None:
         """Initialize MongoDB connection clients.
@@ -152,7 +167,7 @@ class MongoDB:
             self._client = None
             self._client_loop = None
         if self._beanie_client is not None:
-            self._beanie_client.close()
+            await _await_close_async_mongo_client(self._beanie_client)
             self._beanie_client = None
             self._beanie_client_loop = None
         self._artifacts_bucket = None
