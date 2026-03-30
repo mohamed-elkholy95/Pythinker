@@ -18,7 +18,9 @@
 # Commands:
 #   ./dev.sh                    Build + start full stack + live watch (DEFAULT)
 #   ./dev.sh watch              Same as above (explicit)
-#   ./dev.sh attach             Attach watch to ALREADY-RUNNING containers (no rebuild)
+#   ./dev.sh attach             Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no up)
+#                               Use after: docker compose up -d   or   ./dev.sh up -d
+#                               Restores file sync + HMR/uvicorn --reload without restarting the stack.
 #   ./dev.sh up -d              Start without watch (no HMR — manual use only)
 #   ./dev.sh logs -f backend    Follow backend logs
 #   ./dev.sh down -v            Stop + remove volumes
@@ -139,7 +141,32 @@ case "$CMD" in
         $COMPOSE $COMPOSE_FILES up --build --watch
         ;;
     attach)
-        # Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no restart)
+        # Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no `compose up`).
+        # Requires Docker Compose v2 with `watch`; fails fast if nothing is running.
+        shift
+        _ps_ok=0
+        _running_q=""
+        if _running_q=$($COMPOSE $COMPOSE_FILES ps --status running -q 2>/dev/null); then
+            _ps_ok=1
+        else
+            echo "Note: could not list running services (upgrade Docker Compose v2.22+ for a preflight check)." >&2
+        fi
+        if [[ "$_ps_ok" -eq 1 ]]; then
+            if [[ -z "${_running_q//[$'\t\r\n ']/}" ]]; then
+                if $COMPOSE $COMPOSE_FILES ps -q 2>/dev/null | grep -q .; then
+                    echo "Compose has containers but none are in \"running\" state." >&2
+                else
+                    echo "No running containers for this Compose project." >&2
+                fi
+                echo "" >&2
+                echo "Start the stack first, then attach watch:" >&2
+                echo "  docker compose up -d && ./dev.sh attach" >&2
+                echo "  # or foreground with watch from scratch:" >&2
+                echo "  ./dev.sh watch" >&2
+                exit 1
+            fi
+        fi
+        unset _ps_ok _running_q
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Pythinker Dev — Attaching Compose Watch"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -148,9 +175,12 @@ case "$CMD" in
         echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
         echo "  Gateway  : ./backend/app  → /app/app  [sync+restart]"
+        echo ""
+        echo "  Ctrl+C stops watch only — containers keep running."
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES watch --no-up --prune
+        # --no-up: do not run compose up; --prune: drop stale sync state
+        exec $COMPOSE $COMPOSE_FILES watch --no-up --prune "$@"
         ;;
     sync)
         # Legacy: rsync to /private/tmp staging dirs
