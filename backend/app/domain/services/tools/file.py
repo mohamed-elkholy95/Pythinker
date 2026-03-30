@@ -251,9 +251,12 @@ class FileTool(BaseTool):
 
     @tool(
         name="file_read",
-        description="Read file content. Use for checking file contents, analyzing logs, or reading configuration files.",
+        description="Read file content. Use paths under /workspace (or session output dirs). Do not use /app — that is reserved for sandbox runtime, not user files.",
         parameters={
-            "file": {"type": "string", "description": "Absolute path of the file to read"},
+            "file": {
+                "type": "string",
+                "description": "Absolute path of the file (typically under /workspace/...)",
+            },
             "start_line": {"type": "integer", "description": "(Optional) Starting line to read from, 0-based"},
             "end_line": {"type": "integer", "description": "(Optional) Ending line number (exclusive)"},
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
@@ -308,9 +311,12 @@ class FileTool(BaseTool):
 
     @tool(
         name="file_write",
-        description="Overwrite or append content to a file. Use for creating new files, appending content, or modifying existing files.",
+        description="Overwrite or append content to a file. Write deliverables under /workspace (e.g. /workspace/.../output/reports). Do not use /app.",
         parameters={
-            "file": {"type": "string", "description": "Absolute path of the file to write to"},
+            "file": {
+                "type": "string",
+                "description": "Absolute path to write (use /workspace/... for artifacts)",
+            },
             "content": {"type": "string", "description": "Text content to write"},
             "append": {"type": "boolean", "description": "(Optional) Whether to use append mode"},
             "leading_newline": {"type": "boolean", "description": "(Optional) Whether to add a leading newline"},
