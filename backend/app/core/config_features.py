@@ -232,6 +232,10 @@ class ObservabilitySettingsMixin:
     otel_service_name: str = "pythinker-agent"
     otel_insecure: bool = True  # Use insecure connection (no TLS)
 
+    # When True, authenticated users may fetch recent Docker log tails (backend + sandbox)
+    # via GET /api/v1/diagnostics/container-logs. Requires Docker socket on the host.
+    container_log_preview_enabled: bool = False
+
 
 class TimelineSettingsMixin:
     """Timeline recording and workspace configuration."""

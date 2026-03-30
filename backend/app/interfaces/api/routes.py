@@ -6,6 +6,7 @@ from . import (
     canvas_routes,
     channel_link_routes,
     connectors_routes,
+    diagnostics_routes,
     file_routes,
     health_routes,
     knowledge_base_routes,
@@ -34,6 +35,7 @@ def create_api_router() -> APIRouter:
 
     # Include all sub-routers
     api_router.include_router(health_routes.router)  # Lightweight health check
+    api_router.include_router(diagnostics_routes.router)
     api_router.include_router(session_routes.router)
     api_router.include_router(browser_workflow_routes.router)
     api_router.include_router(file_routes.router)
