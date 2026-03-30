@@ -16,6 +16,19 @@ from app.infrastructure.storage.redis import get_redis
 logger = logging.getLogger(__name__)
 
 
+def _is_benign_redis_xread_disconnect(error_text: str) -> bool:
+    """True when the error is expected during shutdown or Redis reconnect."""
+    lower = error_text.lower()
+    needles = (
+        "connection closed by server",
+        "connection closed",
+        "connection reset",
+        "broken pipe",
+        "operation on a closed",
+    )
+    return any(n in lower for n in needles)
+
+
 class RedisStreamQueue(MessageQueue):
     """Redis Stream implementation of message queue"""
 
@@ -209,6 +222,11 @@ class RedisStreamQueue(MessageQueue):
             return None, None
         except Exception as e:
             error_text = str(e)
+            # During uvicorn --reload / process shutdown the Redis client closes while
+            # xread is blocked — noisy warning only; not an application bug.
+            if _is_benign_redis_xread_disconnect(error_text):
+                logger.debug("xread disconnected (shutdown or reconnect): %s: %s", self._stream_name, error_text)
+                return None, None
             if "Invalid stream ID specified as stream command argument" in error_text:
                 if not self._invalid_stream_id_warning_emitted:
                     logger.warning(f"xread error for stream {self._stream_name}: {error_text}")
