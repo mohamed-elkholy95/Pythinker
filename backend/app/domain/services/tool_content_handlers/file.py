@@ -24,7 +24,13 @@ async def handle_file_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
         file_read_result, _ = await asyncio.gather(file_read_task, sync_task, return_exceptions=True)
         if isinstance(file_read_result, Exception):
             file_content = f"(Error: {file_read_result})"
-        elif file_read_result is None or not hasattr(file_read_result, "data") or file_read_result.data is None:
+        elif file_read_result is None:
+            file_content = "(Error: file not found or empty response)"
+        elif not file_read_result.success:
+            # Failed reads often have data=None but a detailed message (HTTP 400 path denial, 404, etc.).
+            detail = file_read_result.message or "Could not read file"
+            file_content = f"(Error: {detail})"
+        elif file_read_result.data is None:
             file_content = "(Error: file not found or empty response)"
         else:
             file_content = file_read_result.data.get("content", "")
