@@ -734,6 +734,28 @@ class DockerSandbox(Sandbox):
             )
         return ToolResult(**response.json())
 
+    @staticmethod
+    def _normalize_sandbox_user_path(path: str) -> tuple[str, bool]:
+        """Map ``/app/...`` to ``/workspace/...`` — models often confuse app code dir with user workspace.
+
+        Allowed roots in the sandbox include ``/workspace``; ``/app`` is reserved and blocked.
+        """
+        if not path or not str(path).strip():
+            return path, False
+        normalized = str(path).replace("\\", "/").strip()
+        if normalized == "/app" or normalized.startswith("/app/"):
+            rest = normalized[5:] if normalized.startswith("/app/") else ""
+            rest = rest.strip("/")
+            mapped = f"/workspace/{rest}" if rest else "/workspace"
+            return mapped, True
+        return path, False
+
+    def _remap_file_arg(self, path: str, *, kind: str) -> str:
+        out, remapped = self._normalize_sandbox_user_path(path)
+        if remapped:
+            logger.debug("Sandbox %s path remapped: %s -> %s", kind, path, out)
+        return out
+
     async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
         client = await self.get_client()
         response = await client.post(
@@ -838,6 +860,7 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of write operation
         """
+        file = self._remap_file_arg(file, kind="file_write")
         client = await self.get_client()
         response = await client.post(
             f"{self.base_url}/api/v1/file/write",
@@ -866,6 +889,7 @@ class DockerSandbox(Sandbox):
         Returns:
             File content
         """
+        file = self._remap_file_arg(file, kind="file_read")
         client = await self.get_client()
         response = await client.post(
             f"{self.base_url}/api/v1/file/read",
@@ -882,6 +906,7 @@ class DockerSandbox(Sandbox):
         Returns:
             Whether file exists
         """
+        path = self._remap_file_arg(path, kind="file_exists")
         client = await self.get_client()
         response = await client.post(f"{self.base_url}/api/v1/file/exists", json={"file": path})
         return self._parse_tool_result(response)
@@ -895,6 +920,7 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of delete operation
         """
+        path = self._remap_file_arg(path, kind="file_delete")
         client = await self.get_client()
         response = await client.post(f"{self.base_url}/api/v1/file/delete", json={"path": path})
         return self._parse_tool_result(response)
@@ -908,6 +934,7 @@ class DockerSandbox(Sandbox):
         Returns:
             List of directory contents
         """
+        path = self._remap_file_arg(path, kind="file_list")
         client = await self.get_client()
         response = await client.post(f"{self.base_url}/api/v1/file/list", json={"path": path})
         return self._parse_tool_result(response)
@@ -924,6 +951,7 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of replace operation
         """
+        file = self._remap_file_arg(file, kind="file_replace")
         client = await self.get_client()
         response = await client.post(
             f"{self.base_url}/api/v1/file/replace",
@@ -942,6 +970,7 @@ class DockerSandbox(Sandbox):
         Returns:
             Search results
         """
+        file = self._remap_file_arg(file, kind="file_search")
         client = await self.get_client()
         response = await client.post(
             f"{self.base_url}/api/v1/file/search", json={"file": file, "regex": regex, "sudo": sudo}
@@ -958,6 +987,7 @@ class DockerSandbox(Sandbox):
         Returns:
             List of found files
         """
+        path = self._remap_file_arg(path, kind="file_find")
         client = await self.get_client()
         response = await client.post(f"{self.base_url}/api/v1/file/find", json={"path": path, "glob": glob_pattern})
         return self._parse_tool_result(response)
@@ -980,6 +1010,8 @@ class DockerSandbox(Sandbox):
         if not path or not path.strip():
             return ToolResult(success=False, message="file_upload: path is required and must not be empty")
 
+        path = self._remap_file_arg(path, kind="file_upload")
+
         # Prepare form data for upload
         files = {"file": (filename or "upload", file_data, "application/octet-stream")}
         data = {"path": path}
@@ -997,6 +1029,7 @@ class DockerSandbox(Sandbox):
         Returns:
             File content as binary stream
         """
+        path = self._remap_file_arg(path, kind="file_download")
         client = await self.get_client()
         response = await client.get(f"{self.base_url}/api/v1/file/download", params={"path": path})
         response.raise_for_status()
