@@ -66,7 +66,7 @@ class BrowserUseService:
             auto_dismiss_dialogs: Whether to auto-dismiss popups/dialogs (default: True)
         """
         if not BROWSER_USE_AVAILABLE:
-            raise ImportError("browser-use library not installed. Install with: pip install browser-use>=0.11.0")
+            raise ImportError("browser-use library not installed. Install with: pip install 'browser-use>=0.11.13,<0.12.0'")
 
         self.cdp_url = cdp_url
         self.llm_provider = llm_provider
