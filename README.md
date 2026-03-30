@@ -335,6 +335,10 @@ bun run type-check  # TypeScript
 bun run test:run    # Vitest
 ```
 
+### Deep research and chart runtime
+
+Long research sessions use mode-aware search compaction, explicit summarization handoff (instead of late system-prompt patches), and report-verification guards. Plotly in the sandbox can use `docker-compose.plotly.yml`, `sandbox/Dockerfile.plotly`, or `PLOTLY_RUNTIME_AVAILABLE` when the runtime is known to include Plotly. Details: [backend/README.md — Deep Research Reliability](backend/README.md#deep-research-reliability).
+
 ### Monitoring
 
 Pythinker ships with a full observability stack:

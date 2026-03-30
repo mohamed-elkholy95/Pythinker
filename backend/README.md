@@ -324,6 +324,66 @@ Common error codes:
 2. Implement the tool functionality in the `infrastructure` layer
 3. Integrate the tool in `application/services`
 
+## Deep Research Reliability
+
+### Summarization Context Handoff
+
+Before entering `AgentStatus.SUMMARIZING`, the flow runs two compaction passes:
+
+1. **`_compact_prior_step_context`** — simple char-based truncation of old tool/assistant messages
+2. **`ContextCompressionPipeline`** — token-aware three-stage pass (summarize → truncate → drop) targeting `effective_context_char_cap / 4` tokens
+
+Workspace deliverables and tracked attachments are assembled into an explicit `summarization_context` string and passed directly into `ExecutionAgent.summarize()` instead of mutating `system_prompt` at runtime.
+
+### Deep-Research Search Budgets
+
+When `complexity_score >= 0.8`, `SearchTool._get_compaction_profile()` returns a `CompactionProfile` with expanded limits:
+
+| Setting | Default | Deep-Research |
+|---------|---------|---------------|
+| `search_auto_enrich_top_k` | 5 | `search_auto_enrich_top_k_deep` (8) |
+| `search_auto_enrich_snippet_chars` | 2000 | `search_auto_enrich_snippet_chars_deep` (3000) |
+| `scraping_spider_top_k` | 5 | `scraping_spider_top_k_deep` (3) |
+| `search_preview_count` | 5 | `search_preview_count_deep` (8) |
+
+Configure via `.env` — all have sensible defaults and do not change non-research flow behavior.
+
+### Summary Recovery from Cache
+
+When `ExecutionAgent.summarize()` fails before yielding any streamed content, the summarization error path now attempts cache-backed recovery before emitting an error event:
+
+1. **`_pre_trim_report_cache`** — report content captured immediately before context trimming began
+2. **`_extract_fallback_summary()`** — memory-layer fallback if the pre-trim cache is empty
+
+If a valid candidate (>200 chars) is found, a `ReportEvent` is emitted with title `[Partial] <extracted_title>` and a blockquote notice explaining the partial recovery. Only after all candidates are exhausted does the flow emit an `ErrorEvent`.
+
+Related: `llm_stream_read_timeout` (default `150.0` s) and per-provider read timeouts (`openai`: 150 s, `glm`: 150 s) were also raised to reduce spurious mid-report `httpx.ReadTimeout` kills on large-context summarization.
+
+### Report Verification Loop Guard
+
+The deliverable workflow prompt enforces single-shot verification:
+- Use the **exact path** returned by `file_write`
+- Run **one** check; if `file_write` returned success the file exists — skip further shell probes
+
+A flow-level state flag (`_report_verification_failed`) suppresses replanning when a report attachment is already tracked and one verification pass has already failed.
+
+### Plotly Chart Fallback Policy
+
+`AgentTaskRunner._ensure_plotly_chart_files()` probes Plotly availability via `PlotlyCapabilityCheck` before launching the chart script:
+
+- **Available** → Plotly HTML + PNG via `PlotlyChartOrchestrator`
+- **Unavailable** → immediate SVG fallback (no subprocess spawned)
+- **Probe cached** for 300 s per session to avoid repeated `exec_command` overhead
+
+**Deployment options:**
+
+| Dockerfile | Plotly available | When to use |
+|---|---|---|
+| `sandbox/Dockerfile` (default) | Only when `ENABLE_SANDBOX_ADDONS=1` | Standard dev/prod |
+| `sandbox/Dockerfile.plotly` | Always | When charts are always required |
+
+Set `PLOTLY_RUNTIME_AVAILABLE=1` in `.env` when using the addons or Plotly image so the backend skips the probe.
+
 ## Author
 
 Mohamed Elkholy

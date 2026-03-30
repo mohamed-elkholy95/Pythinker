@@ -204,6 +204,13 @@ ADAPTIVE_MODEL_SELECTION_ENABLED=false
 
 > **IMPORTANT**: These features are implemented but previously undocumented. Update memory whenever implementing bugs/features.
 
+### LLM Fallback Isolation and Summary Recovery (2026-03-29)
+
+- **Fallback client isolation** (`openai_llm.py`): When `_fallback_active` is `True`, the cached client is returned directly without re-querying the primary key pool. `RateLimitError` and auth errors during fallback now propagate immediately instead of rotating the primary key pool, preventing credential cross-contamination.
+- **Raised stream read timeouts**: `llm_stream_read_timeout` raised from 90 → 150 s (`config_llm.py`). Timeout profiles updated: `openai` 120 → 150 s, `glm` 90 → 150 s (`openai_llm.py`). Long-form summarization on large contexts can pause well over a minute on OpenAI-compatible providers.
+- **Summary recovery from cache** (`execution.py`): When summarization fails with no streamed content, the agent falls back to `_pre_trim_report_cache` or `_extract_fallback_summary()` and emits a `[Partial] <title>` `ReportEvent` with a recovery notice instead of yielding a bare `ErrorEvent`.
+- **Files**: `config_llm.py`, `openai_llm.py`, `execution.py`
+
 ### Universal LLM Provider Auto-Detection (commit 8afef32)
 - **Setting**: `llm_provider: str = "auto"` — auto-detects provider from API keys and model name patterns
 - **JSON Repair**: Automatic recovery from malformed LLM JSON responses (handles GLM and other quirky providers)
@@ -410,6 +417,16 @@ bun run test:run     # Single test run
 **Documentation:**
 - Complete guide: `docs/PLOTLY_CHART_BEST_PRACTICES.md`
 - Implementation summary: `docs/CHART_IMPROVEMENTS_SUMMARY.md`
+
+### Deep research reliability
+
+**Full detail:** `backend/README.md` (section *Deep Research Reliability*).
+
+- **Summarization:** Pre-summarize compaction and an explicit `summarization_context` passed into `ExecutionAgent.summarize()` instead of mutating `system_prompt` at summarize time for deliverables.
+- **Search:** When complexity is high, `SearchTool` uses a deeper `CompactionProfile` (knobs in `config_scraping` / `config_features`).
+- **Report verification:** Workflow prompts target real attachment paths; flow state avoids repeated shell thrash once a report attachment exists.
+- **Plotly:** `PlotlyCapabilityCheck` in `agent_task_runner`; set `PLOTLY_RUNTIME_AVAILABLE` or use `sandbox/Dockerfile.plotly` / `docker-compose.plotly.yml` when charts must always run.
+- **Observability:** Cap-hit and forced-step-advance metrics in `prometheus_metrics.py` (see backend README table).
 
 ---
 
