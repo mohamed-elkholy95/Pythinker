@@ -166,6 +166,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    group_add:
+      - "${DOCKER_GID:-988}"
+      - "0"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dspy_cache:/app/data/dspy_cache

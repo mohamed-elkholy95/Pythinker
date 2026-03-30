@@ -89,6 +89,17 @@ cmd_sync() {
 # This allows calling ./dev.sh from any working directory (e.g., from an IDE terminal).
 cd "$PROJECT_DIR"
 
+# Match host Docker socket GID so backend/gateway can use /var/run/docker.sock (diagnostics,
+# sandbox lifecycle). Override with DOCKER_GID in .env when needed.
+if [[ -z "${DOCKER_GID:-}" ]] && [[ -S /var/run/docker.sock ]]; then
+  if _g="$(stat -f '%g' /var/run/docker.sock 2>/dev/null)"; then
+    export DOCKER_GID="$_g"
+  elif _g="$(stat -c '%g' /var/run/docker.sock 2>/dev/null)"; then
+    export DOCKER_GID="$_g"
+  fi
+  unset _g
+fi
+
 if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
     COMPOSE="docker compose"
 elif command -v docker-compose &>/dev/null; then
