@@ -297,6 +297,33 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
     }
   }
 
+  // Transient backend unavailability (uvicorn --reload, slow startup, Vite proxy 504).
+  const transientCfg = originalRequest as InternalAxiosRequestConfig & {
+    _transientBackendRetry?: number;
+  };
+  const transientAttempt = transientCfg._transientBackendRetry ?? 0;
+  const maxTransientRetries = 5;
+  const httpMethod = (originalRequest.method ?? 'get').toLowerCase();
+  const respStatus = error.response?.status;
+  const isTransientStatus =
+    respStatus === 502 || respStatus === 503 || respStatus === 504;
+  const isNetworkNoResponse = !error.response && Boolean(error.request);
+  const safeForNetworkRetry = ['get', 'head', 'options'].includes(httpMethod);
+  const allowWriteRetry504 =
+    ['post', 'put', 'patch', 'delete'].includes(httpMethod) && respStatus === 504;
+
+  if (
+    !originalRequest.__isRefreshRequest &&
+    transientAttempt < maxTransientRetries &&
+    (isTransientStatus || (isNetworkNoResponse && safeForNetworkRetry)) &&
+    (safeForNetworkRetry || allowWriteRetry504)
+  ) {
+    transientCfg._transientBackendRetry = transientAttempt + 1;
+    const delayMs = Math.min(400 * 2 ** transientAttempt, 5000);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return apiClient(originalRequest);
+  }
+
   // Detect stale session references — emit event so composables can clean up.
   // Matches: /api/v1/sessions/<id>/... returning 404 (session deleted or server restarted).
   if (error.response?.status === 404) {
