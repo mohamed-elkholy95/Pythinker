@@ -28,6 +28,7 @@ except ImportError:
     ActionResult = None
 
 from app.core.config import get_settings
+from app.domain.utils.browser_use_session import cdp_browser_session_extra_kwargs
 from app.domain.utils.url_filters import VIDEO_URL_PATTERNS, is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,9 @@ class BrowserUseService:
             auto_dismiss_dialogs: Whether to auto-dismiss popups/dialogs (default: True)
         """
         if not BROWSER_USE_AVAILABLE:
-            raise ImportError("browser-use library not installed. Install with: pip install 'browser-use>=0.11.13,<0.12.0'")
+            raise ImportError(
+                "browser-use library not installed. Install with: pip install 'browser-use>=0.12.5,<0.13.0'"
+            )
 
         self.cdp_url = cdp_url
         self.llm_provider = llm_provider
@@ -151,26 +154,23 @@ class BrowserUseService:
             True if initialization succeeded, False otherwise
         """
         try:
-            # Import BrowserConfig if available for viewport settings
-            try:
-                from browser_use.browser.config import BrowserConfig
-
-                # Configure viewport to match live preview display (1280x1024)
-                # This prevents browser-use from setting 1920x1080 which causes content cutoff
-                browser_config = BrowserConfig(
-                    viewport_width=1280,
-                    viewport_height=900,  # Account for browser chrome
-                    disable_security=True,
-                )
-                self.session = BrowserSession(
-                    cdp_url=self.cdp_url,
-                    browser_config=browser_config,
-                )
-                logger.info("Browser-use session configured with 1280x900 viewport")
-            except ImportError:
-                # Fallback if BrowserConfig not available
-                self.session = BrowserSession(cdp_url=self.cdp_url)
-                logger.warning("BrowserConfig not available, using default viewport")
+            settings = get_settings()
+            self.session = BrowserSession(
+                cdp_url=self.cdp_url,
+                **cdp_browser_session_extra_kwargs(
+                    min_page_load_wait=float(settings.browser_agent_min_page_load_wait),
+                    network_idle_wait=float(settings.browser_agent_network_idle_wait),
+                    max_iframes=int(settings.browser_agent_max_iframes),
+                    max_iframe_depth=int(settings.browser_agent_max_iframe_depth),
+                ),
+            )
+            logger.info(
+                "Browser-use CDP session: viewport 1280x900, page-load waits %.1fs/%.1fs, iframes cap %s/%s",
+                float(settings.browser_agent_min_page_load_wait),
+                float(settings.browser_agent_network_idle_wait),
+                settings.browser_agent_max_iframes,
+                settings.browser_agent_max_iframe_depth,
+            )
 
             await self.session.start()
 
@@ -318,12 +318,18 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             if start_url:
                 enhanced_task = f"First navigate to {start_url}, then: {enhanced_task}"
 
-            # Create autonomous agent with the task
+            # Create autonomous agent with the task (align timeouts with BrowserAgentTool)
             agent = Agent(
                 task=enhanced_task,
                 llm=llm,
                 browser_session=self.session,
                 max_steps=max_steps,
+                use_vision=settings.browser_agent_use_vision,
+                max_failures=settings.browser_agent_max_failures,
+                llm_timeout=settings.browser_agent_llm_timeout,
+                step_timeout=settings.browser_agent_step_timeout,
+                flash_mode=settings.browser_agent_flash_mode,
+                final_response_after_failure=True,
             )
 
             logger.info(f"Starting autonomous task (max_steps={max_steps}): {task[:100]}...")

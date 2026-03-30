@@ -176,6 +176,12 @@ class BrowserSettingsMixin:
     browser_agent_step_timeout: int = 120  # Timeout per step in seconds
     browser_agent_flash_mode: bool = False  # Fast mode skips thinking (less reliable)
 
+    # browser-use BrowserSession (CDP): page-load and iframe caps (heavy sites / Macworld-class pages)
+    browser_agent_min_page_load_wait: float = 2.5  # Seconds before treating page as ready for state capture
+    browser_agent_network_idle_wait: float = 4.0  # Extra wait for network idle after load
+    browser_agent_max_iframes: int = 12  # Cap iframe enumeration for accessibility tree
+    browser_agent_max_iframe_depth: int = 3
+
     # Anti-Bot / Stealth Configuration (Enhancement Phase 2.4)
     browser_stealth_enabled: bool = True  # Enable stealth mode for navigation
     browser_stealth_mode: str = "basic"  # "basic", "advanced"
@@ -261,9 +267,9 @@ class BrowserSettingsMixin:
     chrome_ensure_timeout: float = 35.0  # Timeout for ensure call (slightly > CHROME_READY_TIMEOUT)
 
     # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
-    # Raised from 5.0→8.0 to accommodate high-latency providers (Z.AI GLM).
+    # Raised from 5.0→8.0→15.0 to accommodate high-latency providers (Z.AI GLM) and slow summarization.
     # Benchmark showed 43% timeout rate at 5.0s.  Override: FAST_ACK_REFINER_TIMEOUT=<seconds>
-    fast_ack_refiner_timeout: float = 8.0  # LLM timeout for fast acknowledgment generation
+    fast_ack_refiner_timeout: float = 15.0  # LLM timeout for fast acknowledgment generation
     fast_ack_refiner_traceback_sample_rate: float = 0.05  # Sample rate for error traceback logging
 
 

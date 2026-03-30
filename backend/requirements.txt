@@ -44,14 +44,12 @@ symspellpy==6.9.0
 
 # Browser automation
 playwright>=1.48.0,<2.0.0
-# PyPI metadata (https://pypi.org/pypi/browser-use/<version>/json requires_dist):
-#   0.12.5 → requests==2.32.5 (exact pin; incompatible with requests>=2.33.0 below).
-#   0.11.13 → requests>=2.32.3 (resolves with requests>=2.33.0; uv pip compile OK).
-browser-use>=0.11.13,<0.12.0
+# PyPI: browser-use 0.12.5 pins requests==2.32.5 (exact). Cannot satisfy requests>=2.33.0 alongside 0.12.x.
+browser-use>=0.12.5,<0.13.0
 # Security overrides for browser-use transitive deps
 authlib>=1.6.9,<2.0.0     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
 pypdf>=6.9.2,<7.0.0       # CVE-2026-27026 through CVE-2026-33699 (10 CVEs)
-requests>=2.33.0          # CVE-2026-25645
+requests==2.32.5          # Pinned by browser-use 0.12.5; CVE-2026-25645 mitigated when upstream relaxes pin
 
 # Web scraping with TLS fingerprinting and stealth capabilities
 # [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)

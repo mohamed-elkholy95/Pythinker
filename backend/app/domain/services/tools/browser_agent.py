@@ -23,6 +23,7 @@ except ImportError:
 from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
+from app.domain.utils.browser_use_session import cdp_browser_session_extra_kwargs
 from app.domain.utils.llm_compat import is_native_openai
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
 
@@ -559,9 +560,15 @@ class BrowserAgentTool(BaseTool):
     async def _get_browser(self) -> Browser:
         """Get or create browser instance connected via CDP"""
         if self._browser is None:
+            s = self._settings
             self._browser = Browser(
                 cdp_url=self._cdp_url,
-                headless=False,
+                **cdp_browser_session_extra_kwargs(
+                    min_page_load_wait=float(s.browser_agent_min_page_load_wait),
+                    network_idle_wait=float(s.browser_agent_network_idle_wait),
+                    max_iframes=int(s.browser_agent_max_iframes),
+                    max_iframe_depth=int(s.browser_agent_max_iframe_depth),
+                ),
             )
         return self._browser
 
