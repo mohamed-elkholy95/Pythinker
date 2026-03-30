@@ -19,6 +19,8 @@ case "${reload_flag,,}" in
       --reload-exclude "tests/*"
       --reload-exclude "docs/*"
       --reload-exclude "*.md"
+      # Debounce Compose Watch syncing many files at once (fewer mid-request restarts).
+      --reload-delay "${BACKEND_RELOAD_DELAY:-1.5}"
     )
     ;;
 esac
