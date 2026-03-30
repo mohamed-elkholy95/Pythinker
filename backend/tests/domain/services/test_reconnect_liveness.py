@@ -85,6 +85,30 @@ def _running_session(*, updated_seconds_ago: float = 0) -> Session:
 
 @pytest.mark.asyncio
 @patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
+async def test_persisted_task_id_used_when_liveness_missing(
+    mock_loop: MagicMock,
+) -> None:
+    """When Redis has no liveness key but MongoDB still has task_id, poll that stream."""
+    relay = AsyncMock()
+    relay.get_live_task_id = AsyncMock(return_value=None)
+    done_json = DoneEvent().model_dump_json()
+    relay.get_task_output = AsyncMock(return_value=("1-0", done_json))
+
+    session = _running_session()
+    session.task_id = "persisted-from-mongo"
+    service, teardown = _build_service(session, relay=relay)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    relay.get_task_output.assert_called()
+    call_kwargs = relay.get_task_output.call_args
+    tid = call_kwargs.kwargs.get("task_id") or (call_kwargs.args[0] if call_kwargs.args else None)
+    assert tid == "persisted-from-mongo"
+    assert any(isinstance(e, DoneEvent) for e in events)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
+@patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
 async def test_liveness_found_constructs_correct_stream(
     mock_loop: MagicMock,
 ) -> None:

@@ -951,6 +951,14 @@ class AgentDomainService:
                                 if self._task_output_relay
                                 else None
                             )
+                            if live_task_id is None and session and session.task_id:
+                                live_task_id = session.task_id
+                                logger.info(
+                                    "Reconnect: using persisted task_id %s for session %s "
+                                    "(no Redis liveness key; stream may still have events)",
+                                    live_task_id,
+                                    session_id,
+                                )
 
                             if live_task_id:
                                 # Task is alive — poll its output stream directly
