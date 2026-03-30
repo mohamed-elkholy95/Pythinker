@@ -56,6 +56,7 @@ from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorMode,
     create_coordinator_flow,
 )
+from app.domain.services.plotly_capability_check import PlotlyCapabilityCheck
 from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
 from app.domain.services.tool_content_handlers import get_content_handler_registry
 from app.domain.services.tool_event_handler import ToolEventHandler
@@ -250,6 +251,8 @@ class AgentTaskRunner(TaskRunner):
             session_id=session_id,
             llm=self._llm,
         )
+        # Capability check — gates Plotly path; falls back to SVG when unavailable
+        self._plotly_capability_checker = PlotlyCapabilityCheck()
         self._delivery_scope_id: str | None = None
         self._delivery_scope_root: str | None = None
         self._workspace_deliverables_root: str | None = None  # Set from session.workspace_structure
@@ -896,9 +899,17 @@ class AgentTaskRunner(TaskRunner):
                 (event.content or "") + "\n\n---\n\n## Agent Charts\n\n" + "\n\n".join(agent_chart_lines) + "\n"
             )
 
+        # Skip canonical write when a human-named markdown report attachment already exists.
+        _has_existing_report_md = any(
+            att.content_type == "text/markdown"
+            and att.filename is not None
+            and not att.filename.startswith("full-report-")
+            for att in existing
+        )
+
         # --- Write summarized report file (now includes chart references) ---
         expected_name = f"report-{event.id}.md"
-        if not self._has_attachment(existing, expected_name):
+        if not self._has_attachment(existing, expected_name) and not _has_existing_report_md:
             file_path = f"{workspace_root}/{expected_name}"
             try:
                 result = await self._sandbox.file_write(file=file_path, content=event.content)
@@ -1041,6 +1052,27 @@ class AgentTaskRunner(TaskRunner):
         # Check if already generated
         if self._has_attachment(attachments, html_name) or self._has_attachment(attachments, png_name):
             return attachments
+
+        # Capability check: skip Plotly when runtime is unavailable (saves ~2s probe time)
+        try:
+            cap = await self._plotly_capability_checker.check(self._sandbox, self._session_id)
+        except Exception as _cap_exc:
+            cap = None
+            logger.warning("Plotly capability check raised: %s — proceeding to SVG fallback", _cap_exc)
+
+        if cap is not None and not cap.is_available:
+            logger.info(
+                "Plotly runtime unavailable for report_id=%s session=%s (status=%s). Using SVG fallback.",
+                event.id,
+                self._session_id,
+                cap.status,
+            )
+            return await self._ensure_legacy_svg_chart(
+                event,
+                attachments,
+                force_generation=force_generation,
+                generation_mode=f"{generation_mode}_cap_unavailable",
+            )
 
         # Run Plotly chart orchestrator
         chart_error: str | None = None
