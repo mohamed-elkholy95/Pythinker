@@ -48,7 +48,8 @@ playwright>=1.48.0,<2.0.0
 browser-use>=0.12.5,<0.13.0
 # Security overrides for browser-use transitive deps
 authlib>=1.6.9,<2.0.0     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
-pypdf>=6.9.2,<7.0.0       # CVE-2026-27026 through CVE-2026-33699 (10 CVEs)
+# browser-use 0.12.5 requires pypdf==6.9.1 (uv cannot satisfy pypdf>=6.9.2 alongside 0.12.5)
+pypdf==6.9.1
 requests==2.32.5          # Pinned by browser-use 0.12.5; CVE-2026-25645 mitigated when upstream relaxes pin
 
 # Web scraping with TLS fingerprinting and stealth capabilities
