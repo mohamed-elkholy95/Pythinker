@@ -557,6 +557,12 @@ async def get_session(
             streaming_mode=str(get_settings().sandbox_streaming_mode),
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
+            latest_message=getattr(session, "latest_message", None),
+            latest_message_at=(
+                int(latest_message_at.timestamp())
+                if (latest_message_at := getattr(session, "latest_message_at", None))
+                else None
+            ),
         )
     )
 
@@ -2791,5 +2797,11 @@ async def get_shared_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
+            latest_message=getattr(session, "latest_message", None),
+            latest_message_at=(
+                int(latest_message_at.timestamp())
+                if (latest_message_at := getattr(session, "latest_message_at", None))
+                else None
+            ),
         )
     )

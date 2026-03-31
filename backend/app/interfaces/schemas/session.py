@@ -176,6 +176,15 @@ class GetSessionResponse(BaseModel):
     streaming_mode: StreamingMode | None = None
     events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool = False
+    latest_message: str | None = None
+    latest_message_at: int | None = None
+
+    @field_validator("latest_message", mode="before")
+    @classmethod
+    def _sanitize_latest_message(cls, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        return strip_leaked_tool_call_markup(value)
 
 
 class SessionReliabilityDiagnosticsRequest(BaseModel):
@@ -254,6 +263,15 @@ class SharedSessionResponse(BaseModel):
     status: SessionStatus
     events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool
+    latest_message: str | None = None
+    latest_message_at: int | None = None
+
+    @field_validator("latest_message", mode="before")
+    @classmethod
+    def _sanitize_latest_message(cls, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        return strip_leaked_tool_call_markup(value)
 
 
 class BrowseUrlRequest(BaseModel):
