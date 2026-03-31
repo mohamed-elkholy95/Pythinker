@@ -35,6 +35,7 @@ from app.interfaces.api.session_routes import (
     get_screenshot_image,
     get_session,
     get_shared_screenshot_image,
+    get_shared_session,
     get_takeover_status,
     input_websocket,
     screencast_websocket,
@@ -149,6 +150,62 @@ async def test_get_session_includes_source_field_in_response():
     assert response.data is not None
     assert response.data.session_id == session_id
     assert response.data.source == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_get_session_exposes_sanitized_latest_message_for_fallback_restore():
+    session_id = "session-history-fallback"
+    current_user = SimpleNamespace(id="user-123")
+    latest_message = 'Final answer <tool_call>{"name":"shell"}</tool_call>'
+    latest_message_at = datetime(2026, 3, 31, 17, 30, tzinfo=UTC)
+    session = SimpleNamespace(
+        id=session_id,
+        title="Recovered thread",
+        status=SessionStatus.COMPLETED,
+        source="web",
+        research_mode=ResearchMode.DEEP_RESEARCH,
+        events=[],
+        is_shared=False,
+        latest_message=latest_message,
+        latest_message_at=latest_message_at,
+    )
+    agent_service = SimpleNamespace(get_session_full=AsyncMock(return_value=session))
+
+    response = await get_session(
+        session_id=session_id,
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    assert response.data is not None
+    assert response.data.latest_message == "Final answer"
+    assert response.data.latest_message_at == int(latest_message_at.timestamp())
+
+
+@pytest.mark.asyncio
+async def test_get_shared_session_exposes_sanitized_latest_message_for_fallback_restore():
+    session_id = "shared-session-history-fallback"
+    latest_message = 'Shared answer <tool_call>{"name":"browser"}</tool_call>'
+    latest_message_at = datetime(2026, 3, 31, 17, 35, tzinfo=UTC)
+    session = SimpleNamespace(
+        id=session_id,
+        title="Shared recovered thread",
+        status=SessionStatus.COMPLETED,
+        events=[],
+        is_shared=True,
+        latest_message=latest_message,
+        latest_message_at=latest_message_at,
+    )
+    agent_service = SimpleNamespace(get_shared_session=AsyncMock(return_value=session))
+
+    response = await get_shared_session(
+        session_id=session_id,
+        agent_service=agent_service,
+    )
+
+    assert response.data is not None
+    assert response.data.latest_message == "Shared answer"
+    assert response.data.latest_message_at == int(latest_message_at.timestamp())
 
 
 @pytest.mark.asyncio

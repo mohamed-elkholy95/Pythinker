@@ -9,13 +9,15 @@ Validates that:
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.domain.exceptions.base import SessionNotFoundException
-from app.domain.models.event import BaseEvent
+from app.domain.models.event import BaseEvent, MessageEvent
 from app.domain.models.file import FileInfo
+from app.domain.models.session import AgentMode, Session, SessionReliabilityDiagnostics, SessionStatus
 from app.infrastructure.models.documents import SessionDocument
 from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
 
@@ -90,6 +92,68 @@ class TestBoundedEventArray:
 
 class TestProjectionDiscipline:
     """Test that non-event queries exclude events/files."""
+
+    @pytest.mark.asyncio
+    async def test_save_preserves_existing_events_and_files_for_lightweight_session(self, repo):
+        """save() must not wipe heavy arrays when the incoming Session came from a light projection."""
+        existing_session = Session(
+            id="s1",
+            user_id="u1",
+            agent_id="a1",
+            mode=AgentMode.AGENT,
+            status=SessionStatus.COMPLETED,
+            events=[
+                MessageEvent(
+                    role="assistant",
+                    message="Persisted event history",
+                )
+            ],
+            files=[
+                FileInfo(
+                    file_id="file-1",
+                    filename="report.md",
+                    file_path="/workspace/report.md",
+                )
+            ],
+        )
+
+        class FakeMongoSession(SimpleNamespace):
+            def update_from_domain(self, session: Session) -> None:
+                self.events = list(session.events)
+                self.files = list(session.files)
+                self.reliability = session.reliability
+
+        mongo_session = FakeMongoSession(
+            events=list(existing_session.events),
+            files=list(existing_session.files),
+            reliability=None,
+        )
+        mongo_session.save = AsyncMock()
+
+        lightweight_session = Session(
+            id="s1",
+            user_id="u1",
+            agent_id="a1",
+            mode=AgentMode.AGENT,
+            status=SessionStatus.COMPLETED,
+            reliability=SessionReliabilityDiagnostics(
+                auto_retry_count=2,
+                max_queue_depth=8,
+            ),
+        )
+
+        with (
+            patch.object(SessionDocument, "session_id", create=True, new="session_id"),
+            patch.object(SessionDocument, "find_one", AsyncMock(return_value=mongo_session)),
+        ):
+            await repo.save(lightweight_session)
+
+        assert len(mongo_session.events) == 1
+        assert mongo_session.events[0].message == "Persisted event history"
+        assert len(mongo_session.files) == 1
+        assert mongo_session.files[0].filename == "report.md"
+        assert mongo_session.reliability is not None
+        assert mongo_session.reliability.auto_retry_count == 2
 
     @pytest.mark.asyncio
     async def test_find_by_id_uses_projection(self, repo, mock_collection):
