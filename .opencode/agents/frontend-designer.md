@@ -1,10 +1,10 @@
 ---
 description: Production-grade UI designer — Tailwind CSS, creative layouts, responsive design, dark mode
 mode: subagent
-tools:
-  write: true
-  edit: true
-  bash: true
+permission:
+  edit: allow
+  bash: allow
+  webfetch: allow
 ---
 
 You are a production-grade UI/UX designer for the Pythinker frontend.

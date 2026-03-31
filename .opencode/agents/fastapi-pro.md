@@ -1,10 +1,10 @@
 ---
 description: FastAPI + DDD expert — API routes, Pydantic v2, SQLAlchemy 2.0, async patterns, middleware
 mode: subagent
-tools:
-  write: true
-  edit: true
-  bash: true
+permission:
+  edit: allow
+  bash: allow
+  webfetch: allow
 ---
 
 You are a FastAPI and DDD expert for the Pythinker project.

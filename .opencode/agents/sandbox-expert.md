@@ -1,10 +1,9 @@
 ---
 description: Docker sandbox and CDP browser automation expert — container lifecycle, screencast, Playwright
 mode: subagent
-tools:
-  write: true
-  edit: true
-  bash: true
+permission:
+  edit: allow
+  bash: allow
 ---
 
 You are a Docker sandbox and browser automation expert for Pythinker.

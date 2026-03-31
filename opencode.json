@@ -3,11 +3,32 @@
   "plugin": [
     "@plannotator/opencode@latest"
   ],
+  "model": "zai-coding/glm-5.1",
+  "small_model": "openai/gpt-5.4-mini",
+  "provider": {
+    "zai-coding": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Z.AI Coding Plan",
+      "options": {
+        "baseURL": "https://api.z.ai/api/coding/paas/v4"
+      },
+      "models": {
+        "glm-5.1": {
+          "name": "GLM-5.1"
+        }
+      }
+    }
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "webfetch": "allow"
+  },
   "default_agent": "build",
   "compaction": {
     "auto": true,
     "prune": true,
-    "reserved": 10000
+    "reserved": 20000
   },
   "instructions": [
     "AGENTS.md",
@@ -21,6 +42,7 @@
     "build": {
       "description": "Primary build agent with full Pythinker context \u2014 DDD, FastAPI, Vue 3, Docker sandbox",
       "mode": "primary",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/build.md}",
       "tools": {
         "write": true,
@@ -40,7 +62,16 @@
     "plan": {
       "description": "Read-only architect agent for Pythinker \u2014 analyzes DDD layers, sandbox architecture, browser stack",
       "mode": "primary",
+      "model": "openai/gpt-5.4",
+      "reasoningEffort": "high",
+      "textVerbosity": "low",
+      "reasoningSummary": "auto",
       "prompt": "{file:.opencode/agents/plan.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "allow"
+      },
       "tools": {
         "write": false,
         "edit": false,
@@ -55,6 +86,7 @@
     "fastapi-pro": {
       "description": "FastAPI + DDD expert \u2014 API routes, Pydantic v2, SQLAlchemy 2.0, async patterns, middleware",
       "mode": "subagent",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/fastapi-pro.md}",
       "tools": {
         "write": true,
@@ -71,6 +103,7 @@
     "python-pro": {
       "description": "Python 3.12+ expert \u2014 async/await, domain models, type safety, testing, performance",
       "mode": "subagent",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/python-pro.md}",
       "tools": {
         "write": true,
@@ -86,6 +119,7 @@
     "vue-expert": {
       "description": "Vue 3 Composition API expert \u2014 TypeScript strict, Pinia stores, composables, SSE streaming",
       "mode": "subagent",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/vue-expert.md}",
       "tools": {
         "write": true,
@@ -101,6 +135,7 @@
     "frontend-designer": {
       "description": "Production-grade UI designer \u2014 Tailwind CSS, creative layouts, responsive design, dark mode",
       "mode": "subagent",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/frontend-designer.md}",
       "tools": {
         "write": true,
@@ -117,6 +152,7 @@
     "sandbox-expert": {
       "description": "Docker sandbox and CDP browser automation expert \u2014 container lifecycle, screencast, Playwright",
       "mode": "subagent",
+      "model": "zai-coding/glm-5.1",
       "prompt": "{file:.opencode/agents/sandbox-expert.md}",
       "tools": {
         "write": true,
@@ -132,7 +168,15 @@
     "coderabbit-reviewer": {
       "description": "AI code reviewer using CodeRabbit CLI \u2014 runs cr --plain for detailed review, cr --prompt-only for agent-optimized feedback",
       "mode": "subagent",
+      "model": "openai/gpt-5.4",
+      "reasoningEffort": "high",
+      "textVerbosity": "low",
+      "reasoningSummary": "auto",
       "prompt": "{file:.opencode/agents/coderabbit-reviewer.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow"
+      },
       "tools": {
         "write": false,
         "edit": false,

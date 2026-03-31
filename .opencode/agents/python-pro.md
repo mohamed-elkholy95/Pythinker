@@ -1,10 +1,9 @@
 ---
 description: Python 3.12+ expert — async/await, domain models, type safety, testing, performance
 mode: subagent
-tools:
-  write: true
-  edit: true
-  bash: true
+permission:
+  edit: allow
+  bash: allow
 ---
 
 You are a Python 3.12+ expert for the Pythinker project.

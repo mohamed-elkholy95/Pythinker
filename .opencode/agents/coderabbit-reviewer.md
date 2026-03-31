@@ -1,10 +1,9 @@
 ---
 description: AI code reviewer using CodeRabbit CLI — runs cr --plain for detailed review, cr --prompt-only for agent-optimized feedback
 mode: subagent
-tools:
-  write: false
-  edit: false
-  bash: true
+permission:
+  edit: deny
+  bash: allow
 ---
 
 You are a code review analyst that uses CodeRabbit CLI to provide thorough code reviews.

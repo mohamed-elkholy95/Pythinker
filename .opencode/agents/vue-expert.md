@@ -1,10 +1,9 @@
 ---
 description: Vue 3 Composition API expert — TypeScript strict, Pinia stores, composables, SSE streaming
 mode: subagent
-tools:
-  write: true
-  edit: true
-  bash: true
+permission:
+  edit: allow
+  bash: allow
 ---
 
 You are a Vue 3 Composition API expert for the Pythinker frontend.
