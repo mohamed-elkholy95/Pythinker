@@ -1,6 +1,6 @@
 """Tests for step action audit enforcement in PlanActFlow."""
 
-from app.domain.models.plan import ExecutionStatus, Step
+from app.domain.models.plan import ExecutionStatus, Step, StepType
 from app.domain.services.flows.plan_act import PlanActFlow
 
 
@@ -100,3 +100,19 @@ def test_expected_tools_fails_when_none_used() -> None:
     assert result is True
     assert step.success is False
     assert "declared tools" in step.error
+
+
+def test_self_review_step_is_not_failed_for_tool_free_review_work() -> None:
+    """LLM-only review steps should not be forced through the tool audit."""
+    step = Step(
+        description="Review and validate all claims against sources",
+        status=ExecutionStatus.COMPLETED,
+        success=True,
+        step_type=StepType.SELF_REVIEW,
+    )
+
+    changed = PlanActFlow._apply_step_action_audit(step, {"file_read", "shell_exec"})
+
+    assert changed is False
+    assert step.success is True
+    assert step.status == ExecutionStatus.COMPLETED

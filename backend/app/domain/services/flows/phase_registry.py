@@ -192,7 +192,10 @@ _PHASE_KEYWORDS: dict[PhaseType, list[str]] = {
     PhaseType.QUALITY_ASSURANCE: [
         r"fact.?check",
         r"verif.*claim",
+        r"validat.*claim",
+        r"claim.*source",
         r"review.*reason",
+        r"review.*claim",
         r"logical.*consist",
         r"polish",
         r"readab",

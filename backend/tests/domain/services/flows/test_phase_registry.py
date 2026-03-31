@@ -644,6 +644,14 @@ class TestAssignStepsToPhasesKeywordMatching:
         phase = self._phase_for(plan, PhaseType.QUALITY_ASSURANCE)
         assert step.phase_id == phase.id
 
+    def test_validate_claims_against_sources_maps_to_qa(self) -> None:
+        step = _make_step("Review and validate all claims against sources")
+        plan = self._plan_with_all_phases([step])
+        assign_steps_to_phases(plan)
+        phase = self._phase_for(plan, PhaseType.QUALITY_ASSURANCE)
+        assert step.phase_id == phase.id
+        assert step.step_type == StepType.SELF_REVIEW
+
     # --- DELIVERY_FEEDBACK keywords ---
 
     def test_deliver_keyword_maps_to_delivery(self) -> None:

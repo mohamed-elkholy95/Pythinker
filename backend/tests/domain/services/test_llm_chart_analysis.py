@@ -12,6 +12,7 @@ Covers:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.domain.services.plotly_chart_orchestrator import (
     ChartAnalysisResult,
@@ -55,6 +56,17 @@ class TestChartAnalysisResult:
         assert result.should_generate is False
         assert result.points == []
         assert result.chart_type is None
+        assert result.lower_is_better is None
+
+    def test_skip_decision_allows_null_lower_is_better(self):
+        """The skip path should accept null lower_is_better values from the LLM."""
+        result = ChartAnalysisResult(
+            should_generate=False,
+            lower_is_better=None,
+            reason="Report is qualitative and should not generate a chart.",
+        )
+        assert result.should_generate is False
+        assert result.lower_is_better is None
 
     def test_points_require_label_and_value(self):
         """Each point must have a label and numeric value."""
@@ -63,6 +75,7 @@ class TestChartAnalysisResult:
             chart_type="bar",
             title="Test",
             metric_name="Score",
+            lower_is_better=False,
             points=[
                 {"label": "A", "value": 10.0},
                 {"label": "B", "value": 20.0},
@@ -70,6 +83,20 @@ class TestChartAnalysisResult:
         )
         assert result.points[0]["label"] == "A"
         assert result.points[0]["value"] == 10.0
+
+    def test_generate_decision_requires_lower_is_better(self):
+        """A real chart spec must explicitly state the value direction."""
+        with pytest.raises(ValidationError, match="lower_is_better is required"):
+            ChartAnalysisResult(
+                should_generate=True,
+                chart_type="bar",
+                title="Test",
+                metric_name="Score",
+                points=[
+                    {"label": "A", "value": 10.0},
+                    {"label": "B", "value": 20.0},
+                ],
+            )
 
 
 # ---------------------------------------------------------------------------

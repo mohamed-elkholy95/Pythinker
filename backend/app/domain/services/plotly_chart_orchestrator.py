@@ -16,7 +16,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.utils.text import extract_json_from_shell_output
 
@@ -61,9 +61,9 @@ class ChartAnalysisResult(BaseModel):
         default=None,
         description="Name of the metric being charted (e.g. 'Latency (ms)', 'Price ($)'). Only when should_generate=True.",
     )
-    lower_is_better: bool = Field(
-        default=False,
-        description="True if lower values are better (e.g. latency, cost, fees).",
+    lower_is_better: bool | None = Field(
+        default=None,
+        description="True if lower values are better (e.g. latency, cost, fees). Optional when should_generate=False.",
     )
     points: list[dict[str, Any]] = Field(
         default_factory=list,
@@ -73,6 +73,22 @@ class ChartAnalysisResult(BaseModel):
         default=None,
         description="Brief explanation of the decision (for logging/debugging).",
     )
+
+    @model_validator(mode="after")
+    def validate_chart_decision(self) -> ChartAnalysisResult:
+        """Keep chart specs internally consistent.
+
+        Skip decisions may leave chart-specific fields empty, but valid chart
+        specs must include an explicit lower_is_better value so downstream
+        rendering never relies on an implicit default.
+        """
+        if not self.should_generate:
+            return self
+
+        if self.lower_is_better is None:
+            raise ValueError("lower_is_better is required when should_generate=True")
+
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +116,11 @@ If should_generate is True:
 - Each point needs: label (item name), value (number), optional display_value (formatted string)
 - Set lower_is_better=True for metrics where low values are desirable (fees, latency, cost, error rate, price)
 - Choose chart_type: "bar" for rankings/comparisons, "line" for time series, "pie" for part-of-whole (max 7 slices)
-- Limit to 8 data points maximum (pick the most important if more exist)"""
+- Limit to 8 data points maximum (pick the most important if more exist)
+
+If should_generate is False:
+- Set lower_is_better to null
+- Leave chart_type, title, metric_name, and points empty"""
 
 
 @dataclass(frozen=True)
@@ -250,7 +270,7 @@ class PlotlyChartOrchestrator:
         script_input = {
             "title": spec.title or report_title,
             "metric_name": spec.metric_name or "Value",
-            "lower_is_better": spec.lower_is_better,
+            "lower_is_better": bool(spec.lower_is_better),
             "points": points,
             "output_html": f"{chart_dir}/{simple_name}.html",
             "output_png": f"{chart_dir}/{simple_name}.png",

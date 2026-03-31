@@ -47,7 +47,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step
+from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step, StepType
 from app.domain.models.request_contract import RequestContract
 from app.domain.models.session import SessionStatus
 from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition
@@ -1760,6 +1760,11 @@ class PlanActFlow(BaseFlow):
     def _apply_step_action_audit(cls, step: Step, tools_used: set[str]) -> bool:
         """Fail steps that claim actions they did not actually perform."""
         if not step.success or not step.description:
+            return False
+
+        # LLM-only review, delivery, and alignment steps are not expected to
+        # satisfy tool-usage audits unless the planner explicitly declared tools.
+        if step.step_type != StepType.EXECUTION and not step.expected_tools:
             return False
 
         # Tier C: If planner declared expected_tools, validate against those
