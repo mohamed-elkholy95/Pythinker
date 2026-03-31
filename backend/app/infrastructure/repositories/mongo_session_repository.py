@@ -80,8 +80,20 @@ class MongoSessionRepository(SessionRepository):
             await mongo_session.save()
             return
 
+        existing_events = list(mongo_session.events)
+        existing_files = list(mongo_session.files)
+
         # Update fields from session domain model
         mongo_session.update_from_domain(session)
+
+        # Lightweight session reads intentionally omit heavy arrays. If one of
+        # those instances reaches save(), preserve the stored payload instead of
+        # treating the missing projection as a real deletion request.
+        if not session.events and existing_events:
+            mongo_session.events = existing_events
+        if not session.files and existing_files:
+            mongo_session.files = existing_files
+
         await mongo_session.save()
 
     async def find_by_id(self, session_id: str) -> Session | None:
