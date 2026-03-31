@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────── Helpers ─────────────────────────────────────────
 
 
-def _coerce_content_to_text(content: Any) -> str:
+def coerce_content_to_text(content: Any) -> str:
     """Convert structured/mixed content to a plain string.
 
     GLM and older models only accept ``string`` content, not content-block
@@ -168,7 +168,7 @@ def _normalize_roles_and_content(
         if content is None:
             msg_copy["content"] = ""
         elif string_only and not isinstance(content, str):
-            msg_copy["content"] = _coerce_content_to_text(content)
+            msg_copy["content"] = coerce_content_to_text(content)
 
         # 3. Fix tool message field names
         if role == "tool" and "function_name" in msg_copy:

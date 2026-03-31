@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from app.domain.external.llm_capabilities import ProviderCapabilities
 from app.infrastructure.external.llm.message_normalizer import (
-    _coerce_content_to_text,
     _enforce_role_alternation,
     _enforce_system_first,
     _strip_reasoning_content,
+    coerce_content_to_text,
     normalize_for_provider,
 )
 
@@ -27,20 +27,20 @@ GLM_CAPS = ProviderCapabilities(
 OPENAI_CAPS = ProviderCapabilities()  # defaults — flexible
 
 
-# ─────────────────────────── _coerce_content_to_text ─────────────────────────
+# ─────────────────────────── coerce_content_to_text ─────────────────────────
 
 
 def test_coerce_none_returns_empty():
-    assert _coerce_content_to_text(None) == ""
+    assert coerce_content_to_text(None) == ""
 
 
 def test_coerce_string_returns_as_is():
-    assert _coerce_content_to_text("hello") == "hello"
+    assert coerce_content_to_text("hello") == "hello"
 
 
 def test_coerce_list_with_text_blocks():
     content = [{"type": "text", "text": "part1"}, {"type": "text", "text": "part2"}]
-    result = _coerce_content_to_text(content)
+    result = coerce_content_to_text(content)
     assert "part1" in result
     assert "part2" in result
 
@@ -50,14 +50,14 @@ def test_coerce_list_drops_image_blocks():
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
         {"type": "text", "text": "describe this"},
     ]
-    result = _coerce_content_to_text(content)
+    result = coerce_content_to_text(content)
     assert "describe this" in result
     assert "image_url" not in result
     assert "abc123" not in result
 
 
 def test_coerce_empty_list_returns_empty():
-    assert _coerce_content_to_text([]) == ""
+    assert coerce_content_to_text([]) == ""
 
 
 # ─────────────────────────── _strip_reasoning_content ────────────────────────

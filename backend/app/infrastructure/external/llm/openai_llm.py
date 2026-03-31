@@ -36,7 +36,7 @@ from app.infrastructure.external.key_pool import (
 )
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 from app.infrastructure.external.llm.message_normalizer import (
-    _coerce_content_to_text as _coerce_content_to_text_module,
+    coerce_content_to_text as _coerce_content_to_text_module,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -74,14 +74,18 @@ class OpenAILLM(LLM):
     _SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS: ClassVar[float] = 60.0
     _FILE_WRITE_TOOL_NAMES: ClassVar[frozenset[str]] = frozenset({"file_write", "file_append"})
 
+    # Module-level alias for staticmethod access (avoids Pyright class-lookup issues)
+    _FILE_WRITE_NAMES: ClassVar[frozenset[str]] = _FILE_WRITE_TOOL_NAMES
+
     @staticmethod
     def _has_file_write_tool(tools: list[dict[str, Any]] | None) -> bool:
         """Return True if the tool list includes file_write or file_append."""
         if not tools:
             return False
+        _names = frozenset({"file_write", "file_append"})
         for tool in tools:
             func = tool.get("function") or {}
-            if func.get("name") in OpenAILLM._FILE_WRITE_TOOL_NAMES:
+            if func.get("name") in _names:
                 return True
         return False
 
@@ -130,7 +134,7 @@ class OpenAILLM(LLM):
         if fallback_api_keys:
             all_keys.extend(fallback_api_keys)
 
-        key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
+        key_configs = [APIKeyConfig(key=str(k), priority=i) for i, k in enumerate(all_keys) if k and str(k).strip()]
 
         # Validate that at least one valid key exists after filtering
         if not key_configs:
@@ -518,8 +522,9 @@ class OpenAILLM(LLM):
             TTL in seconds (default: 60)
         """
         # Try to extract reset time from error response headers
-        if hasattr(error, "response") and error.response is not None:
-            headers = getattr(error.response, "headers", None)
+        error_response = getattr(error, "response", None)
+        if error_response is not None:
+            headers = getattr(error_response, "headers", None)
             if headers:
                 # OpenAI uses x-ratelimit-reset-requests (Unix timestamp)
                 reset_header = headers.get("x-ratelimit-reset-requests") or headers.get("X-RateLimit-Reset-Requests")
@@ -775,7 +780,7 @@ class OpenAILLM(LLM):
         # ── Stage 1: Close open string literals ──────────────────────
         # Walk the string tracking whether we're inside a JSON string.
         # If the text ends mid-string, close it so brace-balancing works.
-        repaired = OpenAILLM._close_truncated_json(stripped)
+        repaired = OpenAILLM._close_truncated_json(stripped)  # type: ignore[reportAttributeAccessIssue]
 
         # ── Stage 2: Try parsing the closed version directly ─────────
         try:
@@ -1963,6 +1968,7 @@ To extract data from a webpage:
         """
         fb = self._fallback_provider
         assert fb is not None  # Caller checks this  # noqa: S101
+        original_profile: object = None  # Set below; initialized here for finally block safety
         fb_base = fb["api_base"]
         fb_model = fb["model_name"]
         fb_key = fb["api_key"]
@@ -2027,9 +2033,9 @@ To extract data from a webpage:
                     fb_model,
                 )
                 with contextlib.suppress(Exception):
-                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS
+                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS  # type: ignore[reportUnknownVariable]
 
-                    FALLBACK_LLM_CALLS.labels(
+                    FALLBACK_LLM_CALLS.labels(  # type: ignore[reportCallIssue]
                         primary_model=original_model,
                         fallback_model=fb_model,
                         status="success",
@@ -2042,9 +2048,9 @@ To extract data from a webpage:
                     str(fallback_exc)[:120],
                 )
                 with contextlib.suppress(Exception):
-                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS
+                    from app.core.prometheus_metrics import FALLBACK_LLM_CALLS  # type: ignore[reportUnknownVariable]
 
-                    FALLBACK_LLM_CALLS.labels(
+                    FALLBACK_LLM_CALLS.labels(  # type: ignore[reportCallIssue]
                         primary_model=original_model,
                         fallback_model=fb_model,
                         status="error",
@@ -2059,7 +2065,7 @@ To extract data from a webpage:
             self._cached_client_key = original_client_key
             self._cached_client_base = original_client_base
             # Restore provider profile
-            if "original_profile" in locals():
+            if original_profile is not None:
                 self._provider_profile = original_profile
                 self._is_glm_api = self._detect_glm_api()
                 self._is_minimax = self._detect_minimax()
@@ -2098,6 +2104,8 @@ To extract data from a webpage:
         tools: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
         """Execute the retry loop for ask(). Called from ask() under the concurrency slot."""
+        effective_model = self._resolve_model_override(model_override_for_attempt)
+        llm_call_start = time.monotonic()
         for attempt in range(max_retries + 1):  # every try
             response = None
             tool_request_timeout = llm_tool_request_timeout
@@ -2761,8 +2769,8 @@ To extract data from a webpage:
                         logger.debug("Using json_object response format")
                     else:
                         # Provider doesn't support json_object - use prompt-based JSON
-                        if self._model_name not in OpenAILLM._json_format_warned:
-                            OpenAILLM._json_format_warned.add(self._model_name)
+                        if self._model_name not in self.__class__._json_format_warned:
+                            self.__class__._json_format_warned.add(self._model_name)
                             logger.info(
                                 "Provider doesn't support json_object format, using prompt-based JSON for %s",
                                 self._model_name,
@@ -3143,7 +3151,7 @@ To extract data from a webpage:
         """Check if provider supports json_object response format."""
         return self._capabilities().json_object
 
-    async def ask_stream(
+    async def ask_stream(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
@@ -3281,9 +3289,9 @@ To extract data from a webpage:
                 completion_parts: list[str] = []
                 usage_counts: dict[str, int] | None = None
                 finish_reason: str | None = None
+                stream_start = time.monotonic()
 
                 try:
-                    stream_start = time.monotonic()
                     ttft_logged = False
                     stream = await client.chat.completions.create(**params)
 
