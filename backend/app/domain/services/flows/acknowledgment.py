@@ -75,6 +75,50 @@ class AcknowledgmentGenerator:
             return "Got it! I will analyze your request and proceed with a structured response."
         return "Got it! I will help with that."
 
+    def generate_compact(self, user_message: str) -> str:
+        """Generate a short, deterministic acknowledgment for first-reply use."""
+        message_lower = user_message.lower()
+        request_focus = self._extract_request_focus(user_message)
+
+        if self._is_sandbox_browser_or_web_automation(message_lower):
+            return "Got it! I will use the sandbox browser to follow your steps and report back."
+
+        if is_research_task(user_message):
+            return self._ack_compact_research(user_message, request_focus)
+
+        if any(word in message_lower for word in ["fix", "debug", "solve", "resolve"]):
+            return "Got it! I will diagnose the issue and work toward a reliable fix."
+
+        if any(word in message_lower for word in ["install", "setup", "configure"]):
+            return "Got it! I will look into the setup and configuration, then report back."
+
+        if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
+            return self._ack_compact_create_or_build(request_focus)
+
+        if any(word in message_lower for word in ["find", "search", "look for", "locate"]):
+            return "Got it! I will search for that information."
+
+        if any(word in message_lower for word in ["explain", "how does", "what is", "why"]):
+            return "Got it! I will look into that for you."
+
+        if any(word in message_lower for word in ["update", "modify", "change", "edit"]):
+            return "Got it! I will work on making those changes."
+
+        if any(word in message_lower for word in ["test", "check", "verify", "validate"]):
+            return "Got it! I will run checks on that."
+
+        return "Got it! I will help with that."
+
+    def should_use_compact_ack(self, user_message: str) -> bool:
+        """Return True when the fast first reply should avoid LLM refinement."""
+        message_lower = user_message.lower()
+        return bool(
+            self._is_sandbox_browser_or_web_automation(message_lower)
+            or self._is_research_report_request(user_message)
+            or "report" in message_lower
+            or any(word in message_lower for word in ["install", "setup", "configure"])
+        )
+
     def _is_sandbox_browser_or_web_automation(self, message_lower: str) -> bool:
         """True when the user expects automated browsing in Pythinker's sandbox."""
         has_browser = "browser" in message_lower
@@ -107,13 +151,13 @@ class AcknowledgmentGenerator:
         if has_browser and (web_target or interaction):
             return True
         # "open browser ... reddit" style without repeating the word "browser" twice
-        if "reddit" in message_lower and any(
-            k in message_lower for k in ("open ", "go to ", "visit ", "navigate", "browse")
-        ):
-            return True
-        if "browsing" in message_lower and ("automat" in message_lower or "task" in message_lower):
-            return True
-        return False
+        return bool(
+            (
+                "reddit" in message_lower
+                and any(k in message_lower for k in ("open ", "go to ", "visit ", "navigate", "browse"))
+            )
+            or ("browsing" in message_lower and ("automat" in message_lower or "task" in message_lower))
+        )
 
     def _ack_skill_creation(self, user_message: str, message_lower: str) -> str:
         """Generate acknowledgment for skill creation requests."""
@@ -151,6 +195,29 @@ class AcknowledgmentGenerator:
         if research_topic:
             return f"Got it! I will research {research_topic}."
         return "Got it! I will research this topic."
+
+    def _ack_compact_research(self, user_message: str, request_focus: str) -> str:
+        """Generate a shorter research acknowledgment for first-reply use."""
+        message_lower = user_message.lower()
+        topic = self._extract_numbered_topics_summary(user_message)
+        if not topic:
+            topic = self._compact_subject(request_focus) or self._compact_subject(self._extract_research_topic(user_message))
+        topic = self._normalize_subject(topic)
+        if topic and len(topic.split()) <= 8 and len(topic) <= 60:
+            if self._is_research_report_request(user_message) or "report" in message_lower:
+                return f"Got it! I will research {topic} and compile a concise report."
+            return f"Got it! I will research {topic}."
+
+        if self._is_research_report_request(user_message) or "report" in message_lower:
+            return "Got it! I will research the topic and compile a concise report."
+        return "Got it! I will research the topic."
+
+    def _ack_compact_create_or_build(self, request_focus: str | None) -> str:
+        """Generate a shorter build/create acknowledgment for first-reply use."""
+        focus = self._compact_subject(request_focus)
+        if focus and len(focus.split()) <= 8 and len(focus) <= 60:
+            return f"Got it! I will work on {focus}."
+        return "Got it! I will work on the request."
 
     def _ack_create_or_build(
         self, user_message: str, message_lower: str, request_focus: str, is_large_prompt: bool

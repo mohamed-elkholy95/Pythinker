@@ -57,6 +57,15 @@ class FastAcknowledgmentRefiner:
     async def generate(self, user_message: str) -> str:
         start_time = time.perf_counter()
         metrics = get_metrics()
+
+        if self._fallback.should_use_compact_ack(user_message):
+            compact = self._fallback.generate_compact(user_message)
+            elapsed = time.perf_counter() - start_time
+            metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "compact"})
+            metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
+            logger.info("Fast ack refiner: using compact deterministic acknowledgment")
+            return compact
+
         fallback = self._fallback.generate(user_message)
 
         try:

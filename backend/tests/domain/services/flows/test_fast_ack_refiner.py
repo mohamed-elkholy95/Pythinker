@@ -42,6 +42,21 @@ async def test_fast_ack_refiner_adds_got_it_prefix_when_missing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fast_ack_refiner_uses_concise_deterministic_ack_for_research_setup_prompts() -> None:
+    llm = _FakeLLM(content="Got it! Starting research now - looking into OpenCode setup documentation...")
+    refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=AcknowledgmentGenerator(), timeout_seconds=1.0)
+
+    user_message = (
+        "research best practices for setting up OpenCode professionally and configuring GLM-5.1 "
+        "with token size compaction and MCPs, then compile a comprehensive report"
+    )
+
+    result = await refiner.generate(user_message)
+
+    assert result == "Got it! I will research the topic and compile a concise report."
+
+
+@pytest.mark.asyncio
 async def test_fast_ack_refiner_falls_back_on_timeout() -> None:
     llm = _FakeLLM(content="Got it! delayed", delay=0.2)
     fallback_gen = AcknowledgmentGenerator()
@@ -49,7 +64,7 @@ async def test_fast_ack_refiner_falls_back_on_timeout() -> None:
 
     user_message = "create a research report on docker cleanup app"
     result = await refiner.generate(user_message)
-    assert result == fallback_gen.generate(user_message)
+    assert result == "Got it! I will research docker cleanup app and compile a concise report."
 
 
 @pytest.mark.asyncio
@@ -88,8 +103,7 @@ async def test_fast_ack_refiner_prefers_specific_fallback_for_generic_topics_ack
         "2. Tokenizers used in LLMs."
     )
     result = await refiner.generate(user_message)
-    assert result == fallback_gen.generate(user_message)
-    assert "llm architecture" in result.lower()
+    assert result == "Got it! I will research LLM architecture and Tokenizers used in LLMs and compile a concise report."
     assert "tokenizers used in llms" in result.lower()
 
 
