@@ -153,6 +153,7 @@ import {
 } from '@/components/ui/popover'
 import { useContextMenu, createMenuItem, createDangerMenuItem } from '@/composables/useContextMenu'
 import { useDialog } from '@/composables/useDialog'
+import { consumeComposerDraft } from '@/utils/composerDraft'
 import { showSuccessToast, showErrorToast } from '@/utils/toast'
 import {
   ChevronRight,
@@ -293,17 +294,23 @@ async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
   if (!trimmedMessage || isSubmitting.value) return
 
   isSubmitting.value = true
+  const draft = consumeComposerDraft({
+    message: message.value,
+    attachments: attachments.value,
+    setMessage: (value) => { message.value = value },
+    setAttachments: (value) => { attachments.value = value },
+  })
   try {
     // Build the pending session state
     const pendingState = {
       pendingSessionCreate: true,
       mode: 'agent',
       research_mode: 'deep_research' as ResearchMode,
-      message: message.value,
+      message: draft.message,
       thinking_mode: options.thinkingMode || 'auto',
       project_id: route.params.projectId as string,
       skills: project.value?.skill_ids || [],
-      files: attachments.value.map((file: FileInfo) => ({
+      files: draft.attachments.map((file: FileInfo) => ({
         file_id: file.file_id,
         filename: file.filename,
         content_type: file.content_type,
@@ -322,6 +329,9 @@ async function handleSubmit(options: { thinkingMode?: ThinkingMode } = {}) {
       path: '/chat/new',
       state: pendingState,
     })
+  } catch (error) {
+    draft.restore()
+    throw error
   } finally {
     isSubmitting.value = false
   }

@@ -121,6 +121,7 @@ import UserMenu from '../components/UserMenu.vue';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { getServerConfig, getSettings } from '../api/settings';
 import { resolveInitialHeaderModelName } from '@/utils/chatHeaderModel';
+import { consumeComposerDraft } from '@/utils/composerDraft';
 import type { Component } from 'vue';
 
 // Feature type definition
@@ -316,6 +317,12 @@ const handleFeatureClick = async (feature: Feature) => {
 const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) => {
   if (isSubmitting.value) return;
   isSubmitting.value = true;
+  const draft = consumeComposerDraft({
+    message: message.value,
+    attachments: attachments.value,
+    setMessage: (value) => { message.value = value; },
+    setAttachments: (value) => { attachments.value = value; },
+  });
 
   try {
     await router.push({
@@ -327,7 +334,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
         chat_mode: mode === 'agent' && !!initialMessage,
         message: initialMessage ?? '',
         skills: [],
-        files: attachments.value.map((file: FileInfo) => ({
+        files: draft.attachments.map((file: FileInfo) => ({
           file_id: file.file_id,
           filename: file.filename,
           content_type: file.content_type,
@@ -336,6 +343,9 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
         }))
       }
     });
+  } catch (error) {
+    draft.restore();
+    throw error;
   } finally {
     isSubmitting.value = false;
   }
@@ -352,7 +362,13 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
   const trimmedMessage = message.value.trim();
   if ((trimmedMessage || skillIds.includes('skill-creator')) && !isSubmitting.value) {
     isSubmitting.value = true;
-    let submitMessage = message.value;
+    const draft = consumeComposerDraft({
+      message: message.value,
+      attachments: attachments.value,
+      setMessage: (value) => { message.value = value; },
+      setAttachments: (value) => { attachments.value = value; },
+    });
+    let submitMessage = draft.message;
     if (skillIds.includes('skill-creator')) {
       const trimmed = submitMessage.trim();
       const hasCommand = trimmed.toLowerCase().includes('/skill-creator');
@@ -373,7 +389,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
           message: submitMessage,
           skills: skillIds,
           thinking_mode: thinkingMode,
-          files: attachments.value.map((file: FileInfo) => ({
+          files: draft.attachments.map((file: FileInfo) => ({
             file_id: file.file_id,
             filename: file.filename,
             content_type: file.content_type,
@@ -382,6 +398,9 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
           }))
         }
       });
+    } catch (error) {
+      draft.restore();
+      throw error;
     } finally {
       isSubmitting.value = false;
     }
