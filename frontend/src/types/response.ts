@@ -47,6 +47,8 @@ export interface GetSessionResponse {
     streaming_mode: StreamingMode | null;
     events: AgentSSEEvent[];
     is_shared: boolean;
+    latest_message?: string | null;
+    latest_message_at?: number | null;
 }
 
 export interface ListSessionItem {
@@ -97,5 +99,7 @@ export interface SharedSessionResponse {
     status: SessionStatus;
     events: AgentSSEEvent[];
     is_shared: boolean;
+    latest_message?: string | null;
+    latest_message_at?: number | null;
 }
   

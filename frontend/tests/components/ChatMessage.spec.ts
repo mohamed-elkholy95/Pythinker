@@ -306,6 +306,33 @@ describe('ChatMessage', () => {
       expect(wrapper.find('.message-expand-btn').exists()).toBe(false)
     })
 
+    it('should strip leaked tool-call markup from assistant messages', () => {
+      const leakedToolCallMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-tool-call-leak',
+        content: {
+          ...mockAssistantMessage.content,
+          content: 'Here is the answer.<tool_call>{"name":"shell","arguments":{"cmd":"pwd"}}</tool_call>',
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: leakedToolCallMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.text()).toContain('Here is the answer.')
+      expect(wrapper.text()).not.toContain('<tool_call>')
+      expect(wrapper.text()).not.toContain('"name":"shell"')
+    })
+
     it('should use compact spacing for structured final summaries', () => {
       const summaryMessage = {
         ...mockAssistantMessage,

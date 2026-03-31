@@ -672,6 +672,7 @@ import {
   isTerminalSessionStatus,
   shouldReplayHistoryEvent,
 } from '@/utils/chatRestoreGuards';
+import { resolveSessionHistory } from '@/utils/sessionHistory';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
 import { shouldShowEmptySessionState as shouldShowChatEmptySessionState } from '@/utils/chatEmptyState';
@@ -4186,6 +4187,7 @@ const restoreSession = async (
 
     const session = await agentApi.getSession(targetSessionId);
     if (shouldAbortRestore('after_get_session')) return;
+    const historyResolution = resolveSessionHistory(session);
 
     sessionStatus.value = session.status as SessionStatus;
     sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || sessionResearchMode.value || null;
@@ -4201,10 +4203,14 @@ const restoreSession = async (
     // Drain any pending batched events before replaying persisted history.
     streamController.flushPendingEvents();
 
-    for (const event of session.events) {
+    for (const event of historyResolution.events) {
       if (shouldAbortRestore('history_replay')) return;
       if (!shouldReplayHistoryEvent(event.event, sessionStatus.value)) continue;
       handleEvent(event);
+    }
+
+    if (historyResolution.recoveredFromLatestMessage) {
+      showInfoToast(t('Recovered this completed task from its latest saved message. Earlier step details were unavailable.'));
     }
 
     // Flush replayed history immediately so auto-resume evaluates fully

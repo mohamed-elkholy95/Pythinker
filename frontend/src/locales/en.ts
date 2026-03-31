@@ -298,6 +298,7 @@ export default {
   'You can now login with your new password.': 'You can now login with your new password.',
   'Didn\'t receive the code?': 'Didn\'t receive the code?',
   'Resend in {seconds}s': 'Resend in {seconds}s',
+  'Last update {seconds}s ago': 'Last update {seconds}s ago',
   'Resend Code': 'Resend Code',
   'Ready to login?': 'Ready to login?',
   'Want to try a different email?': 'Want to try a different email?',
@@ -334,5 +335,6 @@ export default {
   'Link Copied': 'Link Copied',
   'Link copied to clipboard': 'Link copied to clipboard',
   'Failed to copy link': 'Failed to copy link',
+  'Recovered this completed task from its latest saved message. Earlier step details were unavailable.': 'Recovered this completed task from its latest saved message. Earlier step details were unavailable.',
   'You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.': 'You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.',
 } 

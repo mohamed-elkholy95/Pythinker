@@ -143,6 +143,7 @@ import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import { copyToClipboard } from '../utils/dom'
 import TimelinePlayer from '@/components/timeline/TimelinePlayer.vue'
 import { useTimeline } from '@/composables/useTimeline'
+import { resolveSessionHistory } from '@/utils/sessionHistory'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -465,9 +466,10 @@ const replay = async () => {
   resetState();
   sessionId.value = String(router.currentRoute.value.params.sessionId) as string;
   const session = await agentApi.getSharedSession(sessionId.value);
+  const historyResolution = resolveSessionHistory(session);
   realTime.value = true;
   isLoading.value = true;
-  for (const event of session.events) {
+  for (const event of historyResolution.events) {
     if (!jumpToEnd.value) {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
@@ -484,13 +486,14 @@ const restoreSession = async () => {
   }
   try {
     const session = await agentApi.getSharedSession(sessionId.value);
+    const historyResolution = resolveSessionHistory(session);
     realTime.value = false;
     follow.value = false; // Prevent auto-scrolling during restoration
 
     // Store events for timeline playback
-    timelineEvents.value = session.events;
+    timelineEvents.value = historyResolution.events;
 
-    for (const event of session.events) {
+    for (const event of historyResolution.events) {
       handleEvent(event);
     }
     realTime.value = true;

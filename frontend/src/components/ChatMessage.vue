@@ -82,7 +82,7 @@
       </div>
 
       <div class="assistant-summary-card-content">
-        <TiptapMessageViewer :content="messageContent.content ?? ''" :compact="true" :sources="props.sources" />
+        <TiptapMessageViewer :content="assistantDisplayContent ?? ''" :compact="true" :sources="props.sources" />
       </div>
     </div>
     <div
@@ -376,6 +376,7 @@ import { copyToClipboard } from '../utils/dom';
 import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 import { groupConsecutiveTools } from '../composables/useToolGrouping';
 import { normalizeTimestampSeconds } from '../utils/time';
+import { stripLeakedToolCallMarkup } from '@/utils/messageSanitizer';
 
 
 const props = defineProps<{
@@ -462,8 +463,14 @@ function isStandaloneToolFastSearch(tool: ToolContent): boolean {
 // For backward compatibility, provide the original computed properties
 const stepContent = computed(() => props.message.content as StepContent);
 const messageContent = computed(() => props.message.content as MessageContent);
+const assistantDisplayContent = computed(() => {
+  if (props.message.type !== 'assistant') {
+    return messageContent.value?.content ?? ''
+  }
+  return stripLeakedToolCallMarkup(messageContent.value?.content ?? '')
+});
 
-const parsedAmbiguity = useAmbiguityParser(computed(() => messageContent.value?.content ?? ''));
+const parsedAmbiguity = useAmbiguityParser(assistantDisplayContent);
 const isTaskRunning = computed(() => props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed');
 const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
@@ -484,7 +491,7 @@ const showStepThinking = computed(() => {
 
 const isAssistantSummaryCompact = computed(() => {
   if (props.message.type !== 'assistant') return false;
-  return isStructuredSummaryAssistantMessage(messageContent.value?.content ?? '');
+  return isStructuredSummaryAssistantMessage(assistantDisplayContent.value);
 });
 
 // Convert ReportContent to ReportData for the component

@@ -40,6 +40,8 @@ export const GetSessionResponseSchema = z.object({
   streaming_mode: z.enum(['cdp_only']).nullable(),
   events: z.array(AgentEventEnvelopeSchema),
   is_shared: z.boolean(),
+  latest_message: z.string().nullable().optional().default(null),
+  latest_message_at: z.number().nullable().optional().default(null),
 });
 
 const ListSessionItemSchema = z.object({
