@@ -1,7 +1,10 @@
 <template>
-    <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-[60] transition-all w-full h-full inset-0 flex flex-col">
-        <!-- Browser viewport — full desktop via VNC (Chrome chrome, tabs, address bar visible) -->
-        <div class="flex-1 min-h-0 relative">
+    <!-- Backdrop + VNC only (no overlapping chrome - noVNC canvas steals hits in same subtree). -->
+    <div
+        v-if="shouldShow"
+        class="takeover-root fixed inset-0 z-[900] box-border overflow-hidden bg-[var(--background-gray-main)] m-0 p-0"
+    >
+        <div class="absolute inset-0">
             <VncViewer
                 :session-id="sessionId"
                 :enabled="shouldShow"
@@ -9,12 +12,14 @@
                 @disconnected="onVncDisconnected"
             />
         </div>
+    </div>
 
-        <!-- First-time onboarding tooltip -->
+    <!-- Small fixed controls only — do NOT use a full-viewport Teleport layer (it can composite above VNC and show black). -->
+    <Teleport to="body">
         <Transition name="fade">
             <div
-                v-if="showOnboarding"
-                class="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--background-white-main)] rounded-xl shadow-lg border border-[var(--border-main)] px-4 py-3 max-w-sm z-20"
+                v-if="shouldShow && showOnboarding"
+                class="takeover-chrome-onboarding fixed top-4 left-1/2 z-[990] max-w-sm -translate-x-1/2 rounded-xl border border-[var(--border-main)] bg-[var(--background-white-main)] px-4 py-3 shadow-lg"
             >
                 <div class="flex items-start gap-3">
                     <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
@@ -27,6 +32,7 @@
                         </p>
                     </div>
                     <button
+                        type="button"
                         @click="dismissOnboarding"
                         class="flex-shrink-0 text-[var(--icon-tertiary)] hover:text-[var(--icon-secondary)] transition-colors"
                     >
@@ -35,17 +41,21 @@
                 </div>
             </div>
         </Transition>
-
-        <!-- Exit button -->
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-            <button @click="handleExitClick"
-                class="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[36px] px-[12px] gap-[6px] text-sm rounded-full border-2 border-[var(--border-dark)] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.32)] exit-takeover-btn">
-                <span class="text-sm font-medium">{{ t('Exit Takeover') }}</span>
+    </Teleport>
+    <Teleport to="body">
+        <div v-if="shouldShow" class="fixed bottom-6 left-1/2 z-[990] -translate-x-1/2">
+            <button
+                type="button"
+                @click="handleExitClick"
+                class="exit-takeover-btn inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-full border-2 border-[var(--border-dark)] bg-[var(--Button-primary-black)] px-5 text-sm font-medium whitespace-nowrap text-[var(--text-onblack)] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.32)] transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] active:opacity-80"
+            >
+                {{ t('Exit Takeover') }}
             </button>
         </div>
+    </Teleport>
 
-        <!-- Exit Dialog -->
-        <Dialog v-model:open="showExitDialog">
+    <!-- Exit dialog: sibling of takeover layers; portals to body at z-[1000]. -->
+    <Dialog v-model:open="showExitDialog">
             <DialogContent
                 :hide-close-button="false"
                 title="Exit Browser Takeover"
@@ -65,7 +75,7 @@
                         v-model="userContext"
                         :placeholder="t('This message will be sent to Pythinker...')"
                         class="w-full h-24 p-3 text-sm border border-[var(--border-main)] rounded-lg resize-none bg-[var(--background-white-main)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-focus)] focus:border-transparent"
-                    />
+                    ></textarea>
 
                     <!-- Persist login state toggle -->
                     <div class="flex items-center justify-between p-3 bg-[var(--fill-tsp-gray-light)] rounded-lg">
@@ -126,17 +136,17 @@
                     </div>
                 </DialogFooter>
             </DialogContent>
-        </Dialog>
-    </div>
+    </Dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X, Monitor, Loader2 } from 'lucide-vue-next';
 import VncViewer from './VncViewer.vue';
 import { endTakeover, startTakeover } from '@/api/agent';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 import {
     Dialog,
     DialogContent,
@@ -147,6 +157,12 @@ import {
 
 const route = useRoute();
 const { t } = useI18n();
+
+function sessionIdFromRoute(): string {
+    const p = route.params.sessionId;
+    if (Array.isArray(p)) return p[0] ?? '';
+    return typeof p === 'string' ? p : '';
+}
 
 // Takeover state
 const takeOverActive = ref(false);
@@ -171,12 +187,24 @@ const dismissOnboarding = () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
 };
 
-// Listen to takeover events
+// Listen to takeover events (register in setup, not onMounted — avoids missing early dispatches)
 const handleTakeOverEvent = (event: Event) => {
-    const customEvent = event as CustomEvent;
-    takeOverActive.value = customEvent.detail.active;
-    currentSessionId.value = customEvent.detail.sessionId;
+    const customEvent = event as CustomEvent<{ active?: boolean; sessionId?: string }>;
+    const active = Boolean(customEvent.detail?.active);
+    const fromDetail = typeof customEvent.detail?.sessionId === 'string' ? customEvent.detail.sessionId : '';
+    const fromRoute = sessionIdFromRoute();
+    takeOverActive.value = active;
+    if (active) {
+        currentSessionId.value = fromDetail || fromRoute;
+    } else {
+        currentSessionId.value = '';
+    }
+    isTakeoverOverlayActive.value = active;
 };
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('takeover', handleTakeOverEvent as EventListener);
+}
 
 // VNC event handlers
 const onVncConnected = () => {
@@ -187,14 +215,14 @@ const onVncDisconnected = (_reason?: string) => {
     // VNC desktop connection lost
 };
 
-// Calculate whether to show takeover view
+// Show overlay when takeover is active and we can resolve a session id (detail or route)
 const shouldShow = computed(() => {
-    return takeOverActive.value && !!currentSessionId.value;
+    if (!takeOverActive.value) return false;
+    const sid = currentSessionId.value || sessionIdFromRoute();
+    return sid.length > 0;
 });
 
-// Add event listener when component is mounted
 onMounted(() => {
-    window.addEventListener('takeover', handleTakeOverEvent as EventListener);
     checkOnboardingStatus();
 });
 
@@ -210,26 +238,35 @@ watch(
             if (status?.takeover_state === 'takeover_active') {
                 takeOverActive.value = true;
                 currentSessionId.value = sid;
+                isTakeoverOverlayActive.value = true;
             }
         }
     },
     { immediate: true },
 );
 
-// Remove event listener when component is unmounted
 onBeforeUnmount(() => {
-    window.removeEventListener('takeover', handleTakeOverEvent as EventListener);
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('takeover', handleTakeOverEvent as EventListener);
+    }
 });
 
 // Get session ID
 const sessionId = computed(() => {
-    return currentSessionId.value || route.params.sessionId as string || '';
+    return currentSessionId.value || sessionIdFromRoute();
 });
 
-// Handle exit button click - show dialog
-const handleExitClick = () => {
+// Handle exit button click - show dialog (nextTick avoids rare reka-ui open races)
+const handleExitClick = async () => {
+    await nextTick();
     showExitDialog.value = true;
 };
+
+watch(shouldShow, (visible) => {
+    if (!visible) {
+        showExitDialog.value = false;
+    }
+});
 
 // Track exit-in-progress to show loading state on the submit button
 const exitLoading = ref(false);
@@ -278,6 +315,7 @@ const closeTakeoverUI = (sid?: string) => {
     showExitDialog.value = false;
     takeOverActive.value = false;
     currentSessionId.value = '';
+    isTakeoverOverlayActive.value = false;
     window.dispatchEvent(new CustomEvent('takeover', {
         detail: { sessionId: currentSession, active: false }
     }));

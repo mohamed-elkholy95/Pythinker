@@ -45,7 +45,7 @@
           v-else-if="showLivePreview"
           ref="livePreviewRef"
           :session-id="props.sessionId"
-          :enabled="props.live"
+          :enabled="props.live && !isTakeoverOverlayActive"
           :view-only="true"
           @connected="onLivePreviewConnected"
           @disconnected="onLivePreviewDisconnected"
@@ -123,6 +123,7 @@ import LiveViewer from '@/components/LiveViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { startTakeover } from '@/api/agent';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 import type { ToolEventData } from '@/types/event';
 
 const props = defineProps<{

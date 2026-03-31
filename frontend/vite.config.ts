@@ -173,9 +173,10 @@ export default defineConfig({
           target: process.env.BACKEND_URL,
           changeOrigin: true,
           ws: true,
-          // Prevent hanging connections during backend hot-reload
-          timeout: 30_000,
-          // Increase proxy timeout for long-lived WebSocket connections
+          // 0 = no socket timeout. A finite timeout (e.g. 30s) tears down
+          // long-lived SSE streams and triggers net::ERR_INCOMPLETE_CHUNKED_ENCODING.
+          timeout: 0,
+          // Long-lived WebSocket / streaming responses
           proxyTimeout: 0,
           configure: (proxy) => {
             // Error codes expected during uvicorn --reload (1-2s restart window).

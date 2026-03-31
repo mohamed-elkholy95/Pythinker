@@ -40,7 +40,7 @@
       <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled && !contentPreview" class="vp-live">
         <LiveViewer
           :session-id="sessionId"
-          :enabled="enabled"
+          :enabled="enabled && !isTakeoverOverlayActive"
           :view-only="true"
           :compact-loading="true"
           :show-controls="false"
@@ -52,7 +52,7 @@
         <LiveViewer
           ref="liveViewerRef"
           :session-id="sessionId"
-          :enabled="enabled"
+          :enabled="enabled && !isTakeoverOverlayActive"
           :view-only="true"
           :compact-loading="true"
           :show-controls="false"
@@ -249,6 +249,7 @@ import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useFavicon } from '@/composables/useFavicon';
 import { fileApi } from '@/api/file';

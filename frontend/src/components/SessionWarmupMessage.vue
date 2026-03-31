@@ -11,13 +11,18 @@
         <ThinkingIndicator :showText="true" />
       </div>
       <!-- Fallback to text for other states -->
-      <div v-else class="warmup-text-wrap">
-        <span class="warmup-text">{{ statusText }}</span>
-        <span v-if="showBouncingDots" class="warmup-dots" aria-hidden="true">
-          <span class="warmup-dot" />
-          <span class="warmup-dot" />
-          <span class="warmup-dot" />
-        </span>
+      <div v-else class="warmup-text-column">
+        <div class="warmup-text-wrap">
+          <span class="warmup-text">{{ statusText }}</span>
+          <span v-if="showBouncingDots" class="warmup-dots" aria-hidden="true">
+            <span class="warmup-dot" />
+            <span class="warmup-dot" />
+            <span class="warmup-dot" />
+          </span>
+        </div>
+        <p v-if="props.state === 'initializing'" class="warmup-sub">
+          Runs in Pythinker's isolated sandbox - not on your computer.
+        </p>
       </div>
       <button
         v-if="props.state === 'timed_out'"
@@ -53,12 +58,12 @@ const props = withDefaults(
 
 const statusText = computed(() => {
   if (props.state === 'timed_out') {
-    return 'Sandbox is taking longer than usual.';
+    return 'Pythinker sandbox is taking longer than usual.';
   }
   if (props.state === 'thinking') {
     return 'Thinking';
   }
-  return 'Initializing my PC';
+  return 'Preparing your Pythinker sandbox';
 });
 
 const showBouncingDots = computed(() => props.state !== 'timed_out');
@@ -93,6 +98,23 @@ const showBouncingDots = computed(() => props.state !== 'timed_out');
   gap: 8px;
   padding-left: 0;
   min-height: 24px;
+}
+
+.warmup-text-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+}
+
+.warmup-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.92;
+  max-width: 28rem;
 }
 
 .warmup-text-wrap {

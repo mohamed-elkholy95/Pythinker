@@ -1,9 +1,12 @@
 <template>
   <router-view />
   <Toast />
+  <!-- Global mount: takeover events + overlay must work even if layout remounts -->
+  <TakeOverView />
 </template>
 
 <script setup lang="ts">
+import TakeOverView from './components/TakeOverView.vue'
 import Toast from './components/ui/Toast.vue'
 import { useThemeMode } from './composables/useThemeMode'
 import { useResponsiveLeftPanel } from './composables/useLeftPanel'

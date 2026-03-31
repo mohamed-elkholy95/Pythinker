@@ -44,6 +44,7 @@ import { getApplePointerCursorCss } from '@/utils/appleCursorStyle'
 // would try to resolve at HMR time (the package is CJS-only).
 interface RFBInstance {
   scaleViewport: boolean
+  clipViewport: boolean
   resizeSession: boolean
   qualityLevel: number
   compressionLevel: number
@@ -74,6 +75,37 @@ const vncContainerRef = ref<HTMLElement | null>(null)
 const vncCursorStyle = { cursor: getApplePointerCursorCss() }
 const isConnecting = ref(false)
 const error = ref<string | null>(null)
+
+/** x11vnc with -ncache advertises a tall framebuffer (e.g. 1280×12288); scaling it to fit looks like a paper-thin strip. */
+function isAbsurdFramebuffer(width: number, height: number): boolean {
+  if (width <= 0 || height <= 0) return false
+  return height > width * 3 && height > 3000
+}
+
+/**
+ * When the server reports an ncache-inflated height, scaleViewport scales the whole bitmap into the
+ * container → unusable aspect ratio. The real desktop sits in the top band (see man x11vnc -ncache).
+ * Use 1:1 pixels with viewport clipping so the visible area is the top-left of the framebuffer.
+ */
+function applyNcacheFramebufferWorkaround(): void {
+  const canvas = vncContainerRef.value?.querySelector('canvas')
+  if (!canvas || !rfb) return
+  const w = canvas.width
+  const h = canvas.height
+  if (!isAbsurdFramebuffer(w, h)) return
+
+  rfb.scaleViewport = false
+  rfb.clipViewport = true
+  const kickResize = (): void => {
+    window.dispatchEvent(new Event('resize'))
+  }
+  requestAnimationFrame(() => {
+    kickResize()
+    requestAnimationFrame(kickResize)
+  })
+  setTimeout(kickResize, 50)
+  setTimeout(kickResize, 200)
+}
 
 let rfb: RFBInstance | null = null
 let RFBClass: RFBConstructor | null = null
@@ -112,6 +144,9 @@ async function connect() {
 
     // Configure display behavior
     rfb.scaleViewport = true
+    // Keep false: resizeSession uses container size from getBoundingClientRect(). If that
+    // runs before layout (width still 0), the server can get a tall-narrow resolution and
+    // the UI shows as a thin vertical strip. scaleViewport alone scales the remote fb to fit.
     rfb.resizeSession = false
     rfb.qualityLevel = 6
     rfb.compressionLevel = 2
@@ -148,6 +183,19 @@ function handleConnect() {
   hasConnectedOnce = true
   error.value = null
   emit('connected')
+  // Re-run layout after paint so noVNC’s ResizeObserver / autoscale sees real dimensions.
+  const kickResize = (): void => {
+    window.dispatchEvent(new Event('resize'))
+  }
+  requestAnimationFrame(() => {
+    kickResize()
+    requestAnimationFrame(kickResize)
+  })
+  setTimeout(kickResize, 100)
+  setTimeout(kickResize, 400)
+  setTimeout(() => {
+    applyNcacheFramebufferWorkaround()
+  }, 200)
 }
 
 function handleDisconnect(e: unknown) {
@@ -210,28 +258,19 @@ defineExpose({ reconnect })
 </script>
 
 <style scoped>
+/* Fill the absolute inset-0 parent from TakeOverView — do not override noVNC’s _screen flex;
+   forcing min-width:0 on the server’s div was collapsing to a narrow column. */
 .vnc-viewer {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   background: rgb(24, 24, 27);
 }
 
 .vnc-canvas-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* noVNC injects a screen div > canvas inside the container.
-   The screen div must not stretch to full height or the canvas stays top-aligned.
-   With flex centering on the parent, the screen div shrinks to its content (the canvas)
-   and gets centered vertically — fixing the mobile tall-viewport issue. */
-.vnc-canvas-container :deep(div) {
-  max-height: 100%;
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
 }
 
 .vnc-canvas-container :deep(canvas) {

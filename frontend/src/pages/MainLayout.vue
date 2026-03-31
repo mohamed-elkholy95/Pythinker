@@ -11,7 +11,6 @@
       </div>
     </main>
   </div>
-  <TakeOverView />
   <CustomDialog />
   <PromptDialog />
   <SessionFileList />
@@ -24,7 +23,6 @@ import LeftPanel from '@/components/LeftPanel.vue';
 import CustomDialog from '@/components/ui/CustomDialog.vue';
 import PromptDialog from '@/components/ui/PromptDialog.vue';
 import ContextMenu from '@/components/ui/ContextMenu.vue';
-import TakeOverView from '@/components/TakeOverView.vue';
 import SessionFileList from '@/components/SessionFileList.vue';
 import FilePanel from '@/components/FilePanel.vue';
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';

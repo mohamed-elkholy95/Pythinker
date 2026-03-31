@@ -213,7 +213,7 @@
                 ref="liveViewerRef"
                 :key="'live-preview-persistent-' + (sessionId || 'none')"
                 :session-id="sessionId || ''"
-                :enabled="true"
+                :enabled="!isTakeoverOverlayActive"
                 :view-only="true"
                 :is-canvas-mode="isCanvasMode"
                 :show-controls="showBrowserControls"
@@ -632,6 +632,7 @@ import type { ScreenshotMetadata } from '@/types/screenshot';
 import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
 import { stripCmdMarkers, cleanPs1, cleanShellOutput } from '@/utils/shellSanitizer';
 import { deriveSessionName } from '@/utils/sessionName';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 
 import type { ContentViewType } from '@/constants/tool';
 import type { DealToolContent } from '@/types/toolContent';

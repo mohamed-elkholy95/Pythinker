@@ -1231,6 +1231,7 @@ export const createSSEConnection = async <T = unknown>(
             || msg.includes('failed to fetch')
             || msg.includes('err_http2')
             || msg.includes('net::err_')
+            || msg.includes('incomplete_chunked')
             || msg.includes('the operation was aborted')
             || msg.includes('connection was reset');
           if (isTransient) {

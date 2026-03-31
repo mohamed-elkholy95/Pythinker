@@ -7,7 +7,8 @@ describe('SessionWarmupMessage', () => {
     const wrapper = mount(SessionWarmupMessage)
 
     expect(wrapper.text().toLowerCase()).toContain('pythinker')
-    expect(wrapper.text()).toContain('Initializing my PC')
+    expect(wrapper.text()).toContain('Preparing your Pythinker sandbox')
+    expect(wrapper.text()).toContain("Pythinker's isolated sandbox")
     expect(wrapper.text()).not.toContain('Loading...')
     expect(wrapper.findAll('.warmup-dot')).toHaveLength(3)
   })
@@ -19,7 +20,7 @@ describe('SessionWarmupMessage', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Sandbox is taking longer than usual.')
+    expect(wrapper.text()).toContain('Pythinker sandbox is taking longer than usual.')
     expect(wrapper.findAll('.warmup-dot')).toHaveLength(0)
 
     const retryButton = wrapper.find('[data-testid="warmup-retry"]')

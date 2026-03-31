@@ -101,6 +101,7 @@ import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { useSkillEvents } from '@/composables/useSkillEvents'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
+import type { ApiError } from '@/api/client'
 import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
 import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
 import { getApplePointerCursorCss } from '@/utils/appleCursorStyle'
@@ -298,9 +299,14 @@ async function initConnection(): Promise<void> {
     }
   } catch (e) {
     // HTTP 409: session is complete/cancelled — screencast no longer available.
-    // Stop silently instead of showing an error or retrying.
-    const status = (e as { response?: { status?: number } })?.response?.status
-    if (status === 409) {
+    // Axios interceptor rejects as ApiError { code } (no raw .response).
+    const statusFromApi =
+      typeof e === 'object' && e !== null && 'code' in e
+        ? (e as ApiError).code
+        : undefined
+    const statusRaw = (e as { response?: { status?: number } })?.response?.status
+    const httpStatus = statusFromApi ?? statusRaw
+    if (httpStatus === 409) {
       isLoading.value = false
       return
     }
