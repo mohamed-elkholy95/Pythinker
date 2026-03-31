@@ -169,7 +169,10 @@ async def receive_session_reliability_diagnostics(
         max_chunk_processing_duration_ms=payload.max_chunk_processing_duration_ms,
         submitted_at=datetime.now(UTC),
     )
-    await session_repo.save(session)
+    await session_repo.update_by_id(
+        session_id,
+        {"reliability": session.reliability.model_dump()},
+    )
 
     pm.record_session_reliability_diagnostics(
         auto_retry_count=payload.auto_retry_count,
