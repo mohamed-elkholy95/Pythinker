@@ -109,6 +109,8 @@ mcp.json
 
 # ─── Claude Code ────────────────────────────────────────────────────────────
 Instructions.md
+claude-code-backup/
+@claude-code-backup/
 # ─── Internal Dev Docs (local-only) ──────────────────────────────────────────
 .tmp-*
 *.mov
