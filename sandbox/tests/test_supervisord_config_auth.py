@@ -28,3 +28,14 @@ def test_supervisorctl_uses_matching_auth_credentials() -> None:
 
     assert "username=%(ENV_SUPERVISOR_RPC_USERNAME)s" in section
     assert "password=%(ENV_SUPERVISOR_RPC_PASSWORD)s" in section
+
+
+def test_x11vnc_uses_launcher_with_nonc() -> None:
+    """Inflated RFB (e.g. 1280×12288) breaks noVNC scaling unless ncache is off."""
+    root = Path(__file__).resolve().parents[1]
+    cfg = root / "supervisord.conf"
+    section = _section_block(cfg.read_text(encoding="utf-8"), "program:x11vnc")
+    assert "run_x11vnc.sh" in section
+    script = root / "scripts" / "run_x11vnc.sh"
+    assert script.is_file()
+    assert "-nonc" in script.read_text(encoding="utf-8")

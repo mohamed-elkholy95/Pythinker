@@ -323,6 +323,9 @@ services:
           path: ./sandbox/scripts
           target: /app/scripts
         - action: sync+restart
+          path: ./sandbox/scripts/run_x11vnc.sh
+          target: /app/scripts/run_x11vnc.sh
+        - action: sync+restart
           path: ./sandbox/supervisord.conf
           target: /app/supervisord.conf
         - action: rebuild
