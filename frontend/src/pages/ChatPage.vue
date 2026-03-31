@@ -1150,8 +1150,50 @@ const isReplayMode = computed(() => {
 let messageIdCounter = 0;
 const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 
+type ToolPanelInstance = InstanceType<typeof ToolPanel> & {
+  isShow?: boolean
+}
+
 // Non-state refs that don't need reset
-const toolPanel = ref<InstanceType<typeof ToolPanel>>()
+const toolPanel = ref<ToolPanelInstance>()
+const toolPanelPainted = ref(false)
+let toolPanelPaintFrameId: number | null = null
+
+const clearToolPanelPaintFrame = () => {
+  if (toolPanelPaintFrameId === null) return
+  window.cancelAnimationFrame(toolPanelPaintFrameId)
+  toolPanelPaintFrameId = null
+}
+
+watch(
+  () => toolPanel.value?.isShow ?? false,
+  async (isVisible, _previousValue, onCleanup) => {
+    clearToolPanelPaintFrame()
+    toolPanelPainted.value = false
+
+    if (!isVisible) {
+      return
+    }
+
+    let cancelled = false
+    onCleanup(() => {
+      cancelled = true
+      clearToolPanelPaintFrame()
+    })
+
+    await nextTick()
+
+    if (cancelled) return
+
+    toolPanelPaintFrameId = window.requestAnimationFrame(() => {
+      toolPanelPaintFrameId = null
+      if (!cancelled) {
+        toolPanelPainted.value = true
+      }
+    })
+  },
+  { immediate: true },
+)
 
 /// Fullscreen / width control
 const preSplitWidth = ref(0)
@@ -1355,8 +1397,8 @@ const handleViewportResize = () => {
 const showSessionWarmupMessage = computed(() => {
   const hasPrompt = hasUserMessages.value || !!pendingInitialMessage.value?.message?.trim();
   if (!hasPrompt) return false;
-  if (hasAgentStartedResponding.value) return false;
   if (sessionInitTimedOut.value) return true;
+  if (toolPanelPainted.value) return false;
 
   return (
     isLoading.value ||
