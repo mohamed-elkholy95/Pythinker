@@ -11,8 +11,31 @@ from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_metrics
 from app.domain.services.flows.acknowledgment import AcknowledgmentGenerator
+from app.domain.services.message_sanitizer import strip_leaked_tool_call_markup
 
 logger = logging.getLogger(__name__)
+
+# LLMs often answer this mini-prompt with generic ChatGPT refusals — those are FALSE for Pythinker.
+_CAPABILITY_REFUSAL_SUBSTRINGS: tuple[str, ...] = (
+    "unable to control",
+    "can't control your browser",
+    "cannot control your browser",
+    "don't have the ability",
+    "do not have the ability",
+    "can't interact with websites",
+    "cannot interact with websites",
+    "interact with websites directly",
+    "interact with applications on your computer",
+    "i can help you with text-based",
+    "text-based tasks",
+    "drafting messages",
+    "i'm unable to",
+    "i am unable to",
+    "i don't have access to a browser",
+    "no access to a browser",
+    "i cannot browse",
+    "i can't browse",
+)
 
 
 class FastAcknowledgmentRefiner:
@@ -39,6 +62,13 @@ class FastAcknowledgmentRefiner:
         try:
             refined = await asyncio.wait_for(self._generate_with_llm(user_message), timeout=self._timeout_seconds)
             refined = self._sanitize(refined)
+            if self._looks_like_capability_refusal(refined):
+                elapsed = time.perf_counter() - start_time
+                metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "refusal"})
+                metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
+                logger.info("Fast ack refiner: discarded LLM refusal phrasing; using deterministic fallback")
+                return fallback
+
             if not refined:
                 elapsed = time.perf_counter() - start_time
                 metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "empty"})
@@ -89,23 +119,37 @@ class FastAcknowledgmentRefiner:
                     )
             return fallback
 
+    def _looks_like_capability_refusal(self, text: str) -> bool:
+        """True if the model declined Pythinker capabilities (browser/shell) in the fast ack."""
+        if not text or len(text) < 12:
+            return False
+        lower = text.lower()
+        return any(s in lower for s in _CAPABILITY_REFUSAL_SUBSTRINGS)
+
     async def _generate_with_llm(self, user_message: str) -> str:
         messages = [
             {
                 "role": "system",
                 "content": (
                     "You write the first quick acknowledgment before planning begins.\n"
+                    "Environment: This is **Pythinker** — tasks run in an **isolated sandbox** with a **real automated "
+                    "browser**, shell, and files. The user is NOT asking you to control their personal computer.\n"
                     "Rules:\n"
                     "- Return exactly 1-2 sentences, plain text.\n"
                     "- Start with: Got it!\n"
                     "- Be professional, direct, and action-oriented.\n"
+                    "- If they ask to open a browser, visit a site, type, click, or automate the web: say you will "
+                    "use the **sandbox browser** to do it — NEVER claim you cannot browse or interact with websites.\n"
+                    "- NEVER refuse with phrases like 'unable to control your browser', 'can't interact with websites', "
+                    "'text-based tasks only', or 'I don't have the ability' — those are false for Pythinker.\n"
                     "- Correct obvious typos and awkward phrasing from the user request.\n"
                     "- State what you will do next immediately (review/research/build/create/fix as appropriate).\n"
                     "- Do NOT include time estimates. Never say how long something will take.\n"
                     "- Do not ask follow-up questions.\n"
                     "- Do not include bullet points or markdown.\n"
-                    "- NEVER mention specific search sites, sources, or platforms (Reddit, Google, Stack Overflow,\n"
-                    "  GitHub, Wikipedia, forums, blogs, etc.). Just say 'research' or 'look into'.\n"
+                    "- For **research** acks, avoid naming specific platforms; say 'research' or 'look into'.\n"
+                    "- If the user asks to **visit a named site** (e.g. Reddit), you may name it so the ack is not empty\n"
+                    "  (never leave a dangling 'navigate to,' with no destination).\n"
                     "- NEVER expand vague references into specific version numbers, model names, or product details.\n"
                     "  If the user says 'latest Claude' just say 'latest Claude' — do NOT guess 'Claude 3.5 Sonnet'.\n"
                     "  Mirror the user's own wording for product/model names."
@@ -118,6 +162,7 @@ class FastAcknowledgmentRefiner:
 
     def _sanitize(self, text: str) -> str:
         normalized = re.sub(r"\s+", " ", (text or "")).strip()
+        normalized = strip_leaked_tool_call_markup(normalized)
         if not normalized:
             return ""
 
@@ -170,11 +215,20 @@ class FastAcknowledgmentRefiner:
             normalized,
             flags=re.IGNORECASE,
         )
-        # Pattern 4: bare site names remaining (last resort — catches "including Reddit")
+        # Pattern 4: "including Reddit" / ", including Reddit" (research-ack cleanup).
+        # Do NOT use optional `,?\s*` before the site alone — that matched " navigate to Reddit"
+        # and stripped " Reddit", leaving broken text like "navigate to,".
         normalized = re.sub(
-            rf",?\s*(?:including\s+)?(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
+            rf"(?:,\s*)?including\s+(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
             rf"(?:\s+and\s+other\s+(?:sources?|platforms?|sites?|communities?))?",
             "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # Pattern 4b: "search Stack Overflow for" style (research ack) — safe; does not match "navigate to …"
+        normalized = re.sub(
+            rf"\b(?:searching|search)\s+(?:{_sites})\s+",
+            "search online ",
             normalized,
             flags=re.IGNORECASE,
         )

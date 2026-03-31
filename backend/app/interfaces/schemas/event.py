@@ -29,6 +29,7 @@ from app.domain.models.event import (
 from app.domain.models.plan import ExecutionStatus
 from app.domain.models.search import SearchResultItem
 from app.domain.models.source_citation import SourceCitation
+from app.domain.services.message_sanitizer import strip_leaked_tool_call_markup
 from app.interfaces.schemas.file import FileInfoResponse
 
 
@@ -67,6 +68,13 @@ class MessageEventData(BaseEventData):
     follow_up_selected_suggestion: str | None = None
     follow_up_anchor_event_id: str | None = None
     follow_up_source: str | None = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _sanitize_content(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+        return strip_leaked_tool_call_markup(value)
 
 
 class MessageSSEEvent(BaseSSEEvent):

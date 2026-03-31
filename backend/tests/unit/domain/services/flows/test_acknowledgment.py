@@ -41,6 +41,11 @@ class TestAcknowledgmentGenerator:
         result = self.gen.generate("hello world")
         assert "Got it!" in result
 
+    def test_browser_reddit_request_uses_sandbox_ack(self) -> None:
+        result = self.gen.generate("open browser and go to reddit and type hello")
+        assert "sandbox browser" in result.lower()
+        assert "unable to control" not in result.lower()
+
     def test_create_keyword_with_focus(self) -> None:
         result = self.gen.generate("create a REST API for user management")
         assert "Got it!" in result

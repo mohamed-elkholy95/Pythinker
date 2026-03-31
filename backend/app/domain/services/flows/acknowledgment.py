@@ -33,6 +33,13 @@ class AcknowledgmentGenerator:
         if "/skill-creator" in message_lower:
             return self._ack_skill_creation(user_message, message_lower)
 
+        # Sandbox browser / web automation (Pythinker has a real browser in the container — not the user's PC)
+        if self._is_sandbox_browser_or_web_automation(message_lower):
+            return (
+                "Got it! I will use the sandbox browser to follow your steps "
+                "(navigation, typing, and interactions) and report the outcome."
+            )
+
         # Research-type tasks
         if is_research_task(user_message):
             return self._ack_research(user_message, request_focus, is_large_prompt)
@@ -67,6 +74,46 @@ class AcknowledgmentGenerator:
         if is_large_prompt:
             return "Got it! I will analyze your request and proceed with a structured response."
         return "Got it! I will help with that."
+
+    def _is_sandbox_browser_or_web_automation(self, message_lower: str) -> bool:
+        """True when the user expects automated browsing in Pythinker's sandbox."""
+        has_browser = "browser" in message_lower
+        web_target = any(
+            s in message_lower
+            for s in (
+                "reddit",
+                "navigate",
+                "visit ",
+                "go to ",
+                "open a site",
+                "website",
+                "http://",
+                "https://",
+            )
+        )
+        interaction = any(
+            s in message_lower
+            for s in (
+                "type ",
+                "type a",
+                "fill ",
+                "click",
+                "submit",
+                "log in",
+                "login",
+                "sign in",
+            )
+        )
+        if has_browser and (web_target or interaction):
+            return True
+        # "open browser ... reddit" style without repeating the word "browser" twice
+        if "reddit" in message_lower and any(
+            k in message_lower for k in ("open ", "go to ", "visit ", "navigate", "browse")
+        ):
+            return True
+        if "browsing" in message_lower and ("automat" in message_lower or "task" in message_lower):
+            return True
+        return False
 
     def _ack_skill_creation(self, user_message: str, message_lower: str) -> str:
         """Generate acknowledgment for skill creation requests."""

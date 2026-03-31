@@ -1185,6 +1185,75 @@ def is_suggestion_follow_up_message(message: str) -> bool:
     return any(re.match(pattern, normalized) for pattern in SUGGESTION_FOLLOW_UP_PATTERNS)
 
 
+# Heuristics for DIRECT_BROWSE / WEB_SEARCH: fast path vs full plan-act (single decision site — DRY/KISS).
+# Fast browse only navigates; fast search only runs the search API. Typing, forms, multi-step flows → full agent.
+_FULL_WORKFLOW_BROWSE_INTERACTION = re.compile(
+    r"\b(?:type|enter|input|fill\s+in|click|submit|log\s*in|sign\s*-?\s*in|sign\s*-?\s*up|"
+    r"post\s+(?:a\s+)?(?:comment|reply|message)|reply\s+with|comment\s+on|message\s+(?:on|people)|"
+    r"scroll\s+to|select\s+)\b",
+    re.IGNORECASE,
+)
+_FULL_WORKFLOW_MULTI_STEP = re.compile(
+    r"\b(?:and\s+then|after\s+that|step\s*\d|first\s+.*\bthen\b|;\s*(?:then|next))\b",
+    re.IGNORECASE,
+)
+_FULL_WORKFLOW_RESEARCH = re.compile(
+    r"\b(?:comprehensive|research\s+report|write\s+(?:a\s+)?report|multiple\s+sources|"
+    r"cite\s|citations?|benchmark|pros?\s+and\s+cons|versus| vs[.\s])\b",
+    re.IGNORECASE,
+)
+
+
+def decide_browse_search_route(message: str, intent: QueryIntent) -> tuple[bool, str]:
+    """Decide whether DIRECT_BROWSE / WEB_SEARCH should use the fast path or full plan-act.
+
+    Fast path:
+    - ``execute_fast_browse`` — single navigation (no typing/forms/multi-page workflows).
+    - ``execute_fast_search`` — search API results (no synthesis/report pipeline).
+
+    Full plan-act is required when the user needs interaction beyond navigation, multi-step
+    instructions, or research-style work — the execution agent picks browser/search tools.
+
+    Returns:
+        (use_fast_path, reason) — reason is for logs/metrics (snake_case).
+    """
+    if intent not in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+        return False, "intent_not_browse_or_search"
+
+    text = (message or "").strip()
+    if not text:
+        return False, "empty_message"
+
+    lower = text.lower()
+
+    if len(text) > 520:
+        return False, "message_too_long"
+
+    if text.count("\n") >= 4:
+        return False, "multi_line_instruction"
+
+    if _FULL_WORKFLOW_MULTI_STEP.search(lower):
+        return False, "multi_step_cue"
+
+    if lower.count("?") >= 2:
+        return False, "multiple_questions"
+
+    if _FULL_WORKFLOW_RESEARCH.search(lower):
+        return False, "research_or_comparison_cue"
+
+    # Conjunction-heavy prompts usually need structured planning
+    if len(re.findall(r"\band\b", lower)) >= 3:
+        return False, "many_conjunctions"
+
+    if intent == QueryIntent.DIRECT_BROWSE and _FULL_WORKFLOW_BROWSE_INTERACTION.search(lower):
+        return False, "browser_interaction_beyond_navigation"
+
+    if intent == QueryIntent.WEB_SEARCH and len(text.split()) > 42:
+        return False, "web_search_query_too_long"
+
+    return True, "simple_nav_or_search"
+
+
 def should_use_fast_path(message: str, follow_up_source: str | None = None) -> bool:
     """Return True when a message should be handled by the fast path.
 

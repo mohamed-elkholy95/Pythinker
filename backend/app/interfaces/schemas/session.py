@@ -10,6 +10,7 @@ from app.application.schemas.session import (
 )
 from app.domain.models.session import AgentMode, ResearchMode, SessionStatus, TakeoverReason
 from app.domain.models.source_citation import SourceCitation
+from app.domain.services.message_sanitizer import strip_leaked_tool_call_markup
 from app.interfaces.schemas.event import AgentSSEEvent
 
 ConsoleRecord = ApplicationConsoleRecord
@@ -223,6 +224,13 @@ class ListSessionItem(BaseModel):
     unread_message_count: int
     is_shared: bool = False
     source: str = "web"
+
+    @field_validator("latest_message", mode="before")
+    @classmethod
+    def _sanitize_latest_message(cls, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        return strip_leaked_tool_call_markup(value)
 
 
 class ListSessionResponse(BaseModel):

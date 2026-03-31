@@ -1,0 +1,34 @@
+from app.domain.models.event import MessageEvent
+from app.interfaces.schemas.event import EventMapper
+from app.interfaces.schemas.session import ListSessionItem
+
+
+async def test_event_mapper_strips_leaked_tool_call_markup_from_message_events() -> None:
+    event = MessageEvent(
+        role="assistant",
+        message=(
+            "Got it! I'll research the latest AI/ML engineering roadmaps and best practices to create "
+            'a comprehensive report for you. <tool_call> {"tool": "Browser", "params": {"task": "research", '
+            '"url": "https://roadmap.sh/ai-engineer", "objective": "Explore the roadmap"}}'
+        ),
+    )
+
+    sse_event = await EventMapper.event_to_sse_event(event)
+
+    assert sse_event.event == "message"
+    assert "<tool_call>" not in sse_event.data.content
+    assert '"tool": "Browser"' not in sse_event.data.content
+    assert sse_event.data.content.endswith("for you.")
+
+
+def test_list_session_item_strips_leaked_tool_call_markup_from_latest_message() -> None:
+    item = ListSessionItem(
+        session_id="session-1",
+        status="running",
+        unread_message_count=0,
+        latest_message=(
+            'Got it! I will research the topic. <tool_call>{"tool":"Browser","params":{"task":"research"}}</tool_call>'
+        ),
+    )
+
+    assert item.latest_message == "Got it! I will research the topic."

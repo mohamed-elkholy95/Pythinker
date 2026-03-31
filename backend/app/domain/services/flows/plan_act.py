@@ -66,6 +66,7 @@ from app.domain.services.flows.fast_ack_refiner import FastAcknowledgmentRefiner
 from app.domain.services.flows.fast_path import (
     FastPathRouter,
     QueryIntent,
+    decide_browse_search_route,
     is_suggestion_follow_up_message,
 )
 from app.domain.services.flows.headline_extractor import extract_headline
@@ -2497,6 +2498,18 @@ class PlanActFlow(BaseFlow):
             raise SessionNotFoundException(self._session_id)
         await self._check_cancelled()
 
+        # First user-visible reply — emit BEFORE skill detection / init work so the UI does not sit
+        # idle while SkillTaskAnalyzer (LLM) or registry work runs. (Ack was previously below that block.)
+        if session.status not in (SessionStatus.WAITING, SessionStatus.RUNNING):
+            acknowledgment = await self._generate_acknowledgment(message.message)
+            yield MessageEvent(message=acknowledgment)
+            logger.info(f"Emitted early acknowledgment for session {self._session_id}")
+            yield ProgressEvent(
+                phase=PlanningPhase.ANALYZING,
+                message="Analyzing your request...",
+                progress_percent=15,
+            )
+
         # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
         await self._init_skill_invoke_tool()
         await self._check_cancelled()
@@ -2581,21 +2594,6 @@ class PlanActFlow(BaseFlow):
             except Exception as e:
                 logger.debug(f"Error pattern loading failed (non-critical): {e}")
 
-        # === INSTANT ACKNOWLEDGMENT: Emit before any processing ===
-        # This gives users immediate feedback that their message was received
-        if session.status not in (SessionStatus.WAITING, SessionStatus.RUNNING):
-            # Emit text acknowledgment
-            acknowledgment = await self._generate_acknowledgment(message.message)
-            yield MessageEvent(message=acknowledgment)
-            logger.info(f"Emitted acknowledgment for session {self._session_id}")
-
-            # Emit analyzing progress event
-            yield ProgressEvent(
-                phase=PlanningPhase.ANALYZING,
-                message="Analyzing your request...",
-                progress_percent=15,
-            )
-
         # === ANCHOR CONTEXT: Inject referenced event context for follow-ups ===
         if message.follow_up_anchor_event_id and self._session_repository:
             try:
@@ -2638,10 +2636,9 @@ class PlanActFlow(BaseFlow):
                 logger.warning("Failed to retrieve anchor event", exc_info=True)
 
         # === FAST PATH: Check if this is a simple query that can skip planning ===
-        # Always classify messages to detect greetings/simple queries
-        # Greetings and knowledge queries work regardless of session status
-        # Browser/search intents are intentionally routed through full workflow
-        # to ensure the agent performs full browsing/page traversal.
+        # Always classify messages to detect greetings/simple queries.
+        # DIRECT_BROWSE / WEB_SEARCH: route via decide_browse_search_route() — fast path only
+        # supports single navigation or API search; interaction/multi-step/research → full agent.
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
 
         try:
@@ -2681,9 +2678,11 @@ class PlanActFlow(BaseFlow):
                 # Knowledge queries don't need browser - always safe, even during init
                 use_fast_path = True
             elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                # Policy: always use full workflow for browse/search so the agent
-                # can run search->open->multi-page browsing steps when needed.
-                skip_reason = f"{intent.value} uses full workflow by policy"
+                use_route, route_reason = decide_browse_search_route(message.message, intent)
+                if use_route:
+                    use_fast_path = True
+                else:
+                    skip_reason = f"{intent.value} -> full workflow ({route_reason})"
             else:
                 skip_reason = "TASK intent requires full workflow"
 

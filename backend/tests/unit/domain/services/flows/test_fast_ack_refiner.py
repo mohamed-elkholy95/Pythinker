@@ -102,6 +102,32 @@ class TestGenerate:
 
         assert result == "Got it! I will help with that."
 
+    @pytest.mark.asyncio
+    async def test_returns_fallback_when_llm_emits_capability_refusal(
+        self, mock_llm: AsyncMock, mock_fallback: MagicMock, mock_metrics: MagicMock
+    ) -> None:
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": (
+                    "Got it! I understand you want to open a browser. However, I'm unable to control your browser "
+                    "or interact with websites directly. I can help with text-based tasks."
+                )
+            }
+        )
+        mock_fallback.generate = MagicMock(
+            return_value=(
+                "Got it! I will use the sandbox browser to follow your steps "
+                "(navigation, typing, and interactions) and report the outcome."
+            )
+        )
+        refiner = FastAcknowledgmentRefiner(llm=mock_llm, fallback_generator=mock_fallback)
+
+        with patch("app.domain.services.flows.fast_ack_refiner.get_metrics", return_value=mock_metrics):
+            result = await refiner.generate("open browser go to reddit type hello")
+
+        assert "unable to control" not in result.lower()
+        assert "sandbox browser" in result.lower()
+
 
 class TestSanitize:
     """Tests for _sanitize."""
@@ -135,6 +161,13 @@ class TestSanitize:
         result = self.refiner._sanitize(text)
         assert "Reddit" not in result
 
+    def test_preserves_navigate_to_reddit(self) -> None:
+        """Pattern 4 must not strip the destination after 'navigate to'."""
+        text = 'Got it! I\'ll open the sandbox browser, navigate to Reddit, and type "hello".'
+        result = self.refiner._sanitize(text)
+        assert "Reddit" in result
+        assert "navigate to," not in result
+
     def test_strips_stackoverflow_mentions(self) -> None:
         text = "Got it! I will search Stack Overflow for solutions."
         result = self.refiner._sanitize(text)
@@ -144,6 +177,27 @@ class TestSanitize:
         text = "Got it! I will create a report on following topics"
         result = self.refiner._sanitize(text)
         assert "the following" in result
+
+    def test_strips_complete_tool_call_markup(self) -> None:
+        text = (
+            "Got it! I will research the latest AI/ML engineering roadmaps for you. "
+            '<tool_call>{"tool":"Browser","params":{"task":"research"}}</tool_call>'
+        )
+        result = self.refiner._sanitize(text)
+        assert "<tool_call>" not in result
+        assert '{"tool":"Browser"' not in result
+        assert result == "Got it! I will research the latest AI/ML engineering roadmaps for you."
+
+    def test_strips_truncated_tool_call_markup(self) -> None:
+        text = (
+            "Got it! I'll research the latest AI/ML engineering roadmaps and best practices to create "
+            'a comprehensive report for you. <tool_call> {"tool": "Browser", "params": {"task": "research", '
+            '"url": "https://roadmap.sh/ai-engineer"}}'
+        )
+        result = self.refiner._sanitize(text)
+        assert "<tool_call>" not in result
+        assert '"tool": "Browser"' not in result
+        assert result.endswith("for you.")
 
 
 class TestShouldPreferFallback:
