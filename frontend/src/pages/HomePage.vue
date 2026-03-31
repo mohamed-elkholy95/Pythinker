@@ -314,7 +314,7 @@ const handleFeatureClick = async (feature: Feature) => {
 };
 
 // Create session with specific mode
-const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) => {
+const createSessionWithMode = async (mode: AgentMode, seedMessage?: string) => {
   if (isSubmitting.value) return;
   isSubmitting.value = true;
   const draft = consumeComposerDraft({
@@ -331,8 +331,8 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
         pendingSessionCreate: true,
         mode,
         research_mode: 'deep_research' as ResearchMode,
-        chat_mode: mode === 'agent' && !!initialMessage,
-        message: initialMessage ?? '',
+        chat_mode: mode === 'agent' && !!seedMessage,
+        message: seedMessage ?? '',
         skills: [],
         files: draft.attachments.map((file: FileInfo) => ({
           file_id: file.file_id,

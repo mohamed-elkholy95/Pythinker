@@ -333,6 +333,62 @@ describe('ChatMessage', () => {
       expect(wrapper.text()).not.toContain('"name":"shell"')
     })
 
+    it('should strip leaked sandbox browser status text from assistant messages', () => {
+      const leakedBrowserStatusMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-browser-status-leak',
+        content: {
+          ...mockAssistantMessage.content,
+          content:
+            "Got it! I'll research best practices for professional code setup and investigate OpenCode to create a comprehensive report. **[Sandbox Browser: Navigating to research sources for.",
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: leakedBrowserStatusMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.text()).toContain("Got it! I'll research best practices")
+      expect(wrapper.text()).not.toContain('Sandbox Browser:')
+      expect(wrapper.text()).not.toContain('Navigating to research sources for.')
+    })
+
+    it('should strip leaked internal system notes from assistant messages', () => {
+      const leakedSystemNoteMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-system-note-leak',
+        content: {
+          ...mockAssistantMessage.content,
+          content:
+            'Got it! I will analyze the issue. [SYSTEM NOTE: Top search result URLs are being previewed in the background.',
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: leakedSystemNoteMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.text()).toContain('Got it! I will analyze the issue.')
+      expect(wrapper.text()).not.toContain('SYSTEM NOTE:')
+      expect(wrapper.text()).not.toContain('Top search result URLs are being previewed in the background.')
+    })
+
     it('should use compact spacing for structured final summaries', () => {
       const summaryMessage = {
         ...mockAssistantMessage,

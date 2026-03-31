@@ -20,9 +20,6 @@
             <span class="warmup-dot" />
           </span>
         </div>
-        <p v-if="props.state === 'initializing'" class="warmup-sub">
-          Runs in Pythinker's isolated sandbox - not on your computer.
-        </p>
       </div>
       <button
         v-if="props.state === 'timed_out'"
@@ -58,12 +55,12 @@ const props = withDefaults(
 
 const statusText = computed(() => {
   if (props.state === 'timed_out') {
-    return 'Pythinker sandbox is taking longer than usual.';
+    return 'Still getting your session ready';
   }
   if (props.state === 'thinking') {
     return 'Thinking';
   }
-  return 'Preparing your Pythinker sandbox';
+  return 'Initializing your session';
 });
 
 const showBouncingDots = computed(() => props.state !== 'timed_out');

@@ -682,6 +682,10 @@ import {
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
+import { syncToolMessage } from '@/utils/toolMessageTree';
+import { syncSkillDeliveryMessage } from '@/utils/skillDeliveryMessages';
+import { syncPhaseMessage } from '@/utils/phaseMessages';
+import { syncReportMessage } from '@/utils/reportMessages';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { DEFAULT_SESSION_RECONNECT_POLICY } from '@/core/session/reconnectPolicy';
 import {
@@ -2763,39 +2767,26 @@ const handleToolEvent = (toolData: ToolEventData) => {
   if (buffered) {
     streamingContentBuffer.delete(toolData.tool_call_id);
   }
-  if (lastTool.value && lastTool.value.tool_call_id === toolContent.tool_call_id) {
-    Object.assign(lastTool.value, toolContent);
-  } else {
-    if (lastStep?.status === 'running') {
-      // Check if tool already exists in this step (avoid duplicates from SSE reconnection)
-      const existingTool = lastStep.tools.find(t => t.tool_call_id === toolContent.tool_call_id);
-      if (existingTool) {
-        Object.assign(existingTool, toolContent);
-      } else {
-        lastStep.tools.push(toolContent);
-      }
-    } else {
-      messages.value.push({
-        id: generateMessageId(),
-        type: 'tool',
-        content: toolContent,
-      });
-    }
-    lastTool.value = toolContent;
-  }
+
   if (toolContent.name !== 'message') {
+    const renderedTool = syncToolMessage(messages.value, toolContent, {
+      createMessageId: generateMessageId,
+      lastStep,
+    });
+    lastTool.value = renderedTool;
+
     if (isLoading.value) {
       finalReportText.value = '';
     }
     const preservedTool = shouldPreserveDealToolInLiveView(lastNoMessageTool.value, toolContent)
       ? lastNoMessageTool.value
       : undefined;
-    const panelTool = preservedTool ?? toolContent;
+    const panelTool = preservedTool ?? renderedTool;
 
     if (!preservedTool) {
-      lastNoMessageTool.value = toolContent;
+      lastNoMessageTool.value = renderedTool;
     }
-    upsertToolTimeline(toolContent);
+    upsertToolTimeline(renderedTool);
 
     // Clear planning presentation immediately when first real tool starts.
     // The plan was shown during planning — now get out of the way for execution.
@@ -2834,7 +2825,12 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
 
   // ── Dual-write: mirror tool event to Pinia store ──
-  toolStore.recordToolCall(toolContent)
+  if (toolContent.name !== 'message') {
+    const renderedTool = lastTool.value;
+    if (renderedTool) {
+      toolStore.recordToolCall(renderedTool);
+    }
+  }
 
   if (functionName === 'message_ask_user') {
     const args = toolData.args || {};
@@ -2865,37 +2861,27 @@ const handlePhaseEvent = (phaseData: import('../types/event').AgentPhaseEventDat
     const mapped = PHASE_TYPE_STAGE_MAP[phaseData.phase_type.toLowerCase()];
     if (mapped) activeReasoningState.value = mapped;
   }
-  if (phaseData.status === 'started') {
-    messages.value.push({
-      id: generateMessageId(),
-      type: 'phase',
-      content: {
-        phase_id: phaseData.phase_id,
-        phase_type: phaseData.phase_type,
-        label: phaseData.label,
-        status: phaseData.status,
-        order: phaseData.order,
-        icon: phaseData.icon,
-        color: phaseData.color,
-        total_phases: phaseData.total_phases,
-        steps: [],
-        timestamp: phaseData.timestamp || Math.floor(Date.now() / 1000),
-      } as import('../types/message').PhaseContent,
-    })
-  } else if (phaseData.status === 'completed' || phaseData.status === 'skipped') {
-    // Find and update the phase message
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const msg = messages.value[i]
-      if (msg.type === 'phase') {
-        const pc = msg.content as import('../types/message').PhaseContent
-        if (pc.phase_id === phaseData.phase_id) {
-          pc.status = phaseData.status
-          if (phaseData.skip_reason) pc.skip_reason = phaseData.skip_reason
-          break
-        }
-      }
-    }
+  if (phaseData.status !== 'started' && phaseData.status !== 'completed' && phaseData.status !== 'skipped') {
+    return;
   }
+
+  syncPhaseMessage(
+    messages.value,
+    {
+      phase_id: phaseData.phase_id,
+      phase_type: phaseData.phase_type,
+      label: phaseData.label,
+      status: phaseData.status,
+      order: phaseData.order,
+      icon: phaseData.icon,
+      color: phaseData.color,
+      total_phases: phaseData.total_phases,
+      skip_reason: phaseData.skip_reason,
+      steps: phaseData.status === 'started' ? [] : [],
+      timestamp: phaseData.timestamp || Math.floor(Date.now() / 1000),
+    } as import('../types/message').PhaseContent,
+    generateMessageId,
+  );
 }
 
 // Find the current active phase message (if any)
@@ -3442,23 +3428,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
     timestamp: epochSec,
   };
 
-  // Resume/replay may surface the same report more than once; update in place.
-  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-    const existingMessage = messages.value[i];
-    if (existingMessage.type !== 'report') continue;
-
-    const existingContent = existingMessage.content as ReportContent;
-    if (existingContent.id === reportData.id || existingContent.event_id === reportData.event_id) {
-      existingMessage.content = nextReportContent;
-      return;
-    }
-  }
-
-  messages.value.push({
-    id: generateMessageId(),
-    type: 'report',
-    content: nextReportContent,
-  });
+  syncReportMessage(messages.value, nextReportContent, generateMessageId);
 }
 
 const handlePhaseTransitionEvent = (data: PhaseTransitionEventData) => {
@@ -3472,10 +3442,9 @@ const handleCheckpointSavedEvent = (data: CheckpointSavedEventData) => {
 // Handle skill delivery events
 const handleSkillDeliveryEvent = (data: SkillDeliveryEventData) => {
   showInfoToast(`Skill "${data.name}" package ready`);
-  messages.value.push({
-    id: generateMessageId(),
-    type: 'skill_delivery',
-    content: {
+  syncSkillDeliveryMessage(
+    messages.value,
+    {
       package_id: data.package_id,
       name: data.name,
       description: data.description,
@@ -3489,7 +3458,8 @@ const handleSkillDeliveryEvent = (data: SkillDeliveryEventData) => {
       skill_id: data.skill_id,
       timestamp: data.timestamp,
     } as SkillDeliveryContent,
-  });
+    generateMessageId,
+  );
 };
 
 // Handle skill activation events

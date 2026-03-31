@@ -148,4 +148,28 @@ describe('HomePage pending session submit', () => {
     });
     expect(chatBox.props('modelValue')).toBe('');
   });
+
+  it('uses the explicit chat-mode seed message instead of the current draft', async () => {
+    const wrapper = mount(HomePage);
+    await nextTick();
+
+    const chatBox = wrapper.findComponent({ name: 'ChatBox' });
+    chatBox.vm.$emit('update:modelValue', 'draft prompt that should not be forwarded');
+    await nextTick();
+
+    const chatModeButton = wrapper.findAll('button').find((button) => button.text().includes('Chat Mode'));
+    expect(chatModeButton).toBeDefined();
+
+    await chatModeButton!.trigger('click');
+    await nextTick();
+
+    expect(mockPush).toHaveBeenCalledWith({
+      path: '/chat/new',
+      state: expect.objectContaining({
+        pendingSessionCreate: true,
+        message: 'Hello',
+      }),
+    });
+    expect(chatBox.props('modelValue')).toBe('');
+  });
 });

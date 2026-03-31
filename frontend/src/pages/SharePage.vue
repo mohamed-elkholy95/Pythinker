@@ -135,7 +135,7 @@ import ToolPanel from '../components/ToolPanel.vue'
 import PlanPanel from '../components/PlanPanel.vue';
 import { ArrowDown, FileSearch, Link } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
-import { showErrorToast, showSuccessToast } from '../utils/toast';
+import { showErrorToast, showInfoToast, showSuccessToast } from '../utils/toast';
 import type { FileInfo } from '../api/file';
 import { useSessionFileList } from '../composables/useSessionFileList'
 import { useFilePanel } from '../composables/useFilePanel'
@@ -202,6 +202,7 @@ const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 let countdownTimer: number | null = null;
+const lastRecoveryNoticeSessionId = ref<string | null>(null)
 
 // Timeline events for playback
 const timelineEvents = ref<AgentSSEEvent[]>([]);
@@ -456,6 +457,15 @@ const resetState = () => {
   Object.assign(state, createInitialState());
 };
 
+const maybeShowRecoveryNotice = (targetSessionId: string, recoveredFromLatestMessage: boolean) => {
+  if (!recoveredFromLatestMessage || lastRecoveryNoticeSessionId.value === targetSessionId) {
+    return
+  }
+
+  lastRecoveryNoticeSessionId.value = targetSessionId
+  showInfoToast(t('Recovered this completed task from its latest saved message. Earlier step details were unavailable.'))
+}
+
 const replay = async () => {
   if (!sessionId.value) {
     showErrorToast(t('Session not found'));
@@ -467,6 +477,7 @@ const replay = async () => {
   sessionId.value = String(router.currentRoute.value.params.sessionId) as string;
   const session = await agentApi.getSharedSession(sessionId.value);
   const historyResolution = resolveSessionHistory(session);
+  maybeShowRecoveryNotice(sessionId.value, historyResolution.recoveredFromLatestMessage)
   realTime.value = true;
   isLoading.value = true;
   for (const event of historyResolution.events) {
@@ -487,6 +498,7 @@ const restoreSession = async () => {
   try {
     const session = await agentApi.getSharedSession(sessionId.value);
     const historyResolution = resolveSessionHistory(session);
+    maybeShowRecoveryNotice(sessionId.value, historyResolution.recoveredFromLatestMessage)
     realTime.value = false;
     follow.value = false; // Prevent auto-scrolling during restoration
 

@@ -217,7 +217,7 @@
                 :view-only="true"
                 :is-canvas-mode="isCanvasMode"
                 :show-controls="showBrowserControls"
-                :is-session-complete="isSessionComplete"
+                :is-session-complete="sessionCompleteState"
                 :replay-screenshot-url="props.replayScreenshotUrl || ''"
                 @connected="onLivePreviewConnected"
                 @disconnected="onLivePreviewDisconnected"
@@ -226,7 +226,7 @@
               <!-- Reconnecting overlay -->
               <Transition name="fade">
                 <LoadingState
-                  v-if="livePreviewDisconnected && !!sessionId && !isSessionComplete"
+                  v-if="livePreviewDisconnected && !!sessionId && !sessionCompleteState"
                   class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
                   :label="livePreviewPlaceholderLabel || 'Reconnecting'"
                   :detail="livePreviewPlaceholderDetail"
@@ -1148,10 +1148,14 @@ const streamingPresentation = useStreamingPresentationState({
     }
     return 'generic';
   }),
-  isSessionComplete: computed(() => !!props.isSessionComplete || (!props.isLoading && !!props.replayScreenshotUrl)),
+  isSessionComplete: computed(() => resolveSessionCompleteState()),
   replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
   previewText: computed(() => props.summaryStreamText || '')
 });
+
+function resolveSessionCompleteState(): boolean {
+  return !!props.isSessionComplete || (!props.isLoading && !!props.replayScreenshotUrl);
+}
 
 // HMR/live restore can briefly pair a newer consumer with an older composable return shape.
 // The composable's internal refs may be destroyed, so accessing .value on the returned
@@ -1159,7 +1163,7 @@ const streamingPresentation = useStreamingPresentationState({
 // ref objects themselves are truthy but their internal getters reference destroyed state.
 const streamingHeadline = computed(() => { try { return streamingPresentation.headline?.value ?? ''; } catch { return ''; } });
 const isSummaryPhase = computed(() => { try { return streamingPresentation.isSummaryPhase?.value ?? false; } catch { return false; } });
-const isSessionComplete = computed(() => !!props.isSessionComplete || (!props.isLoading && !!props.replayScreenshotUrl));
+const sessionCompleteState = computed(() => resolveSessionCompleteState());
 
 const isPlanningPhase = computed(() => { try { return streamingPresentation.isPlanningPhase?.value ?? false; } catch { return false; } });
 
@@ -1323,7 +1327,7 @@ const livePreviewPlaceholderDetail = computed(() => {
  * Tool-specific views (editor, terminal, etc.) overlay on top, so the
  * browser is instantly available when switching back — no reconnection. */
 const showPersistentBrowser = computed(() => {
-  return !!props.sessionId && !props.isReplayMode && !isSessionComplete.value
+  return !!props.sessionId && !props.isReplayMode && !(sessionCompleteState.value && !!props.replayScreenshotUrl)
 })
 
 let _lastForwardedToolEventKey = '';
@@ -1854,7 +1858,7 @@ const loadFileContent = async () => {
       fileContent.value = inlineContent;
     }
     // Skip sandbox file reads for completed sessions — sandbox is gone
-    if (!props.live || !filePath || !props.sessionId || isSessionComplete.value) return;
+    if (!props.live || !filePath || !props.sessionId || sessionCompleteState.value) return;
     if (!filePath.startsWith('/')) return;
 
     try {
@@ -1880,7 +1884,7 @@ const loadFileContent = async () => {
   }
 
   // Skip sandbox file reads for completed sessions — sandbox is gone
-  if (!filePath || !props.sessionId || isSessionComplete.value) return;
+  if (!filePath || !props.sessionId || sessionCompleteState.value) return;
 
   try {
     const response = await viewFile(props.sessionId, filePath);
