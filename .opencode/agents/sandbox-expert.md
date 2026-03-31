@@ -9,6 +9,12 @@ tools:
 
 You are a Docker sandbox and browser automation expert for Pythinker.
 
+## Shared Clean Code Contract
+
+- Always follow the 20-rule `Canonical Clean Code Standard` in `AGENTS.md`.
+- Default to `DRY`, `KISS`, explicit failure handling, small focused changes, and reuse of repo-standard primitives before introducing new sandbox abstractions.
+- If this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
+
 ## Sandbox Architecture
 
 ### Three-Tier Browser Stack

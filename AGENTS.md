@@ -31,6 +31,45 @@ Working rules for automated agents in this repo.
 - Status reports must be strictly factual. Distinguish `Completed`, `In Progress`, and `Not Started`.
 - When writing code or docs, do not use placeholders or summary-only substitutions.
 
+## Canonical Clean Code Standard
+
+Always follow these 20 rules when writing, reviewing, or refactoring code and instructions in this repo.
+
+1. **Simplicity first**: choose the simplest solution that fully solves the problem. Remove unnecessary abstraction, indirection, and branching.
+2. **Reuse before create**: extend existing components, services, utilities, and patterns before adding new ones. Do not duplicate logic, constants, or workflows.
+3. **One clear responsibility per unit**: keep functions, classes, modules, and components focused. Split code when a unit is carrying unrelated behavior.
+4. **Protect layer boundaries**: keep dependency flow moving inward and keep business logic out of routes, handlers, and UI components when practical.
+5. **Optimize for readability**: code should be easy for the next engineer to understand without mental backtracking. Prefer obvious control flow over clever shortcuts.
+6. **Use precise names**: choose explicit names for variables, types, functions, classes, and files. Avoid vague names such as `data`, `temp`, `misc`, or `helper` unless the scope is truly generic.
+7. **Keep changes small and local**: prefer narrowly scoped, reviewable edits. Do not mix unrelated cleanup into task-driven changes.
+8. **Prefer shallow control flow**: use guard clauses, early returns, and focused helpers to avoid deep nesting and parallel branches.
+9. **Keep public interfaces small and explicit**: expose only what callers need and make internal helpers clearly internal.
+10. **Use types as part of the design**: write full Python type hints and strict TypeScript types where practical. Treat `Any` and `any` as escape hatches, not defaults.
+11. **Validate input at boundaries**: validate, normalize, and constrain external input at the edge of the system before it reaches business logic.
+12. **Keep secrets and config out of code**: never hardcode secrets or environment-specific configuration. Use environment-based configuration and approved secret handling.
+13. **Log useful facts, not noise**: prefer existing structured logs, metrics, and traces. Never log secrets or sensitive payloads. Keep logs factual and actionable.
+14. **Handle errors deliberately**: fail loudly enough to diagnose the problem, return actionable errors, and do not silently swallow exceptions.
+15. **Prove behavior with targeted verification**: add or update the smallest tests and checks that prove the changed behavior. Do not rely on manual confidence alone.
+16. **Comment the why, not the obvious**: keep comments and docstrings concise and useful. Explain intent, invariants, edge cases, or non-obvious tradeoffs.
+17. **Follow official language and framework conventions**: respect formatter, linter, and framework guidance instead of inventing local style rules per file.
+18. **Prefer repo-standard primitives**: use existing project conventions such as `HTTPClientPool`, `APIKeyPool`, Pydantic v2 validators, Vue Composition API, and other established repo patterns before introducing alternatives.
+19. **Remove temporary scaffolding before closing the task**: delete temporary debug code, duplicate paths, dead branches, and disposable instrumentation unless the user explicitly asks to keep them.
+20. **Keep docs and agent guidance in sync with reality**: when rules, workflows, or validation commands change, update the relevant instruction surfaces so downstream agents do not drift.
+
+These rules are synthesized for this repo from current primary guidance, including:
+
+- Python `PEP 20`: https://peps.python.org/pep-0020/
+- Python `PEP 8`: https://peps.python.org/pep-0008/
+- Google Engineering Practices: https://google.github.io/eng-practices/review/
+- TypeScript `strict`: https://www.typescriptlang.org/tsconfig/strict.html
+- TypeScript `noImplicitAny`: https://www.typescriptlang.org/tsconfig/noImplicitAny.html
+- Vue Style Guide: https://vuejs.org/style-guide/
+- OWASP Input Validation Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
+- OWASP Secrets Management Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+- OWASP Logging Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+- Twelve-Factor App Config: https://12factor.net/config
+- Twelve-Factor App Logs: https://12factor.net/logs
+
 ## Preferred Direction
 
 - Prefer SOLID-style boundaries and dependency inversion when it improves clarity.

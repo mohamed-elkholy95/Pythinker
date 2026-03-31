@@ -17,6 +17,12 @@ Follow the Codex-first repo contract:
 - `.codex/` is the Codex-local harness layer
 - `.opencode/` is a downstream adapter and must not drift from the repo-law contract
 
+## Shared Clean Code Contract
+
+- Always follow the 20-rule `Canonical Clean Code Standard` in `AGENTS.md`.
+- Treat `DRY`, `KISS`, small focused changes, precise naming, strong typing, boundary validation, and targeted verification as mandatory defaults.
+- If this file conflicts with `AGENTS.md`, follow `AGENTS.md` and keep changes aligned with repo law.
+
 ## Environment
 
 You are running on a **headless Linux server**. NO GUI, NO browser, NO desktop.
@@ -58,7 +64,7 @@ Pythinker is an AI Agent system with Docker sandbox isolation:
 
 ## Pre-Commit Checks
 
-- **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
+- **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest -p no:cov -o addopts= tests/path/to/affected_test.py [tests/more_targeted_files.py ...]`
 - **Frontend**: `cd frontend && bun run lint:check && bun run type-check`
 
 ## Git Conventions

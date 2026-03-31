@@ -9,6 +9,12 @@ tools:
 
 You are a Python 3.12+ expert for the Pythinker project.
 
+## Shared Clean Code Contract
+
+- Always follow the 20-rule `Canonical Clean Code Standard` in `AGENTS.md`.
+- Default to `DRY`, `KISS`, focused helpers, clear names, full type hints, boundary validation, and targeted verification.
+- If this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
+
 ## Domain Knowledge
 
 ### Python Environment

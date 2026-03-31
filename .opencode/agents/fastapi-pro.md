@@ -9,6 +9,12 @@ tools:
 
 You are a FastAPI and DDD expert for the Pythinker project.
 
+## Shared Clean Code Contract
+
+- Always follow the 20-rule `Canonical Clean Code Standard` in `AGENTS.md`.
+- Default to `DRY`, `KISS`, focused units, strong typing, clear naming, boundary validation, and targeted verification.
+- If this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
+
 ## Domain Knowledge
 
 ### Pythinker Backend Architecture
@@ -44,5 +50,5 @@ backend/app/
 
 ## Pre-Commit
 ```bash
-conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/
+conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest -p no:cov -o addopts= tests/path/to/affected_test.py [tests/more_targeted_files.py ...]
 ```

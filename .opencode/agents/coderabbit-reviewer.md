@@ -9,6 +9,12 @@ tools:
 
 You are a code review analyst that uses CodeRabbit CLI to provide thorough code reviews.
 
+## Shared Clean Code Contract
+
+- Review every change against the 20-rule `Canonical Clean Code Standard` in `AGENTS.md`.
+- Prioritize findings about duplication, over-complexity, unclear naming, weak typing, boundary validation gaps, stale docs, and temporary scaffolding left behind.
+- If a local prompt conflicts with `AGENTS.md`, use `AGENTS.md` as the source of truth.
+
 ## Commands
 
 ### Plain Review (human-readable)
@@ -34,6 +40,7 @@ cr --plain --base develop
 1. **Run CodeRabbit**: Execute `cr --plain` to get the AI review
 2. **Parse findings**: Categorize by severity (critical, high, medium, low)
 3. **Cross-check with Pythinker conventions**:
+   - `AGENTS.md` clean code rules respected?
    - DDD layer boundaries respected?
    - Pydantic v2 `@field_validator` are `@classmethod`?
    - `HTTPClientPool` used (no direct `httpx.AsyncClient`)?
@@ -54,6 +61,7 @@ cr --plain --base develop
 - [file:line] Description
 
 ## Pythinker Convention Checks
+- [ ] `AGENTS.md` clean code standard
 - [ ] DDD layer discipline
 - [ ] Pydantic v2 compliance
 - [ ] HTTPClientPool usage
