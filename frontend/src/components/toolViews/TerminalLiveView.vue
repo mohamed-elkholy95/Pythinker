@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign'
 import { TerminalStreamAnsiTransformer } from '@/utils/terminalStreamAnsi'
+import { applyXtermHelperTextareaAccessibility } from '@/utils/xtermAccessibility'
 
 const props = defineProps<{
   sessionId: string
@@ -54,6 +55,7 @@ function initTerminal() {
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.open(terminalRef.value)
+  applyXtermHelperTextareaAccessibility(terminalRef.value, 'live-terminal', 'Live terminal output')
 
   // Delay initial fit to ensure container has proper dimensions
   nextTick(() => {

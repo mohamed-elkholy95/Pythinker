@@ -24,6 +24,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign';
+import { applyXtermHelperTextareaAccessibility } from '@/utils/xtermAccessibility';
 
 const props = defineProps<{
   content: string;
@@ -146,6 +147,7 @@ onMounted(async () => {
   });
   terminal.value.loadAddon(fitAddon.value);
   terminal.value.open(terminalRef.value);
+  applyXtermHelperTextareaAccessibility(terminalRef.value, 'tool-terminal', 'Terminal output');
 
   // Delay initial fit to ensure container has proper dimensions
   // Use multiple RAF cycles to ensure layout is complete
