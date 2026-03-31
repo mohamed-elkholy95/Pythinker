@@ -506,6 +506,7 @@
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
+        :isSessionComplete="isSessionComplete"
         :summaryStreamText="summaryStreamText"
         :finalReportText="finalReportText"
         :isSummaryStreaming="isSummaryStreaming"

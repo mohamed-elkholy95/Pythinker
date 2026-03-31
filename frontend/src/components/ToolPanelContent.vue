@@ -657,6 +657,7 @@ const props = defineProps<{
   plan?: PlanEventData;
   isLoading?: boolean;
   isThinking?: boolean;
+  isSessionComplete?: boolean;
   isReplayMode?: boolean;
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
@@ -1147,7 +1148,7 @@ const streamingPresentation = useStreamingPresentationState({
     }
     return 'generic';
   }),
-  isSessionComplete: computed(() => !props.isLoading && !!props.replayScreenshotUrl),
+  isSessionComplete: computed(() => !!props.isSessionComplete || (!props.isLoading && !!props.replayScreenshotUrl)),
   replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
   previewText: computed(() => props.summaryStreamText || '')
 });
@@ -1158,7 +1159,7 @@ const streamingPresentation = useStreamingPresentationState({
 // ref objects themselves are truthy but their internal getters reference destroyed state.
 const streamingHeadline = computed(() => { try { return streamingPresentation.headline?.value ?? ''; } catch { return ''; } });
 const isSummaryPhase = computed(() => { try { return streamingPresentation.isSummaryPhase?.value ?? false; } catch { return false; } });
-const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
+const isSessionComplete = computed(() => !!props.isSessionComplete || (!props.isLoading && !!props.replayScreenshotUrl));
 
 const isPlanningPhase = computed(() => { try { return streamingPresentation.isPlanningPhase?.value ?? false; } catch { return false; } });
 
@@ -1322,12 +1323,7 @@ const livePreviewPlaceholderDetail = computed(() => {
  * Tool-specific views (editor, terminal, etc.) overlay on top, so the
  * browser is instantly available when switching back — no reconnection. */
 const showPersistentBrowser = computed(() => {
-  // Keep browser mounted until replay mode takes over.
-  // Previously this also checked !isSessionComplete — but that caused a blank flash
-  // between session completion and screenshot load (the persistent browser hid while
-  // the replay viewer wasn't ready yet). LiveViewer already handles the frozen state
-  // via its :is-session-complete prop.
-  return !!props.sessionId && !props.isReplayMode
+  return !!props.sessionId && !props.isReplayMode && !isSessionComplete.value
 })
 
 let _lastForwardedToolEventKey = '';

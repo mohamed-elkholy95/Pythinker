@@ -27,6 +27,7 @@
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
+        :isSessionComplete="panelProps.isSessionComplete"
         :isReplayMode="panelProps.isReplayMode"
         :replayScreenshotUrl="panelProps.replayScreenshotUrl"
         :replayMetadata="panelProps.replayMetadata"
@@ -114,6 +115,7 @@ const panelProps = defineProps<{
   plan?: PlanEventData
   isLoading?: boolean
   isThinking?: boolean
+  isSessionComplete?: boolean
   showTimeline?: boolean
   timelineProgress?: number
   timelineTimestamp?: number
