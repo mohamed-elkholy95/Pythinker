@@ -1,32 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
-
-  // ── CONFIG LAYERING — this file is Priority 4 (Project) ───────
-  // Global ~/.config/opencode/opencode.jsonc sets:
-  //   model, small_model, permission="allow" (YOLO), autoupdate, compaction, snapshot
-  // This file OVERRIDES with:
-  //   agents, commands, mcp, instructions
-  // Permissions inherit from global YOLO ("permission": "allow").
-
-  // ── Plugins ──────────────────────────────────────────────────
-  "plugin": ["@plannotator/opencode@latest"],
-
-  // ── Model Configuration ─────────────────────────────────────
-  // Inherits global model (zai-coding-plan/glm-5.1) from ~/.config/opencode/opencode.jsonc
-  // Override per-project if needed:
-  // "model": "anthropic/claude-sonnet-4-5",
-
-  // ── Default Agent ─────────────────────────────────────────────
+  "plugin": [
+    "@plannotator/opencode@latest"
+  ],
   "default_agent": "build",
-
-  // ── Compaction ────────────────────────────────────────────────
   "compaction": {
     "auto": true,
     "prune": true,
     "reserved": 10000
   },
-
-  // ── Instructions ────────────────────────────────────────────
   "instructions": [
     "AGENTS.md",
     "instructions.md",
@@ -35,11 +17,9 @@
     "docs/guides/VUE_STANDARDS.md",
     ".opencode/HEADLESS_ENV.md"
   ],
-
-  // ── Pythinker-Specific Agents ───────────────────────────────
   "agent": {
     "build": {
-      "description": "Primary build agent with full Pythinker context — DDD, FastAPI, Vue 3, Docker sandbox",
+      "description": "Primary build agent with full Pythinker context \u2014 DDD, FastAPI, Vue 3, Docker sandbox",
       "mode": "primary",
       "prompt": "{file:.opencode/agents/build.md}",
       "tools": {
@@ -55,11 +35,10 @@
         "todowrite": true,
         "todoread": true,
         "skill": true
-      },
+      }
     },
-
     "plan": {
-      "description": "Read-only architect agent for Pythinker — analyzes DDD layers, sandbox architecture, browser stack",
+      "description": "Read-only architect agent for Pythinker \u2014 analyzes DDD layers, sandbox architecture, browser stack",
       "mode": "primary",
       "prompt": "{file:.opencode/agents/plan.md}",
       "tools": {
@@ -73,10 +52,8 @@
         "skill": true
       }
     },
-
-    // ── Domain-Specific Subagents ─────────────────────────────
     "fastapi-pro": {
-      "description": "FastAPI + DDD expert — API routes, Pydantic v2, SQLAlchemy 2.0, async patterns, middleware",
+      "description": "FastAPI + DDD expert \u2014 API routes, Pydantic v2, SQLAlchemy 2.0, async patterns, middleware",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/fastapi-pro.md}",
       "tools": {
@@ -91,9 +68,8 @@
         "skill": true
       }
     },
-
     "python-pro": {
-      "description": "Python 3.12+ expert — async/await, domain models, type safety, testing, performance",
+      "description": "Python 3.12+ expert \u2014 async/await, domain models, type safety, testing, performance",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/python-pro.md}",
       "tools": {
@@ -107,9 +83,8 @@
         "skill": true
       }
     },
-
     "vue-expert": {
-      "description": "Vue 3 Composition API expert — TypeScript strict, Pinia stores, composables, SSE streaming",
+      "description": "Vue 3 Composition API expert \u2014 TypeScript strict, Pinia stores, composables, SSE streaming",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/vue-expert.md}",
       "tools": {
@@ -123,9 +98,8 @@
         "skill": true
       }
     },
-
     "frontend-designer": {
-      "description": "Production-grade UI designer — Tailwind CSS, creative layouts, responsive design, dark mode",
+      "description": "Production-grade UI designer \u2014 Tailwind CSS, creative layouts, responsive design, dark mode",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/frontend-designer.md}",
       "tools": {
@@ -140,9 +114,8 @@
         "skill": true
       }
     },
-
     "sandbox-expert": {
-      "description": "Docker sandbox and CDP browser automation expert — container lifecycle, screencast, Playwright",
+      "description": "Docker sandbox and CDP browser automation expert \u2014 container lifecycle, screencast, Playwright",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/sandbox-expert.md}",
       "tools": {
@@ -156,9 +129,8 @@
         "skill": true
       }
     },
-
     "coderabbit-reviewer": {
-      "description": "AI code reviewer using CodeRabbit CLI — runs cr --plain for detailed review, cr --prompt-only for agent-optimized feedback",
+      "description": "AI code reviewer using CodeRabbit CLI \u2014 runs cr --plain for detailed review, cr --prompt-only for agent-optimized feedback",
       "mode": "subagent",
       "prompt": "{file:.opencode/agents/coderabbit-reviewer.md}",
       "tools": {
@@ -173,8 +145,6 @@
       }
     }
   },
-
-  // ── Project Commands ────────────────────────────────────────
   "command": {
     "lint": {
       "template": "Run linting for the specified target. If no target given, lint both backend and frontend.\n\nFor backend: `conda activate pythinker && cd backend && ruff check . && ruff format --check .`\nFor frontend: `cd frontend && bun run lint:check && bun run type-check`\n\nTarget: $ARGUMENTS",
@@ -212,7 +182,7 @@
       "agent": "build"
     },
     "review": {
-      "template": "Review the current changes for bugs, security issues, code quality, and adherence to Pythinker's DDD patterns. Use @code-reviewer for the analysis.\n\nCheck:\n- DDD layer boundaries (domain → application → infrastructure → interfaces)\n- Pydantic v2 compliance (@field_validator must be @classmethod)\n- HTTPClientPool usage (no direct httpx.AsyncClient)\n- Type safety (full type hints, no Any)\n- OWASP security\n$ARGUMENTS",
+      "template": "Review the current changes for bugs, security issues, code quality, and adherence to Pythinker's DDD patterns. Use @code-reviewer for the analysis.\n\nCheck:\n- DDD layer boundaries (domain \u2192 application \u2192 infrastructure \u2192 interfaces)\n- Pydantic v2 compliance (@field_validator must be @classmethod)\n- HTTPClientPool usage (no direct httpx.AsyncClient)\n- Type safety (full type hints, no Any)\n- OWASP security\n$ARGUMENTS",
       "description": "Review changes with Pythinker conventions",
       "agent": "build"
     },
@@ -237,16 +207,55 @@
       "agent": "build"
     }
   },
-
-  // ── MCP Servers ─────────────────────────────────────────────
   "mcp": {
     "context7": {
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
       "headers": {
         "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
       }
+    },
+    "filesystem": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/panda/Projects"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "memory": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "enabled": true,
+      "timeout": 10000
     }
   }
 }
-
