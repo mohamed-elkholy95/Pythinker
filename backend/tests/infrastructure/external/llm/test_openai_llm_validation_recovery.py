@@ -167,3 +167,22 @@ async def test_ask_stream_retries_with_validation_recovery_payload() -> None:
         "truncated": False,
         "provider": "openai",
     }
+
+
+def test_build_validation_recovery_messages_drops_image_blocks() -> None:
+    llm = _build_llm()
+
+    recovered = llm._build_validation_recovery_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+                    {"type": "text", "text": "what is shown here?"},
+                ],
+            }
+        ]
+    )
+
+    assert recovered[0]["content"] == "what is shown here?"
+    assert "image_url" not in recovered[0]["content"]

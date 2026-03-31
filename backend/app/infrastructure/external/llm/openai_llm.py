@@ -35,6 +35,9 @@ from app.infrastructure.external.key_pool import (
     RotationStrategy,
 )
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
+from app.infrastructure.external.llm.message_normalizer import (
+    _coerce_content_to_text as _coerce_content_to_text_module,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -1432,30 +1435,12 @@ To extract data from a webpage:
         return cleaned
 
     def _coerce_content_to_text(self, content: Any) -> str:
-        """Normalize mixed/structured content into plain text for strict providers."""
-        if content is None:
-            return ""
+        """Normalize mixed/structured content into plain text for strict providers.
 
-        if isinstance(content, str):
-            return content
-
-        if isinstance(content, list):
-            parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict):
-                    text_value = item.get("text")
-                    if isinstance(text_value, str):
-                        parts.append(text_value)
-                        continue
-                    with contextlib.suppress(Exception):
-                        parts.append(json.dumps(item, ensure_ascii=False, sort_keys=True))
-                elif item is not None:
-                    parts.append(str(item))
-            return "\n".join(part for part in parts if part).strip()
-
-        with contextlib.suppress(Exception):
-            return json.dumps(content, ensure_ascii=False, default=str)
-        return str(content)
+        Delegates to the centralized ``message_normalizer._coerce_content_to_text``
+        to avoid maintaining a duplicate implementation.
+        """
+        return _coerce_content_to_text_module(content)
 
     def _is_message_validation_error(self, error: Exception) -> bool:
         """Return True when provider rejected the request due to message schema."""

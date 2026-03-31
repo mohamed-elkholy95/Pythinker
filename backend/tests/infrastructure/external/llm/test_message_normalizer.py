@@ -45,6 +45,17 @@ def test_coerce_list_with_text_blocks():
     assert "part2" in result
 
 
+def test_coerce_list_drops_image_blocks():
+    content = [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        {"type": "text", "text": "describe this"},
+    ]
+    result = _coerce_content_to_text(content)
+    assert "describe this" in result
+    assert "image_url" not in result
+    assert "abc123" not in result
+
+
 def test_coerce_empty_list_returns_empty():
     assert _coerce_content_to_text([]) == ""
 

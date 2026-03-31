@@ -199,6 +199,22 @@ class TestSanitize:
         assert '"tool": "Browser"' not in result
         assert result.endswith("for you.")
 
+    def test_strips_trailing_raw_tool_payload(self) -> None:
+        text = (
+            "Got it! I'll research best practices for professional code setup and configuring GLM-5.1 for token "
+            "size compaction and MCPs, then compile a comprehensive report. Let me begin researching this topic. "
+            '{"query": "OpenCode setup best practices professional configuration 2025", "top_n": 10, "source": '
+            '"web"}'
+        )
+
+        result = self.refiner._sanitize(text)
+
+        assert result == (
+            "Got it! I'll research best practices for professional code setup and configuring GLM-5.1 for token "
+            "size compaction and MCPs, then compile a comprehensive report. Let me begin researching this topic."
+        )
+        assert '{"query":' not in result
+
 
 class TestShouldPreferFallback:
     """Tests for _should_prefer_fallback."""

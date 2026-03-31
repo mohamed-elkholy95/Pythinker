@@ -56,10 +56,16 @@ def _coerce_content_to_text(content: Any) -> str:
                 text_value = item.get("text")
                 if isinstance(text_value, str):
                     parts.append(text_value)
-                    continue
-                with contextlib.suppress(Exception):
-                    parts.append(json.dumps(item, ensure_ascii=False, sort_keys=True))
-            elif item is not None:
+                else:
+                    block_type = item.get("type", "unknown")
+                    logger.debug(
+                        "Dropping non-text content block (type=%s) during string coercion",
+                        block_type,
+                    )
+                # Drop non-text blocks (for example image blocks) when coercing
+                # to plain text for providers that cannot accept multimodal content.
+                continue
+            if item is not None:
                 parts.append(str(item))
         return "\n".join(p for p in parts if p).strip()
     with contextlib.suppress(Exception):
