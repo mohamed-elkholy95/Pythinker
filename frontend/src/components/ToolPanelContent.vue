@@ -264,7 +264,7 @@
           <!-- Content view crossfade transition — keyed by activeViewKey.
                When activeViewKey is null (live-preview pass-through), no wrapper
                renders and the persistent browser shows through unobstructed. -->
-          <Transition name="panel-crossfade">
+          <Transition name="panel-crossfade" :css="useCrossfade" mode="out-in">
             <div
               v-if="activeViewKey"
               :key="activeViewKey"
@@ -835,6 +835,41 @@ const planEditorContent = computed(() => {
   return '# Creating plan...\n\n> Analyzing your request and building an execution plan...';
 });
 
+// Unified streaming detection — declared before activeViewKey to avoid TDZ.
+// streamingPresentation may not exist yet when this computed is first collected,
+// so we read it via inline try-catch (same pattern as isSummaryPhase below).
+const streamingContentType = computed((): StreamingContentType => {
+  if (!props.toolContent) return 'text';
+  return detectContentType(props.toolContent.function);
+});
+
+const streamingLanguage = computed(() => {
+  if (!props.toolContent) return 'text';
+  // Detect from file path if available
+  const filePath = props.toolContent.args?.file || props.toolContent.args?.path || props.toolContent.file_path;
+  if (typeof filePath === 'string') {
+    return detectLanguage(filePath);
+  }
+  // Detect from function name
+  const fn = props.toolContent.function;
+  if (fn.includes('python')) return 'python';
+  if (fn.includes('javascript')) return 'javascript';
+  if (fn.includes('bash') || fn.includes('shell')) return 'bash';
+  return 'text';
+});
+
+const shouldShowUnifiedStreaming = computed(() => {
+  // Only show streaming for live sessions with streaming content
+  if (!props.live || !props.toolContent?.streaming_content) return false;
+  // Don't interfere with summary streaming
+  // Inline guard for isSummaryPhase — streamingPresentation may not exist yet during setup
+  const summaryPhase = (() => { try { return streamingPresentation?.isSummaryPhase?.value ?? false; } catch { return false; } })();
+  if (summaryPhase || props.summaryStreamText) return false;
+  // Search tools stream the query string (not JSON results) — let SearchContentView handle them
+  if (streamingContentType.value === 'search') return false;
+  return true;
+});
+
 const activeViewKey = computed((): string | null => {
   if (showReportPresentation.value) return 'report';
   if (showPlanPresentation.value) return 'plan';
@@ -868,6 +903,20 @@ const activeViewKey = computed((): string | null => {
   if (!showPersistentBrowser.value) return 'generic-fallback';
 
   return null;
+});
+
+/** Crossfade only between non-null overlay views.
+ *  Browser pass-through (activeViewKey === null) switches instantly
+ *  to prevent the z-index:-1 persistent browser from bleeding through
+ *  during opacity transitions. */
+const previousViewKey = ref<string | null>(null);
+watch(activeViewKey, (_newKey, oldKey) => {
+  // Only update previous when actually transitioning between non-null keys
+  if (oldKey !== undefined) previousViewKey.value = oldKey ?? null;
+});
+
+const useCrossfade = computed(() => {
+  return activeViewKey.value !== null && previousViewKey.value !== null;
 });
 
 // Tool state
@@ -956,37 +1005,6 @@ const chartTypeBadge = computed(() => {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-});
-
-// Unified streaming detection
-const shouldShowUnifiedStreaming = computed(() => {
-  // Only show streaming for live sessions with streaming content
-  if (!props.live || !props.toolContent?.streaming_content) return false;
-  // Don't interfere with summary streaming
-  if (isSummaryPhase.value || props.summaryStreamText) return false;
-  // Search tools stream the query string (not JSON results) — let SearchContentView handle them
-  if (streamingContentType.value === 'search') return false;
-  return true;
-});
-
-const streamingContentType = computed((): StreamingContentType => {
-  if (!props.toolContent) return 'text';
-  return detectContentType(props.toolContent.function);
-});
-
-const streamingLanguage = computed(() => {
-  if (!props.toolContent) return 'text';
-  // Detect from file path if available
-  const filePath = props.toolContent.args?.file || props.toolContent.args?.path || props.toolContent.file_path;
-  if (typeof filePath === 'string') {
-    return detectLanguage(filePath);
-  }
-  // Detect from function name
-  const fn = props.toolContent.function;
-  if (fn.includes('python')) return 'python';
-  if (fn.includes('javascript')) return 'javascript';
-  if (fn.includes('bash') || fn.includes('shell')) return 'bash';
-  return 'text';
 });
 
 // Artifact tools (report outputs saved via code executor)
@@ -2138,20 +2156,20 @@ const handleBrowseUrl = async (url: string) => {
   opacity: 0;
 }
 
-/* Panel content crossfade transition */
-.panel-crossfade-enter-active,
+/* Panel content crossfade transition — overlay-to-overlay swaps only */
+.panel-crossfade-enter-active {
+  transition: opacity 150ms ease;
+}
+
 .panel-crossfade-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity 100ms ease;
+  position: absolute;
+  inset: 0;
 }
 
 .panel-crossfade-enter-from,
 .panel-crossfade-leave-to {
   opacity: 0;
-}
-
-.panel-crossfade-leave-active {
-  position: absolute;
-  inset: 0;
 }
 
 /* Pre-reply loading skeleton (chart, generic, and unknown views) */
