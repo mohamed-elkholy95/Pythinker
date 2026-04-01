@@ -27,6 +27,14 @@ This repo does not depend on a custom slash-command system for Codex. Use these 
 python3 scripts/ai/harness_audit.py
 ```
 
+## Codex Doctor
+
+- `/doctor`
+
+```bash
+python3 scripts/ai/codex_doctor.py
+```
+
 ## Skill Stocktake
 
 - `/skill-stocktake`
