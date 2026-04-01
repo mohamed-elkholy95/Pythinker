@@ -1254,6 +1254,7 @@ const isSandboxInitializing = computed(() => sessionStatus.value === SessionStat
 // isCancelling removed — was only used by handleCancel (PhaseStrip)
 const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
+const pendingUserEchoMessage = ref<string | null>(null);
 const currentThinkingMode = ref<ThinkingMode>('auto');
 const sessionInitTimedOut = ref(false);
 const isChatModeOverride = ref<boolean | null>(null);
@@ -1813,6 +1814,7 @@ const cleanupStreamingState = () => {
   allowStandaloneSummaryOnNextAssistant.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
+  pendingUserEchoMessage.value = null;
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value = null;
   }
@@ -1919,6 +1921,7 @@ const resetState = () => {
   researchWorkflow.reset();
   streamController.resetReliabilitySummary();
   lastSubmittedReliabilitySignature.value = null;
+  pendingUserEchoMessage.value = null;
 
   // Clear streaming content buffer and search sources cache
   streamingContentBuffer.clear();
@@ -2625,6 +2628,14 @@ const handleMessageEvent = (messageData: MessageEventData) => {
       return;
     }
     agentModeOriginalPrompt.value = null;
+  }
+
+  if (messageData.role === 'user' && pendingUserEchoMessage.value) {
+    const incoming = (messageData.content || '').trim();
+    if (incoming === pendingUserEchoMessage.value) {
+      pendingUserEchoMessage.value = null;
+      return;
+    }
   }
 
   // Prevent duplicate user messages - check against LAST user message (not just last message)
@@ -4097,6 +4108,7 @@ const chat = async (
     isInitializing.value = true;
   }
 
+  pendingUserEchoMessage.value = normalizedMessage || null;
   activeChatStreamTraceId = nextSseTraceId()
   logChatSseDiagnostics('chat:start', {
     messageLength: normalizedMessage.length,
