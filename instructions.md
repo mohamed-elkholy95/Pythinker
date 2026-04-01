@@ -74,6 +74,10 @@ When debugging or implementing code, default to `DRY` and `KISS`.
 - Prefer existing logs, metrics, traces, and focused assertions over broad new debug scaffolding.
 - Remove temporary debug code before finishing unless the human explicitly asks to keep it.
 - If a small direct fix works, prefer it over a new abstraction.
+- Prefer a small local duplicate over a premature abstraction when that keeps the code easier to read.
+- Extract shared code only when the repeated logic is stable, clearly identical, and simpler once centralized.
+- If a helper makes control flow harder to follow, keep the code inline and local.
+- Avoid thin "helper" layers that only rename existing code without reducing complexity.
 
 ### 5. Scope Discipline (High Priority)
 

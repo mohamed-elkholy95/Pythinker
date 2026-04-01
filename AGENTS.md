@@ -21,6 +21,10 @@ Working rules for automated agents in this repo.
 - Reuse existing components, utilities, and services before creating new ones.
 - Prefer simple, robust solutions over clever abstractions.
 - Apply `DRY` and `KISS` by default when debugging or implementing code.
+- When balancing reuse and simplicity, prefer a small local duplicate over a premature abstraction.
+- Extract shared code only when the repeated logic is stable, clearly identical, and easier to maintain once centralized.
+- If a helper makes the control flow harder to follow, keep the code inline and local.
+- Avoid "helper" layers that only rename existing code without reducing complexity.
 - Before adding new debugging code, reuse existing logs, metrics, traces, and verification hooks when they can answer the question.
 - Keep new debugging instrumentation narrowly scoped, factual, and removable. Remove temporary debug code before closing the task unless the user asks to keep it.
 - Consider frontend and backend impact together for cross-cutting changes.
