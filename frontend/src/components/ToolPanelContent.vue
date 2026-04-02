@@ -935,6 +935,8 @@ const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
 const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+const terminalToolNames = new Set(['shell', 'terminal', 'code_executor', 'code_execute']);
+const isTerminalTool = computed(() => terminalToolNames.has(toolName.value));
 
 // Canvas live view
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
@@ -1463,9 +1465,7 @@ const terminalLiveRef = ref<InstanceType<typeof TerminalLiveView>>();
 const terminalStreamWrittenLength = ref(0);
 
 const isTerminalLiveMode = computed(() => {
-  if (!isActiveOperation.value) return false;
-  const tn = toolName.value;
-  return tn === 'shell' || tn === 'code_executor' || tn === 'code_execute';
+  return isActiveOperation.value && isTerminalTool.value;
 });
 
 const terminalLiveCommand = computed(() => {
@@ -1478,7 +1478,7 @@ const terminalShellSessionId = computed(() =>
 );
 
 const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'generic'>(() => {
-  if (toolName.value === 'shell') return 'shell';
+  if (toolName.value === 'shell' || toolName.value === 'terminal') return 'shell';
   if (toolName.value === 'code_executor' || toolName.value === 'code_execute') return 'code';
   if (toolName.value === 'file') return 'file';
   if (toolName.value === 'browser' || toolName.value === 'browser_agent') return 'browser';
@@ -1487,7 +1487,7 @@ const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'ge
 
 const terminalContent = computed((): string => {
   // Shell/Code executor output
-  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
+  if (isTerminalTool.value) {
     if (shellOutput.value) return shellOutput.value;
 
     // Get command from multiple sources - prefer args.command for shell tools
@@ -1624,7 +1624,7 @@ const startAutoRefresh = () => {
   if (shouldShowUnifiedStreaming.value || isTerminalLiveMode.value) {
     return;
   }
-  if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute')) {
+  if (props.live && isTerminalTool.value) {
     refreshTimer.value = window.setInterval(loadShellContent, 5000);
   }
 };
@@ -1638,7 +1638,7 @@ const stopAutoRefresh = () => {
 
 // Watch for tool changes
 watch(() => props.toolContent, () => {
-  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
+  if (isTerminalTool.value) {
     // Skip loading if streaming or terminal live mode is active
     if (!shouldShowUnifiedStreaming.value && !isTerminalLiveMode.value) {
       loadShellContent();
@@ -1755,7 +1755,7 @@ watch(() => props.live, (live) => {
 });
 
 onMounted(() => {
-  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
+  if (isTerminalTool.value) {
     loadShellContent();
   }
   startAutoRefresh();

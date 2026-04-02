@@ -2641,16 +2641,11 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   }
 
   // Prevent duplicate user messages (optimistic + SSE echo, reconnect replay, etc.).
-  // Compare normalized text against recent user bubbles — not only the last one, because
-  // tool/step events may appear between the optimistic bubble and the echoed Message event.
-  const USER_MESSAGE_DEDUP_MAX_USER_BUBBLES = 50;
+  // Compare normalized text against every prior user bubble so long sessions still dedupe.
   if (messageData.role === 'user' && messages.value.length > 0) {
     const incomingNorm = normalizeUserMessageForDedup(messageData.content || '');
-    let userBubblesChecked = 0;
     for (let i = messages.value.length - 1; i >= 0; i--) {
       if (messages.value[i].type !== 'user') continue;
-      userBubblesChecked += 1;
-      if (userBubblesChecked > USER_MESSAGE_DEDUP_MAX_USER_BUBBLES) break;
       const prior = messages.value[i].content as MessageContent;
       if (normalizeUserMessageForDedup(String(prior.content ?? '')) === incomingNorm) {
         return;
