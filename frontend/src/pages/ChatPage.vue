@@ -594,6 +594,7 @@ import type { SSECallbacks, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent, ThoughtContent } from '../types/message';
 import type { ChartToolContent } from '@/types/toolContent';
 import { waitForSessionReady } from '@/utils/sessionReady';
+import { normalizeUserMessageForDedup } from '@/utils/userMessageDedup';
 import {
   StepEventData,
   ToolEventData,
@@ -2181,11 +2182,12 @@ const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
   const nowInSeconds = Math.floor(Date.now() / 1000);
 
   if (normalizedMessage && messages.value.length > 0) {
+    const norm = normalizeUserMessageForDedup(normalizedMessage);
     for (let i = messages.value.length - 1; i >= 0; i -= 1) {
       if (messages.value[i].type !== 'user') continue;
       const lastUserContent = messages.value[i].content as MessageContent;
       if (
-        lastUserContent.content === normalizedMessage &&
+        normalizeUserMessageForDedup(String(lastUserContent.content ?? '')) === norm &&
         nowInSeconds - lastUserContent.timestamp <= 10
       ) {
         return;
@@ -2631,26 +2633,27 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   }
 
   if (messageData.role === 'user' && pendingUserEchoMessage.value) {
-    const incoming = (messageData.content || '').trim();
-    if (incoming === pendingUserEchoMessage.value) {
+    const incomingNorm = normalizeUserMessageForDedup(messageData.content || '');
+    if (incomingNorm === pendingUserEchoMessage.value) {
       pendingUserEchoMessage.value = null;
       return;
     }
   }
 
-  // Prevent duplicate user messages - check against LAST user message (not just last message)
-  // This handles cases where tool/step events appear between duplicate user messages
+  // Prevent duplicate user messages (optimistic + SSE echo, reconnect replay, etc.).
+  // Compare normalized text against recent user bubbles — not only the last one, because
+  // tool/step events may appear between the optimistic bubble and the echoed Message event.
+  const USER_MESSAGE_DEDUP_MAX_USER_BUBBLES = 50;
   if (messageData.role === 'user' && messages.value.length > 0) {
-    const incomingContent = (messageData.content || '').trim();
-    // Find the last user message in the array
+    const incomingNorm = normalizeUserMessageForDedup(messageData.content || '');
+    let userBubblesChecked = 0;
     for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].type === 'user') {
-        const lastUserContent = messages.value[i].content as MessageContent;
-        if ((lastUserContent.content || '').trim() === incomingContent) {
-          // Expected during SSE reconnection replay — suppress silently
-          return;
-        }
-        break; // Only check the most recent user message
+      if (messages.value[i].type !== 'user') continue;
+      userBubblesChecked += 1;
+      if (userBubblesChecked > USER_MESSAGE_DEDUP_MAX_USER_BUBBLES) break;
+      const prior = messages.value[i].content as MessageContent;
+      if (normalizeUserMessageForDedup(String(prior.content ?? '')) === incomingNorm) {
+        return;
       }
     }
   }
@@ -4108,7 +4111,9 @@ const chat = async (
     isInitializing.value = true;
   }
 
-  pendingUserEchoMessage.value = normalizedMessage || null;
+  pendingUserEchoMessage.value = normalizedMessage
+    ? normalizeUserMessageForDedup(normalizedMessage)
+    : null;
   activeChatStreamTraceId = nextSseTraceId()
   logChatSseDiagnostics('chat:start', {
     messageLength: normalizedMessage.length,

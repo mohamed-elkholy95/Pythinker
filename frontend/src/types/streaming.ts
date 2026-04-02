@@ -40,6 +40,7 @@ export interface StreamingMetadata {
 export function detectContentType(functionName: string): StreamingContentType {
   const mapping: Record<string, StreamingContentType> = {
     // Terminal operations
+    'terminal': 'terminal',
     'shell_exec': 'terminal',
     'code_execute': 'terminal',
     'code_execute_python': 'terminal',

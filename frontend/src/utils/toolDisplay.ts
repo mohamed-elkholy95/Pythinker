@@ -28,6 +28,7 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
   info_search_web: 'search',
   web_search: 'search',
   wide_research: 'wide_research',
+  terminal: 'shell',
   code_execute: 'code_executor',
   code_execute_python: 'code_executor',
   code_execute_javascript: 'code_executor',
@@ -220,6 +221,7 @@ function inferToolKeyFromFunction(functionName: string): string {
   if (func.includes('search') || func === 'info_search_web') return func === 'wide_research' ? 'wide_research' : 'search';
   if (func.startsWith('wide_research')) return 'wide_research';
 
+  if (func === 'terminal' || func.startsWith('terminal_')) return 'shell';
   if (func.startsWith('file_')) return 'file';
   if (func.startsWith('shell_')) return 'shell';
   if (func.startsWith('code_')) return 'code_executor';

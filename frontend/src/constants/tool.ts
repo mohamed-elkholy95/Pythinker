@@ -593,6 +593,14 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     defaultView: 'primary',
     showTabs: false
   },
+  // Backend may emit this name; mirror shell routing so the panel stays on terminal.
+  terminal: {
+    primaryView: 'terminal',
+    secondaryView: 'live_preview',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
 
   // === BROWSER ===
   browser: {

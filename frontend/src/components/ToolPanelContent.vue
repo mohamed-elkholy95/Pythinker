@@ -626,7 +626,7 @@ import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { useElapsedTimer } from '@/composables/useElapsedTimer';
 // connectionStore import removed (unused after computeds cleanup)
 import { normalizeSearchResults } from '@/utils/searchResults';
-import { isCanvasDomainTool } from '@/utils/viewRouting';
+import { isCanvasDomainTool, shouldShowUnifiedStreamingView } from '@/utils/viewRouting';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
 import type { ScreenshotMetadata } from '@/types/screenshot';
 import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
@@ -859,15 +859,26 @@ const streamingLanguage = computed(() => {
 });
 
 const shouldShowUnifiedStreaming = computed(() => {
-  // Only show streaming for live sessions with streaming content
-  if (!props.live || !props.toolContent?.streaming_content) return false;
-  // Don't interfere with summary streaming
-  // Inline guard for isSummaryPhase — streamingPresentation may not exist yet during setup
-  const summaryPhase = (() => { try { return streamingPresentation?.isSummaryPhase?.value ?? false; } catch { return false; } })();
-  if (summaryPhase || props.summaryStreamText) return false;
-  // Search tools stream the query string (not JSON results) — let SearchContentView handle them
-  if (streamingContentType.value === 'search') return false;
-  return true;
+  // Only show streaming for live sessions with streaming content.
+  // Terminal keeps its dedicated xterm/static terminal view even when the backend
+  // also provides streaming_content, because that content is already rendered in
+  // the terminal branch and should not be replaced by the generic streaming panel.
+  const summaryPhase = (() => {
+    try {
+      return streamingPresentation?.isSummaryPhase?.value ?? false;
+    } catch {
+      return false;
+    }
+  })();
+
+  return shouldShowUnifiedStreamingView({
+    isLive: props.live,
+    currentViewType: currentViewType.value,
+    streamingContent: props.toolContent?.streaming_content,
+    contentType: streamingContentType.value,
+    summaryPhase,
+    summaryStreamText: props.summaryStreamText,
+  });
 });
 
 const activeViewKey = computed((): string | null => {
