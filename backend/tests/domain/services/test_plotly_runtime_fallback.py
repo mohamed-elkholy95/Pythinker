@@ -404,6 +404,7 @@ class TestOrchestratorFallbackTooFewPoints:
             chart_type="bar",
             title="Test",
             metric_name="Score",
+            lower_is_better=False,
             points=[{"label": "A", "value": 10.0}],
             reason="Only one data point.",
         )
@@ -469,6 +470,7 @@ class TestOrchestratorSandboxScriptFailure:
             chart_type="bar",
             title="Test",
             metric_name="Score",
+            lower_is_better=False,
             points=[
                 {"label": "A", "value": 10.0},
                 {"label": "B", "value": 20.0},
@@ -496,6 +498,7 @@ class TestOrchestratorSandboxWriteFailure:
             chart_type="bar",
             title="Test",
             metric_name="Score",
+            lower_is_better=False,
             points=[
                 {"label": "A", "value": 10.0},
                 {"label": "B", "value": 20.0},
@@ -568,6 +571,7 @@ class TestCapabilityCheckOrchestratorIntegration:
                 chart_type="bar",
                 title="Test",
                 metric_name="Score",
+                lower_is_better=False,
                 points=[
                     {"label": "A", "value": 10.0},
                     {"label": "B", "value": 20.0},

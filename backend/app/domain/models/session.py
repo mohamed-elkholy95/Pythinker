@@ -187,6 +187,7 @@ class Session(BaseModel):
     # Execution metadata
     iteration_limit_override: int | None = None  # Override default iterations
     complexity_score: float | None = Field(default=None, ge=0.0, le=1.0)  # Assessed task complexity
+    workload_class: SessionWorkloadClass | None = None  # Admission-control hint for execution scheduling
 
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks

@@ -23,6 +23,7 @@ This is a pure domain service with zero infrastructure imports.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -82,6 +83,9 @@ class OutputVerifier:
         "_step_sources",
         "_user_request",
     )
+
+    _REWRITE_TIMEOUT_S: float = 3.0
+    _REWRITE_MAX_RETRIES: int = 2
 
     def __init__(
         self,
@@ -481,19 +485,34 @@ class OutputVerifier:
         )
 
         try:
-            result = await self._llm.ask(
-                messages=[{"role": "user", "content": rewrite_prompt}],
-                temperature=0.2,
-            )
-            rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
-            # Sanity: rewritten text must be substantial (>30% of original)
-            if len(rewritten) > len(content) * 0.3:
-                return rewritten
-            logger.warning(
-                "Hallucination rewrite too short (%d vs %d chars); keeping original",
-                len(rewritten),
-                len(content),
-            )
+            last_error: Exception | None = None
+            for _attempt in range(self._REWRITE_MAX_RETRIES):
+                try:
+                    result = await asyncio.wait_for(
+                        self._llm.ask(
+                            messages=[{"role": "user", "content": rewrite_prompt}],
+                            temperature=0.2,
+                        ),
+                        timeout=self._REWRITE_TIMEOUT_S,
+                    )
+                    rewritten = (
+                        result.get("content", "") if isinstance(result, dict) else (result.content or "")
+                    ).strip()
+                    # Sanity: rewritten text must be substantial (>30% of original)
+                    if len(rewritten) > len(content) * 0.3:
+                        return rewritten
+                    logger.warning(
+                        "Hallucination rewrite too short (%d vs %d chars); keeping original",
+                        len(rewritten),
+                        len(content),
+                    )
+                    return None
+                except TimeoutError as exc:
+                    last_error = exc
+                    continue
+            if last_error is not None:
+                logger.warning("Hallucination rewrite timed out; keeping original")
+                return None
             return None
         except Exception:
             logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)

@@ -899,6 +899,10 @@ class AgentTaskRunner(TaskRunner):
 
         # --- Write summarized report file (now includes chart references) ---
         expected_name = f"report-{event.id}.md"
+        if self._has_human_named_report_attachment(existing, expected_name):
+            event.attachments = existing
+            return
+
         if not self._has_exact_report_attachment(existing, expected_name):
             file_path = f"{workspace_root}/{expected_name}"
             try:
@@ -1256,6 +1260,18 @@ class AgentTaskRunner(TaskRunner):
             if attachment.filename == expected_name:
                 return True
             if attachment.file_path and attachment.file_path.rsplit("/", 1)[-1] == expected_name:
+                return True
+        return False
+
+    def _has_human_named_report_attachment(self, attachments: list[FileInfo], expected_name: str) -> bool:
+        """Detect user-named report attachments that should suppress canonical rewrites."""
+        for attachment in attachments:
+            filename = attachment.filename or ""
+            if filename == expected_name:
+                continue
+            if filename.endswith("report.md"):
+                return True
+            if attachment.file_path and attachment.file_path.rsplit("/", 1)[-1].endswith("report.md"):
                 return True
         return False
 
@@ -1749,7 +1765,7 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name in ("agent_mode", "message"):
                     # Control tools — no content needed
                     logger.debug("Processing %s tool event", event.tool_name)
-                elif event.tool_name in ("wide_research", "scraping"):
+                elif event.tool_name in ("wide_research", "scraping", "result_retrieval"):
                     # Handled elsewhere (WideResearchEvent/ReportEvent) or logging-only
                     logger.debug("Agent %s: Processing %s tool event", self._agent_id, event.tool_name)
                 elif event.tool_name == "deal_scraper":

@@ -24,6 +24,7 @@ from app.domain.models.session import (
     Session,
     SessionReliabilityDiagnostics,
     SessionStatus,
+    SessionWorkloadClass,
     TakeoverReason,
     TakeoverState,
     ThinkingLevel,
@@ -248,6 +249,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     # Execution metadata
     iteration_limit_override: int | None = None  # Override default iterations
     complexity_score: float | None = None  # Assessed task complexity (0.0-1.0)
+    workload_class: SessionWorkloadClass | None = None  # Admission-control hint for execution scheduling
 
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries
