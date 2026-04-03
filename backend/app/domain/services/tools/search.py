@@ -579,6 +579,40 @@ class SearchTool(BaseTool):
             max_wide_queries_complex if score is not None and score >= 0.8 else max_wide_queries
         )
 
+    def _get_compaction_profile(self) -> CompactionProfile:
+        """Return compaction and enrichment limits for the current mode."""
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        is_deep_research = self._complexity_score is not None and self._complexity_score >= 0.8
+
+        standard_preview_count = getattr(settings, "browser_background_preview_count", 5)
+        standard_enrich_top_k = getattr(settings, "search_auto_enrich_top_k", 5)
+        standard_enrich_snippet_chars = getattr(settings, "search_auto_enrich_snippet_chars", 2000)
+
+        if not is_deep_research:
+            return CompactionProfile(
+                max_results=10,
+                max_summaries=8,
+                summary_snippet_chars=150,
+                enrich_top_k=standard_enrich_top_k,
+                enrich_snippet_chars=standard_enrich_snippet_chars,
+                preview_count=standard_preview_count,
+            )
+
+        return CompactionProfile(
+            max_results=getattr(settings, "search_compaction_max_results_deep", 15),
+            max_summaries=getattr(settings, "search_compaction_max_summaries_deep", 12),
+            summary_snippet_chars=getattr(settings, "search_compaction_summary_snippet_chars_deep", 250),
+            enrich_top_k=getattr(settings, "search_auto_enrich_top_k_deep", standard_enrich_top_k),
+            enrich_snippet_chars=getattr(
+                settings,
+                "search_auto_enrich_snippet_chars_deep",
+                standard_enrich_snippet_chars,
+            ),
+            preview_count=getattr(settings, "search_preview_count_deep", standard_preview_count),
+        )
+
     async def _schedule_background_preview(self, search_data: Any, count: int | None = None) -> None:
         """Schedule at most one fire-and-forget preview task for top search URLs.
 
@@ -588,14 +622,11 @@ class SearchTool(BaseTool):
         if not self._browser or not search_data:
             return
 
-        # Resolve count from config if not explicitly provided
-        if count is None:
-            from app.core.config import get_settings as _get_settings
-
-            count = getattr(_get_settings(), "browser_background_preview_count", 5)
-
         if hasattr(self._browser, "allow_background_browsing"):
             self._browser.allow_background_browsing()
+
+        if count is None:
+            count = self._get_compaction_profile().preview_count
 
         async with self._browse_task_lock:
             if self._current_browse_task and not self._current_browse_task.done():

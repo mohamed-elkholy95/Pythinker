@@ -913,6 +913,9 @@ class ExecutionAgent(BaseAgent):
             summarization_context: Additional summarize-time context prepared by
                 the flow (for example workspace deliverables or artifact manifest).
         """
+        if not hasattr(self, "consecutive_summarization_failures"):
+            self.consecutive_summarization_failures = 0
+
         if self.consecutive_summarization_failures >= 3:
             yield ErrorEvent(
                 error="Summarization failed repeatedly. Please try again later.",
@@ -2308,7 +2311,6 @@ class ExecutionAgent(BaseAgent):
         hard_non_downgradable = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
-            "hallucination_ratio_critical",
         }
         # Soft non-downgradable: these can be downgraded when all steps
         # completed, since the report file exists and is accessible

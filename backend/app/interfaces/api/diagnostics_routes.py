@@ -8,8 +8,8 @@ import logging
 from fastapi import APIRouter, Depends
 
 from app.core.config import get_settings
+from app.core.diagnostics import tail_container_logs_preview
 from app.domain.models.user import User
-from app.infrastructure.observability.container_log_tail import tail_running_container_logs
 from app.interfaces.dependencies import get_current_user
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.diagnostics import ContainerLogsPreviewResponse
@@ -27,7 +27,7 @@ def _sync_container_logs() -> ContainerLogsPreviewResponse:
             message="Set CONTAINER_LOG_PREVIEW_ENABLED=true to enable (requires Docker socket).",
         )
     try:
-        raw, docker_hint = tail_running_container_logs(name_hints=("backend", "sandbox"), tail_lines=48)
+        raw, docker_hint = tail_container_logs_preview()
     except Exception as e:
         logger.warning("container log tail failed: %s: %r", type(e).__name__, e)
         return ContainerLogsPreviewResponse(

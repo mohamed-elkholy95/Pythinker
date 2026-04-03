@@ -422,7 +422,7 @@ class TestInfoSearchWebEnrichmentModeAware:
         assert "5 search results" in result.message
 
     @pytest.mark.asyncio
-    async def test_browse_guidance_when_no_enrichment(self, mock_search_engine):
+    async def test_browse_guidance_when_no_enrichment(self, mock_search_engine, mock_scraper):
         """When enrichment is off but browser exists, note should encourage browsing."""
         mock_browser = AsyncMock()
         # Sync methods — use MagicMock to avoid unawaited coroutine warnings

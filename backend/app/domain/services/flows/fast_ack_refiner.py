@@ -58,7 +58,8 @@ class FastAcknowledgmentRefiner:
         start_time = time.perf_counter()
         metrics = get_metrics()
 
-        if self._fallback.should_use_compact_ack(user_message):
+        should_use_compact_ack = getattr(self._fallback, "should_use_compact_ack", None)
+        if callable(should_use_compact_ack) and should_use_compact_ack(user_message) is True:
             compact = self._fallback.generate_compact(user_message)
             elapsed = time.perf_counter() - start_time
             metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "compact"})

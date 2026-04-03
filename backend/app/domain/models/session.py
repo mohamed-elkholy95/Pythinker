@@ -243,6 +243,21 @@ class Session(BaseModel):
         msg = f"sandbox_lifecycle_mode must be a string or SandboxLifecycleMode, got {type(v).__name__}"
         raise TypeError(msg)
 
+    @field_validator("takeover_reason", mode="before")
+    @classmethod
+    def _coerce_takeover_reason(cls, v: object) -> TakeoverReason | None:
+        """Coerce raw strings to TakeoverReason and fall back to manual."""
+        if v is None:
+            return None
+        if isinstance(v, TakeoverReason):
+            return v
+        if isinstance(v, str):
+            try:
+                return TakeoverReason(v.strip().lower())
+            except ValueError:
+                return TakeoverReason.MANUAL
+        return TakeoverReason.MANUAL
+
     @field_serializer("sandbox_lifecycle_mode")
     @classmethod
     def _serialize_sandbox_lifecycle_mode(cls, v: SandboxLifecycleMode | str | None) -> str | None:
@@ -255,6 +270,14 @@ class Session(BaseModel):
         if v is None:
             return None
         return v.value if isinstance(v, SandboxLifecycleMode) else str(v)
+
+    @field_serializer("takeover_reason")
+    @classmethod
+    def _serialize_takeover_reason(cls, v: TakeoverReason | str | None) -> str | None:
+        """Serialize takeover reason as a raw string for Mongo/API compatibility."""
+        if v is None:
+            return None
+        return v.value if isinstance(v, TakeoverReason) else str(v)
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
