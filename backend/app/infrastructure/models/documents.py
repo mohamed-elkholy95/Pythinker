@@ -22,6 +22,7 @@ from app.domain.models.session import (
     ReasoningVisibility,
     ResearchMode,
     Session,
+    SessionReliabilityDiagnostics,
     SessionStatus,
     TakeoverReason,
     TakeoverState,
@@ -233,6 +234,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     env_var_keys: list[str] | None = None
     secret_keys: list[str] | None = None
     git_remote: dict[str, Any] | None = None
+    reliability: SessionReliabilityDiagnostics | None = None
 
     # Multi-task challenge tracking (Phase 1)
     multi_task_challenge: MultiTaskChallenge | None = None

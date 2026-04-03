@@ -119,6 +119,19 @@ class PendingActionStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class SessionReliabilityDiagnostics(BaseModel):
+    """Per-session reliability summary reported by the frontend."""
+
+    auto_retry_count: int = Field(default=0, ge=0)
+    fallback_poll_attempts: int = Field(default=0, ge=0)
+    stale_detection_count: int = Field(default=0, ge=0)
+    duplicate_event_drops: int = Field(default=0, ge=0)
+    max_queue_depth: int = Field(default=0, ge=0)
+    average_flush_batch_size: float | None = Field(default=None, ge=0.0)
+    max_chunk_processing_duration_ms: float | None = Field(default=None, ge=0.0)
+    submitted_at: datetime | None = None
+
+
 class Session(BaseModel):
     """Session model"""
 
@@ -160,6 +173,7 @@ class Session(BaseModel):
     env_var_keys: list[str] | None = None
     secret_keys: list[str] | None = None
     git_remote: dict | None = None
+    reliability: SessionReliabilityDiagnostics | None = None
 
     # Multi-task challenge tracking (Phase 1)
     multi_task_challenge: MultiTaskChallenge | None = None
