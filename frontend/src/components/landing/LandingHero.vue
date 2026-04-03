@@ -9,20 +9,21 @@
           <Transition appear name="fade-up">
             <span class="hero-badge">
               <Server :size="14" class="hero-badge-icon" />
-              Personal AI Agent &middot; Works Autonomously
+              Self-Hosted AI Agent Platform
             </span>
           </Transition>
 
           <Transition appear name="fade-up-d1">
             <h1 class="hero-headline">
-              Your AI agent that<br />
-              <span class="hero-headline-accent">gets work done.</span>
+              Your AI. Your Tools.<br />
+              <span class="hero-headline-accent">Your Infrastructure.</span>
             </h1>
           </Transition>
 
           <Transition appear name="fade-up-d2">
             <p class="hero-sub">
-              Research, code, browse, and deliver &mdash; autonomously.
+              An AI agent that browses the web, runs code, manages files, and
+              researches &mdash; all in isolated Docker sandboxes you control.
             </p>
           </Transition>
 
@@ -211,7 +212,7 @@ const scrollTo = (id: string) => {
 /* ── Hero section ─────────────────────────────── */
 .hero {
   position: relative; min-height: 100vh; display: flex;
-  align-items: center; justify-content: center; padding: 100px 24px 32px; overflow: hidden;
+  align-items: center; justify-content: center; padding: 100px 24px 60px; overflow: hidden;
 }
 .hero-glow {
   position: absolute; top: -15%; left: 50%; translate: -50% 0;
@@ -557,8 +558,8 @@ const scrollTo = (id: string) => {
   .hero { padding: 90px 16px 40px; min-height: auto; }
   .hero-split { flex-direction: column-reverse; gap: 32px; }
   .hero-text { align-items: center; text-align: center; }
-  .hero-headline { font-size: 28px; }
-  .hero-sub { font-size: 14px; }
+  .hero-headline { font-size: 38px; }
+  .hero-sub { font-size: 16px; }
   .hero-ctas { flex-direction: column; width: 100%; }
   .hero-btn { width: 100%; justify-content: center; }
   .mascot-img { width: 180px; }
