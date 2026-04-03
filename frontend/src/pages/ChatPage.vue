@@ -638,7 +638,11 @@ import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
 import { ReportModal, TaskCompletedFooter, TaskInterruptedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
-import { collapseDuplicateReportBlocks, preparePlainTextForViewer } from '@/components/report/reportContentNormalizer';
+import {
+  collapseDuplicateReportBlocks,
+  preparePlainTextForViewer,
+  stripLegacyPreviouslyCalledMarkers,
+} from '@/components/report/reportContentNormalizer';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
@@ -3440,10 +3444,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   // Strip internal context-compression placeholders that may leak from backend
-  const placeholderStripped = (reportData.content || '').replace(
-    /\[Previously called \w+\]/g,
-    '',
-  ).trim();
+  const placeholderStripped = stripLegacyPreviouslyCalledMarkers(reportData.content || '').trim();
   const normalizedReportContent = collapseDuplicateReportBlocks(placeholderStripped);
   if (!normalizedReportContent) {
     console.warn('[ChatPage] Report content was only placeholder text — skipping');
@@ -3580,7 +3581,7 @@ const openTextFileInReportModal = async (file: FileInfo) => {
     const extension = file.filename.split('.').pop()?.toLowerCase() || '';
     const contentForModal =
       extension === 'md' || extension === 'markdown'
-        ? collapseDuplicateReportBlocks(textContent)
+        ? collapseDuplicateReportBlocks(stripLegacyPreviouslyCalledMarkers(textContent))
         : preparePlainTextForViewer(textContent);
     const reportPreview: ReportData = {
       id: file.file_id,

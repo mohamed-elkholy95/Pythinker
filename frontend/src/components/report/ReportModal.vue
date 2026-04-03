@@ -277,7 +277,11 @@ import { cn } from '@/lib/utils';
 import { downloadSessionReportPdf } from '@/api/agent';
 import type { ReportData } from './types';
 import TiptapReportEditor from './TiptapReportEditor.vue';
-import { collapseDuplicateReportBlocks, prepareMarkdownForViewer } from './reportContentNormalizer';
+import {
+  collapseDuplicateReportBlocks,
+  prepareMarkdownForViewer,
+  stripLegacyPreviouslyCalledMarkers,
+} from './reportContentNormalizer';
 import { showErrorToast } from '@/utils/toast';
 
 interface TocItem {
@@ -325,7 +329,9 @@ const DOWNLOAD_ACTION_COOLDOWN_MS = 800;
 const lastDownloadStartMs = ref(0);
 
 const normalizedReportContent = computed(() =>
-  props.report?.content ? collapseDuplicateReportBlocks(props.report.content) : ''
+  props.report?.content
+    ? collapseDuplicateReportBlocks(stripLegacyPreviouslyCalledMarkers(props.report.content))
+    : ''
 );
 const viewerContent = computed(() =>
   prepareMarkdownForViewer(normalizedReportContent.value, {
