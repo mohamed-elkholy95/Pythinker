@@ -408,6 +408,15 @@ class AgentTaskRunner(TaskRunner):
                 except Exception as exc:
                     logger.warning("SkillsLoader unavailable: %s", exc)
 
+            # ── SkillPackageRepository ────────────────────
+            _skill_package_repo = None
+            try:
+                from app.infrastructure.repositories.mongo_skill_package_repository import MongoSkillPackageRepository
+
+                _skill_package_repo = MongoSkillPackageRepository()
+            except Exception as _spr_exc:
+                logger.warning("SkillPackageRepository unavailable: %s", _spr_exc)
+
             # ── LeadAgentRuntime (opt-in via feature flag) ─────────
             self._lead_agent_runtime = None
             if feature_flags.get("feature_lead_agent_runtime", False):

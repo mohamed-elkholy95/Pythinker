@@ -91,6 +91,16 @@ class TestCapAddAllowlistValidator:
         policy = SandboxSecurityPolicy(cap_add_allowlist=["NET_BIND_SERVICE"])
         assert policy.cap_add_allowlist == ["NET_BIND_SERVICE"]
 
+    def test_default_caps_exclude_sys_chroot(self):
+        """SYS_CHROOT must NOT be in the default capability allowlist."""
+        policy = SandboxSecurityPolicy()
+        assert "SYS_CHROOT" not in policy.cap_add_allowlist
+
+    def test_sys_chroot_rejected_by_validator(self):
+        """Attempting to add SYS_CHROOT must raise ValidationError."""
+        with pytest.raises(ValidationError, match="not in allowlist"):
+            SandboxSecurityPolicy(cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"])
+
 
 class TestSeccompPathValidator:
     """Test seccomp_path_not_empty validator."""

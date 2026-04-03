@@ -9,21 +9,22 @@
           <Transition appear name="fade-up">
             <span class="hero-badge">
               <Server :size="14" class="hero-badge-icon" />
-              Self-Hosted AI Agent Platform
+              Personal AI Agent &middot; Works Autonomously
             </span>
           </Transition>
 
           <Transition appear name="fade-up-d1">
             <h1 class="hero-headline">
-              Your AI. Your Tools.<br />
-              <span class="hero-headline-accent">Your Infrastructure.</span>
+              Give It a Task.<br />
+              <span class="hero-headline-accent">It Gets It Done.</span>
             </h1>
           </Transition>
 
           <Transition appear name="fade-up-d2">
             <p class="hero-sub">
-              An AI agent that browses the web, runs code, manages files, and
-              researches &mdash; all in isolated Docker sandboxes you control.
+              Your personal AI agent that researches, browses, codes, and completes
+              tasks autonomously &mdash; no babysitting needed. Connect it via Telegram
+              or the web and let it work while you don't.
             </p>
           </Transition>
 
@@ -212,7 +213,7 @@ const scrollTo = (id: string) => {
 /* ── Hero section ─────────────────────────────── */
 .hero {
   position: relative; min-height: 100vh; display: flex;
-  align-items: center; justify-content: center; padding: 100px 24px 60px; overflow: hidden;
+  align-items: center; justify-content: center; padding: 100px 24px 32px; overflow: hidden;
 }
 .hero-glow {
   position: absolute; top: -15%; left: 50%; translate: -50% 0;

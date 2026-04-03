@@ -91,6 +91,7 @@ async def test_persisted_task_id_used_when_liveness_missing(
     """When Redis has no liveness key but MongoDB still has task_id, poll that stream."""
     relay = AsyncMock()
     relay.get_live_task_id = AsyncMock(return_value=None)
+
     done_json = DoneEvent().model_dump_json()
     relay.get_task_output = AsyncMock(return_value=("1-0", done_json))
 

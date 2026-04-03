@@ -1,12 +1,13 @@
 """Tests that sudo file operations use shlex.quote() to prevent shell injection."""
 
+import asyncio
 import shlex
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.file import FileService
+from app.services.file import FileService, SANDBOX_ALLOWED_DIRS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,9 +17,7 @@ DANGEROUS_FILENAME = "file'; rm -rf /; echo '"
 SAFE_QUOTED = shlex.quote(DANGEROUS_FILENAME)
 
 
-def _make_subprocess_mock(
-    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
-):
+def _make_subprocess_mock(returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""):
     """Return a mock that looks like an asyncio.subprocess.Process."""
     proc = MagicMock()
     proc.returncode = returncode
