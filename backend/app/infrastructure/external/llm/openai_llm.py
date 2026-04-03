@@ -286,6 +286,9 @@ class OpenAILLM(LLM):
         if is_tool_call:
             tool_read_timeout = getattr(getattr(self, "_provider_profile", None), "tool_read_timeout", 90.0) or 90.0
             cfg["read"] = min(cfg["read"], tool_read_timeout)
+            hard_call_timeout = self._resolve_hard_call_timeout(settings)
+            if hard_call_timeout > 0:
+                cfg["read"] = min(cfg["read"], hard_call_timeout)
         if global_timeout > 0:
             cfg["read"] = min(cfg["read"], global_timeout)
 
@@ -451,7 +454,8 @@ class OpenAILLM(LLM):
     def _resolve_hard_call_timeout(self, settings: Any) -> float:
         """Resolve per-call hard timeout, with GLM override support."""
         default_timeout = max(0.0, float(getattr(settings, "llm_hard_call_timeout", 0.0) or 0.0))
-        glm_timeout = max(0.0, float(getattr(settings, "llm_glm_hard_call_timeout", 0.0) or 0.0))
+        glm_timeout_raw = getattr(settings, "llm_glm_hard_call_timeout", None)
+        glm_timeout = 90.0 if glm_timeout_raw is None else max(0.0, float(glm_timeout_raw or 0.0))
         if getattr(self, "_is_glm_api", False) and glm_timeout > 0:
             return glm_timeout
         return default_timeout

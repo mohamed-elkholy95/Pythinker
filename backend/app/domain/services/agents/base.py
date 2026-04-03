@@ -1608,6 +1608,18 @@ class BaseAgent:
             arguments=tc.get("function", {}).get("arguments", {}),
         )
 
+    @property
+    def metadata_index(self) -> "ToolMetadataIndex":
+        """Lazily build and cache the tool metadata index."""
+        metadata_index = getattr(self, "_metadata_index", None)
+        if metadata_index is None:
+            from app.domain.services.tools.metadata_index import ToolMetadataIndex
+
+            tools = getattr(self, "tools", []) or []
+            metadata_index = ToolMetadataIndex(tools)
+            self._metadata_index = metadata_index
+        return metadata_index
+
     def _can_parallelize_tools(self, tool_calls: list[dict]) -> bool:
         """Check if tool calls can be executed in parallel using dependency detection.
 

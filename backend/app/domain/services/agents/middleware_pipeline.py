@@ -6,6 +6,8 @@ After hooks: all middleware run, last non-CONTINUE signal wins.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import Any
 
@@ -36,6 +38,35 @@ class MiddlewarePipeline:
     def middleware(self) -> list[AgentMiddleware]:
         """Read-only copy of registered middleware."""
         return list(self._middleware)
+
+    def _run_step_boundary_hook(self, mw: AgentMiddleware) -> None:
+        """Invoke the legacy step-boundary hook if the middleware provides one."""
+        hook = getattr(mw, "on_step_boundary", None)
+        if callable(hook):
+            try:
+                result = hook()
+                if inspect.isawaitable(result):
+                    asyncio.run(result)
+                return
+            except Exception:
+                logger.exception("Middleware %s.on_step_boundary raised exception (swallowed)", mw.name)
+                return
+
+        legacy_hook = getattr(mw, "reset_browser_budget", None)
+        if callable(legacy_hook):
+            try:
+                legacy_hook()
+            except Exception:
+                logger.exception("Middleware %s.reset_browser_budget raised exception (swallowed)", mw.name)
+
+    def run_step_boundary(self) -> None:
+        """Run the legacy step-boundary lifecycle hook across middleware."""
+        for mw in self._middleware:
+            self._run_step_boundary_hook(mw)
+
+    def reset_for_new_step(self) -> None:
+        """Backward-compatible alias for run_step_boundary()."""
+        self.run_step_boundary()
 
     async def _run_first_wins(self, hook_name: str, *args: Any) -> MiddlewareResult:
         """Run hook on all middleware. First non-CONTINUE signal wins."""

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar, Protocol
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -58,7 +59,7 @@ class AgentStatus(str, Enum):
 class SwarmTask:
     """A task for the swarm to execute."""
 
-    id: str = field(default_factory=generate_agent_task_id)
+    id: str = field(default_factory=lambda: str(uuid4()))
     description: str = ""
     original_request: str = ""
     context: dict[str, Any] = field(default_factory=dict)

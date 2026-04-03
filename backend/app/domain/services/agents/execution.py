@@ -172,6 +172,7 @@ _SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
 SKILL_AWARENESS_PROMPT = """
 <skill_awareness>
 Before beginning execution, check if any available skills match the current task.
+If a matching skill is already active, continue with the loaded instructions instead of re-invoking it.
 If you have the skill_invoke tool and the task involves a domain covered by an available skill,
 invoke that skill first to get specialized instructions. Skill-guided execution produces
 higher-quality results.
@@ -183,6 +184,7 @@ Available skill domains: {skill_names}
 SKILL_ENFORCEMENT_PROMPT = """
 <skill_enforcement>
 ## MANDATORY Skill Protocol
+## IDEMPOTENCE
 
 You MUST follow this protocol for EVERY task:
 
@@ -191,7 +193,7 @@ You MUST follow this protocol for EVERY task:
 3. **FOLLOW**: Execute according to the loaded skill instructions
 4. **REPORT**: Reference which skill guided your execution
 
-Skipping skill invocation when a matching skill exists is a protocol violation.
+Skipping skill invocation when a matching skill exists is a protocol violation, unless that skill is already active.
 Skills are not optional suggestions — they are mandatory workflow enhancers.
 </skill_enforcement>
 """

@@ -2008,11 +2008,13 @@ class PlanActFlow(BaseFlow):
         # State-based suppression: if a report attachment is already tracked and verification
         # has already failed once, suppress replanning — the deliverable exists so further
         # revision loops are filename-guessing churn rather than meaningful improvement.
-        if self._report_attachments and self._report_verification_failed:
+        report_attachments = getattr(self, "_report_attachments", [])
+        report_verification_failed = getattr(self, "_report_verification_failed", False)
+        if report_attachments and report_verification_failed:
             logger.info(
                 "Suppressing verification replan: report already tracked (%d attachment(s)) "
                 "and one verification pass already failed — proceeding to summarize",
-                len(self._report_attachments),
+                len(report_attachments),
             )
             return AgentStatus.SUMMARIZING, "report attachment present; verification suppressed after first miss"
 

@@ -15,6 +15,7 @@ from enum import Enum
 from typing import (
     Any,
 )
+from uuid import uuid4
 
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
 from app.domain.models.plan import ExecutionStatus, Plan, Step
@@ -24,7 +25,6 @@ from app.domain.services.flows.parallel_executor import (
     ParallelExecutor,
     StepResult,
 )
-from app.domain.utils.task_ids import generate_workflow_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +350,7 @@ class TaskOrchestrator:
         Returns:
             Created Workflow
         """
-        workflow_id = generate_workflow_task_id()
+        workflow_id = f"wf_{uuid4().hex[:12]}"
 
         workflow = Workflow(
             id=workflow_id,
