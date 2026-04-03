@@ -96,7 +96,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useIntervalFn } from '@vueuse/core';
-import { storeToRefs } from 'pinia';
 import { ChevronDown, Server } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 
@@ -110,7 +109,9 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const connectionStore = useConnectionStore();
-const { lastRealEventTime, isReceivingHeartbeats, isLoading } = storeToRefs(connectionStore);
+const lastRealEventTime = computed(() => connectionStore.lastRealEventTime);
+const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats);
+const isLoading = computed(() => connectionStore.isLoading);
 
 const clock = ref(Date.now());
 useIntervalFn(

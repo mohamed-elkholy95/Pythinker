@@ -252,6 +252,41 @@ async def test_download_session_report_pdf_returns_pdf_attachment():
 
 
 @pytest.mark.asyncio
+async def test_download_session_report_pdf_preserves_full_markdown_payload():
+    session_id = "session-pdf-1"
+    current_user = SimpleNamespace(id="user-123")
+    agent_service = SimpleNamespace(get_session=AsyncMock(return_value=SimpleNamespace(id=session_id)))
+    renderer = SimpleNamespace(render=AsyncMock(return_value=b"%PDF-1.4"))
+    report_body = "# Heading\n\n" + ("Paragraph with supporting detail.\n\n" * 40).strip()
+    request = ReportPdfDownloadRequest(
+        title="Q1 Revenue Report",
+        content=f"\n{report_body}\n",
+        sources=[],
+        author="Analyst",
+    )
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(
+            telegram_pdf_include_toc=False,
+            telegram_pdf_toc_min_sections=3,
+            telegram_pdf_unicode_font="DejaVuSans",
+        )
+        with patch("app.interfaces.api.session_routes.build_configured_pdf_renderer", return_value=renderer):
+            response = await download_session_report_pdf(
+                session_id=session_id,
+                request=request,
+                current_user=current_user,
+                agent_service=agent_service,
+            )
+
+    assert response.status_code == 200
+    payload = renderer.render.await_args.args[0]
+    assert payload.title == "Q1 Revenue Report"
+    assert payload.author == "Analyst"
+    assert payload.markdown_content == report_body
+
+
+@pytest.mark.asyncio
 async def test_download_session_report_pdf_rejects_empty_content():
     session_id = "session-pdf-2"
     current_user = SimpleNamespace(id="user-123")

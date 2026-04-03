@@ -1,5 +1,4 @@
-import { onMounted, onUnmounted, ref, watch } from 'vue';
-import { storeToRefs } from 'pinia';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { getSessions, getSessionsSSE } from '@/api/agent';
 import { useSessionStatus } from '@/composables/useSessionStatus';
@@ -19,7 +18,8 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
     fallbackPollIntervalMs = DEFAULT_FALLBACK_POLL_INTERVAL_MS,
   } = options;
 
-  const { isAuthenticated } = storeToRefs(useAuthStore());
+  const authStore = useAuthStore();
+  const isAuthenticated = computed(() => authStore.isAuthenticated);
 
   const sessions = ref<ListSessionItem[]>([]);
   const isLoading = ref<boolean>(initialFetch);

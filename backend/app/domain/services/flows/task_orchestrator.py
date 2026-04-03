@@ -8,7 +8,6 @@ Builds on the ParallelExecutor foundation.
 
 import asyncio
 import logging
-import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -25,6 +24,7 @@ from app.domain.services.flows.parallel_executor import (
     ParallelExecutor,
     StepResult,
 )
+from app.domain.utils.task_ids import generate_workflow_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +350,7 @@ class TaskOrchestrator:
         Returns:
             Created Workflow
         """
-        workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
+        workflow_id = generate_workflow_task_id()
 
         workflow = Workflow(
             id=workflow_id,

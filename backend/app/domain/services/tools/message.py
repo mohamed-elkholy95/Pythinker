@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 _TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64
 _TELEGRAM_ACTION_TYPES = frozenset(
@@ -198,7 +198,9 @@ class MessageTool(BaseTool):
 
     def __init__(self):
         """Initialize message tool class"""
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="message"),
+        )
 
     @tool(
         name="message_notify_user",

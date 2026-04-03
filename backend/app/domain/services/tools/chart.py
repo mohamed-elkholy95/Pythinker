@@ -13,7 +13,7 @@ from typing import Any
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,10 @@ class ChartTool(BaseTool):
             session_id: Session identifier
             max_observe: Optional custom observation limit
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="chart"),
+        )
         self.sandbox = sandbox
         self.session_id = session_id
         self._background_tasks: set[asyncio.Task[None]] = set()

@@ -12,7 +12,7 @@ import logging
 from typing import Any, Protocol
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,10 @@ class ListSkillsTool(BaseTool):
         skill_loader: SkillLoaderProtocol,
         max_observe: int | None = None,
     ) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(is_read_only=True, is_concurrency_safe=True, category="skill"),
+        )
         self._skill_loader = skill_loader
 
     @tool(
@@ -105,7 +108,10 @@ class ReadSkillTool(BaseTool):
         skill_loader: SkillLoaderProtocol,
         max_observe: int | None = None,
     ) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(is_read_only=True, is_concurrency_safe=True, category="skill"),
+        )
         self._skill_loader = skill_loader
 
     @tool(

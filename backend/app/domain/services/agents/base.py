@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from app.domain.services.agents.scratchpad import Scratchpad
     from app.domain.services.agents.tool_result_store import ToolResultStore
     from app.domain.services.agents.url_failure_guard import UrlFailureGuard
+    from app.domain.services.tools.metadata_index import ToolMetadataIndex
     from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.tool_name import ToolName
 from app.domain.services.agents.token_manager import TokenManager
@@ -262,6 +263,7 @@ class BaseAgent:
         self.tools = tools
         self.memory = None
         self._background_tasks: set[asyncio.Task] = set()
+        self._metadata_index: ToolMetadataIndex | None = None  # Lazy-built from self.tools
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
         self._step_model_override: str | None = None  # DeepCode Phase 1: Adaptive model selection
         self._user_thinking_mode: str | None = None  # User-selected thinking mode override
@@ -370,17 +372,28 @@ class BaseAgent:
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
         from app.domain.services.agents.middleware_adapters.error_handler import ErrorHandlerMiddleware
         from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
+        from app.domain.services.agents.middleware_adapters.permission_gate import PermissionGateMiddleware
         from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
         from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
         from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
 
         pipeline = MiddlewarePipeline()
         pipeline.use(SecurityAssessmentMiddleware(assessor=self._security_assessor))
+        pipeline.use(PermissionGateMiddleware())
         pipeline.use(HallucinationGuardMiddleware(detector=self._hallucination_detector))
         pipeline.use(EfficiencyMonitorMiddleware(monitor=self._efficiency_monitor))
         pipeline.use(StuckDetectionMiddleware(detector=self._stuck_detector))
         pipeline.use(ErrorHandlerMiddleware(handler=self._error_handler))
         return pipeline
+
+    @property
+    def metadata_index(self) -> "ToolMetadataIndex":
+        """Lazy-built metadata index from registered tool instances."""
+        if self._metadata_index is None:
+            from app.domain.services.tools.metadata_index import ToolMetadataIndex
+
+            self._metadata_index = ToolMetadataIndex(self.tools)
+        return self._metadata_index
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -1658,17 +1671,18 @@ class BaseAgent:
     def _can_parallelize_tools(self, tool_calls: list[dict]) -> bool:
         """Check if tool calls can be executed in parallel using dependency detection.
 
-        Uses ParallelToolExecutor.detect_dependencies() to catch data-flow
-        dependencies (e.g. write-then-read same file) that pure whitelist
-        checking would miss.
+        Uses ToolMetadataIndex as primary lookup (Phase 1B), falling back to
+        SAFE_PARALLEL_TOOLS frozenset and ToolName MCP patterns as safety nets.
 
-        Supports both explicit tool whitelist and MCP read-only patterns.
-        Also checks SEQUENTIAL_ONLY_TOOLS blacklist from parallel_executor.
+        Also uses ParallelToolExecutor.detect_dependencies() to catch data-flow
+        dependencies (e.g. write-then-read same file) that metadata alone can't detect.
         """
         from app.domain.services.agents.parallel_executor import ParallelToolExecutor
 
         if len(tool_calls) <= 1:
             return False
+
+        index = self.metadata_index
 
         for tc in tool_calls:
             tool_name = tc.get("function", {}).get("name", "")
@@ -1677,15 +1691,15 @@ class BaseAgent:
             if tool_name in ParallelToolExecutor.SEQUENTIAL_ONLY_TOOLS:
                 return False
 
-            # Check explicit whitelist
+            # Primary: metadata index (per-function metadata from @tool decorator)
+            if index.is_safe_parallel(tool_name):
+                continue
+
+            # Fallback safety net: static frozenset (catches tools not yet annotated)
             if tool_name in SAFE_PARALLEL_TOOLS:
                 continue
 
-            # Check MCP read-only tools (both built-in and dynamic mcp__server__tool)
-            if ToolName.is_safe_mcp_tool(tool_name):
-                continue
-
-            # Tool not in safe list
+            # Tool not in any safe list
             return False
 
         # WP-2: Dependency detection — if any data-flow dependency exists between

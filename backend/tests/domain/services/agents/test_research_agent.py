@@ -11,6 +11,7 @@ import pytest
 
 from app.domain.models.research_task import ResearchTask
 from app.domain.services.agents.research_agent import ResearchSubAgent
+from app.domain.services.prompts.research import RESEARCH_SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -319,3 +320,15 @@ class TestAgentInitialization:
         assert agent.SYSTEM_PROMPT is not None
         assert len(agent.SYSTEM_PROMPT) > 0
         assert "research" in agent.SYSTEM_PROMPT.lower()
+
+    def test_agent_uses_grounded_research_prompt(self, mock_llm, mock_tools):
+        """Test the research agent uses the shared grounded research prompt."""
+        agent = ResearchSubAgent(
+            session_id="test",
+            llm=mock_llm,
+            tools=mock_tools,
+        )
+
+        assert agent.SYSTEM_PROMPT == RESEARCH_SYSTEM_PROMPT
+        assert "do not speculate" in agent.SYSTEM_PROMPT.lower()
+        assert "cross-check conflicting information" in agent.SYSTEM_PROMPT.lower()

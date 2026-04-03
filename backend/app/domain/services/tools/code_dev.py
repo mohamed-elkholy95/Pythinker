@@ -6,7 +6,7 @@ Provides code formatting, linting, analysis, and search capabilities.
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 
 class CodeDevTool(BaseTool):
@@ -21,7 +21,10 @@ class CodeDevTool(BaseTool):
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 5000)
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="code"),
+        )
         self.sandbox = sandbox
 
     @tool(

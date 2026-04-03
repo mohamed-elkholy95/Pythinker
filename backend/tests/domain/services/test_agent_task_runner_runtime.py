@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.models.event import MessageEvent, ToolEvent, ToolStatus, WaitEvent
+import app.domain.utils.markdown_to_pdf as markdown_to_pdf
+from app.domain.models.event import MessageEvent, ReportEvent, ToolEvent, ToolStatus, WaitEvent
 from app.domain.models.message import Message
 from app.domain.models.session import AgentMode, ResearchMode
 from app.domain.models.tool_result import ToolResult
@@ -151,6 +154,67 @@ async def test_handle_tool_event_dispatches_runtime_tool_hooks(
 
     runtime.before_tool.assert_awaited_once()
     runtime.after_tool.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_event_treats_result_retrieval_as_known_utility(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runner = _build_runner(monkeypatch, _FlowWithExecutor())
+    event = ToolEvent(
+        tool_call_id="call-1",
+        tool_name="result_retrieval",
+        function_name="retrieve_result",
+        function_args={"result_id": "trs-123"},
+        status=ToolStatus.CALLED,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await runner._handle_tool_event(event)
+
+    assert "received unknown tool event: result_retrieval" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_ensure_report_file_uses_full_pre_trim_report_for_canonical_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _FlowWithExecutor()
+    flow.executor._pre_trim_report_cache = (
+        "# Full report\n\n## Introduction\nThis is the complete report body that should survive summarization.\n"
+    )
+    runner = _build_runner(monkeypatch, flow)
+    runner._sandbox.file_write = AsyncMock(return_value=SimpleNamespace(success=True))
+    runner._file_storage.upload_file = AsyncMock(return_value=SimpleNamespace(file_id="pdf-1"))
+    runner._session_repository.add_file = AsyncMock(return_value=None)
+    runner._resolve_chart_generation_mode = lambda: "skip"
+
+    event = ReportEvent(
+        id="abc123",
+        title="Comprehensive Report",
+        content="# Short report\n\nThis version was trimmed.",
+    )
+
+    captured_pdf_content: dict[str, str] = {}
+
+    def _fake_build_pdf_bytes(*, title: str, content: str, **kwargs):
+        captured_pdf_content["title"] = title
+        captured_pdf_content["content"] = content
+        return b"pdf-bytes"
+
+    monkeypatch.setattr(markdown_to_pdf, "build_pdf_bytes", _fake_build_pdf_bytes)
+
+    await runner._ensure_report_file(event)
+
+    canonical_call = next(
+        call for call in runner._sandbox.file_write.await_args_list if call.kwargs["file"].endswith("report-abc123.md")
+    )
+    assert canonical_call.kwargs["content"] == flow.executor._pre_trim_report_cache
+    assert event.content == flow.executor._pre_trim_report_cache.rstrip()
+    assert captured_pdf_content["content"] == flow.executor._pre_trim_report_cache.rstrip()
+    assert event.attachments is not None
+    assert any(attachment.filename == "report-abc123.md" for attachment in event.attachments)
 
 
 @pytest.mark.asyncio

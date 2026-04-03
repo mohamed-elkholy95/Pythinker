@@ -24,10 +24,11 @@
               class="tool-favicon"
               @error="faviconError = true"
             />
+            <BrowserOrbitIcon v-else-if="isBrowserFamilyTool" :size="15" class="tool-browser-icon" />
             <component v-else-if="toolInfo?.icon" :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
           </span>
           <div class="tool-chip-text max-w-[100%] min-w-0">
-            {{ toolInfo?.description ?? t('Search') }}
+            {{ chipLabel }}
           </div>
           <span v-if="(groupCount ?? 1) > 1" class="tool-group-badge">×{{ groupCount }}</span>
           <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
@@ -62,10 +63,11 @@
             class="tool-favicon"
             @error="faviconError = true"
           />
+          <BrowserOrbitIcon v-else-if="isBrowserFamilyTool" :size="15" class="tool-browser-icon" />
           <component v-else :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
         </span>
         <div class="tool-chip-text max-w-[100%] min-w-0">
-          {{ toolInfo.description }}
+          {{ chipLabel }}
         </div>
         <span v-if="progressLabel" class="tool-progress-label">{{ progressLabel }}</span>
         <span v-if="(groupCount ?? 1) > 1" class="tool-group-badge">×{{ groupCount }}</span>
@@ -88,6 +90,7 @@ import type { SearchResultItem } from "../types/search";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
 import FastSearchInline from "./FastSearchInline.vue";
+import BrowserOrbitIcon from "./icons/BrowserOrbitIcon.vue";
 
 /**
  * Configuration: Tools that should be rendered as inline text messages
@@ -148,6 +151,16 @@ const searchToolContent = computed(() => getSearchToolContent(props.tool));
 
 /** True for any tool that resolves to the 'search' toolKey (excludes wide_research). */
 const isFastSearchTool = computed(() => toolInfo.value?.toolKey === 'search');
+
+const isBrowserFamilyTool = computed(() => {
+  const toolKey = toolInfo.value?.toolKey ?? '';
+  return toolKey === 'browser' || toolKey === 'browser_agent' || toolKey === 'playwright';
+});
+
+const chipLabel = computed(() => {
+  if (isBrowserFamilyTool.value) return 'Browsing';
+  return toolInfo.value?.description ?? t('Search');
+});
 
 const isFastSearchWithResults = computed(() => {
   // Only show fast search inline UI (header, tabs) for fast-search answer, not agent research
@@ -331,6 +344,11 @@ const handleBrowseUrl = (url: string) => {
 
 .tool-icon-glyph {
   color: var(--icon-secondary);
+  flex-shrink: 0;
+  display: block;
+}
+
+.tool-browser-icon {
   flex-shrink: 0;
   display: block;
 }

@@ -522,6 +522,79 @@ class CommunicationProtocol:
             return []
         return [self._message_store[mid] for mid in thread.messages if mid in self._message_store]
 
+    # Broadcast and response helpers
+
+    def broadcast(
+        self,
+        sender_id: str,
+        sender_type: str,
+        subject: str,
+        content: str,
+        message_type: MessageType = MessageType.COORDINATION,
+        payload: dict[str, Any] | None = None,
+        priority: MessagePriority = MessagePriority.NORMAL,
+    ) -> list[AgentMessage]:
+        """Send a message to all registered agents except the sender.
+
+        Args:
+            sender_id: Sender agent ID
+            sender_type: Sender agent type
+            subject: Message subject
+            content: Message content
+            message_type: Type of message (default: COORDINATION)
+            payload: Optional structured payload
+            priority: Message priority
+
+        Returns:
+            List of sent messages (one per recipient)
+        """
+        messages = []
+        for agent_id in list(self._queues):
+            if agent_id != sender_id:
+                msg = self.send_message(
+                    sender_id=sender_id,
+                    sender_type=sender_type,
+                    recipient_id=agent_id,
+                    message_type=message_type,
+                    subject=subject,
+                    content=content,
+                    payload=payload or {},
+                    priority=priority,
+                )
+                messages.append(msg)
+        return messages
+
+    async def await_response(
+        self,
+        original_message_id: str,
+        agent_id: str,
+        timeout_seconds: float = 30.0,
+        poll_interval: float = 0.1,
+    ) -> AgentMessage | None:
+        """Poll an agent's inbox for a reply to a specific message.
+
+        Args:
+            original_message_id: The message_id being replied to
+            agent_id: The agent whose inbox to poll (typically the original sender)
+            timeout_seconds: Maximum seconds to wait
+            poll_interval: Seconds between polls
+
+        Returns:
+            The reply message, or None if timeout exceeded
+        """
+        import asyncio
+        import time
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            queue = self._queues.get(agent_id)
+            if queue:
+                for msg in queue.inbox:
+                    if msg.in_reply_to == original_message_id:
+                        return msg
+            await asyncio.sleep(poll_interval)
+        return None
+
     # Topic subscription
 
     def subscribe_to_topic(self, agent_id: str, topic: str) -> None:

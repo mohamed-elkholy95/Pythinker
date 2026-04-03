@@ -41,7 +41,7 @@ class TestDecideBrowseSearchRoute:
         assert reason == "multi_step_cue"
 
     def test_web_search_short_uses_fast(self) -> None:
-        ok, reason = decide_browse_search_route("search for python asyncio tips", QueryIntent.WEB_SEARCH)
+        ok, _reason = decide_browse_search_route("search for python asyncio tips", QueryIntent.WEB_SEARCH)
         assert ok is True
 
     def test_web_search_long_query_uses_full(self) -> None:

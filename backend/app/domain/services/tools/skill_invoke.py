@@ -23,7 +23,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models.skill import SkillInvocationType
-from app.domain.services.tools.base import BaseTool
+from app.domain.services.tools.base import BaseTool, ToolDefaults
 
 if TYPE_CHECKING:
     from app.domain.models.skill import Skill
@@ -73,7 +73,9 @@ Available skill domains:
             available_skills: Pre-loaded list of available skills for the session
             session_id: Current session ID for context
         """
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="skill"),
+        )
         self._available_skills = available_skills or []
         self._session_id = session_id
         self._skill_cache: dict[str, Skill] = {}

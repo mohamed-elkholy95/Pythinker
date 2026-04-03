@@ -17,15 +17,19 @@ Usage:
 """
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass
-class UsageContext:
-    """Context for tracking usage attribution."""
+class UsageContext(BaseModel):
+    """Immutable context for tracking usage attribution."""
 
+    model_config = ConfigDict(frozen=True)
+
+    permissions: dict[str, bool] | None = None
     user_id: str
     session_id: str
+    task_id: str | None = None
     run_id: str | None = None
     model_override: str | None = None  # Override model name for billing
 
@@ -37,8 +41,10 @@ _usage_context: ContextVar[UsageContext | None] = ContextVar("usage_context", de
 def set_usage_context(
     user_id: str,
     session_id: str,
+    task_id: str | None = None,
     run_id: str | None = None,
     model_override: str | None = None,
+    permissions: dict[str, bool] | None = None,
 ) -> None:
     """Set the current usage context.
 
@@ -52,8 +58,10 @@ def set_usage_context(
         model_override: Optional model name override for billing
     """
     ctx = UsageContext(
+        permissions=permissions,
         user_id=user_id,
         session_id=session_id,
+        task_id=task_id,
         run_id=run_id,
         model_override=model_override,
     )
@@ -90,13 +98,17 @@ class UsageContextManager:
         self,
         user_id: str,
         session_id: str,
+        task_id: str | None = None,
         run_id: str | None = None,
         model_override: str | None = None,
+        permissions: dict[str, bool] | None = None,
     ):
         self.user_id = user_id
         self.session_id = session_id
+        self.task_id = task_id
         self.run_id = run_id
         self.model_override = model_override
+        self.permissions = permissions
         self._previous_context: UsageContext | None = None
 
     def __enter__(self) -> "UsageContextManager":
@@ -104,8 +116,10 @@ class UsageContextManager:
         set_usage_context(
             user_id=self.user_id,
             session_id=self.session_id,
+            task_id=self.task_id,
             run_id=self.run_id,
             model_override=self.model_override,
+            permissions=self.permissions,
         )
         return self
 

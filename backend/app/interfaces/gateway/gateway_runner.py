@@ -58,35 +58,38 @@ async def run_gateway() -> None:
     # ------------------------------------------------------------------
     # 1b. Initialise Qdrant (optional — graceful degradation)
     # ------------------------------------------------------------------
-    try:
-        from app.infrastructure.storage.qdrant import get_qdrant
-
-        await get_qdrant().initialize()
-        logger.info("Qdrant connection established for gateway")
-
-        # Wire vector memory repositories (same as lifespan.py)
-        from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
-        from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-
-        set_vector_memory_repository(QdrantMemoryRepository())
-
-        from app.domain.repositories.vector_repos import (
-            set_embedding_provider,
-            set_task_artifact_repository,
-            set_tool_log_repository,
-        )
-        from app.infrastructure.external.embedding.client import get_embedding_client
-        from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
-        from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
-
-        set_task_artifact_repository(QdrantTaskRepository())
-        set_tool_log_repository(QdrantToolLogRepository())
+    if settings.qdrant_enabled:
         try:
-            set_embedding_provider(get_embedding_client())
-        except RuntimeError:
-            logger.warning("No embedding API key — embedding provider not set")
-    except Exception as e:
-        logger.warning("Qdrant init failed (graceful degradation): %s", e)
+            from app.infrastructure.storage.qdrant import get_qdrant
+
+            await get_qdrant().initialize()
+            logger.info("Qdrant connection established for gateway")
+
+            # Wire vector memory repositories (same as lifespan.py)
+            from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
+            from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+
+            set_vector_memory_repository(QdrantMemoryRepository())
+
+            from app.domain.repositories.vector_repos import (
+                set_embedding_provider,
+                set_task_artifact_repository,
+                set_tool_log_repository,
+            )
+            from app.infrastructure.external.embedding.client import get_embedding_client
+            from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
+            from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
+
+            set_task_artifact_repository(QdrantTaskRepository())
+            set_tool_log_repository(QdrantToolLogRepository())
+            try:
+                set_embedding_provider(get_embedding_client())
+            except RuntimeError:
+                logger.warning("No embedding API key — embedding provider not set")
+        except Exception as e:
+            logger.warning("Qdrant init failed (graceful degradation): %s", e)
+    else:
+        logger.info("Qdrant disabled; skipping gateway vector initialization")
 
     # ------------------------------------------------------------------
     # 1c. Initialise MinIO storage for file/screenshot persistence
@@ -102,15 +105,16 @@ async def run_gateway() -> None:
     # Without this the gateway falls back to dense-only retrieval on every
     # memory lookup, losing the keyword-recall benefit of hybrid RRF search.
     # ------------------------------------------------------------------
-    try:
-        from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
-        from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+    if settings.qdrant_enabled:
+        try:
+            from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
+            from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
 
-        memory_repo = MongoMemoryRepository(database=db)
-        logger.info("Initializing BM25 encoder from stored memories...")
-        await initialize_bm25_from_memories(memory_repo)
-    except Exception as e:
-        logger.warning("BM25 encoder initialization failed (non-critical): %s", e)
+            memory_repo = MongoMemoryRepository(database=db)
+            logger.info("Initializing BM25 encoder from stored memories...")
+            await initialize_bm25_from_memories(memory_repo)
+        except Exception as e:
+            logger.warning("BM25 encoder initialization failed (non-critical): %s", e)
 
     # ------------------------------------------------------------------
     # 2. Build dependency chain

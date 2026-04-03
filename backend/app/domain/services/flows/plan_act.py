@@ -466,6 +466,14 @@ class PlanActFlow(BaseFlow):
             tools.append(scratchpad_tool)
             logger.info("Scratchpad enabled for session %s", session_id)
 
+        if tool_result_store is not None:
+            from app.domain.services.tools.result_retrieval import ResultRetrievalTool
+            from app.domain.services.tools.task_tools import TaskManagementTool
+
+            tools.append(TaskManagementTool(result_store=tool_result_store))
+            tools.append(ResultRetrievalTool(result_store=tool_result_store))
+            logger.info("Task management tools enabled for Agent %s", agent_id)
+
         # Create session-scoped service context with middleware pipeline
         from app.domain.services.agents.agent_context_factory import AgentContextFactory
 

@@ -11,7 +11,6 @@ domain layer stays free of concrete I/O concerns.
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -21,6 +20,7 @@ from app.domain.models.delegation import (
     DelegateRole,
     DelegateStatus,
 )
+from app.domain.utils.task_ids import generate_agent_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ class DelegateTool:
             )
 
         # --- Generate task id ---------------------------------------------------
-        task_id = str(uuid.uuid4())[:12]
+        task_id = generate_agent_task_id()
 
         # --- Emit started event -------------------------------------------------
         if self._event_sink is not None:

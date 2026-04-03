@@ -8,7 +8,6 @@ Provides a structured way for agents to:
 """
 
 import logging
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.domain.exceptions.base import BusinessRuleViolation, HandoffNotFoundException
 from app.domain.services.orchestration.agent_types import AgentCapability, AgentType
+from app.domain.utils.task_ids import generate_agent_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +236,7 @@ class Handoff:
     Represents the complete handoff including request, context, and result.
     """
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=generate_agent_task_id)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Source and target

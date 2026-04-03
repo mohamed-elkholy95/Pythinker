@@ -11,7 +11,7 @@ from pathlib import Path
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.report_output_sanitizer import sanitize_report_output
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,10 @@ class FileTool(BaseTool):
             max_observe: Optional custom observation limit (default: 8000)
             session_id: Optional session ID for shell command execution (needed for PDF text extraction)
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="file"),
+        )
         self.sandbox = sandbox
         self._session_id = session_id
         # Paths written during this session — used to gate read-after-write retries.
@@ -262,6 +265,8 @@ class FileTool(BaseTool):
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
         required=["file"],
+        is_read_only=True,
+        is_concurrency_safe=True,
     )
     async def file_read(
         self, file: str, start_line: int | None = None, end_line: int | None = None, sudo: bool | None = False
@@ -325,6 +330,7 @@ class FileTool(BaseTool):
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
         required=["file", "content"],
+        is_destructive=True,
     )
     async def file_write(
         self,
@@ -409,6 +415,7 @@ class FileTool(BaseTool):
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
         required=["file", "old_str", "new_str"],
+        is_destructive=True,
     )
     async def file_str_replace(self, file: str, old_str: str, new_str: str, sudo: bool | None = False) -> ToolResult:
         """Replace specified string in file
@@ -434,6 +441,8 @@ class FileTool(BaseTool):
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
         required=["file", "regex"],
+        is_read_only=True,
+        is_concurrency_safe=True,
     )
     async def file_find_in_content(self, file: str, regex: str, sudo: bool | None = False) -> ToolResult:
         """Search for matching text in file content
@@ -457,6 +466,8 @@ class FileTool(BaseTool):
             "glob": {"type": "string", "description": "Filename pattern using glob syntax wildcards"},
         },
         required=["path", "glob"],
+        is_read_only=True,
+        is_concurrency_safe=True,
     )
     async def file_find_by_name(self, path: str, glob: str) -> ToolResult:
         """Find files by name pattern in specified directory
@@ -491,6 +502,8 @@ class FileTool(BaseTool):
             },
         },
         required=["file"],
+        is_read_only=True,
+        is_concurrency_safe=True,
     )
     async def file_view(
         self,

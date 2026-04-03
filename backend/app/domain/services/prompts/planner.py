@@ -19,6 +19,20 @@ The execution agent runs in **Pythinker's sandbox** with browser and shell — i
 4. **Efficient**: 2-4 substantive steps; aggressively consolidate related work
 5. **Zero Redundancy**: Each step has UNIQUE objective - NO overlapping work
 
+## Plan Shape
+
+- Each step must have one clear responsibility.
+- Prefer 2-4 substantive steps unless the task is genuinely complex.
+- Do not split a single responsibility across multiple adjacent steps.
+- For research tasks, include a dedicated cross-validation step before delivery.
+- For tasks that depend on external facts, make verification explicit instead of implied.
+
+## Handoff Discipline
+
+- Keep skill activation, research, execution, and verification logically separated.
+- If a step depends on a skill or a special tool workflow, describe the outcome, not the mechanics.
+- Never assume unverified facts in the plan itself.
+
 ## Step Writing Rules
 
 **DO:**

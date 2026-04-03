@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +324,10 @@ class CodeExecutorTool(BaseTool):
             security_critic: Optional security critic for code review before execution
             config: Optional DomainConfig for dependency injection (falls back to get_settings)
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(is_destructive=True, category="code"),
+        )
         self._config = config
         self.sandbox = sandbox
         self.session_id = session_id or str(uuid.uuid4())

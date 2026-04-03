@@ -88,6 +88,16 @@ class ExecutionStatus(str, Enum):
         return self.value in self.get_failure_statuses()
 
 
+def is_terminal_status(status: ExecutionStatus | str) -> bool:
+    """Return True when a plan execution status is terminal."""
+    if isinstance(status, str):
+        try:
+            status = ExecutionStatus(status)
+        except ValueError:
+            return False
+    return status.is_terminal()
+
+
 class Phase(BaseModel):
     """A phase grouping multiple steps in the agent workflow."""
 

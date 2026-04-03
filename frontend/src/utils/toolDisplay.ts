@@ -404,7 +404,18 @@ export function getToolDisplay(input: ToolDisplayInput): ToolDisplayInfo {
   const displayName = TOOL_NAME_MAP[toolKey] || humanize(toolKey);
 
   const functionName = input.function || '';
-  const actionLabel = TOOL_FUNCTION_MAP[functionName] || DEFAULT_ACTION_BY_TOOL[toolKey] || 'Working';
+  const isBrowserFamilyTool =
+    toolKey === 'browser'
+    || toolKey === 'browser_agent'
+    || toolKey === 'playwright'
+    || functionName.startsWith('browser_')
+    || functionName.startsWith('playwright_')
+    || BROWSER_FUNCTIONS.has(functionName)
+    || displayName.toLowerCase().includes('browser');
+  const actionLabel =
+    TOOL_FUNCTION_MAP[functionName]
+    || DEFAULT_ACTION_BY_TOOL[toolKey]
+    || (isBrowserFamilyTool ? 'Browsing' : 'Working');
 
   const argKey = TOOL_FUNCTION_ARG_MAP[functionName] || '';
   const resourceLabel = formatResource(argKey, input.args);

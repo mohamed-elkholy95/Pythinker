@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urluns
 
 from app.domain.external.search import SearchEngine
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 if TYPE_CHECKING:
     from app.domain.external.browser import Browser
@@ -495,7 +495,14 @@ class SearchTool(BaseTool):
             max_observe: Optional custom observation limit (default: 8000)
             scraper: Optional scraper for spider-based URL enrichment in wide_research
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(
+                is_read_only=True,
+                is_concurrency_safe=True,
+                category="search",
+            ),
+        )
         self.search_engine = search_engine
         self._browser = browser
         self._search_prefer_browser = search_prefer_browser

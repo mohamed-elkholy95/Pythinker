@@ -132,25 +132,31 @@ class TestLRUEviction:
         # Refresh id-1 so it's no longer the oldest
         store.retrieve("id-1")
 
-        # Adding a 4th should evict id-2 (now oldest after id-1 was refreshed)
+        # Adding a 4th should evict id-2 from LRU (now oldest after id-1 was refreshed)
         store.store("content-d" * 5, "tool_d", result_id="id-4")
 
-        assert store.retrieve("id-2") is None  # evicted (was oldest)
+        assert "id-2" not in store._store  # evicted from in-memory LRU
+        # But still retrievable via disk spillover
+        assert store.retrieve("id-2") is not None
         assert store.retrieve("id-1") is not None
         assert store.retrieve("id-3") is not None
         assert store.retrieve("id-4") is not None
+        store.cleanup_disk()
 
     def test_eviction_without_retrieves(self):
-        """Without any retrieves to refresh, oldest insert is evicted."""
+        """Without any retrieves to refresh, oldest insert is evicted from LRU."""
         store = ToolResultStore(offload_threshold=10, max_entries=2)
 
         store.store("aaa" * 10, "tool", result_id="first")
         store.store("bbb" * 10, "tool", result_id="second")
         store.store("ccc" * 10, "tool", result_id="third")
 
-        assert store.retrieve("first") is None  # evicted
+        assert "first" not in store._store  # evicted from in-memory LRU
+        # Still retrievable via disk spillover
+        assert store.retrieve("first") is not None
         assert store.retrieve("second") is not None
         assert store.retrieve("third") is not None
+        store.cleanup_disk()
 
     def test_retrieve_refreshes_lru(self):
         store = ToolResultStore(offload_threshold=10, max_entries=2)
@@ -161,12 +167,16 @@ class TestLRUEviction:
         # Access "first" to refresh its position
         store.retrieve("first")
 
-        # Now "second" is oldest
+        # Now "second" is oldest — evicted from LRU when third is added
         store.store("ccc" * 10, "tool", result_id="third")
 
-        assert store.retrieve("first") is not None  # refreshed, not evicted
-        assert store.retrieve("second") is None  # evicted
+        assert "first" in store._store  # refreshed, not evicted from LRU
+        assert "second" not in store._store  # evicted from LRU
+        # But still retrievable via disk spillover
+        assert store.retrieve("first") is not None
+        assert store.retrieve("second") is not None
         assert store.retrieve("third") is not None
+        store.cleanup_disk()
 
 
 class TestGetStats:
@@ -242,3 +252,118 @@ class TestFeatureFlagFallback:
 
         # Existing compaction would handle this case
         assert True
+
+
+# ── Phase 1C: Per-message budget ──────────────────────────────────────
+
+
+class TestEnforceMessageBudget:
+    """Per-message aggregate budget enforcement."""
+
+    def test_within_budget_no_changes(self):
+        store = ToolResultStore(per_message_budget_chars=1000)
+        results = [("search", "x" * 200), ("file_read", "y" * 300)]
+        enforced = store.enforce_message_budget(results)
+        assert len(enforced) == 2
+        assert enforced[0] == ("search", "x" * 200)
+        assert enforced[1] == ("file_read", "y" * 300)
+
+    def test_over_budget_offloads_largest(self):
+        store = ToolResultStore(
+            offload_threshold=100,
+            preview_chars=50,
+            per_message_budget_chars=500,
+        )
+        results = [
+            ("small_tool", "a" * 50),
+            ("big_tool", "b" * 5000),
+            ("medium_tool", "c" * 200),
+        ]
+        enforced = store.enforce_message_budget(results)
+
+        # Original order preserved
+        assert enforced[0][0] == "small_tool"
+        assert enforced[1][0] == "big_tool"
+        assert enforced[2][0] == "medium_tool"
+
+        # big_tool should have been offloaded (replaced with preview)
+        assert len(enforced[1][1]) < 5000
+        assert "[ref:" in enforced[1][1]
+
+        # small_tool below offload_threshold, kept as-is
+        assert enforced[0][1] == "a" * 50
+
+    def test_over_budget_with_all_small_results_still_shrinks_context(self):
+        store = ToolResultStore(
+            offload_threshold=1000,
+            preview_chars=50,
+            per_message_budget_chars=100,
+        )
+        results = [("a", "x" * 50), ("b", "y" * 50), ("c", "z" * 50)]
+        enforced = store.enforce_message_budget(results)
+
+        assert sum(len(content) for _, content in enforced) <= 100
+        assert any("[ref:" in content for _, content in enforced)
+
+    def test_preserves_order(self):
+        store = ToolResultStore(
+            offload_threshold=10,
+            per_message_budget_chars=100,
+        )
+        results = [("a", "x" * 80), ("b", "y" * 80), ("c", "z" * 80)]
+        enforced = store.enforce_message_budget(results)
+        assert [fn for fn, _ in enforced] == ["a", "b", "c"]
+
+    def test_empty_results(self):
+        store = ToolResultStore()
+        assert store.enforce_message_budget([]) == []
+
+
+# ── Phase 1C: Disk spillover ─────────────────────────────────────────
+
+
+class TestDiskSpillover:
+    """Disk-backed spillover on LRU eviction."""
+
+    def test_evicted_entry_recoverable_from_disk(self):
+        store = ToolResultStore(offload_threshold=10, max_entries=1)
+        store.store("aaa" * 10, "tool_a", result_id="first")
+        store.store("bbb" * 10, "tool_b", result_id="second")
+
+        # "first" evicted from LRU
+        assert "first" not in store._store
+        # But recoverable from disk
+        content = store.retrieve("first")
+        assert content == "aaa" * 10
+        store.cleanup_disk()
+
+    def test_disk_file_created(self):
+        store = ToolResultStore(offload_threshold=10, max_entries=1)
+        store.store("aaa" * 10, "tool_a", result_id="first")
+        store.store("bbb" * 10, "tool_b", result_id="second")
+
+        disk_file = store.disk_dir / "first.json"
+        assert disk_file.exists()
+        store.cleanup_disk()
+
+    def test_cleanup_removes_directory(self):
+        store = ToolResultStore(offload_threshold=10, max_entries=1)
+        store.store("aaa" * 10, "tool_a", result_id="first")
+        store.store("bbb" * 10, "tool_b", result_id="second")
+
+        assert store.disk_dir.exists()
+        store.cleanup_disk()
+        assert not store.disk_dir.exists()
+
+    def test_retrieve_nonexistent_returns_none(self):
+        store = ToolResultStore()
+        assert store.retrieve("nonexistent-id") is None
+
+    def test_stats_include_spilled_count(self):
+        store = ToolResultStore(offload_threshold=10, max_entries=1)
+        store.store("aaa" * 10, "tool_a", result_id="first")
+        store.store("bbb" * 10, "tool_b", result_id="second")
+
+        stats = store.get_stats()
+        assert stats["total_spilled_to_disk"] == 1
+        store.cleanup_disk()

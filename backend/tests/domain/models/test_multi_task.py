@@ -54,6 +54,20 @@ class TestTaskDefinition:
         )
         assert len(t.deliverables) == 1
 
+    def test_terminal_guard_blocks_reentry(self) -> None:
+        task = TaskDefinition(title="Research", description="Find data")
+        assert task.mark_started() is True
+        assert task.status == TaskStatus.IN_PROGRESS
+        assert task.mark_completed() is True
+        assert task.status == TaskStatus.COMPLETED
+        assert task.mark_failed() is False
+        assert task.status == TaskStatus.COMPLETED
+
+    def test_transition_to_rejects_invalid_terminal_reentry(self) -> None:
+        task = TaskDefinition(title="Research", description="Find data", status=TaskStatus.FAILED)
+        assert task.transition_to(TaskStatus.IN_PROGRESS) is False
+        assert task.status == TaskStatus.FAILED
+
 
 class TestTaskResult:
     def test_minimal(self) -> None:
@@ -110,3 +124,9 @@ class TestMultiTaskChallenge:
         c = self._make()
         c.completed_tasks = ["t-0", "t-1", "t-2"]
         assert c.get_progress_percentage() == 100.0
+
+    def test_advance_to_next_task_blocks_terminal_current_task(self) -> None:
+        c = self._make()
+        c.tasks[0].status = TaskStatus.COMPLETED
+        assert c.advance_to_next_task() is False
+        assert c.current_task_index == 0

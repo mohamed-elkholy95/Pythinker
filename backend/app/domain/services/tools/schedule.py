@@ -12,7 +12,7 @@ from app.domain.models.scheduled_task import (
     ScheduleType,
 )
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,9 @@ class ScheduleTool(BaseTool):
             cancel_callback: Async callback to cancel a task
             list_callback: Async callback to list tasks for a user
         """
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="schedule"),
+        )
         self._user_id = user_id
         self._schedule_callback = schedule_callback
         self._cancel_callback = cancel_callback

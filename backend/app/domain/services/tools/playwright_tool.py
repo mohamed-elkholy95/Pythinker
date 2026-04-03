@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,10 @@ class PlaywrightTool(BaseTool):
             headless: Run browser in headless mode
             stealth_mode: Enable stealth mode for bot detection bypass
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="browser"),
+        )
         self.sandbox = sandbox
         self.session_id = session_id or str(uuid.uuid4())
         self.default_browser = default_browser

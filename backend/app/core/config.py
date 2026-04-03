@@ -168,6 +168,18 @@ class Settings(
 
     @computed_field
     @property
+    def qdrant_enabled(self) -> bool:
+        """Whether Qdrant-backed vector features should be initialized."""
+        return bool(self.qdrant_url and self.qdrant_url.strip())
+
+    @computed_field
+    @property
+    def plotly_enabled(self) -> bool:
+        """Whether Plotly chart generation should be initialized."""
+        return self.feature_plotly_charts_enabled
+
+    @computed_field
+    @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment.lower() == "production"

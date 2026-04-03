@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 if TYPE_CHECKING:
     from app.domain.services.knowledge_base_service import KnowledgeBaseService
@@ -24,7 +24,10 @@ class KnowledgeBaseTool(BaseTool):
         user_id: str,
         max_observe: int | None = None,
     ) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(is_read_only=True, is_concurrency_safe=True, category="knowledge_base"),
+        )
         self._kb_service = kb_service
         self._user_id = user_id
 

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
 
-from app.domain.services.tools.base import BaseTool, ToolResult, ToolSchema
+from app.domain.services.tools.base import BaseTool, ToolDefaults, ToolResult, ToolSchema
 
 
 class SlideMode(str, Enum):
@@ -280,7 +280,9 @@ class SlidesTool(BaseTool):
 
     def __init__(self) -> None:
         """Initialize the slides tool."""
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(should_defer=True, category="slides"),
+        )
         self._presentations: dict[str, Presentation] = {}
 
     async def execute(self, tool_name: str, tool_input: dict[str, Any]) -> ToolResult:

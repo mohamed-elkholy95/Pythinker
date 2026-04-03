@@ -102,7 +102,8 @@ def _strip_trailing_raw_tool_payload(text: str) -> str:
         # Branch 1: entire tail is JSON-like characters AND multiple keys matched.
         # Multiple word-boundary matches make coincidence extremely unlikely.
         if key_count >= 2 and re.fullmatch(
-            r'[\s\{\}\[\]":,A-Za-z0-9_\-./?=&%+!@#$%^*<>\\]+', tail,
+            r'[\s\{\}\[\]":,A-Za-z0-9_\-./?=&%+!@#$%^*<>\\]+',
+            tail,
         ):
             logger.debug("Stripped trailing raw tool payload (multi-key fullmatch): %.80s…", tail)
             return text[:start].rstrip()

@@ -1,14 +1,15 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain.models.event import (
     AgentEvent,
     EvalMetricsEvent,
     MCPHealthEvent,
     MessageEvent,
+    PartialResultEvent,
     PlanEvent,
     ProgressEvent,
     ReportEvent,
@@ -44,10 +45,6 @@ class BaseEventData(BaseModel):
     @classmethod
     def from_event(cls, event: AgentEvent) -> Self:
         return cls(**cls.base_event_data(event), **event.model_dump(exclude={"type", "id", "timestamp"}))
-
-
-class CommonEventData(BaseEventData):
-    model_config = ConfigDict(extra="allow")
 
 
 class BaseSSEEvent(BaseModel):
@@ -494,11 +491,6 @@ class StreamSSEEvent(BaseSSEEvent):
     data: StreamEventData
 
 
-class CommonSSEEvent(BaseSSEEvent):
-    event: str
-    data: CommonEventData
-
-
 class SkillPackageFileEventData(BaseModel):
     """File data within a skill delivery event for SSE"""
 
@@ -772,9 +764,34 @@ class EvalMetricsSSEEvent(BaseSSEEvent):
         )
 
 
-AgentSSEEvent = (
-    CommonSSEEvent
-    | PlanSSEEvent
+class PartialResultEventData(BaseEventData):
+    """SSE data for partial result updates."""
+
+    step_index: int
+    step_title: str
+    headline: str
+    sources_count: int = 0
+
+
+class PartialResultSSEEvent(BaseSSEEvent):
+    event: Literal["partial_result"] = "partial_result"
+    data: PartialResultEventData
+
+    @classmethod
+    def from_event(cls, event: PartialResultEvent) -> Self:
+        return cls(
+            data=PartialResultEventData(
+                **BaseEventData.base_event_data(event),
+                step_index=event.step_index,
+                step_title=event.step_title,
+                headline=event.headline,
+                sources_count=event.sources_count,
+            )
+        )
+
+
+AgentSSEEvent = Annotated[
+    PlanSSEEvent
     | MessageSSEEvent
     | TitleSSEEvent
     | ToolSSEEvent
@@ -790,13 +807,15 @@ AgentSSEEvent = (
     | ModeChangeSSEEvent
     | StreamSSEEvent
     | ProgressSSEEvent
+    | PartialResultSSEEvent
     | WideResearchSSEEvent
     | SkillActivationSSEEvent
     | ThoughtSSEEvent
     | WorkspaceSSEEvent
     | MCPHealthSSEEvent
-    | EvalMetricsSSEEvent
-)
+    | EvalMetricsSSEEvent,
+    Field(discriminator="event"),
+]
 
 
 @dataclass
@@ -819,10 +838,9 @@ class EventMapper:
         if EventMapper._cached_mapping is not None:
             return EventMapper._cached_mapping
 
-        from typing import get_args
-
-        # Get all subclasses of AgentSSEEvent Union
-        sse_event_classes = get_args(AgentSSEEvent)
+        # Unwrap Annotated[...] to reach the underlying union of concrete SSE event classes.
+        agent_sse_union = get_args(AgentSSEEvent)[0]
+        sse_event_classes = get_args(agent_sse_union)
         mapping = {}
 
         for sse_event_class in sse_event_classes:
@@ -850,7 +868,7 @@ class EventMapper:
         return mapping
 
     @staticmethod
-    async def event_to_sse_event(event: AgentEvent) -> AgentSSEEvent:
+    async def event_to_sse_event(event: AgentEvent) -> AgentSSEEvent | None:
         # Get mapping dynamically
         event_type_mapping = EventMapper._get_event_type_mapping()
 
@@ -865,8 +883,7 @@ class EventMapper:
             else:
                 sse_event = sse_event_class.from_event(event)
             return sse_event
-        # If no matching type found, return wrapped event with event type
-        return CommonSSEEvent(event=event.type, data=CommonEventData.from_event(event))
+        return None
 
     @staticmethod
     async def events_to_sse_events(events: list[AgentEvent]) -> list[AgentSSEEvent]:
