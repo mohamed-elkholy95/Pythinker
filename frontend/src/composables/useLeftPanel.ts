@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useUIStore } from '../stores/uiStore'
 import type { LeftPanelState } from '../types/panel'
 
@@ -9,7 +9,7 @@ import type { LeftPanelState } from '../types/panel'
  */
 export function useLeftPanel(): LeftPanelState {
   const uiStore = useUIStore()
-  const isLeftPanelShow = computed(() => uiStore.isLeftPanelShow)
+  const { isLeftPanelShow } = storeToRefs(uiStore)
 
   return {
     isLeftPanelShow,

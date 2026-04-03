@@ -99,8 +99,6 @@ IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull
 IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml up -d
 ```
 
-Every image is tagged with its commit SHA, so any previous build is pullable.
-
 ### Force Rebuild All Images
 
 ```bash
@@ -118,21 +116,6 @@ gh workflow run "Build & Deploy" --repo mohamed-elkholy95/Pythinker --ref main -
 - [x] Dokploy: Domain port = `80`
 - [x] Networks: `pythinker-network` and `dokploy-network` exist on VPS
 - [x] Volumes: Pre-created with `pythinker-*` names
-
-## Failure Handling
-
-| Failure | Behavior |
-|---------|----------|
-| CI build fails (1 or more images) | Deploy job does **not** run. VPS stays on previous version. |
-| VPS unreachable via SSH | Deploy job fails. Images are pushed to ghcr.io. Manual deploy possible. |
-| Health check fails after deploy | CI reports failure. Operator can rollback via SHA tag. |
-
-## Security Improvements (Side Effects)
-
-- No `--reload` flags in production (removes file watcher overhead)
-- Nginx serves frontend with proper caching headers and gzip
-- No `develop.watch` blocks (removes Docker API surface)
-- Production-tuned uvicorn (worker recycling, graceful shutdown)
 
 ## Lessons Learned (2026-03-18 Incident)
 
@@ -168,11 +151,3 @@ gh workflow run "Build & Deploy" --repo mohamed-elkholy95/Pythinker --ref main -
 | `.github/workflows/deploy.yml` | GHCR auth, sandbox health check, deploy_config filter |
 | `sandbox/app/core/config.py` | Supervisor password sync fix |
 | `frontend/src/pages/ChatPage.vue` | Skip idle beacons in planning presentation |
-
-## Non-Goals
-
-- Multi-node / swarm deployment (single VPS)
-- Blue-green or canary deployments (overkill for current scale)
-- Helm/Kubernetes migration
-- Two-network isolation topology (future enhancement, separate spec)
-- Changing the production compose file (`docker-compose-production.yml` with Traefik) — that's a separate concern

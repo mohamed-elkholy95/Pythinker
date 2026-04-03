@@ -258,10 +258,6 @@ function debouncedInitConnection(): void {
   if (_initDebounceTimer) clearTimeout(_initDebounceTimer)
   _initDebounceTimer = setTimeout(() => {
     _initDebounceTimer = null
-    // Guard: session may have completed during the debounce window
-    if (props.isSessionComplete) {
-      return
-    }
     initConnection()
   }, INIT_DEBOUNCE_MS)
 }
@@ -429,20 +425,6 @@ async function connect(): Promise<void> {
         normalizedReason.includes('screencast unavailable')
       const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
 
-      // Session-scoped circuit breaker: track total failures across all
-      // reconnect cycles (persists even when connectionAttempts resets on
-      // tab visibility).  Prevents infinite reconnect loops when sandbox
-      // Chrome is dead (PID exhaustion, OOM, container crash).
-      sessionFailureCount++
-
-      const circuitBroken = sessionFailureCount >= MAX_SESSION_FAILURES
-      if (circuitBroken) {
-        error.value = 'Live preview unavailable (sandbox browser not responding)'
-        isLoading.value = false
-        emit('error', 'screencast circuit breaker: too many failures')
-        return
-      }
-
       if (props.enabled && shouldRetry && !props.isSessionComplete && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
         // Don't attempt reconnect while tab is hidden — save resources
         // and avoid thundering herd on tab refocus. The visibility handler
@@ -467,6 +449,7 @@ async function connect(): Promise<void> {
           }
           // Refresh signed URL for each reconnect attempt to avoid stale links.
           screencastWsUrl.value = null
+          reconnectTimeout = null
           debouncedInitConnection()
         }, delay)
       } else {

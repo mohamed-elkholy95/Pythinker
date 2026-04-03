@@ -64,21 +64,6 @@ Before finishing any implementation, ask yourself:
 
 If you build 1000 lines and 100 would suffice, you have failed. Prefer the boring, obvious solution. Cleverness is expensive.
 
-### 4A. DRY and KISS for Debugging and Implementation (High Priority)
-
-When debugging or implementing code, default to `DRY` and `KISS`.
-
-- Reuse existing helpers, services, components, queries, loggers, and telemetry before adding new ones.
-- Do not create parallel code paths, duplicate branches, or near-copy-paste helpers when extending behavior.
-- Keep debugging instrumentation minimal, local to the problem, and easy to remove.
-- Prefer existing logs, metrics, traces, and focused assertions over broad new debug scaffolding.
-- Remove temporary debug code before finishing unless the human explicitly asks to keep it.
-- If a small direct fix works, prefer it over a new abstraction.
-- Prefer a small local duplicate over a premature abstraction when that keeps the code easier to read.
-- Extract shared code only when the repeated logic is stable, clearly identical, and simpler once centralized.
-- If a helper makes control flow harder to follow, keep the code inline and local.
-- Avoid thin "helper" layers that only rename existing code without reducing complexity.
-
 ### 5. Scope Discipline (High Priority)
 
 Touch only what you're asked to touch.
@@ -121,15 +106,6 @@ When implementing non-trivial logic:
 3. Show both
 
 Tests are your loop condition. Use them.
-
-### Targeted Verification Default
-
-When validating changes, run the smallest test set that can actually prove the behavior you touched.
-
-- Prefer targeted test files or individual test nodes over repo-wide suites.
-- Use lint, format, and focused regression tests as the default verification path.
-- Do not run full test suites unless the human explicitly asks for them.
-- In summaries, say exactly which targeted checks you ran and which broader suites you intentionally did not run.
 
 ### Naive Then Optimize
 

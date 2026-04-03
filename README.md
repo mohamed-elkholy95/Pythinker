@@ -10,6 +10,10 @@
 
 *Your self-hosted alternative to [Manus AI](https://manus.im) — with 43+ tools and full autonomy.*
 
+**Browse the web. Write & run code. Research anything. Generate beautiful reports.**
+
+*Your self-hosted alternative to [Manus AI](https://manus.im) — with 43+ tools and full autonomy.*
+
 [![CI](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml/badge.svg?branch=main-dev)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml)
 [![Docker](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml)
 [![Security](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml)
@@ -334,10 +338,6 @@ bun run lint        # ESLint
 bun run type-check  # TypeScript
 bun run test:run    # Vitest
 ```
-
-### Deep research and chart runtime
-
-Long research sessions use mode-aware search compaction, explicit summarization handoff (instead of late system-prompt patches), and report-verification guards. Plotly in the sandbox can use `docker-compose.plotly.yml`, `sandbox/Dockerfile.plotly`, or `PLOTLY_RUNTIME_AVAILABLE` when the runtime is known to include Plotly. Details: [backend/README.md — Deep Research Reliability](backend/README.md#deep-research-reliability).
 
 ### Monitoring
 

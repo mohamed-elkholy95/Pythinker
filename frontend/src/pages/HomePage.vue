@@ -18,8 +18,15 @@
               @click="toggleLeftPanel"
               aria-label="Open sidebar"
             >
-              <img src="/logo.png" alt="Pythinker" width="20" height="25" class="h-6 w-auto object-contain" />
+              <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" style="aspect-ratio: 1 / 1;" />
             </button>
+            <!-- Desktop branding (visible when sidebar is collapsed) -->
+            <PythinkerLogoTextIcon
+              v-if="!isLeftPanelShow"
+              :width="120"
+              :height="28"
+              class="hidden sm:block flex-shrink-0 -ml-2"
+            />
           </div>
           <!-- Center: Model name as header title (Pythinker-style) -->
           <button
@@ -118,10 +125,10 @@ import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { useSettingsDialog } from '../composables/useSettingsDialog';
 import UserMenu from '../components/UserMenu.vue';
+import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { getServerConfig, getSettings } from '../api/settings';
 import { resolveInitialHeaderModelName } from '@/utils/chatHeaderModel';
-import { consumeComposerDraft } from '@/utils/composerDraft';
 import type { Component } from 'vue';
 
 // Feature type definition
@@ -140,7 +147,7 @@ const attachments = ref<FileInfo[]>([]);
 const pendingSkillId = ref<string | null>(null);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
-const { toggleLeftPanel } = useLeftPanel();
+const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel();
 const { openSettingsDialog } = useSettingsDialog();
 const activeModelName = ref('');
 
@@ -264,11 +271,9 @@ onMounted(async () => {
     getServerConfig(),
     getSettings(),
   ]);
-  const srvCfg = serverConfigResult.status === 'fulfilled' ? serverConfigResult.value : null;
   activeModelName.value = resolveInitialHeaderModelName(
-    srvCfg?.model_name ?? '',
+    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
     userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
-    srvCfg?.model_display_name,
   );
 });
 
@@ -474,12 +479,14 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
   }
 }
 
-/* Manus-style model title */
+/* Pythinker-style centered model title */
 .header-model-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 2px;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-primary);
   transition: opacity 0.15s ease;
@@ -489,28 +496,27 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 }
 
 .header-model-title:hover {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .header-model-title-label {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: -0.01em;
-  color: #374151;
 }
 
-.dark .header-model-title-label {
-  color: #e5e7eb;
+@media (max-width: 639px) {
+  .header-model-title-label {
+    font-size: 14px;
+  }
 }
 
 .header-model-title-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  color: #9ca3af;
-  margin-top: 1px;
+  color: var(--text-tertiary);
 }
 
 /* ===== AVATAR ===== */

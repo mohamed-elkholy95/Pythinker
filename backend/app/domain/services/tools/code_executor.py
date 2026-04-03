@@ -324,10 +324,7 @@ class CodeExecutorTool(BaseTool):
             security_critic: Optional security critic for code review before execution
             config: Optional DomainConfig for dependency injection (falls back to get_settings)
         """
-        super().__init__(
-            max_observe=max_observe,
-            defaults=ToolDefaults(is_destructive=True, category="code"),
-        )
+        super().__init__(max_observe=max_observe)
         self._config = config
         self.sandbox = sandbox
         self.session_id = session_id or str(uuid.uuid4())

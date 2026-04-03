@@ -81,7 +81,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     fi && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
     # Force-install standalone jaraco.context and wheel into the venv so Trivy sees the fixed versions
-    uv pip install --python /opt/base-python-venv/bin/python \
+    uv pip install --python /opt/base-python-venv/bin/python --no-cache \
         "jaraco.context>=6.1.0" "wheel>=0.46.2" && \
     # Remove ensurepip bundled wheels (contain old pip/setuptools/wheel that Trivy flags)
     rm -rf /usr/lib/python3.11/ensurepip/_bundled/ && \
@@ -149,9 +149,7 @@ ENV HOSTNAME=sandbox
 
 # All runtime apt packages in a single layer to minimize image size.
 # gh CLI installed separately below via .deb for version pinning (fixes CVE-2026-33186 in bundled grpc).
-RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
-    --mount=type=cache,sharing=locked,target=/var/lib/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     # Container init + core tools
     tini sudo bc curl wget gnupg ca-certificates socat supervisor \
     xterm perl xauth x11-xkb-utils xkb-data x11-utils x11-apps x11-xserver-utils xdotool dbus-x11 \
@@ -181,6 +179,12 @@ RUN --mount=type=cache,sharing=locked,target=/var/cache/apt \
     fi && \
     locale-gen en_US.UTF-8 && \
     fc-cache -f
+
+# gh CLI — pinned version via official .deb (apt repo lags behind, bundled grpc had CVE-2026-33186)
+ARG GH_VERSION=2.88.1
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" \
+        -o /tmp/gh.deb && \
+    dpkg -i /tmp/gh.deb && rm -f /tmp/gh.deb
 
 # gh CLI — pinned version via official .deb (apt repo lags behind, bundled grpc had CVE-2026-33186)
 ARG GH_VERSION=2.88.1

@@ -97,8 +97,8 @@ class TestCapAddAllowlistValidator:
         assert "SYS_CHROOT" not in policy.cap_add_allowlist
 
     def test_sys_chroot_rejected_by_validator(self):
-        """Attempting to add SYS_CHROOT must raise ValidationError."""
-        with pytest.raises(ValidationError, match="not in allowlist"):
+        """Attempting to add SYS_CHROOT must be rejected."""
+        with pytest.raises(ValueError, match="not in allowlist"):
             SandboxSecurityPolicy(cap_add_allowlist=["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"])
 
 

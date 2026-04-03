@@ -292,7 +292,7 @@ const frameDimensions = screencast.frameDimensions
 /** OS cursor over stream matches Apple pointer (agent overlay + hover). */
 const streamCursorStyle = computed(() => (
   props.hideLocalCursor
-    ? { cursor: 'default' }
+    ? { cursor: 'none' }
     : { cursor: getApplePointerCursorCss() }
 ))
 

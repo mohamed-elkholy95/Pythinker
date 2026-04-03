@@ -40,7 +40,7 @@
       <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled && !contentPreview" class="vp-live">
         <LiveViewer
           :session-id="sessionId"
-          :enabled="enabled && !isTakeoverOverlayActive"
+          :enabled="enabled"
           :view-only="true"
           :compact-loading="true"
           :show-controls="false"
@@ -52,7 +52,7 @@
         <LiveViewer
           ref="liveViewerRef"
           :session-id="sessionId"
-          :enabled="enabled && !isTakeoverOverlayActive"
+          :enabled="enabled"
           :view-only="true"
           :compact-loading="true"
           :show-controls="false"
@@ -135,7 +135,7 @@
             >
               <div class="sr-icon-wrap">
                 <img
-                  v-if="(result.url || result.link) && !isFaviconError(result.url ?? result.link ?? '')"
+                  v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
                   :src="getFavicon(result.url ?? result.link ?? '')"
                   alt=""
                   class="sr-favicon"
@@ -242,7 +242,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
@@ -616,7 +616,14 @@ const truncate = (text: string, maxLength: number): string => {
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 };
 
-const { getUrl: getFavicon, isError: isFaviconError, handleError: onFaviconError, getLetter: getIconLetterFromUrl } = useFavicon();
+const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
+
+const faviconErrors: Record<string, boolean> = reactive({});
+
+const onFaviconError = (url: string) => {
+  faviconErrors[url] = true;
+  markFaviconFailed(url);
+};
 
 const fileName = computed(() => {
   if (!props.filePath) return 'File';
@@ -840,12 +847,12 @@ const useScaledViewport = computed(() => {
 }
 
 .dc-header {
-  height: clamp(10px, 8cqh, 18px);
+  height: clamp(14px, 10cqh, 24px);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(1px, 1cqw, 3px);
-  padding: 0 clamp(2px, 1.5cqw, 6px);
+  gap: clamp(2px, 1.2cqw, 4px);
+  padding: 0 clamp(4px, 2.4cqw, 8px);
   background: var(--bolt-elements-bg-depth-1);
   border-bottom: 1px solid var(--bolt-elements-borderColor);
   flex-shrink: 0;
@@ -854,7 +861,7 @@ const useScaledViewport = computed(() => {
 
 .dc-header-title {
   max-width: 95%;
-  font-size: clamp(4.5px, 2.4cqw, 8px);
+  font-size: clamp(6px, 2.9cqw, 11px);
   font-weight: 600;
   color: var(--bolt-elements-textPrimary);
   text-align: center;
@@ -873,8 +880,8 @@ const useScaledViewport = computed(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin: clamp(1px, 0.6cqw, 3px);
-  padding: clamp(1px, 1cqw, 4px) clamp(2px, 1.4cqw, 5px);
+  margin: clamp(2px, 1.2cqw, 5px);
+  padding: clamp(3px, 1.8cqw, 7px) clamp(4px, 2.4cqw, 9px);
   background: var(--bolt-elements-bg-depth-2);
   border-radius: 4px;
 }
@@ -920,8 +927,8 @@ const useScaledViewport = computed(() => {
 .search-result-item-mini {
   display: flex;
   align-items: center;
-  gap: clamp(2px, 1.2cqw, 4px);
-  padding: clamp(1px, 0.8cqw, 3px) clamp(2px, 1.4cqw, 5px);
+  gap: clamp(3px, 1.6cqw, 6px);
+  padding: clamp(2px, 1.2cqw, 5px) clamp(4px, 2cqw, 8px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
@@ -935,9 +942,9 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-icon-wrap {
-  width: clamp(8px, 3cqw, 12px);
-  height: clamp(8px, 3cqw, 12px);
-  min-width: clamp(8px, 3cqw, 12px);
+  width: clamp(10px, 4cqw, 16px);
+  height: clamp(10px, 4cqw, 16px);
+  min-width: clamp(10px, 4cqw, 16px);
   border-radius: 50%;
   background: var(--fill-tsp-white-dark, var(--bolt-elements-bg-depth-1));
   display: flex;
@@ -948,8 +955,8 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-favicon {
-  width: clamp(5px, 2.2cqw, 8px);
-  height: clamp(5px, 2.2cqw, 8px);
+  width: clamp(7px, 3cqw, 11px);
+  height: clamp(7px, 3cqw, 11px);
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -970,24 +977,28 @@ const useScaledViewport = computed(() => {
 }
 
 .sr-title {
-  font-size: clamp(4px, 2cqw, 7.5px);
+  font-size: clamp(6px, 2.8cqw, 10px);
   font-weight: 600;
   color: var(--text-primary, var(--bolt-elements-textPrimary));
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.15;
+  line-height: 1.3;
+  color: var(--bolt-elements-textPrimary);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .sr-snippet {
-  font-size: clamp(3.5px, 1.8cqw, 6.5px);
+  font-size: clamp(5px, 2.3cqw, 9px);
   color: var(--text-tertiary, #9a9a9a);
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.15;
+  line-height: 1.25;
 }
 
 /* ===== Terminal ===== */
@@ -997,8 +1008,8 @@ const useScaledViewport = computed(() => {
 
 .dc-terminal-text {
   font-family: inherit;
-  font-size: clamp(4px, 2cqw, 7.5px);
-  line-height: 1.25;
+  font-size: clamp(6px, 2.8cqw, 10px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1017,8 +1028,8 @@ const useScaledViewport = computed(() => {
 
 .dc-code-text {
   font-family: inherit;
-  font-size: clamp(4px, 2cqw, 7.5px);
-  line-height: 1.3;
+  font-size: clamp(6px, 2.8cqw, 10px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   margin: 0;
   white-space: pre-wrap;
@@ -1101,37 +1112,37 @@ const useScaledViewport = computed(() => {
 
 .dc-mini-md {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: clamp(4px, 2cqw, 7px);
-  line-height: 1.25;
+  font-size: clamp(5.5px, 2.5cqw, 9px);
+  line-height: 1.35;
   color: var(--bolt-elements-textPrimary);
   overflow: hidden;
   max-height: 100%;
 }
 
 .dc-mini-md .mini-h1 {
-  font-size: clamp(5px, 2.4cqw, 8.5px);
+  font-size: clamp(7px, 2.9cqw, 11px);
   font-weight: 700;
   color: var(--bolt-elements-textPrimary);
-  margin: 0 0 1px;
-  line-height: 1.15;
+  margin: 0 0 2px;
+  line-height: 1.2;
   border-bottom: 1px solid var(--bolt-elements-borderColor);
-  padding-bottom: 1px;
+  padding-bottom: 2px;
 }
 
 .dc-mini-md .mini-h2 {
-  font-size: clamp(4.5px, 2.2cqw, 8px);
+  font-size: clamp(6.5px, 2.8cqw, 10px);
   font-weight: 650;
   color: var(--bolt-elements-textPrimary);
-  margin: 1px 0 1px;
-  line-height: 1.15;
+  margin: 2px 0 1px;
+  line-height: 1.25;
 }
 
 .dc-mini-md .mini-h3 {
-  font-size: clamp(4.5px, 2.1cqw, 7.5px);
+  font-size: clamp(6px, 2.6cqw, 10px);
   font-weight: 600;
   color: var(--bolt-elements-textSecondary);
-  margin: 1px 0 1px;
-  line-height: 1.15;
+  margin: 2px 0 1px;
+  line-height: 1.25;
 }
 
 .dc-mini-md .mini-p {
@@ -1468,7 +1479,12 @@ const useScaledViewport = computed(() => {
     transform: scale(0.98);
     transition: transform 0.1s ease;
   }
-  /* Let container-query cqw values handle font scaling at any size —
-     no fixed font-size overrides that break tiny thumbnails */
+  .dc-header-title {
+    font-size: 11px;
+  }
+  .dc-md-text {
+    font-size: 11px;
+    line-height: 1.4;
+  }
 }
 </style>

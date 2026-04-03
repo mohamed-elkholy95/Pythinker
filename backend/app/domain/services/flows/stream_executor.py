@@ -70,12 +70,14 @@ class StreamExecutor:
                             self._idle_timeout,
                             self._session_id,
                         )
-                        async for ev in self._timeout_cleanup(
-                            inner_iter,
-                            f"The agent hasn't produced output for {idle_mins} minutes and may be stuck.",
-                            "workflow_idle_timeout",
-                        ):
-                            yield ev
+                        yield ErrorEvent(
+                            error=f"The agent hasn't produced output for {idle_mins} minutes and may be stuck.",
+                            error_type="timeout",
+                            recoverable=True,
+                            can_resume=True,
+                            error_code="workflow_idle_timeout",
+                        )
+                        yield DoneEvent()
                         return
 
                     # Track tool execution state for grace period
@@ -101,36 +103,14 @@ class StreamExecutor:
                 self._wall_clock_timeout,
                 self._session_id,
             )
-            async for ev in self._timeout_cleanup(
-                inner,
-                f"The task reached the {wall_mins}-minute time limit.",
-                "workflow_wall_clock_timeout",
-            ):
-                yield ev
-
-    async def _timeout_cleanup(
-        self,
-        inner_iter: AsyncIterator[BaseEvent],
-        error_message: str,
-        error_code: str,
-    ) -> AsyncGenerator[BaseEvent, None]:
-        """Close inner generator (so its finally-blocks run) then emit timeout events."""
-        try:
-            await inner_iter.aclose()
-        except Exception as e:
-            logger.debug(
-                "StreamExecutor: inner generator close error for session %s: %s",
-                self._session_id,
-                e,
+            yield ErrorEvent(
+                error=f"The task reached the {wall_mins}-minute time limit.",
+                error_type="timeout",
+                recoverable=True,
+                can_resume=True,
+                error_code="workflow_wall_clock_timeout",
             )
-        yield ErrorEvent(
-            error=error_message,
-            error_type="timeout",
-            recoverable=True,
-            can_resume=True,
-            error_code=error_code,
-        )
-        yield DoneEvent()
+            yield DoneEvent()
 
     async def _check_cancelled(self, tool_active: bool = False) -> None:
         """Check cancellation with grace period during tool execution."""

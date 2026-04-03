@@ -226,7 +226,7 @@
               <!-- Reconnecting overlay -->
               <Transition name="fade">
                 <LoadingState
-                  v-if="livePreviewDisconnected && !!sessionId && !sessionCompleteState"
+                  v-if="livePreviewDisconnected && !!sessionId && !isSessionComplete"
                   class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
                   :label="livePreviewPlaceholderLabel || 'Reconnecting'"
                   :detail="livePreviewPlaceholderDetail"
@@ -575,7 +575,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { MonitorUp, X, Loader2, FileText, Play } from 'lucide-vue-next';
+import { MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -632,7 +632,6 @@ import type { ScreenshotMetadata } from '@/types/screenshot';
 import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
 import { stripCmdMarkers, cleanPs1, cleanShellOutput } from '@/utils/shellSanitizer';
 import { deriveSessionName } from '@/utils/sessionName';
-import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 
 import type { ContentViewType } from '@/constants/tool';
 import type { DealToolContent } from '@/types/toolContent';
@@ -1274,7 +1273,7 @@ const contentHeaderLabel = computed(() => {
     return 'Report';
   }
   if (showPlanPresentation.value) {
-    if (props.isPlanStreaming) return 'Planning';
+    if (props.isPlanStreaming) return 'Creating plan...';
     return 'Editor';
   }
   // Browser: no label — the live preview speaks for itself

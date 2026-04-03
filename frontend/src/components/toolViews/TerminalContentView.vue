@@ -24,7 +24,6 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign';
-import { applyXtermHelperTextareaAccessibility } from '@/utils/xtermAccessibility';
 
 const props = defineProps<{
   content: string;
@@ -142,6 +141,7 @@ onMounted(async () => {
     cursorStyle: 'block',
     theme: isDarkMode.value ? darkTheme : lightTheme,
     scrollOnUserInput: true,
+    overviewRulerLanes: 0,
     cols: 80,
     rows: 24,
   });
@@ -270,7 +270,6 @@ watch(
   height: 100%;
   background: var(--terminal-tool-viewport-bg);
   color: var(--terminal-tool-text);
-  -webkit-text-fill-color: currentColor; /* Reset any inherited transparent fill */
   border: none;
   border-radius: 0;
   box-sizing: border-box;

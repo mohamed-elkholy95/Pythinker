@@ -169,10 +169,10 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row" :class="{ 'mt-1': props.showSkillHeader !== false || toolContent.function !== 'skill_invoke' }">
+  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row mt-1">
     <!-- Skill invoke: render as mini-step aligned with step flow -->
     <div v-if="toolContent.function === 'skill_invoke'" class="step-compact step-compact--has-connector">
-      <div v-if="props.showSkillHeader !== false" class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
+      <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
         <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
           <span class="step-running-dot" aria-hidden="true"></span>
         </div>
@@ -180,7 +180,7 @@
           <CheckIcon :size="10" :stroke-width="2.5" />
         </div>
         <span class="step-compact-title step-compact-title--skill">
-          {{ skillInvokeTitle }}
+          {{ toolContent.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.display_command || 'Working') }}
         </span>
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -364,7 +364,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, TaskCompletedFooter, AttachmentsInlineGrid } from './report';
+import { ReportCard, TaskCompletedFooter } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
 import type { ReasoningStage } from '@/types/reasoning';
 import type { ReportData } from './report';
@@ -516,6 +516,19 @@ const reportData = computed<ReportData>(() => {
     attachments: content.attachments,
     sources: content.sources,
   };
+});
+
+// Filter out the report's own .md file from the attachment grid — it duplicates
+// the report card content (created by _ensure_report_file on the backend).
+const _reportSupplementaryAttachments = computed(() => {
+  const atts = reportData.value.attachments;
+  if (!atts || atts.length === 0) return [];
+  const reportId = reportData.value.id;
+  return atts.filter((file) => {
+    const fname = file.filename || file.file_path?.split('/').pop() || '';
+    // Pattern: report-{uuid}.md — exact match for the auto-generated report file
+    return !fname.startsWith(`report-${reportId}`) || !fname.endsWith('.md');
+  });
 });
 
 // Control step expand/collapse state

@@ -119,19 +119,6 @@ class PendingActionStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class SessionReliabilityDiagnostics(BaseModel):
-    """Session-scoped transport and stream-pressure summary reported by the frontend."""
-
-    auto_retry_count: int = Field(default=0, ge=0)
-    fallback_poll_attempts: int = Field(default=0, ge=0)
-    stale_detection_count: int = Field(default=0, ge=0)
-    duplicate_event_drops: int = Field(default=0, ge=0)
-    max_queue_depth: int = Field(default=0, ge=0)
-    average_flush_batch_size: float | None = Field(default=None, ge=0.0)
-    max_chunk_processing_duration_ms: float | None = Field(default=None, ge=0.0)
-    submitted_at: datetime | None = None
-
-
 class Session(BaseModel):
     """Session model"""
 
@@ -156,8 +143,6 @@ class Session(BaseModel):
     is_shared: bool = False  # Whether this session is shared publicly
     mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)
     research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy: fast_search or deep_research
-    workload_class: SessionWorkloadClass | None = None
-    reliability: SessionReliabilityDiagnostics | None = None
     pending_action: PendingAction | None = None
     pending_action_status: PendingActionStatus | None = None
     # Workspace metadata (sanitized)
@@ -226,28 +211,6 @@ class Session(BaseModel):
                 return ResearchMode.DEEP_RESEARCH
         return ResearchMode.DEEP_RESEARCH
 
-    @field_validator("workload_class", mode="before")
-    @classmethod
-    def _coerce_workload_class(cls, v: object) -> SessionWorkloadClass | None:
-        """Coerce stored workload hints back into the enum."""
-        if v is None:
-            return None
-        if isinstance(v, SessionWorkloadClass):
-            return v
-        if isinstance(v, str):
-            try:
-                return SessionWorkloadClass(v.strip().lower())
-            except ValueError:
-                return None
-        return None
-
-    @field_serializer("workload_class")
-    @classmethod
-    def _serialize_workload_class(cls, v: SessionWorkloadClass | str | None) -> str | None:
-        if v is None:
-            return None
-        return v.value if isinstance(v, SessionWorkloadClass) else str(v)
-
     @field_validator("sandbox_lifecycle_mode", mode="before")
     @classmethod
     def _coerce_sandbox_lifecycle_mode(cls, v: object) -> SandboxLifecycleMode | None:
@@ -278,29 +241,6 @@ class Session(BaseModel):
         if v is None:
             return None
         return v.value if isinstance(v, SandboxLifecycleMode) else str(v)
-
-    @field_validator("takeover_reason", mode="before")
-    @classmethod
-    def _coerce_takeover_reason(cls, v: object) -> TakeoverReason | None:
-        """Coerce plain string values to the TakeoverReason enum (MongoDB returns raw strings)."""
-        if v is None:
-            return None
-        if isinstance(v, TakeoverReason):
-            return v
-        if isinstance(v, str):
-            try:
-                return TakeoverReason(v.strip().lower())
-            except ValueError:
-                return TakeoverReason.MANUAL
-        return TakeoverReason.MANUAL
-
-    @field_serializer("takeover_reason")
-    @classmethod
-    def _serialize_takeover_reason(cls, v: TakeoverReason | str | None) -> str | None:
-        """Serialize TakeoverReason enum to string to prevent PydanticSerializationUnexpectedValue."""
-        if v is None:
-            return None
-        return v.value if isinstance(v, TakeoverReason) else str(v)
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""

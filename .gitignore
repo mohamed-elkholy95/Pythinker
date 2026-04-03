@@ -120,6 +120,7 @@ design*.html
 Pythinker/
 reference/
 
+
 # Cron automation state
 .pythinker-cron-state.json
 .pythinker-cron.lock

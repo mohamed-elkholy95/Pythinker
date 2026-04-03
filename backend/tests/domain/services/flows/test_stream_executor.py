@@ -119,39 +119,3 @@ async def test_grace_period_allows_reconnection():
 
     types = [type(e).__name__ for e in collected]
     assert "DoneEvent" in types, f"Expected completion but got: {types}"
-
-
-@pytest.mark.asyncio
-async def test_idle_timeout_closes_inner_generator():
-    """Verify that idle timeout calls aclose() on the inner generator.
-
-    This prevents the "empty pages after sandbox cleanup" bug where the
-    inner generator's finally-block (e.g., final file sweep) was never
-    executed because the generator was abandoned on timeout.
-    """
-    cleanup_ran = False
-
-    async def _gen_with_cleanup():
-        nonlocal cleanup_ran
-        try:
-            yield ProgressEvent(phase="received", message="start")
-            await asyncio.sleep(10)  # Longer than idle_timeout
-            yield DoneEvent()
-        finally:
-            cleanup_ran = True
-
-    token = CancellationToken(session_id="s5")
-    executor = StreamExecutor(
-        cancel_token=token,
-        session_id="s5",
-        agent_id="a5",
-        wall_clock_timeout=60,
-        idle_timeout=1,
-    )
-    collected = [event async for event in executor.execute(_gen_with_cleanup())]
-
-    assert cleanup_ran, "Inner generator finally-block must run on idle timeout"
-    assert len(collected) == 3  # ProgressEvent + ErrorEvent + DoneEvent
-    assert isinstance(collected[1], ErrorEvent)
-    assert collected[1].error_code == "workflow_idle_timeout"
-    assert isinstance(collected[2], DoneEvent)

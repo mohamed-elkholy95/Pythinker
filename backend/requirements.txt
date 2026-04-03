@@ -10,8 +10,8 @@ fastapi[standard]>=0.115.0,<1.0.0
 uvicorn>=0.32.0,<1.0.0
 
 # LLM providers (let browser-use control openai version)
-openai>=2.7.0,<3.0.0
-instructor>=1.14.5,<2.0.0
+openai>=2.7.2
+instructor>=1.14.5
 
 # Data validation
 pydantic>=2.9.0,<3.0.0
@@ -29,6 +29,11 @@ httpx>=0.28.1,<1.0.0
 urllib3>=2.6.3,<3.0.0
 charset-normalizer>=3.0,<3.5
 
+# HTTP and encoding dependencies with pinned versions for E2E reliability
+# >=2.6.3 fixes CVE-2026-21441, CVE-2025-66471, CVE-2025-66418 (decompression bomb + unbounded chain)
+urllib3>=2.6.3
+charset-normalizer>=3.0,<3.4
+
 # Utilities (let browser-use control rich and markdownify)
 tenacity>=8.2.0,<10.0.0
 rich>=14.0.0,<15.0.0
@@ -43,14 +48,11 @@ html5lib==1.1
 symspellpy==6.9.0
 
 # Browser automation
-playwright>=1.48.0,<2.0.0
-# PyPI: browser-use 0.12.5 pins requests==2.32.5 (exact). Cannot satisfy requests>=2.33.0 alongside 0.12.x.
-browser-use>=0.12.5,<0.13.0
+playwright>=1.48.0
+browser-use>=0.11.0
 # Security overrides for browser-use transitive deps
-authlib>=1.6.9,<2.0.0     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
-# browser-use 0.12.5 requires pypdf==6.9.1 (uv cannot satisfy pypdf>=6.9.2 alongside 0.12.5)
-pypdf==6.9.1
-requests==2.32.5          # Pinned by browser-use 0.12.5; CVE-2026-25645 mitigated when upstream relaxes pin
+authlib>=1.6.9     # CVE-2026-28802, CVE-2026-27962, CVE-2026-28490
+pypdf>=6.9.1       # CVE-2026-27026 through CVE-2026-33123 (9 CVEs)
 
 # Web scraping with TLS fingerprinting and stealth capabilities
 # [fetchers] extra adds curl_cffi (Tier 1) + patchright (Tier 2-3)
@@ -73,8 +75,8 @@ qdrant-client>=1.12.0,<2.0.0
 minio>=7.2.0,<8.0.0
 
 # Image processing (screenshot deduplication & WebP thumbnails)
-Pillow>=12.1.1,<13.0.0
-imagehash>=4.3.1,<5.0.0
+Pillow>=12.1.1
+imagehash>=4.3.1
 
 # Caching
 async-lru>=2.0.0,<3.0.0

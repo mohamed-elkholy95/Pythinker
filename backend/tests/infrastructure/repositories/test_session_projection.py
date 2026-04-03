@@ -210,7 +210,7 @@ class TestProjectionDiscipline:
 
         file_info = FileInfo(file_id="f1", filename="test.py", file_path="/test.py")
 
-        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=mock_collection):
+        with patch.object(SessionDocument, "get_pymongo_collection", return_value=mock_collection):
             await repo.add_file("s1", file_info)
 
         mock_collection.find_one.assert_not_called()

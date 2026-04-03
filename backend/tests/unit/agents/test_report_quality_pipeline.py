@@ -779,11 +779,13 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
-        """Critical hallucination ratio blocks final delivery even when all steps completed.
+    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
+        """Critical hallucination ratio is downgraded to warning when all steps completed.
 
-        Fail-closed grounding: unsupported-claim ratio above the block threshold
-        with rewrite failure must not ship as a normal report completion.
+        hallucination_ratio_critical is soft-non-downgradable — it blocks delivery
+        only when steps are incomplete. When all steps completed, the report file
+        is already saved so blocking the summary just frustrates the user.
+        A reliability disclaimer is appended instead.
         """
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -821,8 +823,10 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        assert any(isinstance(event, ErrorEvent) for event in events)
-        assert not any(isinstance(event, ReportEvent) for event in events)
+        # hallucination_ratio_critical is downgraded when all steps completed —
+        # the report is delivered with a disclaimer instead of being blocked
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_hallucination_ratio_critical_blocks_when_steps_incomplete(self):

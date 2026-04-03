@@ -633,22 +633,8 @@ class TestPlanOutputValid:
         assert len(parsed["steps"]) == 1
 
 
-class TestPlanOutputStepsValidator:
-    """Tests for the steps field_validator on PlanOutput."""
-
-    def test_empty_steps_list_raises(self):
-        """An explicitly empty steps list is rejected by min_length."""
-        with pytest.raises(ValidationError):
-            PlanOutput(goal="Goal", title="Plan", steps=[])
-
-    def test_steps_required(self):
-        """Omitting steps entirely raises ValidationError."""
-        with pytest.raises(ValidationError):
-            PlanOutput(goal="Goal", title="Plan")  # type: ignore[call-arg]
-
-
-class TestPlanOutputTitleValidator:
-    """Tests for the title field_validator on PlanOutput."""
+class TestToolCallOutput:
+    """Tests for ToolCallOutput model."""
 
     def test_whitespace_only_title_raises(self):
         """A whitespace-only title raises ValidationError after stripping."""
@@ -1144,11 +1130,18 @@ class TestValidateLlmOutput:
         assert parsed is None
         assert result.is_valid is False
 
-    def test_returns_tuple_of_two(self):
-        """validate_llm_output always returns a 2-tuple."""
-        output = validate_llm_output('{"summary": "X.", "outcome": "success"}', SummaryOutput)
-        assert isinstance(output, tuple)
-        assert len(output) == 2
+    def test_low_confidence_warning(self):
+        """Test warning for low confidence score."""
+        json_content = json.dumps(
+            {
+                "error_type": "timeout",
+                "root_cause": "Slow API",
+                "confidence": 0.2,
+            }
+        )
+        _result, validation = validate_llm_output(json_content, ErrorAnalysisOutput)
+        assert validation.is_valid is True
+        assert any("confidence" in w.lower() for w in validation.warnings)
 
     def test_missing_field_suggestion_included(self):
         """When a required field is absent, a 'required' suggestion is generated."""

@@ -8,9 +8,6 @@ from app.domain.external.sandbox import Sandbox
 
 if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
-import uuid
-from dataclasses import dataclass, field
-
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
@@ -85,20 +82,21 @@ class ShellTool(BaseTool):
             security_critic: Optional security critic for command validation
             config: Optional DomainConfig for dependency injection (falls back to get_settings)
         """
-        super().__init__(
-            max_observe=max_observe,
-            defaults=ToolDefaults(
-                is_destructive=True,
-                max_result_size_chars=30_000,
-                category="shell",
-            ),
-        )
+        super().__init__(max_observe=max_observe)
         self._config = config
         self.sandbox = sandbox
         self.security_critic = security_critic or SecurityCritic()
         self._classifier = ShellCommandClassifier()
         self._timeout_policy = TimeoutPolicy()
         self._bg_jobs: dict[str, _BackgroundJob] = {}  # job_id → job
+
+    def _get_config(self) -> DomainConfig:
+        """Return the injected DomainConfig, falling back to get_settings lazily."""
+        if self._config is not None:
+            return self._config
+        from app.core.config import get_settings
+
+        return get_settings()
 
     def _get_config(self) -> DomainConfig:
         """Return the injected DomainConfig, falling back to get_settings lazily."""

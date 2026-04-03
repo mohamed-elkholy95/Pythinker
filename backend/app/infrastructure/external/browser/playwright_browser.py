@@ -3293,8 +3293,6 @@ class PlaywrightBrowser:
                 await self._ensure_page_visible()
                 # Park cursor outside viewport so it doesn't appear in screencast
                 await self._park_cursor()
-                # Page lifecycle: mark page active with navigated origin
-                self._touch_page(self.page, origin=url)
                 logger.debug(f"navigate_for_display: showed {url} on live preview")
                 self._display_failure_count = 0
                 return True

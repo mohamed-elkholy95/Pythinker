@@ -272,9 +272,9 @@ class LLMGroundingVerifier:
                 if not isinstance(claim, dict):
                     continue
                 claim_text = claim.get("claim", "")
-                verdict = claim.get("verdict", ClaimVerdict.UNVERIFIABLE).lower()
-                if verdict not in ClaimVerdict._ALL:
-                    verdict = ClaimVerdict.UNVERIFIABLE
+                verdict = claim.get("verdict", "unverifiable").lower()
+                if verdict not in ("supported", "unsupported", "unverifiable", "common_knowledge"):
+                    verdict = "unverifiable"
 
                 # Skip self-referential claims — they are meta-statements about
                 # the agent's own output, not verifiable external facts.
@@ -286,7 +286,7 @@ class LLMGroundingVerifier:
                 # don't need source backing (e.g., historical dates, famous events).
                 # Counting these as "unsupported" inflates the hallucination score
                 # with false positives and causes alert fatigue.
-                if verdict == ClaimVerdict.COMMON_KNOWLEDGE:
+                if verdict == "common_knowledge":
                     common_knowledge_skipped += 1
                     continue
 

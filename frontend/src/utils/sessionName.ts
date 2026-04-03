@@ -10,9 +10,8 @@ export function deriveSessionName(command: string | undefined): string {
   const cmd = parts[0]
 
   // Script execution: python3 script.py → "script_name"
-  // Skip interpreter flags (e.g. python3 -u script.py)
   if (['python3', 'python', 'node', 'bash', 'sh'].includes(cmd)) {
-    const script = parts.slice(1).find((p) => !p.startsWith('-'))
+    const script = parts[1]
     if (script) {
       return script.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_') || 'terminal'
     }

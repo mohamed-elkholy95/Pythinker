@@ -67,28 +67,6 @@ class MiddlewarePipeline:
                 logger.exception("Middleware %s.%s raised exception (swallowed)", mw.name, hook_name)
         return final
 
-    def reset_for_new_step(self) -> None:
-        """Reset per-step state on all middleware via lifecycle hook."""
-        self.run_step_boundary()
-
-    def run_step_boundary(self) -> None:
-        """Notify all middleware of a step boundary.
-
-        Calls on_step_boundary() on middleware that implement it,
-        falls back to reset_browser_budget() for backward compatibility.
-        """
-        for mw in self._middleware:
-            try:
-                if hasattr(mw, "on_step_boundary"):
-                    mw.on_step_boundary()
-                elif hasattr(mw, "reset_browser_budget"):
-                    mw.reset_browser_budget()
-            except Exception:
-                logger.exception(
-                    "Middleware %s step boundary hook raised (swallowed)",
-                    getattr(mw, "name", "?"),
-                )
-
     async def run_before_execution(self, ctx: MiddlewareContext) -> MiddlewareResult:
         return await self._run_first_wins("before_execution", ctx)
 

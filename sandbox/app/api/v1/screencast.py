@@ -194,7 +194,9 @@ async def stream_frames_ws(
     # When SCREENCAST_MODE=x11, capture the full Xvfb display (including
     # Chrome's tab bar, address bar, and window decorations) using xwd.
     # This matches the VNC takeover view appearance.
-    use_x11 = sandbox_settings.SCREENCAST_MODE == "x11" and is_x11_available()
+    use_x11 = (
+        sandbox_settings.SCREENCAST_MODE == "x11" and is_x11_available()
+    )
 
     if use_x11:
         logger.info("[X11 Stream] Using X11 display capture mode")

@@ -372,28 +372,17 @@ class BaseAgent:
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
         from app.domain.services.agents.middleware_adapters.error_handler import ErrorHandlerMiddleware
         from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
-        from app.domain.services.agents.middleware_adapters.permission_gate import PermissionGateMiddleware
         from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
         from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
         from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
 
         pipeline = MiddlewarePipeline()
         pipeline.use(SecurityAssessmentMiddleware(assessor=self._security_assessor))
-        pipeline.use(PermissionGateMiddleware())
         pipeline.use(HallucinationGuardMiddleware(detector=self._hallucination_detector))
         pipeline.use(EfficiencyMonitorMiddleware(monitor=self._efficiency_monitor))
         pipeline.use(StuckDetectionMiddleware(detector=self._stuck_detector))
         pipeline.use(ErrorHandlerMiddleware(handler=self._error_handler))
         return pipeline
-
-    @property
-    def metadata_index(self) -> "ToolMetadataIndex":
-        """Lazy-built metadata index from registered tool instances."""
-        if self._metadata_index is None:
-            from app.domain.services.tools.metadata_index import ToolMetadataIndex
-
-            self._metadata_index = ToolMetadataIndex(self.tools)
-        return self._metadata_index
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -1476,60 +1465,11 @@ class BaseAgent:
 
         return result
 
-    @staticmethod
-    def _cap_search_results(result: ToolResult, max_results: int) -> ToolResult:
-        """Cap search results to top N items to reduce LLM context consumption.
-
-        Search tools return up to 20 results; the LLM only needs ~10 to make
-        informed decisions.  Reducing from 20→10 saves ~5K chars of context,
-        cutting the slowest LLM call from ~12s to ~7s.
-        """
-        data = result.data
-        if data is None:
-            return result
-
-        # Dict-shaped data with "results" list
-        if isinstance(data, dict) and isinstance(data.get("results"), list):
-            results_list = data["results"]
-            if len(results_list) > max_results:
-                return ToolResult(
-                    success=result.success,
-                    message=result.message,
-                    data={**data, "results": results_list[:max_results]},
-                )
-
-        # Object-shaped data with .results attribute (e.g., SearchResults model)
-        if hasattr(data, "results") and not isinstance(data, dict):
-            results_list = getattr(data, "results", None)
-            if results_list and len(results_list) > max_results:
-                with contextlib.suppress(AttributeError, TypeError):
-                    data.results = results_list[:max_results]
-
-        # Dict-shaped wide_research with "sources" key
-        if isinstance(data, dict) and isinstance(data.get("sources"), list):
-            sources_list = data["sources"]
-            if len(sources_list) > max_results:
-                return ToolResult(
-                    success=result.success,
-                    message=result.message,
-                    data={**data, "sources": sources_list[:max_results]},
-                )
-
-        return result
-
     def _serialize_tool_result_for_memory(self, result: ToolResult, function_name: str = "") -> str:
         """Serialize tool results with size guardrails to avoid memory bloat."""
-        is_search = function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH)
-
         # P2-16: Sanitize raw HTML in search results before serialization
-        if is_search:
+        if function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH):
             result = self._sanitize_search_result_html(result)
-
-        # Cap search results to top N to reduce LLM context size.
-        # 20 results with rich snippets easily exceeds 10K chars; capping to 10
-        # saves ~30-50% on the slowest LLM call per step.
-        if is_search and result.data is not None:
-            result = self._cap_search_results(result, self._SEARCH_RESULT_MAX_FOR_LLM)
 
         raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
         if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
@@ -1855,34 +1795,6 @@ class BaseAgent:
         try:
             while iteration_spent < iteration_budget:
                 if not message.get("tool_calls"):
-                    # ── Proactive JSON nudge ──────────────────────────────
-                    # If the LLM stopped calling tools but produced no text,
-                    # nudge it once *inside* the loop to produce JSON before
-                    # we fall through to the heavier recovery pipeline.
-                    _exit_text = (message.get("content") or "").strip()
-                    if (
-                        has_tools
-                        and format == "json_object"
-                        and not _exit_text
-                        and step_iteration_count > 0
-                        and not getattr(self, "_json_nudge_sent", False)
-                    ):
-                        self._json_nudge_sent = True
-                        logger.info("Proactive JSON nudge: tool loop ended with empty content")
-                        message = await self.ask_with_messages(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "Now summarize your findings as a JSON object. "
-                                        'Format: {"success": true, "result": "your summary", "attachments": []}. '
-                                        "Respond with ONLY the JSON."
-                                    ),
-                                }
-                            ],
-                            format="json_object",
-                        )
-                        continue  # Re-enter loop to check if LLM now has content
                     break
 
                 tool_calls = message["tool_calls"]
@@ -2473,29 +2385,6 @@ class BaseAgent:
                         logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
 
                 message = await self.ask_with_messages(tool_responses)
-
-                # Intra-step context pressure check — compact immediately if growing too fast
-                if hasattr(self, "memory") and self.memory and self.memory.messages:
-                    _total = sum(len(str(m.get("content", ""))) for m in self.memory.messages)
-                    if _total > 40_000:  # ~40% of hard cap — proactive compaction (lowered from 50K)
-                        _tool_msgs = [i for i, m in enumerate(self.memory.messages) if m.get("role") == "tool"]
-                        _compacted = 0
-                        # Keep last 2 tool results intact; aggressively truncate the rest
-                        _keep_intact = 2
-                        for idx in _tool_msgs[:-_keep_intact] if len(_tool_msgs) > _keep_intact else []:
-                            _c = self.memory.messages[idx].get("content", "")
-                            if isinstance(_c, str) and len(_c) > 200:
-                                self.memory.messages[idx] = {
-                                    **self.memory.messages[idx],
-                                    "content": _c[:200] + "\n[...compacted mid-step...]",
-                                }
-                                _compacted += 1
-                        if _compacted:
-                            logger.info(
-                                "Intra-step compaction: truncated %d tool results (context was %d chars)",
-                                _compacted,
-                                _total,
-                            )
             else:
                 # Budget exhausted - provide informative error with context
                 logger.error(
@@ -2640,20 +2529,90 @@ class BaseAgent:
 
         # ── Final fallback — guarantees non-None final_content ─────────
         if not final_content:
-            logger.warning("Agent produced empty final message — yielding fallback")
-            fallback_error = (
-                "Step time limit exceeded. No result produced."
-                if wall_clock_exceeded
-                else "I was unable to produce a complete response. Please try again or rephrase your request."
-            )
-            final_content = json.dumps(
-                {
-                    "success": False,
-                    "result": None,
-                    "attachments": [],
-                    "error": fallback_error,
-                }
-            )
+            # ── Stage 1: Salvage pre-enforcement prose or JSON ────────────
+            # The LLM sometimes writes its answer as plain text or returns a
+            # JSON object whose "content" key was empty despite having _final_text.
+            _stripped = (_final_text or "").lstrip()
+            if _final_text and len(_final_text) > 20:
+                if _stripped.startswith("{") or _stripped.startswith("["):
+                    # Attempt to salvage valid JSON from pre-enforcement text
+                    try:
+                        _parsed = json.loads(_final_text)
+                        if isinstance(_parsed, dict):
+                            # Extract the most useful field as the result
+                            _result = _parsed.get("result") or _parsed.get("summary") or _parsed.get("content")
+                            if _result and isinstance(_result, str) and len(_result) > 10:
+                                logger.info("Salvaging %d-char JSON response via result extraction", len(_final_text))
+                                final_content = _final_text
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    # Wrap raw prose as JSON
+                    logger.info(
+                        "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
+                        len(_final_text),
+                    )
+                    _salvage_summary = _final_text[:300].split("\n")[0].strip()
+                    final_content = json.dumps(
+                        {
+                            "success": True,
+                            "result": _salvage_summary,
+                            "attachments": [],
+                        }
+                    )
+
+            # ── Stage 2: Summarization recovery via LLM ──────────────────
+            # Ask the LLM to summarize what it did during the tool loop.
+            if not final_content and not wall_clock_exceeded:
+                logger.info("Attempting summarization recovery for empty final message")
+                recovery_message = await self.ask_with_messages(
+                    [
+                        {
+                            "role": "user",
+                            "content": (
+                                "You completed tool calls but did not provide a text response. "
+                                "Respond with ONLY a JSON object: "
+                                '{"success": true, "result": "<brief summary of what you accomplished>", "attachments": []}. '
+                                "No markdown, no extra text."
+                            ),
+                        }
+                    ],
+                    format="json_object",
+                )
+                recovery_content = (recovery_message.get("content") or "").strip()
+                if recovery_content and len(recovery_content) > 10:
+                    try:
+                        json.loads(recovery_content)
+                        logger.info(
+                            "Summarization recovery succeeded as JSON (%d chars)",
+                            len(recovery_content),
+                        )
+                        final_content = recovery_content
+                    except (ValueError, TypeError):
+                        logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
+                        final_content = json.dumps(
+                            {
+                                "success": True,
+                                "result": recovery_content[:500],
+                                "attachments": [],
+                            }
+                        )
+
+                if not final_content:
+                    logger.warning("Agent produced empty final message — yielding fallback")
+                    fallback_error = (
+                        "Step time limit exceeded. No result produced."
+                        if wall_clock_exceeded
+                        else "I was unable to produce a complete response. Please try again or rephrase your request."
+                    )
+                    final_content = json.dumps(
+                        {
+                            "success": False,
+                            "result": None,
+                            "attachments": [],
+                            "error": fallback_error,
+                        }
+                    )
         yield MessageEvent(message=final_content)
 
         # Cleanup background tasks on normal exit (e.g. background memory saves)

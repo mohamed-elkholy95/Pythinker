@@ -82,7 +82,7 @@
 
       <!-- Static PNG preview -->
       <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
-        <img v-if="pngUrl && !pngLoadError" :src="pngUrl" :alt="chartPayload?.title || 'Chart'" class="w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" @click="emit('open-canvas')" @error="onPngError" />
+        <img v-if="pngUrl && !pngLoadError" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" @click="emit('open-canvas')" @error="onPngError" />
         <div v-else class="p-8 flex flex-col items-center justify-center gap-2 bg-[var(--background-gray-light)]">
           <div class="text-[var(--text-tertiary)] text-sm text-center">
             <template v-if="chartError">

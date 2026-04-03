@@ -42,12 +42,6 @@ class StuckDetectionMiddleware(BaseMiddleware):
         return MiddlewareResult.ok()
 
     async def after_step(self, ctx: MiddlewareContext) -> MiddlewareResult:
-        # Propagate step description so research_without_output can suppress
-        # false positives during research-focused steps.
-        step_desc = ctx.metadata.get("current_step_description")
-        if step_desc is not None:
-            self._detector._current_step_description = step_desc
-
         # track_response expects a dict with "content" and optionally "tool_calls"
         last_response = ctx.metadata.get("last_response", {})
         if not last_response:
@@ -75,11 +69,7 @@ class StuckDetectionMiddleware(BaseMiddleware):
 
         if is_stuck:
             self._detector.record_recovery_attempt()
-            # Fix 3: Use escalating prompt when stuck multiple times in same step.
-            # After 2+ detections, force the agent to produce output instead of
-            # continuing to research.
-            escalating = self._detector.get_escalating_recovery_prompt()
-            recovery = escalating or self._detector.get_recovery_prompt()
+            recovery = self._detector.get_recovery_prompt()
             return MiddlewareResult(
                 signal=MiddlewareSignal.INJECT,
                 message=recovery,

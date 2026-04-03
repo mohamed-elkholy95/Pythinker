@@ -50,11 +50,7 @@ CHROME_FLAGS=(
     --start-maximized
     --disable-gpu
     --disable-gpu-sandbox
-    # NOTE: --disable-gpu-compositing removed — it disables Chrome's compositor,
-    # which is required for OOPIF (Out-of-Process IFrame) rendering. The built-in
-    # PDF viewer renders via an OOPIF; without the compositor, the PDF extension
-    # loads but content appears as a blank gray page. SwiftShader (--use-gl=swiftshader)
-    # provides software compositing so this is safe to leave enabled.
+    --disable-gpu-compositing
     --disable-vulkan
     --enable-unsafe-swiftshader
     # Disable WebGL/WebGL2 — eliminates "GPU stall due to ReadPixels" warnings
@@ -142,15 +138,13 @@ _pin_chrome_window() {
         return 1
     fi
 
-    # Continuous pin loop — 30s interval for window drift correction.
-    # Reduced from 10s to cut xdotool wake-ups and associated X11 round-trips.
-    # Window drift is rare; 30s is sufficient to catch it without wasting CPU.
+    # Continuous pin loop
     while true; do
         for wid in $(DISPLAY=:99 xdotool search --class chromium 2>/dev/null); do
             DISPLAY=:99 xdotool windowmove "$wid" 0 0 2>/dev/null
             DISPLAY=:99 xdotool windowsize "$wid" 1280 1024 2>/dev/null
         done
-        sleep 30
+        sleep 2
     done
 }
 _pin_chrome_window &

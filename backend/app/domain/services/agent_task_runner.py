@@ -408,15 +408,6 @@ class AgentTaskRunner(TaskRunner):
                 except Exception as exc:
                     logger.warning("SkillsLoader unavailable: %s", exc)
 
-            # ── SkillPackageRepository ────────────────────
-            _skill_package_repo = None
-            try:
-                from app.infrastructure.repositories.mongo_skill_package_repository import MongoSkillPackageRepository
-
-                _skill_package_repo = MongoSkillPackageRepository()
-            except Exception as _spr_exc:
-                logger.warning("SkillPackageRepository unavailable: %s", _spr_exc)
-
             # ── LeadAgentRuntime (opt-in via feature flag) ─────────
             self._lead_agent_runtime = None
             if feature_flags.get("feature_lead_agent_runtime", False):
@@ -968,7 +959,7 @@ class AgentTaskRunner(TaskRunner):
                 preferred_font=settings.telegram_pdf_unicode_font,
             )
         except Exception as e:
-            logger.warning("PDF generation failed for report %s: %s", event.id, e, exc_info=True)
+            logger.warning("PDF generation failed for report %s: %s", event.id, e)
             return None
 
         # Build a human-readable filename from the report title
@@ -1764,9 +1755,9 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "deal_scraper":
                     # Content already populated by base.py:_create_tool_event()
                     logger.debug("Agent %s: deal_scraper tool content from base.py", self._agent_id)
-                elif event.tool_name in ("skill_invoke", "result_retrieval"):
+                elif event.tool_name == "skill_invoke":
                     # Skill invocation — content handled by skill_invoke tool
-                    logger.debug("Agent %s: %s tool event processed", self._agent_id, event.tool_name)
+                    logger.debug("Agent %s: skill_invoke tool event processed", self._agent_id)
                 else:
                     logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
 
@@ -2214,7 +2205,19 @@ class AgentTaskRunner(TaskRunner):
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
     async def on_done(self, task: Task) -> None:
-        """Run final workspace file sweep after task completion.
+        """Called when the task is done — run final workspace sweep to catch all files."""
+        logger.info(f"Agent {self._agent_id} task done, running final file sweep")
+        try:
+            synced = await self._sweep_workspace_files()
+            if synced:
+                logger.info(
+                    "Agent %s: Final sweep synced %d file(s) to session %s",
+                    self._agent_id,
+                    len(synced),
+                    self._session_id,
+                )
+        except Exception as e:
+            logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
 
         Runs before ``release_task_resources`` so the sandbox is still available.
         Non-fatal if sandbox was already destroyed by a concurrent teardown.

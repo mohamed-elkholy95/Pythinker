@@ -162,14 +162,6 @@ class AgentSafetySettingsMixin:
     planner_max_steps: int = 4  # Default max plan steps (overridden by complexity)
     planner_research_step_cap: int = 10  # Max steps for research-heavy tasks
 
-    # Hard context cap: last-resort safety valve against 60-80s LLM calls.
-    # When total conversation chars exceed this, BaseAgent applies graduated truncation
-    # to tool messages (older = shorter) — see BaseAgent.ask_with_messages.
-    hard_context_char_cap: int = 50_000  # Default cap for standard tasks
-    hard_context_char_cap_deep_research: int = 130_000  # Research modes (deep/wide/fast_search via _is_deep_research)
-    # Browser navigation budget per execution step (prevents infinite browsing loops)
-    max_browser_navigations_per_step: int = 6
-
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
     reflection_interval: int = 5  # Iterations between self-reflection cycles

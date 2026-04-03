@@ -45,7 +45,6 @@ import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
 import type { ConsoleRecord } from '@/types/response';
-import type { ShellToolContent } from '@/types/toolContent';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import TerminalLiveView from './TerminalLiveView.vue';
@@ -179,7 +178,7 @@ const startAutoRefresh = () => {
   }
 
   if (props.live && shellSessionId.value && !document.hidden) {
-    refreshTimer.value = window.setInterval(() => {
+    refreshTimer.value = setInterval(() => {
       if (!document.hidden) {
         loadShellContent();
       }

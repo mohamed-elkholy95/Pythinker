@@ -26,10 +26,9 @@ COPY requirements.txt .
 #   - pip>=25.1 fixes CVE-2026-1703, CVE-2025-8869
 #   - setuptools>=78.1.0 vendors jaraco.context>=6.1.0 (CVE-2026-23949)
 #   - wheel>=0.46.2 fixes permission traversal (CVE-2026-24049)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system "pip>=25.1" "setuptools>=78.1.0,<81" "wheel>=0.46.2" Cython && \
-    uv pip install --system --no-build-isolation editdistpy==0.1.6 && \
-    uv pip install --system -r requirements.txt
+RUN uv pip install --system --no-cache "pip>=25.1" "setuptools>=78.1.0,<81" "wheel>=0.46.2" Cython && \
+    uv pip install --system --no-cache --no-build-isolation editdistpy==0.1.6 && \
+    uv pip install --system --no-cache -r requirements.txt
 
 # Install Playwright Chromium for PDF rendering
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
@@ -85,6 +84,15 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/pip* \
            /usr/local/lib/python3.12/site-packages/jaraco* \
            /usr/local/lib/python3.12/site-packages/pkg_resources*
 
+# Remove stale pip/setuptools from base image BEFORE copying builder packages
+# (Docker COPY merges directories — old dist-info would survive alongside upgraded versions)
+# Fixes CVE-2026-1703, CVE-2025-8869 (pip), CVE-2026-23949 (jaraco.context via setuptools)
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip* \
+           /usr/local/lib/python3.12/site-packages/setuptools* \
+           /usr/local/lib/python3.12/site-packages/wheel* \
+           /usr/local/lib/python3.12/site-packages/jaraco* \
+           /usr/local/lib/python3.12/site-packages/pkg_resources*
+
 # Copy installed Python packages from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
@@ -102,13 +110,8 @@ RUN chmod +x run.sh
 RUN mkdir -p /app/data/dspy_cache
 
 # Non-root user for security (OWASP container hardening)
-# Create docker group (GID from DOCKER_GID build arg, default 988) so
-# appuser can access the Docker socket for ephemeral sandbox lifecycle.
-ARG DOCKER_GID=988
 RUN addgroup --system --gid 1001 appuser && \
     adduser --system --uid 1001 --ingroup appuser appuser && \
-    addgroup --system --gid ${DOCKER_GID} docker || true && \
-    adduser appuser docker || true && \
     chown -R appuser:appuser /app
 USER appuser
 

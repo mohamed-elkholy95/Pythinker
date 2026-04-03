@@ -17,7 +17,7 @@
         @refresh="handleRetryConnection"
         @dismiss="dismissConnectionBanner"
       />
-      <div
+      <div ref="_observerRef"
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 sm:gap-2 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)] overflow-x-hidden">
         <!-- Mobile sidebar toggle -->
         <button
@@ -25,7 +25,7 @@
           @click="toggleLeftPanel"
           aria-label="Open sidebar"
         >
-          <img src="/logo.png" alt="Pythinker" width="20" height="25" class="h-6 w-auto object-contain" />
+          <img src="/logo.png" alt="Pythinker" width="20" height="20" class="w-5 h-5 rounded" style="aspect-ratio: 1 / 1;" />
         </button>
         <!-- Center: Model name as header title (Pythinker-style) -->
         <button
@@ -687,10 +687,6 @@ import {
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
-import { syncToolMessage } from '@/utils/toolMessageTree';
-import { syncSkillDeliveryMessage } from '@/utils/skillDeliveryMessages';
-import { syncPhaseMessage } from '@/utils/phaseMessages';
-import { syncReportMessage } from '@/utils/reportMessages';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { DEFAULT_SESSION_RECONNECT_POLICY } from '@/core/session/reconnectPolicy';
 import {
@@ -721,6 +717,15 @@ const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbea
 const isStale = computed(() => connectionStore.isStale)
 const isLeftPanelShow = computed(() => uiStore.isLeftPanelShow)
 
+// Writable refs from stores (avoids verbose store prefix everywhere)
+const { lastEventId } = storeToRefs(connectionStore)
+
+// Computed aliases from stores (read-only; mutations go through store actions)
+const isToolPanelOpen = computed(() => uiStore.isRightPanelOpen)
+const userDismissedPanel = computed(() => uiStore.userDismissedPanel)
+const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats)
+const isStale = computed(() => connectionStore.isStale)
+
 const router = useRouter()
 const { t } = useI18n()
 const { toggleLeftPanel } = useLeftPanel()
@@ -738,10 +743,15 @@ useConnectorDialog()
 const { lastCapturedError: _lastCapturedError, clearError: _clearError } = useErrorBoundary()
 
 // Response phase state machine (from connectionStore — single source of truth)
-const responsePhase = computed(() => connectionStore.phase)
-const isLoading = computed(() => connectionStore.isLoading)
-const isThinking = computed(() => connectionStore.isThinking)
-const isSettled = computed(() => connectionStore.isSettled)
+const {
+  phase: responsePhase,
+  isLoading,
+  isThinking,
+  isSettled,
+  isError: _isError,
+  isTimedOut: _isTimedOut,
+  isStopped: _isStopped,
+} = storeToRefs(connectionStore)
 const { transitionTo, resetPhase: _resetResponsePhase } = connectionStore
 
 // SSE connection management with stale detection
@@ -845,6 +855,7 @@ const createInitialState = () => ({
 
 // Create reactive state
 const state = reactive(createInitialState());
+const activeHeaderModelName = ref('')
 
 const activeHeaderModelName = ref('')
 
@@ -1154,45 +1165,7 @@ type ToolPanelInstance = InstanceType<typeof ToolPanel> & {
 }
 
 // Non-state refs that don't need reset
-const toolPanel = ref<ToolPanelInstance>()
-const toolPanelPainted = ref(false)
-let toolPanelPaintFrameId: number | null = null
-
-const clearToolPanelPaintFrame = () => {
-  if (toolPanelPaintFrameId === null) return
-  window.cancelAnimationFrame(toolPanelPaintFrameId)
-  toolPanelPaintFrameId = null
-}
-
-watch(
-  () => toolPanel.value?.isShow ?? false,
-  async (isVisible, _previousValue, onCleanup) => {
-    clearToolPanelPaintFrame()
-    toolPanelPainted.value = false
-
-    if (!isVisible) {
-      return
-    }
-
-    let cancelled = false
-    onCleanup(() => {
-      cancelled = true
-      clearToolPanelPaintFrame()
-    })
-
-    await nextTick()
-
-    if (cancelled) return
-
-    toolPanelPaintFrameId = window.requestAnimationFrame(() => {
-      toolPanelPaintFrameId = null
-      if (!cancelled) {
-        toolPanelPainted.value = true
-      }
-    })
-  },
-  { immediate: true },
-)
+const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 
 /// Fullscreen / width control
 const preSplitWidth = ref(0)
@@ -1986,9 +1959,8 @@ watch(isLoading, (loading) => {
 });
 
 // React to stale detection from connectionStore (triggers reconnection)
-watch(isStale, (stale) => {
+watch(() => connectionStore.isStale, (stale) => {
   if (!stale) return
-  streamController.recordStaleDetection()
   handleStaleConnection()
 });
 
@@ -2258,12 +2230,10 @@ const activeThinkingStepId = computed<string | undefined>(() => {
 // (no running step or active tool call visible).
 // Exclude 'completing' phase — that is the 300ms wind-down after done event;
 // the task is already finished so no thinking indicator should appear.
-// Hide when tool panel is open — ThinkingIndicator already shows inside the panel.
 const showFloatingThinkingIndicator = computed(() => {
   if (showSessionWarmupMessage.value) return false;
   if (!isLoading.value) return false;
   if (responsePhase.value === 'completing') return false;
-  if (isToolPanelOpen.value) return false;
   if (hasActiveToolCall.value) return false;
   if (hasRunningStep.value) return false;
   return true;
@@ -3453,7 +3423,10 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   // Strip internal context-compression placeholders that may leak from backend
-  const placeholderStripped = stripLegacyPreviouslyCalledMarkers(reportData.content || '').trim();
+  const placeholderStripped = (reportData.content || '').replace(
+    /\[Previously called \w+\]/g,
+    '',
+  ).trim();
   const normalizedReportContent = collapseDuplicateReportBlocks(placeholderStripped);
   if (!normalizedReportContent) {
     console.warn('[ChatPage] Report content was only placeholder text — skipping');
@@ -3615,7 +3588,7 @@ const closeFilePreview = () => {
 
 // ── Canvas Viewer handlers ──
 const openCanvasViewer = (tool: ToolContent) => {
-  const content = tool?.content as ChartToolContent | undefined;
+  const content = tool?.content;
   if (!content) return;
   const pngFileId = content.png_file_id;
   if (!pngFileId) return;
@@ -4312,7 +4285,7 @@ const restoreSession = async (
     if (shouldAbortRestore('error')) return;
 
     // Session deleted or cleaned up — redirect to home
-    const status = (error as Record<string, unknown>)?.code ?? (error as Record<string, Record<string, unknown>>)?.response?.status;
+    const status = (error as any)?.code ?? (error as any)?.response?.status;
     if (status === 404) {
       console.warn('[RESTORE] Session not found, redirecting to home', { targetSessionId });
       showErrorToast(t('Session not found'));
@@ -4399,11 +4372,9 @@ onMounted(async () => {
     getServerConfig(),
     getSettings(),
   ])
-  const srvCfg = serverConfigResult.status === 'fulfilled' ? serverConfigResult.value : null;
   activeHeaderModelName.value = resolveInitialHeaderModelName(
-    srvCfg?.model_name ?? '',
+    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
     userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
-    srvCfg?.model_display_name,
   )
 
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
@@ -4475,6 +4446,7 @@ watch(documentVisibility, async (newVisibility) => {
       return;
     }
     // Other transient errors — session may still exist
+    console.log('[VISIBILITY] Session status check failed, session may no longer exist');
   }
 });
 
@@ -4860,12 +4832,14 @@ const handleFileListShow = () => {
   background-color: var(--background-gray-main);
 }
 
-/* Manus-style model title */
+/* Pythinker-style centered model title */
 .header-model-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 2px;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-primary);
   transition: opacity 0.15s ease;
@@ -4875,28 +4849,27 @@ const handleFileListShow = () => {
 }
 
 .header-model-title:hover {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .header-model-title-label {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: -0.01em;
-  color: #374151;
 }
 
-.dark .header-model-title-label {
-  color: #e5e7eb;
+@media (max-width: 639px) {
+  .header-model-title-label {
+    font-size: 14px;
+  }
 }
 
 .header-model-title-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  color: #9ca3af;
-  margin-top: 1px;
+  color: var(--text-tertiary);
 }
 
 .chat-header-leading {

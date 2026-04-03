@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import re
@@ -173,10 +172,10 @@ _SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
 
 SKILL_AWARENESS_PROMPT = """
 <skill_awareness>
-Before beginning execution, check whether any available skills match the current task.
-If a matching skill exists and is not already active, invoke skill_invoke before any other tool use.
-If the matching skill is already active from the current conversation, continue with the loaded instructions instead of invoking again.
-Treat loaded skill instructions as authoritative for the task domain they cover.
+Before beginning execution, check if any available skills match the current task.
+If you have the skill_invoke tool and the task involves a domain covered by an available skill,
+invoke that skill first to get specialized instructions. Skill-guided execution produces
+higher-quality results.
 
 Available skill domains: {skill_names}
 </skill_awareness>
@@ -189,10 +188,9 @@ SKILL_ENFORCEMENT_PROMPT = """
 You MUST follow this protocol for EVERY task:
 
 1. **CHECK**: Does the task match any available skill domain? ({skill_names})
-2. **INVOKE**: If yes, call skill_invoke FIRST before any other tool, unless that skill is already active
-3. **FOLLOW**: Execute according to the loaded skill instructions exactly
-4. **REPORT**: Reference which skill guided your execution only after the skill has actually been loaded
-5. **IDEMPOTENCE**: Do not invoke the same active skill repeatedly for the same task unless the task domain changes
+2. **INVOKE**: If yes, call skill_invoke FIRST before any other tool
+3. **FOLLOW**: Execute according to the loaded skill instructions
+4. **REPORT**: Reference which skill guided your execution
 
 Skipping skill invocation when a matching skill exists is a protocol violation.
 Skills are not optional suggestions — they are mandatory workflow enhancers.
@@ -398,7 +396,7 @@ class ExecutionAgent(BaseAgent):
         function_name: str,
         arguments: dict[str, Any],
         skip_security: bool = False,
-    ) -> ToolResult:
+    ):
         """Override to apply skill enforcement tracking and search fidelity."""
         # Phase 4a: Track skill_invoke calls and reset tool_choice after first turn
         if function_name == "skill_invoke":
@@ -537,10 +535,7 @@ class ExecutionAgent(BaseAgent):
                 # Only emit the "Loading skill" chip ONCE per session (first step).
                 _skill_settings = self._get_config()
                 _already_emitted = getattr(self, "_skill_chips_emitted", set())
-                if skill_context and _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
-                    from app.domain.services.skill_registry import get_skill_registry
-
-                    registry = await get_skill_registry()
+                if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
                     for sid in skill_context.skill_ids:
                         skill = await registry.get_skill(sid)
                         if skill:
@@ -560,17 +555,8 @@ class ExecutionAgent(BaseAgent):
                                     tool_call_id=_synth_id,
                                     tool_name="skill_invoke",
                                     function_name="skill_invoke",
-                                    function_args={"skill_name": skill.name},
+                                    function_args={"skill_name": sid},
                                     status=ToolStatus.CALLED,
-                                    function_result=ToolResult.ok(
-                                        message=f"Skill '{skill.name}' activated",
-                                    ),
-                                    tool_content=SkillToolContent(
-                                        skill_id=sid,
-                                        skill_name=skill.name,
-                                        operation="invoke",
-                                        status="activated",
-                                    ),
                                 )
                                 _already_emitted.add(sid)
                                 self._skill_chips_emitted = _already_emitted
@@ -619,23 +605,6 @@ class ExecutionAgent(BaseAgent):
                 "</citation_policy>"
             )
 
-        # Source-grounding constraint for report/deliverable steps.
-        # Prevents the LLM from fabricating data when composing final output.
-        # Triggered when the step description indicates writing a report, summary,
-        # comparison, or deliverable.
-        _step_desc_lower = step.description.lower()
-        _report_keywords = {"write", "report", "compile", "compose", "summarize", "comparison", "deliverable", "draft"}
-        if any(kw in _step_desc_lower for kw in _report_keywords):
-            base_prompt += (
-                "\n\n<source_grounding>"
-                "CRITICAL: When writing your output, ONLY include facts, statistics, features, "
-                "and pricing that you found in your search results and tool outputs during this session. "
-                "Do NOT invent, fabricate, or guess any data. If specific information was not found "
-                "in your research, explicitly state 'information not confirmed in available sources' "
-                "rather than guessing. Accuracy is more important than completeness."
-                "</source_grounding>"
-            )
-
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():
             execution_message = self._prompt_adapter.adapt_prompt(base_prompt)
@@ -662,7 +631,6 @@ class ExecutionAgent(BaseAgent):
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
         _step_start_time = time.monotonic()
-        _tool_call_start_times: dict[str, float] = {}
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -1885,7 +1853,9 @@ class ExecutionAgent(BaseAgent):
 
             if not gate_passed:
                 issue_text = "; ".join(gate_issues)
-                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(gate_issues):
+                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(
+                    gate_issues, all_steps_completed=all_steps_completed
+                ):
                     # All plan steps succeeded — blocking the report is worse than
                     # delivering it with minor integrity gaps.  Downgrade to warning
                     # and proceed with delivery so the user sees their completed work.
@@ -2004,10 +1974,6 @@ class ExecutionAgent(BaseAgent):
                     len(self._pre_trim_report_cache),
                 )
                 message_content = self._clean_report_content(self._pre_trim_report_cache)
-
-            # Layer 2: Richness fallback — if the LLM produced a shallow summary
-            # but the pre-trim cache contains a much richer report, prefer the cache.
-            message_content = self._richness_fallback(message_content, self._pre_trim_report_cache)
 
             # Emit final report/message event
             is_substantial = len(message_content) > 500
@@ -2323,28 +2289,34 @@ class ExecutionAgent(BaseAgent):
             delivery_channel=delivery_channel,
         )
 
-    def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
+    def _can_downgrade_delivery_integrity_issues(self, issues: list[str], *, all_steps_completed: bool = False) -> bool:
         """Allow downgrade only for non-critical integrity failures.
 
         When all plan steps completed, minor structural gaps can still be
         downgraded so users receive their completed work.  Structural
         failures (truncation, broken citations) remain non-downgradable.
 
-        Critical grounding failure (``hallucination_ratio_critical``) is always
-        non-downgradable: fact-checking found a high unsupported-claim ratio
-        and rewrite failed — delivering anyway would ship materially unreliable
-        answers. The user sees an error and can retry; this matches fail-closed
-        grounding policy (2026-03 monitoring report).
+        hallucination_ratio_critical IS downgradable when all plan steps
+        completed, because the report file is already saved to the
+        workspace — blocking the summary just frustrates the user.  A
+        reliability disclaimer is appended instead (handled by the caller).
         """
-        # Hard non-downgradable: structurally broken output or unsafe to ship
+        # Hard non-downgradable: these indicate structurally broken output
         hard_non_downgradable = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
             "hallucination_ratio_critical",
         }
+        # Soft non-downgradable: these can be downgraded when all steps
+        # completed, since the report file exists and is accessible
+        soft_non_downgradable = {
+            "hallucination_ratio_critical",
+        }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()
             if token in hard_non_downgradable:
+                return False
+            if token in soft_non_downgradable and not all_steps_completed:
                 return False
         return True
 

@@ -37,6 +37,12 @@ pydantic-core==2.41.3
 pydantic-settings==2.12.0
 defusedxml==0.7.1
 pyee==13.0.0
+pyhanko==0.31.0
+pyhanko-certvalidator==0.29.0
+pyparsing==3.2.5
+pypdf>=6.9.1
+pyphen==0.17.2
+python-bidi==0.6.6
 python-dateutil==2.9.0.post0
 python-multipart==0.0.22
 pytz==2025.2

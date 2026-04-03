@@ -163,7 +163,6 @@ describe('LeftPanel channel source filtering', () => {
     getSessionsSSEMock.mockResolvedValue(() => {})
     getServerConfigMock.mockResolvedValue({
       model_name: 'gpt-5',
-      model_display_name: '',
       api_base: 'https://api.openai.com/v1',
       temperature: 0.2,
       max_tokens: 4096,
@@ -178,13 +177,11 @@ describe('LeftPanel channel source filtering', () => {
     const wrapper = mountLeftPanel()
     await flushPromises()
 
-    expect(useSessionListFeedMock).toHaveBeenCalledTimes(1)
-
     const homeLink = wrapper.find('[data-testid="workspace-sidebar-brand-link"]')
     expect(homeLink.exists()).toBe(true)
     await homeLink.trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/')
-    expect(wrapper.find('[data-testid="session-source-filter-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="session-source-filters"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Telegram report')
     expect(wrapper.text()).toContain('Web task')
 

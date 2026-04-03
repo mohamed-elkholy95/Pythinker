@@ -229,23 +229,11 @@ class DockerSandbox(Sandbox):
             # so ephemeral containers have full parity with static sandbox.
             container_env: dict[str, Any] = {
                 "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
+                "CHROME_ARGS": settings.sandbox_chrome_args,
+                "HTTPS_PROXY": settings.sandbox_https_proxy,
+                "HTTP_PROXY": settings.sandbox_http_proxy,
+                "NO_PROXY": settings.sandbox_no_proxy,
                 "SANDBOX_STREAMING_MODE": str(settings.sandbox_streaming_mode),
-                "ENABLE_VNC": "1" if settings.sandbox_enable_vnc else "0",
-                "SUPERVISOR_RPC_USERNAME": settings.supervisor_rpc_username,
-                "FRAMEWORK_DATABASE_URL": "sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db",
-                "LIBGL_ALWAYS_SOFTWARE": "1",
-                "LOG_LEVEL": settings.sandbox_log_level,
-                "TZ": settings.sandbox_tz,
-                "SHELL_USE_STRUCTURED_MARKERS": "true" if settings.sandbox_shell_structured_markers else "false",
-                "RUNTIME_API_HOST": settings.sandbox_runtime_api_host,
-                "RUNTIME_API_TOKEN": settings.sandbox_callback_token or "",
-                "OPENAI_API_BASE": f"{settings.sandbox_runtime_api_host}/api/v1/llm-proxy/v1",
-                "OPENAI_BASE_URL": f"{settings.sandbox_runtime_api_host}/api/v1/llm-proxy/v1",
-                "OPENAI_API_KEY": settings.sandbox_llm_proxy_key or "",
-                "ENABLE_CODE_SERVER": "0",
-                "CODE_SERVER_PASSWORD": "disabled",
-                "OTEL_ENABLED": "false",
-                "OTEL_SERVICE_NAME": "sandbox-runtime",
             }
             # Optional secrets and tokens
             if settings.sandbox_api_secret:

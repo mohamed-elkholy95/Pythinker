@@ -93,8 +93,7 @@ jobs:
         run: |
           pip install pip-audit
           # --ignore-vuln: CVE-2025-69872 (diskcache pickle deserialization) — no fix upstream; low risk in Docker
-          # --ignore-vuln: CVE-2026-4539 (pygments 2.19.2) — no fix available; transitive dep via rich
-          pip-audit -r requirements.txt --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
+          pip-audit -r requirements.txt --ignore-vuln CVE-2025-69872
 
       - name: Install dependencies (for Pyright)
         if: needs.changes.outputs.backend == 'true'

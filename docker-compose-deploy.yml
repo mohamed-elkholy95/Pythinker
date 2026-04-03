@@ -4,12 +4,12 @@
 #
 # Single compose file that works ANYWHERE:
 #
-#   VPS (1-click):     docker compose -f docker-compose-deploy.yml up -d
-#                      (pull_policy: always auto-pulls all images)
+#   VPS (pre-built):   docker compose -f docker-compose-deploy.yml pull && \
+#                      docker compose -f docker-compose-deploy.yml up -d
 #
 #   Local (from source): docker compose -f docker-compose-deploy.yml up --build -d
 #
-#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml up -d
+#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull && up -d
 #
 # CI auto-deploys on push to main via SSH (see .github/workflows/deploy.yml).
 # First-time VPS setup: ./scripts/vps-bootstrap.sh
@@ -23,14 +23,12 @@ services:
   # ---------------------------------------------------------------------------
   frontend:
     image: ghcr.io/mohamed-elkholy95/pythinker-frontend:${IMAGE_TAG:-latest}
-    pull_policy: always
     build:
       context: ./frontend
       dockerfile: Dockerfile
     depends_on:
       backend:
         condition: service_healthy
-        restart: true
     restart: always
     networks:
       - dokploy-network
@@ -50,39 +48,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     deploy:
-      update_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: rollback
-        order: start-first
-      rollback_config:
-        parallelism: 1
-        order: stop-first
       resources:
         limits:
           memory: 256M
           cpus: '0.5'
-        reservations:
-          memory: 64M
 
   # ---------------------------------------------------------------------------
   # Backend — FastAPI + uvicorn
   # ---------------------------------------------------------------------------
   backend:
     image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
-    pull_policy: always
     build:
       context: ./backend
       dockerfile: Dockerfile
-      args:
-        DOCKER_GID: "${DOCKER_GID:-988}"
     depends_on:
+      sandbox:
+        condition: service_healthy
       mongodb:
         condition: service_healthy
         restart: true
@@ -91,20 +73,11 @@ services:
         restart: true
       qdrant:
         condition: service_healthy
-        restart: true
-      minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
     restart: always
     deploy:
       replicas: ${BACKEND_REPLICAS:-1}
-      update_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: rollback
-        order: start-first
-      rollback_config:
-        parallelism: 1
-        order: stop-first
       resources:
         limits:
           memory: 2G
@@ -117,7 +90,7 @@ services:
         max-size: "50m"
         max-file: "5"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - knowledge_base_data:/app/data/knowledge_bases
       - dspy_cache:/app/data/dspy_cache
     networks:
@@ -126,9 +99,8 @@ services:
     env_file:
       - .env
     environment:
-      - ENVIRONMENT=production
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-ephemeral}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
@@ -139,13 +111,11 @@ services:
       - DSPY_MAX_BOOTSTRAPPED_DEMOS=${DSPY_MAX_BOOTSTRAPPED_DEMOS:-4}
       - DSPY_MAX_LABELED_DEMOS=${DSPY_MAX_LABELED_DEMOS:-4}
       - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@pythinker-redis:6379/0
-      - MONGODB_URI=mongodb://pythinker-mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
       - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME}
       - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD}
       - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
-      - MINIO_ENDPOINT=pythinker-minio:9000
-      - QDRANT_URL=http://pythinker-qdrant:6333
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
       interval: 15s
@@ -154,31 +124,27 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Gateway — Telegram / Channel Integration (lightweight, no browser deps) — opt-in via: --profile channels
+  # Gateway — Telegram / Channel Integration (reuses backend image)
   # ---------------------------------------------------------------------------
   gateway:
-    profiles: ["channels"]
-    image: ghcr.io/mohamed-elkholy95/pythinker-gateway:${IMAGE_TAG:-latest}
-    pull_policy: always
+    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
-      dockerfile: Dockerfile.gateway
+      dockerfile: Dockerfile
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     depends_on:
       backend:
         condition: service_healthy
-        restart: true
       mongodb:
         condition: service_healthy
-        restart: true
       redis:
         condition: service_healthy
-        restart: true
       qdrant:
         condition: service_healthy
-        restart: true
-      minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
     restart: always
     logging:
       driver: json-file
@@ -186,7 +152,7 @@ services:
         max-size: "50m"
         max-file: "3"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - dspy_cache:/app/data/dspy_cache
     networks:
       - dokploy-network
@@ -194,29 +160,24 @@ services:
     env_file:
       - .env
     environment:
-      - ENVIRONMENT=production
       - CHANNEL_GATEWAY_ENABLED=true
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-ephemeral}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
       - FAST_MODEL=${FAST_MODEL:-}
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@pythinker-redis:6379/0
-      - MONGODB_URI=mongodb://pythinker-mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
       - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME}
       - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD}
-      - MINIO_ENDPOINT=pythinker-minio:9000
-      - QDRANT_URL=http://pythinker-qdrant:6333
 
   # ---------------------------------------------------------------------------
-  # Sandbox — Static sandbox for debugging (opt-in via: --profile static-sandbox)
-  # In production, ephemeral mode creates per-session containers dynamically.
+  # Sandbox — Isolated Docker Execution Environment
   # ---------------------------------------------------------------------------
   sandbox:
     profiles: ["static-sandbox"]
     image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
-    pull_policy: always
     build:
       context: ./sandbox
       dockerfile: Dockerfile
@@ -235,7 +196,7 @@ services:
       - SETGID
       - SETUID
       - NET_BIND_SERVICE
-    shm_size: '${SANDBOX_SHM_SIZE:-1g}'
+    shm_size: '2g'
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -250,10 +211,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${SANDBOX_MEM_LIMIT:-2G}
-          cpus: '${SANDBOX_CPU_LIMIT:-1}'
+          memory: 2G
+          cpus: '1'
         reservations:
-          memory: ${SANDBOX_MEM_RESERVATION:-512M}
+          memory: 512M
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
       - ENABLE_VNC=${ENABLE_VNC:-1}
@@ -262,7 +223,7 @@ services:
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD}
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/local/bin/chromium
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=768
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
       - LIBGL_ALWAYS_SOFTWARE=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-UTC}
@@ -278,7 +239,6 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_SERVICE_NAME=sandbox-runtime
-      - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
       - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
       - GH_TOKEN=${GH_TOKEN:-}
       - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
@@ -294,56 +254,21 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # MongoDB Keyfile Init — Generate auth keyfile for replica set (one-shot)
-  # ---------------------------------------------------------------------------
-  mongodb-keyfile-init:
-    image: mongo:7.0.31
-    pull_policy: always
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        if [ ! -f /mongo-keyfile/keyfile ]; then
-          openssl rand -base64 756 > /mongo-keyfile/keyfile
-          echo "MongoDB keyfile created"
-        else
-          echo "MongoDB keyfile already exists"
-        fi
-        chmod 400 /mongo-keyfile/keyfile
-        chown 999:999 /mongo-keyfile/keyfile
-    volumes:
-      - mongodb_keyfile:/mongo-keyfile
-    networks:
-      - pythinker-internal
-    restart: "no"
-
-  # ---------------------------------------------------------------------------
   # MongoDB — Single-Node Replica Set (for oplog/change streams)
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0.31
-    pull_policy: always
+    image: mongo:7.0.28
     hostname: pythinker-mongodb
     restart: always
-    logging:
-      driver: json-file
-      options:
-        max-size: "30m"
-        max-file: "3"
-    depends_on:
-      mongodb-keyfile-init:
-        condition: service_completed_successfully
     command:
       - mongod
       - --replSet=rs0
-      - --keyFile=/mongo-keyfile/keyfile
       - --wiredTigerCacheSizeGB=${MONGO_CACHE_SIZE_GB:-1}
       - --setParameter=diagnosticDataCollectionEnabled=false
       - --setParameter=cursorTimeoutMillis=600000
       - --setParameter=maxIndexBuildMemoryUsageMegabytes=200
     volumes:
       - mongodb_data:/data/db
-      - mongodb_keyfile:/mongo-keyfile:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
@@ -358,33 +283,22 @@ services:
           memory: 1G
     healthcheck:
       test: >-
-        mongosh --norc --quiet
-        -u "$$MONGO_INITDB_ROOT_USERNAME"
-        -p "$$MONGO_INITDB_ROOT_PASSWORD"
-        --authenticationDatabase admin
-        --eval "
-          try { if (rs.status().ok) quit(0); }
-          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}); }
-          quit(0);
-        " || exit 1
-      interval: 15s
-      timeout: 15s
+        mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
+          try { rs.status().ok }
+          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}).ok }
+        "
+      interval: 10s
+      timeout: 10s
       retries: 10
-      start_period: 45s
+      start_period: 30s
 
   # ---------------------------------------------------------------------------
   # Redis — Password-Protected with AOF Persistence
   # ---------------------------------------------------------------------------
   redis:
     image: redis:8.4-alpine
-    pull_policy: always
     hostname: pythinker-redis
     restart: always
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     command:
       - redis-server
       - --requirepass
@@ -432,10 +346,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${REDIS_MEMORY_LIMIT:-512M}
+          memory: ${REDIS_MEMORY_LIMIT:-1G}
           cpus: '1'
         reservations:
-          memory: 128M
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 10s
@@ -446,19 +360,14 @@ services:
   # Qdrant — Vector Search with gRPC
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.17.0
-    pull_policy: always
+    image: qdrant/qdrant:v1.16.3
     hostname: pythinker-qdrant
     restart: always
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
       - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
       - QDRANT__STORAGE__QUANTIZATION__SCALAR__TYPE=int8
       - QDRANT__STORAGE__QUANTIZATION__SCALAR__ALWAYS_RAM=true
@@ -468,10 +377,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-768M}
+          memory: ${QDRANT_MEMORY_LIMIT:-2G}
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
@@ -483,14 +392,8 @@ services:
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    pull_policy: always
     hostname: pythinker-minio
     restart: always
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
@@ -505,10 +408,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${MINIO_MEMORY_LIMIT:-512M}
+          memory: ${MINIO_MEMORY_LIMIT:-1G}
           cpus: '1'
         reservations:
-          memory: 128M
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 10s
@@ -517,7 +420,7 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # MinIO Init — Create Buckets and Service User (one-shot)
+  # MinIO Init — Create Service User (one-shot)
   # ---------------------------------------------------------------------------
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
@@ -530,17 +433,12 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
       - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-pythinker}
-      - MINIO_BUCKET_SNAPSHOTS=${MINIO_BUCKET_SNAPSHOTS:-sandbox-snapshots}
     entrypoint: /bin/sh
     command:
       - -c
       - |
         sleep 3 && \
         mc alias set myminio http://pythinker-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
-        mc mb myminio/"$${MINIO_BUCKET_NAME}" --ignore-existing && \
-        mc mb myminio/"$${MINIO_BUCKET_SNAPSHOTS}" --ignore-existing && \
-        echo "Buckets ready: $${MINIO_BUCKET_NAME}, $${MINIO_BUCKET_SNAPSHOTS}" && \
         mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>&1 || echo "User may already exist (OK)" && \
         mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>&1 || echo "Policy may already be attached (OK)" && \
         mc admin user info myminio "$${MINIO_SERVICE_USER}" && \
@@ -555,8 +453,6 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
-  mongodb_keyfile:
-    name: pythinker-mongodb-keyfile
   redis_data:
     name: pythinker-redis-data
   qdrant_data:

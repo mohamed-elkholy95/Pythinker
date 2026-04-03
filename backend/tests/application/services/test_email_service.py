@@ -666,7 +666,7 @@ class TestCreateVerificationEmail:
             return raw.decode()
         return str(part.get_payload())
 
-    def test_reset_email_contains_plain_text_html_and_hosted_logo(self, service: EmailService) -> None:
+    def test_reset_email_contains_plain_text_html_and_embedded_logo(self, service: EmailService) -> None:
         msg = service._create_verification_email("dest@example.com", "987654")
 
         text_part = self._find_part(msg, "text/plain")
@@ -678,11 +678,11 @@ class TestCreateVerificationEmail:
         html_content = self._decode_payload(html_part)
         assert "987654" in html_content
         assert "Reset your password" in html_content
-        # Logo uses hosted URL (no attachment, no data URI)
-        assert "https://pythinker.com/icon-192.png" in html_content
+        # Logo is embedded as base64 data URI, not a MIME attachment
+        assert "data:image/png;base64," in html_content
         assert self._find_part(msg, "image/png") is None
 
-    def test_registration_email_uses_professional_copy_and_hosted_logo(self, service: EmailService) -> None:
+    def test_registration_email_uses_professional_copy_and_embedded_logo(self, service: EmailService) -> None:
         msg = service._create_registration_verification_email("dest@example.com", "123456")
 
         text_part = self._find_part(msg, "text/plain")
@@ -694,8 +694,8 @@ class TestCreateVerificationEmail:
         html_content = self._decode_payload(html_part)
         assert "Welcome to Pythinker" in html_content
         assert "verify your email address" in html_content.lower()
-        # Logo uses hosted square icon URL (no attachment, no data URI)
-        assert "https://pythinker.com/icon-192.png" in html_content
+        # Logo is embedded as base64 data URI, not a MIME attachment
+        assert "data:image/png;base64," in html_content
         assert self._find_part(msg, "image/png") is None
         text_content = self._decode_payload(text_part)
         assert "123456" in text_content

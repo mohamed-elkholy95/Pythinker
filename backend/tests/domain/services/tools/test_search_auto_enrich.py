@@ -422,36 +422,12 @@ class TestInfoSearchWebEnrichmentModeAware:
         assert "5 search results" in result.message
 
     @pytest.mark.asyncio
-    async def test_deep_research_mode_enrichment_note(self, mock_search_engine, mock_scraper) -> None:
-        """Deep-research mode: enrichment note shows count up to 8."""
-        with patch(_SETTINGS_PATCH) as ms:
-            ms.return_value = _default_settings()
-            tool = SearchTool(
-                search_engine=mock_search_engine,
-                scraper=mock_scraper,
-                complexity_score=0.85,
-            )
-
-        search_data = _make_search_data(10)
-        mock_search_engine.search.return_value = ToolResult(
-            success=True,
-            message="Results",
-            data=search_data,
-        )
-        urls = [item.link for item in search_data.results[:8]]
-        mock_scraper.fetch_batch.return_value = _make_scraper_response(urls)
-
-        with patch(_SETTINGS_PATCH) as ms:
-            ms.return_value = _default_settings()
-            result = await tool.info_search_web("deep research query")
-
-        assert result.success is True
-        assert "enriched" in result.message.lower()
-        assert "8 search results" in result.message
-
-    @pytest.mark.asyncio
-    async def test_disabled_in_deep_mode_returns_no_enrichment(self, mock_search_engine, mock_scraper) -> None:
-        """Even in deep-research mode, enrichment disabled means 0 enrichment."""
+    async def test_browse_guidance_when_no_enrichment(self, mock_search_engine):
+        """When enrichment is off but browser exists, note should encourage browsing."""
+        mock_browser = AsyncMock()
+        # Sync methods — use MagicMock to avoid unawaited coroutine warnings
+        mock_browser.allow_background_browsing = MagicMock()
+        mock_browser.is_connected = MagicMock(return_value=True)
         with patch(_SETTINGS_PATCH) as ms:
             ms.return_value = _default_settings(search_auto_enrich_enabled=False)
             tool = SearchTool(

@@ -146,45 +146,21 @@ async def get_sandbox_context():
     Placed at the top level (not under /api/v1/) so it is accessible without
     the X-Sandbox-Secret header — the context file contains only environment
     metadata (no secrets) and must be reachable by the backend at startup.
-
-    Checks multiple paths because the context generator may fall back to
-    ``~/sandbox_context.json`` when ``/app/`` is read-only.  The freshest
-    file (by ``generated_at``) wins.
     """
     import json
-    import os
-    from datetime import datetime
 
-    candidate_paths = [
-        "/home/ubuntu/sandbox_context.json",
-        "/app/sandbox_context.json",
-        os.path.expanduser("~/sandbox_context.json"),
-    ]
+    context_path = "/app/sandbox_context.json"
+    try:
+        with open(context_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        from fastapi import HTTPException
 
-    best_context = None
-    best_ts: datetime | None = None
+        raise HTTPException(status_code=503, detail="Context not generated yet")
+    except Exception as exc:
+        from fastapi import HTTPException
 
-    for path in candidate_paths:
-        try:
-            with open(path) as f:
-                data = json.load(f)
-            generated = data.get("generated_at", "")
-            try:
-                ts = datetime.fromisoformat(generated)
-            except (ValueError, TypeError):
-                ts = datetime.min
-            if best_ts is None or ts > best_ts:
-                best_context = data
-                best_ts = ts
-        except (FileNotFoundError, OSError):
-            continue
-
-    if best_context is not None:
-        return best_context
-
-    from fastapi import HTTPException
-
-    raise HTTPException(status_code=503, detail="Context not generated yet")
+        raise HTTPException(status_code=500, detail=f"Failed to read context: {exc}")
 
 
 @app.get("/health")

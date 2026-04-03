@@ -5,7 +5,6 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { createTerminalToolXtermTheme } from '@/config/terminalToolDesign'
 import { TerminalStreamAnsiTransformer } from '@/utils/terminalStreamAnsi'
-import { applyXtermHelperTextareaAccessibility } from '@/utils/xtermAccessibility'
 
 const props = defineProps<{
   sessionId: string
@@ -48,6 +47,7 @@ function initTerminal() {
     scrollback: 5000,
     convertEol: true,
     disableStdin: true,
+    overviewRulerLanes: 0,
     cols: 80,
     rows: 24,
   })
@@ -201,7 +201,6 @@ defineExpose({
   min-height: 120px;
   background: var(--terminal-tool-viewport-bg);
   color: var(--terminal-tool-text);
-  -webkit-text-fill-color: currentColor; /* Reset any inherited transparent fill */
   border: none;
   border-radius: 0;
   overflow: hidden;

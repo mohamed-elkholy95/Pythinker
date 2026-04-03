@@ -75,20 +75,6 @@ COMPLEXITY_STEP_LIMITS = {
 }
 RESEARCH_STEP_CAP = 10
 
-# Mapping from planner tool_hint → expected tool names for action audit.
-# When a step carries expected_tools, the audit validates against this
-# declared set instead of inferring tools from keyword regex on the description.
-_TOOL_HINT_TO_EXPECTED: dict[str, list[str]] = {
-    "web_search": ["search", "info_search_web", "wide_research", "browser"],
-    "browser": ["browser", "browser_navigate", "browser_get_content", "search"],
-    "file": ["file_read", "file_write", "file"],
-    "shell": ["shell_exec", "code_execute_python"],
-    "code": ["shell_exec", "code_execute_python", "code_executor"],
-    "deal_search": ["search", "info_search_web"],
-    "deal_find_coupons": ["search", "browser"],
-    "deal_compare_prices": ["search", "browser"],
-}
-
 
 # Apply settings overrides at module load
 def _apply_planner_settings() -> None:

@@ -15,16 +15,14 @@
 
           <Transition appear name="fade-up-d1">
             <h1 class="hero-headline">
-              Give It a Task.<br />
-              <span class="hero-headline-accent">It Gets It Done.</span>
+              Your AI agent that<br />
+              <span class="hero-headline-accent">gets work done.</span>
             </h1>
           </Transition>
 
           <Transition appear name="fade-up-d2">
             <p class="hero-sub">
-              Your personal AI agent that researches, browses, codes, and completes
-              tasks autonomously &mdash; no babysitting needed. Connect it via Telegram
-              or the web and let it work while you don't.
+              Research, code, browse, and deliver &mdash; autonomously.
             </p>
           </Transition>
 
@@ -559,8 +557,8 @@ const scrollTo = (id: string) => {
   .hero { padding: 90px 16px 40px; min-height: auto; }
   .hero-split { flex-direction: column-reverse; gap: 32px; }
   .hero-text { align-items: center; text-align: center; }
-  .hero-headline { font-size: 38px; }
-  .hero-sub { font-size: 16px; }
+  .hero-headline { font-size: 28px; }
+  .hero-sub { font-size: 14px; }
   .hero-ctas { flex-direction: column; width: 100%; }
   .hero-btn { width: 100%; justify-content: center; }
   .mascot-img { width: 180px; }

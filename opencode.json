@@ -1,0 +1,285 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ── Model Configuration ─────────────────────────────────────
+  // Inherits global model (zai-anthropic/glm-5) from ~/.config/opencode/opencode.jsonc
+  // Override per-project if needed:
+  // "model": "anthropic/claude-sonnet-4-5",
+
+  // ── Instructions ────────────────────────────────────────────
+  "instructions": [
+    "instructions.md",
+    "docs/guides/PYTHON_STANDARDS.md",
+    "docs/guides/VUE_STANDARDS.md",
+    ".opencode/HEADLESS_ENV.md"
+  ],
+
+  // ── Pythinker-Specific Agents ───────────────────────────────
+  "agent": {
+    "build": {
+      "description": "Primary build agent with full Pythinker context — DDD, FastAPI, Vue 3, Docker sandbox",
+      "mode": "primary",
+      "prompt": "{file:.opencode/agents/build.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "patch": true,
+        "webfetch": true,
+        "todowrite": true,
+        "todoread": true,
+        "skill": true
+      },
+      "permission": {
+        "bash": {
+          "*": "ask",
+          "git *": "allow",
+          "ls *": "allow",
+          "pwd": "allow",
+          "which *": "allow",
+          "echo *": "allow",
+          "conda activate pythinker*": "allow",
+          "cd backend*": "allow",
+          "cd frontend*": "allow",
+          "ruff *": "allow",
+          "mypy *": "allow",
+          "pytest *": "allow",
+          "bun run *": "allow",
+          "docker compose *": "ask",
+          "docker *": "ask",
+          "./dev.sh *": "ask"
+        }
+      }
+    },
+
+    "plan": {
+      "description": "Read-only architect agent for Pythinker — analyzes DDD layers, sandbox architecture, browser stack",
+      "mode": "primary",
+      "prompt": "{file:.opencode/agents/plan.md}",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "bash": false,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "skill": true
+      }
+    },
+
+    // ── Domain-Specific Subagents ─────────────────────────────
+    "fastapi-pro": {
+      "description": "FastAPI + DDD expert — API routes, Pydantic v2, SQLAlchemy 2.0, async patterns, middleware",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/fastapi-pro.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "skill": true
+      }
+    },
+
+    "python-pro": {
+      "description": "Python 3.12+ expert — async/await, domain models, type safety, testing, performance",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/python-pro.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "skill": true
+      }
+    },
+
+    "vue-expert": {
+      "description": "Vue 3 Composition API expert — TypeScript strict, Pinia stores, composables, SSE streaming",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/vue-expert.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "skill": true
+      }
+    },
+
+    "frontend-designer": {
+      "description": "Production-grade UI designer — Tailwind CSS, creative layouts, responsive design, dark mode",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/frontend-designer.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "skill": true
+      }
+    },
+
+    "sandbox-expert": {
+      "description": "Docker sandbox and CDP browser automation expert — container lifecycle, screencast, Playwright",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/sandbox-expert.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "skill": true
+      }
+    },
+
+    "coderabbit-reviewer": {
+      "description": "AI code reviewer using CodeRabbit CLI — runs cr --plain for detailed review, cr --prompt-only for agent-optimized feedback",
+      "mode": "subagent",
+      "prompt": "{file:.opencode/agents/coderabbit-reviewer.md}",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "skill": true
+      }
+    }
+  },
+
+  // ── Project Commands ────────────────────────────────────────
+  "command": {
+    "lint": {
+      "template": "Run linting for the specified target. If no target given, lint both backend and frontend.\n\nFor backend: `conda activate pythinker && cd backend && ruff check . && ruff format --check .`\nFor frontend: `cd frontend && bun run lint && bun run type-check`\n\nTarget: $ARGUMENTS",
+      "description": "Run linters (backend/frontend/both)",
+      "agent": "build"
+    },
+    "test-backend": {
+      "template": "Run backend tests: `conda activate pythinker && cd backend && pytest tests/ $ARGUMENTS`\n\nFor single test without coverage: `pytest -p no:cov -o addopts= tests/$ARGUMENTS`\n\nAnalyze failures and suggest fixes.",
+      "description": "Run backend pytest suite",
+      "agent": "build"
+    },
+    "test-frontend": {
+      "template": "Run frontend tests: `cd frontend && bun run test:run $ARGUMENTS`\n\nAnalyze failures and suggest fixes.",
+      "description": "Run frontend test suite",
+      "agent": "build"
+    },
+    "dev": {
+      "template": "Start the development stack with Docker Compose Watch: `./dev.sh watch`\n\nIf already running, show status with: `docker compose ps`\n\nCheck service health: `curl -s http://localhost:8000/health`",
+      "description": "Start/check dev stack",
+      "agent": "build"
+    },
+    "logs": {
+      "template": "Show logs for service: `docker compose logs --tail=100 $ARGUMENTS`\n\nDefault to 'backend' if no service specified.",
+      "description": "Show Docker service logs",
+      "agent": "build"
+    },
+    "health": {
+      "template": "Check all service health:\n```bash\ndocker compose ps\ncurl -s http://localhost:8000/health\ncurl -s http://localhost:5174 | head -5\ncurl -s http://localhost:6333/healthz\ndocker exec pythinker-redis-1 redis-cli ping\n```\nReport which services are up/down.",
+      "description": "Check all service health (headless)",
+      "agent": "build"
+    },
+    "commit": {
+      "template": "Create atomic git commits for staged changes. Analyze the diff, split into logical concerns, and create separate commits per concern.\n\nFormat: fix(scope) / feat(scope) / refactor(scope) / chore(scope)\n\nNever bundle unrelated changes. Stage files selectively with `git add <specific-files>`.",
+      "description": "Create atomic git commits",
+      "agent": "build"
+    },
+    "review": {
+      "template": "Review the current changes for bugs, security issues, code quality, and adherence to Pythinker's DDD patterns. Use @code-reviewer for the analysis.\n\nCheck:\n- DDD layer boundaries (domain → application → infrastructure → interfaces)\n- Pydantic v2 compliance (@field_validator must be @classmethod)\n- HTTPClientPool usage (no direct httpx.AsyncClient)\n- Type safety (full type hints, no Any)\n- OWASP security\n$ARGUMENTS",
+      "description": "Review changes with Pythinker conventions",
+      "agent": "build"
+    },
+    "explore": {
+      "template": "Explore the Pythinker codebase to answer: $ARGUMENTS\n\nUse @code-explorer for deep analysis. Focus on DDD layer architecture, domain services, infrastructure adapters, and composables.",
+      "description": "Explore codebase architecture",
+      "agent": "build"
+    },
+    "architect": {
+      "template": "Design the architecture for: $ARGUMENTS\n\nUse @code-architect. Follow Pythinker's DDD patterns:\n- Domain models in backend/app/domain/\n- Application services in backend/app/application/\n- Infrastructure adapters in backend/app/infrastructure/\n- API routes in backend/app/interfaces/api/\n- Vue components in frontend/src/components/\n- Composables in frontend/src/composables/",
+      "description": "Design feature architecture",
+      "agent": "build"
+    },
+    "cr-review": {
+      "template": "Run CodeRabbit code review with plain output:\n\n```bash\ncr --plain $ARGUMENTS\n```\n\nAnalyze the CodeRabbit output and summarize:\n1. Critical issues that must be fixed\n2. Important suggestions for improvement\n3. Minor style/preference items\n\nFor each critical issue, explain the fix.",
+      "description": "CodeRabbit AI code review (plain)",
+      "agent": "build"
+    },
+    "cr-agent": {
+      "template": "Run CodeRabbit in prompt-only mode for AI-optimized review:\n\n```bash\ncr --prompt-only $ARGUMENTS\n```\n\nUse @coderabbit-reviewer to parse the output and apply the most impactful fixes automatically.",
+      "description": "CodeRabbit AI-assisted review + fix",
+      "agent": "build"
+    }
+  },
+
+  // ── Permissions ─────────────────────────────────────────────
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "git status *": "allow",
+      "git diff *": "allow",
+      "git log *": "allow",
+      "git branch *": "allow",
+      "git show *": "allow",
+      "git add *": "allow",
+      "ls *": "allow",
+      "pwd": "allow",
+      "which *": "allow",
+      "echo *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "wc *": "allow",
+      "conda activate *": "allow",
+      "ruff *": "allow",
+      "mypy *": "allow",
+      "pytest *": "allow",
+      "python -m pytest *": "allow",
+      "bun run *": "allow",
+      "npm run *": "allow",
+      "cr *": "allow",
+      "coderabbit *": "allow",
+      "curl *": "allow",
+      "http *": "allow",
+      "docker compose ps*": "allow",
+      "docker compose logs *": "allow",
+      "docker compose exec *": "ask",
+      "docker exec *": "ask",
+      "docker logs *": "allow",
+      "docker ps *": "allow",
+      "./dev.sh *": "ask",
+      "rm *": "deny",
+      "git push *": "ask",
+      "git reset *": "ask"
+    },
+    "edit": "ask",
+    "webfetch": "allow",
+    "skill": {
+      "*": "allow"
+    }
+  }
+}

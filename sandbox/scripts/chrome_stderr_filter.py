@@ -46,28 +46,12 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"on_device_model.*service disconnect"),
     # ALSA/audio probing noise in containerized Chrome (no sound card attached)
     re.compile(r"^ALSA lib "),
-    re.compile(r"alsa_util\.cc[:(]\d+[)\]].*PcmOpen"),
-    # Transient SSL handshake noise from blocked/ephemeral third-party subresources
-    # and Chrome background connectivity checks (CRLSet, component updates).
-    # -101: connection reset; -201: certificate verification or similar in container.
-    re.compile(r"ssl_client_socket_impl\.cc.*handshake failed.*net_error -20[01]"),
-    re.compile(r"ssl_client_socket_impl\.cc.*handshake failed.*net_error -10[01]"),
-    # Long compositor animations on heavy pages — benign in automation/screencast use.
-    re.compile(r"compositor_animation_observer\.cc.*CompositorAnimationObserver is active for too long"),
+    re.compile(r"alsa_util\.cc\(\d+\).*PcmOpen"),
+    # Transient DNS handshake noise from blocked/ephemeral third-party subresources
+    re.compile(r"ssl_client_socket_impl\.cc\(\d+\).*handshake failed.*net_error -101"),
     # STUN server DNS resolution failures — WebRTC NAT traversal is not needed
     # in the sandbox (CDP screencast does not use WebRTC).
     re.compile(r"socket_manager\.cc.*Failed to resolve address for stun"),
-    # GPU stall / ReadPixels — SwiftShader CPU-emulated GL pipeline sync.
-    # Triggered by any residual WebGL or compositor glReadPixels calls.
-    # "GL_CLOSE_PATH_NV" is an NVIDIA driver message category, not an error.
-    re.compile(r"gl_utils\.cc.*GPU stall due to ReadPixels"),
-    # Dawn/WebGPU adapter limit warnings — Dawn probes GPU adapter limits at
-    # startup even when WebGPU is unused; artificially reduced limits are normal
-    # for SwiftShader/software rendering.
-    re.compile(r"maxDynamic\w+BuffersPerPipelineLayout artificially reduced"),
-    # GCM registration quota — Google Cloud Messaging quota exceeded in
-    # containerized Chromium with no valid GCM credentials.
-    re.compile(r"registration_request\.cc.*QUOTA_EXCEEDED"),
 )
 
 

@@ -51,5 +51,4 @@ import SettingsDialog from '@/components/settings/SettingsDialog.vue';
   text-decoration: none;
   font-size: 14px;
 }
-
 </style>

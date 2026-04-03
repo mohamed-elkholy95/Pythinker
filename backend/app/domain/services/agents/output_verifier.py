@@ -453,9 +453,6 @@ class OutputVerifier:
 
     # ── Hallucination Rewrite ─────────────────────────────────────────
 
-    _REWRITE_TIMEOUT_S = 120.0  # generous timeout for rewriting long reports
-    _REWRITE_MAX_RETRIES = 2  # total attempts (1 initial + 1 retry)
-
     async def _rewrite_without_unsupported_claims(
         self,
         content: str,
@@ -465,12 +462,7 @@ class OutputVerifier:
 
         Returns the rewritten text, or ``None`` if the rewrite fails so the
         caller can fall back to the original content + disclaimer.
-
-        Uses an explicit timeout and retry to handle slow LLM responses on
-        long reports (observed: rewrite timed out on 13-claim / 5K-word content).
         """
-        import asyncio
-
         if not flagged_claims:
             return None
 
@@ -488,44 +480,24 @@ class OutputVerifier:
             "Return ONLY the rewritten response with no preamble or explanation."
         )
 
-        for attempt in range(1, self._REWRITE_MAX_RETRIES + 1):
-            try:
-                result = await asyncio.wait_for(
-                    self._llm.ask(
-                        messages=[{"role": "user", "content": rewrite_prompt}],
-                        temperature=0.2,
-                    ),
-                    timeout=self._REWRITE_TIMEOUT_S,
-                )
-                rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
-                # Sanity: rewritten text must be substantial (>30% of original)
-                if len(rewritten) > len(content) * 0.3:
-                    return rewritten
-                logger.warning(
-                    "Hallucination rewrite too short (%d vs %d chars); keeping original",
-                    len(rewritten),
-                    len(content),
-                )
-                return None
-            except TimeoutError:
-                if attempt < self._REWRITE_MAX_RETRIES:
-                    logger.warning(
-                        "Hallucination rewrite timed out after %.0fs (attempt %d/%d), retrying",
-                        self._REWRITE_TIMEOUT_S,
-                        attempt,
-                        self._REWRITE_MAX_RETRIES,
-                    )
-                    continue
-                logger.warning(
-                    "Hallucination rewrite timed out after %.0fs (all %d attempts exhausted); keeping original",
-                    self._REWRITE_TIMEOUT_S,
-                    self._REWRITE_MAX_RETRIES,
-                )
-                return None
-            except Exception:
-                logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)
-                return None
-        return None
+        try:
+            result = await self._llm.ask(
+                messages=[{"role": "user", "content": rewrite_prompt}],
+                temperature=0.2,
+            )
+            rewritten = (result.get("content", "") if isinstance(result, dict) else (result.content or "")).strip()
+            # Sanity: rewritten text must be substantial (>30% of original)
+            if len(rewritten) > len(content) * 0.3:
+                return rewritten
+            logger.warning(
+                "Hallucination rewrite too short (%d vs %d chars); keeping original",
+                len(rewritten),
+                len(content),
+            )
+            return None
+        except Exception:
+            logger.warning("Hallucination rewrite failed; keeping original", exc_info=True)
+            return None
 
     # ── Hallucination Verification (Primary Entry Point) ───────────────
 
@@ -648,9 +620,8 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >block_threshold: rewrite unsupported claims + disclaimer (blocking)
-                    # - >escalate_threshold: strong disclaimer + yellow gate promotion
-                    # - >warn_threshold: reliability notice (non-blocking, green gate)
+                    # - >block_threshold: rewrite unsupported claims + disclaimer
+                    # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
                     _block_threshold = settings.hallucination_block_threshold
                     _escalate_threshold = getattr(settings, "hallucination_escalate_threshold", 0.30)
@@ -666,23 +637,6 @@ class OutputVerifier:
                                 len(grounding_result.flagged_claims),
                             )
                             content = rewritten
-                            # Successful rewrite: downgrade from blocking to warning-only.
-                            # The unsupported claims have been removed/hedged, so the
-                            # delivery gate should not block the output.
-                            disclaimer = (
-                                "\n\n> **Note:** Some information in this response "
-                                "could not be fully verified against available sources. "
-                                "Unverified claims have been hedged or removed."
-                            )
-                            return HallucinationVerificationResult(
-                                content=content + disclaimer,
-                                blocking_issues=[],  # rewrite succeeded — no longer blocking
-                                warnings=["hallucination_detected", "hallucination_rewrite_applied"],
-                                hallucination_ratio=grounding_result.hallucination_score,
-                                span_count=len(grounding_result.flagged_claims),
-                            )
-                        # Rewrite failed: this IS a blocking issue — the content
-                        # still contains >50% unsupported claims.
                         disclaimer = (
                             "\n\n> **⚠️ Reliability Warning:** This response contains claims "
                             "that could not be verified against available sources. "

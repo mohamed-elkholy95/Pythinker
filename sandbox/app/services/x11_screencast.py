@@ -111,10 +111,7 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
     proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
-            "xwd",
-            "-root",
-            "-display",
-            _DISPLAY,
+            "xwd", "-root", "-display", _DISPLAY,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -145,26 +142,14 @@ async def _capture_x11_frame(quality: int = 70) -> X11ScreencastFrame | None:
     except asyncio.TimeoutError:
         logger.warning("X11 frame capture timed out")
         if proc is not None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass  # Process already exited between timeout and kill
-            try:
-                await proc.wait()
-            except (ProcessLookupError, OSError):
-                pass  # Process already reaped
+            proc.kill()
+            await proc.wait()
         return None
     except Exception as e:
         logger.warning("X11 frame capture failed: %s", e)
         if proc is not None and proc.returncode is None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass  # Process already exited
-            try:
-                await proc.wait()
-            except (ProcessLookupError, OSError):
-                pass  # Process already reaped
+            proc.kill()
+            await proc.wait()
         return None
 
 
@@ -179,9 +164,7 @@ async def drain_x11_event_queue() -> None:
     proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
-            "xdpyinfo",
-            "-display",
-            _DISPLAY,
+            "xdpyinfo", "-display", _DISPLAY,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -190,25 +173,10 @@ async def drain_x11_event_queue() -> None:
     except asyncio.TimeoutError:
         logger.debug("X11 event drain timed out — skipping")
         if proc is not None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass  # Process already exited between timeout and kill
-            try:
-                await proc.wait()
-            except (ProcessLookupError, OSError):
-                pass  # Process already reaped
+            proc.kill()
+            await proc.wait()
     except Exception as e:
         logger.debug("X11 event drain failed (non-critical): %s", e)
-        if proc is not None and proc.returncode is None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-            try:
-                await proc.wait()
-            except (ProcessLookupError, OSError):
-                pass  # Process already reaped
 
 
 def is_x11_available() -> bool:
@@ -246,7 +214,9 @@ async def stream_x11_frames(
     """
     min_interval = 1.0 / max_fps
     consecutive_failures = 0
-    logger.info("X11 screencast started (quality=%d, max_fps=%d)", quality, max_fps)
+    logger.info(
+        "X11 screencast started (quality=%d, max_fps=%d)", quality, max_fps
+    )
 
     while True:
         if cancel_event and cancel_event.is_set():

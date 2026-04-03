@@ -579,36 +579,6 @@ class SearchTool(BaseTool):
             max_wide_queries_complex if score is not None and score >= 0.8 else max_wide_queries
         )
 
-    def _get_compaction_profile(self) -> CompactionProfile:
-        """Return mode-aware compaction limits based on complexity_score.
-
-        Standard mode (complexity < 0.8 or None) keeps existing defaults.
-        Deep-research mode (complexity >= 0.8) uses expanded limits from config.
-        """
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        is_deep = self._complexity_score is not None and self._complexity_score >= 0.8
-
-        if is_deep:
-            return CompactionProfile(
-                max_results=getattr(settings, "search_compaction_max_results_deep", 15),
-                max_summaries=getattr(settings, "search_compaction_max_summaries_deep", 12),
-                summary_snippet_chars=getattr(settings, "search_compaction_summary_snippet_chars_deep", 250),
-                enrich_top_k=getattr(settings, "search_auto_enrich_top_k_deep", 8),
-                enrich_snippet_chars=getattr(settings, "search_auto_enrich_snippet_chars_deep", 3000),
-                preview_count=getattr(settings, "search_preview_count_deep", 8),
-            )
-
-        return CompactionProfile(
-            max_results=10,
-            max_summaries=8,
-            summary_snippet_chars=150,
-            enrich_top_k=settings.search_auto_enrich_top_k,
-            enrich_snippet_chars=settings.search_auto_enrich_snippet_chars,
-            preview_count=getattr(settings, "browser_background_preview_count", 5),
-        )
-
     async def _schedule_background_preview(self, search_data: Any, count: int | None = None) -> None:
         """Schedule at most one fire-and-forget preview task for top search URLs.
 
@@ -618,9 +588,11 @@ class SearchTool(BaseTool):
         if not self._browser or not search_data:
             return
 
-        # Resolve count from compaction profile if not explicitly provided
+        # Resolve count from config if not explicitly provided
         if count is None:
-            count = self._get_compaction_profile().preview_count
+            from app.core.config import get_settings as _get_settings
+
+            count = getattr(_get_settings(), "browser_background_preview_count", 5)
 
         if hasattr(self._browser, "allow_background_browsing"):
             self._browser.allow_background_browsing()
@@ -1186,7 +1158,6 @@ class SearchTool(BaseTool):
             _preview_cfg = _get_preview_settings()
             preview_dwell = getattr(_preview_cfg, "browser_background_preview_dwell", 7.0)
             preview_scroll = getattr(_preview_cfg, "browser_background_preview_scroll", True)
-            preview_cleanup_enabled = getattr(_preview_cfg, "browser_preview_cleanup_enabled", True)
 
             logger.info(
                 "Browsing top %d search results for live preview visibility "

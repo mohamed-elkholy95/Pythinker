@@ -663,28 +663,4 @@ describe('ChatMessage', () => {
       expect(wrapper.find('.step-compact-title').text()).toBe(mockStepMessage.content.description)
     })
   })
-
-  describe('Attachments messages', () => {
-    it('should render AttachmentsInlineGrid for assistant attachments', () => {
-      const wrapper = mount(ChatMessage, {
-        props: {
-          message: mockAssistantAttachmentsMessage,
-        },
-      })
-
-      expect(wrapper.findComponent({ name: 'AttachmentsInlineGrid' }).exists()).toBe(true)
-      expect(wrapper.findComponent({ name: 'AttachmentsMessage' }).exists()).toBe(false)
-    })
-
-    it('should render AttachmentsMessage for user attachments', () => {
-      const wrapper = mount(ChatMessage, {
-        props: {
-          message: mockUserAttachmentsMessage,
-        },
-      })
-
-      expect(wrapper.findComponent({ name: 'AttachmentsMessage' }).exists()).toBe(true)
-      expect(wrapper.findComponent({ name: 'AttachmentsInlineGrid' }).exists()).toBe(false)
-    })
-  })
 })

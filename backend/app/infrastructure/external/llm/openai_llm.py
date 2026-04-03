@@ -2808,24 +2808,6 @@ To extract data from a webpage:
                         # Pydantic validation internally.  We pop response_format
                         # to avoid double-setting it.
                         params.pop("response_format", None)
-
-                        # MiniMax prompt reinforcement: MiniMax-M2.7 sometimes
-                        # returns narrative text instead of JSON even when
-                        # response_format or instructor is used.  A prompt-level
-                        # JSON-only instruction drastically reduces first-attempt
-                        # failures (observed 100% narrative on chart analysis).
-                        if getattr(self, "_is_minimax", False):
-                            _json_reminder = (
-                                "\n\nIMPORTANT: Respond with ONLY a valid JSON object. "
-                                "Do NOT include any explanation, reasoning, markdown, "
-                                "or text outside the JSON object."
-                            )
-                            _msgs = params.get("messages", [])
-                            if _msgs and _msgs[0].get("role") == "system":
-                                _msgs[0] = {**_msgs[0], "content": _msgs[0]["content"] + _json_reminder}
-                            elif _msgs:
-                                _msgs.insert(0, {"role": "system", "content": _json_reminder.strip()})
-
                         try:
                             result, completion = await asyncio.wait_for(
                                 patched_client.chat.completions.create_with_completion(

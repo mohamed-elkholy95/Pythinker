@@ -47,10 +47,3 @@ class BaseMiddleware:
 
     async def on_error(self, ctx: MiddlewareContext, error: Exception) -> MiddlewareResult:
         return MiddlewareResult.ok()
-
-    def on_step_boundary(self) -> None:
-        """Called when the pipeline transitions between plan steps.
-
-        Override to reset per-step state (URL dedup sets, navigation budgets,
-        efficiency counters). Synchronous — no I/O needed.
-        """

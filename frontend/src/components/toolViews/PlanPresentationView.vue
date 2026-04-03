@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Circle, CheckCircle2, Loader2, AlertCircle, SkipForward } from 'lucide-vue-next'
-import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue'
 import type { PlanEventData } from '@/types/event'
 
 const props = defineProps<{
@@ -11,14 +10,6 @@ const props = defineProps<{
   /** Whether the plan is still being streamed */
   isStreaming?: boolean
 }>()
-
-/** Truncate text at a word boundary to avoid cutting mid-word. */
-function truncateAtWordBoundary(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text
-  const truncated = text.substring(0, maxLen)
-  const lastSpace = truncated.lastIndexOf(' ')
-  return lastSpace > maxLen * 0.6 ? truncated.substring(0, lastSpace) : truncated
-}
 
 interface ParsedStep {
   number: number
@@ -31,7 +22,7 @@ const parsedSteps = computed((): ParsedStep[] => {
   if (props.plan?.steps?.length) {
     return props.plan.steps.map((step, i) => ({
       number: i + 1,
-      title: truncateAtWordBoundary(step.description?.split('.')[0] || '', 120) || `Step ${i + 1}`,
+      title: step.description?.split('.')[0]?.substring(0, 80) || `Step ${i + 1}`,
       description: step.description || '',
       status: step.status || 'pending',
     }))
@@ -179,29 +170,18 @@ function getStepNumberClass(status: string): string {
       </div>
     </div>
 
-    <!-- Planning indicator — shown before plan steps arrive -->
+    <!-- Streaming indicator with bouncing dots -->
     <div v-if="isStreaming && parsedSteps.length === 0" class="plan-streaming">
-      <!-- Animated header -->
-      <div class="plan-streaming-header">
-        <ThinkingIndicator :show-text="false" />
-        <div class="plan-streaming-labels">
-          <span class="plan-streaming-title">Planning</span>
-          <span class="plan-streaming-subtitle">Analyzing task and building execution plan</span>
-        </div>
-      </div>
-
-      <!-- Animated skeleton steps that hint at a plan being built -->
-      <div class="plan-streaming-skeleton">
-        <div v-for="i in 4" :key="i" class="skeleton-step" :style="{ animationDelay: `${(i - 1) * 0.15}s` }">
-          <div class="skeleton-step-indicator">
-            <div class="skeleton-circle" :class="{ 'skeleton-circle-active': i === 1 }">
-              <div v-if="i === 1" class="skeleton-circle-pulse" />
-            </div>
-            <div v-if="i < 4" class="skeleton-connector" />
-          </div>
-          <div class="skeleton-step-content">
-            <div class="skeleton-line skeleton-line-title" :style="{ width: `${65 + (i * 7) % 25}%` }" />
-            <div class="skeleton-line skeleton-line-desc" :style="{ width: `${45 + (i * 13) % 35}%` }" />
+      <div class="plan-streaming-content">
+        <h2 class="plan-streaming-title">
+          Planning<span class="bouncing-dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
+        </h2>
+        <p class="plan-streaming-subtitle">Analyzing your request</p>
+        <div class="plan-streaming-loader">
+          <div class="plan-dot-group">
+            <span class="plan-bounce-dot" style="animation-delay: 0s"></span>
+            <span class="plan-bounce-dot" style="animation-delay: 0.15s"></span>
+            <span class="plan-bounce-dot" style="animation-delay: 0.3s"></span>
           </div>
         </div>
       </div>
@@ -319,182 +299,67 @@ function getStepNumberClass(status: string): string {
 
 .plan-step-active .plan-step-title { color: var(--text-brand, #3b82f6); }
 
-/* ── Planning placeholder ────────────── */
 .plan-streaming {
   display: flex;
-  flex-direction: column;
-  gap: 32px;
-  padding: 32px 0 24px;
-  animation: plan-streaming-enter 0.5s ease-out;
-}
-
-@keyframes plan-streaming-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.plan-streaming-header {
-  display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  padding: 48px 0;
 }
 
-.plan-streaming-labels {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.plan-streaming-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  background: linear-gradient(90deg, #374151 0%, #374151 40%, #9ca3af 50%, #374151 60%, #374151 100%);
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: plan-title-shimmer 4s linear infinite;
-}
-
-@keyframes plan-title-shimmer {
-  0%   { background-position: 150% center; }
-  100% { background-position: -150% center; }
-}
-
-.plan-streaming-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary, #6b7280);
-  opacity: 0.7;
-}
-
-/* Skeleton steps */
-.plan-streaming-skeleton {
-  display: flex;
-  flex-direction: column;
-}
-
-.skeleton-step {
-  display: flex;
-  gap: 14px;
-  min-height: 52px;
-  animation: skeleton-step-enter 0.4s ease-out both;
-}
-
-@keyframes skeleton-step-enter {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-.skeleton-step-indicator {
+.plan-streaming-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex-shrink: 0;
-  width: 28px;
-}
-
-.skeleton-circle {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.06));
-  border: 1.5px solid var(--border-light, rgba(0, 0, 0, 0.08));
-  position: relative;
-  flex-shrink: 0;
-}
-
-.skeleton-circle-active {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.25);
-}
-
-.skeleton-circle-pulse {
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(59, 130, 246, 0.3);
-  animation: skeleton-pulse-ring 2s ease-in-out infinite;
-}
-
-@keyframes skeleton-pulse-ring {
-  0%, 100% { opacity: 0.3; transform: scale(0.9); }
-  50%      { opacity: 0.8; transform: scale(1.1); }
-}
-
-.skeleton-connector {
-  width: 2px;
-  flex: 1;
-  min-height: 10px;
-  margin: 4px 0;
-  border-radius: 1px;
-  background: var(--border-light, rgba(0, 0, 0, 0.06));
-}
-
-.skeleton-step-content {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 0 14px;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
 }
 
-.skeleton-line {
-  height: 10px;
-  border-radius: 5px;
-  background: linear-gradient(
-    90deg,
-    var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.06)) 25%,
-    var(--fill-tsp-gray-hover, rgba(0, 0, 0, 0.1)) 50%,
-    var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.06)) 75%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+.plan-streaming-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
 }
 
-.skeleton-line-title { height: 12px; }
-.skeleton-line-desc  { height: 8px; opacity: 0.6; }
+.bouncing-dots .dot {
+  display: inline-block;
+  animation: dot-bounce 1.4s ease-in-out infinite;
+}
+.bouncing-dots .dot:nth-child(1) { animation-delay: 0s; }
+.bouncing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+.bouncing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
 
-@keyframes skeleton-shimmer {
-  0%   { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
 }
 
-/* Dark mode — use :global(.dark .child) to keep full selector intact.
-   :global(.dark) .child compiles to just .dark in Vite scoped CSS,
-   leaking properties like -webkit-text-fill-color globally. */
-:global(.dark .plan-streaming-title) {
-  background: linear-gradient(90deg, #e5e7eb 0%, #e5e7eb 40%, #6b7280 50%, #e5e7eb 60%, #e5e7eb 100%);
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: plan-title-shimmer 4s linear infinite;
+.plan-streaming-subtitle {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  margin: 0;
 }
 
-:global(.dark .skeleton-circle) {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
+.plan-streaming-loader {
+  margin-top: 16px;
 }
 
-:global(.dark .skeleton-circle-active) {
-  background: rgba(96, 165, 250, 0.12);
-  border-color: rgba(96, 165, 250, 0.25);
+.plan-dot-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
-:global(.dark .skeleton-line) {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.06) 25%,
-    rgba(255, 255, 255, 0.12) 50%,
-    rgba(255, 255, 255, 0.06) 75%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+.plan-bounce-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: plan-dot-bounce 1.2s ease-in-out infinite;
 }
 
-:global(.dark .skeleton-connector) {
-  background: rgba(255, 255, 255, 0.08);
+@keyframes plan-dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
 }
 </style>

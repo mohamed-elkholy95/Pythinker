@@ -173,9 +173,6 @@ class DomainConfig(Protocol):
     @property
     def feature_plotly_charts_enabled(self) -> bool: ...
 
-    @property
-    def plotly_enabled(self) -> bool: ...
-
     # ── Cron ───────────────────────────────────────────────────────────
     @property
     def cron_service_enabled(self) -> bool: ...

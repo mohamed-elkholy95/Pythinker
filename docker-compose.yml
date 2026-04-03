@@ -112,13 +112,6 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '2'
-        reservations:
-          memory: 512M
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -269,7 +262,6 @@ services:
           memory: ${SANDBOX_MEM_RESERVATION:-512M}
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
-      - PLOTLY_RUNTIME_AVAILABLE=${PLOTLY_RUNTIME_AVAILABLE:-0}
       - ENABLE_VNC=${ENABLE_VNC:-1}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}

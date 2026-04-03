@@ -104,59 +104,6 @@ logger = logging.getLogger(__name__)
 # warnings, beacons) must never become the browser's resume cursor.
 _REDIS_STREAM_ID_RE = re.compile(r"^\d+-\d+$")
 
-# ── Screencast circuit breaker ──────────────────────────────────────────
-# Tracks per-session connection failures on the *backend* side.  When the
-# sandbox Chrome is dead (crash, PID exhaustion), every WebSocket
-# connection attempt burns 5 s (open_timeout) then fails.  Without a
-# server-side circuit breaker the backend happily retries forever,
-# generating log spam and wasting proxy resources.
-#
-# After _SCREENCAST_CB_THRESHOLD consecutive failures within
-# _SCREENCAST_CB_WINDOW_S seconds, the handler rejects new connections
-# immediately (no sandbox connect attempt) for _SCREENCAST_CB_COOLDOWN_S.
-_SCREENCAST_CB_THRESHOLD = 5  # failures before tripping
-_SCREENCAST_CB_WINDOW_S = 120.0  # track failures within this window
-_SCREENCAST_CB_COOLDOWN_S = 60.0  # reject instantly for this long
-
-_screencast_cb_state: dict[str, tuple[int, float, float]] = {}
-# session_id → (failure_count, first_failure_ts, last_failure_ts)
-
-
-def _screencast_cb_check(session_id: str) -> bool:
-    """Return True if the circuit breaker is open (should reject)."""
-    state = _screencast_cb_state.get(session_id)
-    if state is None:
-        return False
-    count, first_ts, last_ts = state
-    now = _time.monotonic()
-    # If outside the tracking window, reset
-    if now - first_ts > _SCREENCAST_CB_WINDOW_S:
-        _screencast_cb_state.pop(session_id, None)
-        return False
-    # If threshold reached, check cooldown
-    if count >= _SCREENCAST_CB_THRESHOLD:
-        if now - last_ts < _SCREENCAST_CB_COOLDOWN_S:
-            return True
-        # Cooldown expired — reset and allow one attempt
-        _screencast_cb_state.pop(session_id, None)
-        return False
-    return False
-
-
-def _screencast_cb_record_failure(session_id: str) -> None:
-    """Record a connection failure for the circuit breaker."""
-    now = _time.monotonic()
-    state = _screencast_cb_state.get(session_id)
-    if state is None or now - state[1] > _SCREENCAST_CB_WINDOW_S:
-        _screencast_cb_state[session_id] = (1, now, now)
-    else:
-        _screencast_cb_state[session_id] = (state[0] + 1, state[1], now)
-
-
-def _screencast_cb_record_success(session_id: str) -> None:
-    """Clear circuit breaker state on successful connection."""
-    _screencast_cb_state.pop(session_id, None)
-
 
 def _sandbox_ws_connect_kwargs() -> dict:
     """Build WebSocket connection kwargs for sandbox proxying.
@@ -172,11 +119,6 @@ def _sandbox_ws_connect_kwargs() -> dict:
         # If no pong received within timeout of a ping, consider connection dead.
         "ping_timeout": settings.sse_ws_ping_timeout_seconds,
         "max_size": None,
-        # Handshake timeout: fail fast when sandbox Chrome is dead (PID exhaustion,
-        # crash, etc.) instead of hanging for the default 10s+ timeout.
-        # When Chrome crashes, this prevents an infinite reconnect loop of 10s
-        # timeout → close → reconnect → 10s timeout → ...
-        "open_timeout": 5,
     }
 
 
@@ -2135,17 +2077,6 @@ async def screencast_websocket(
                 code=1008,
                 reason=f"Session {session.status} — screencast unavailable",
             )
-            return
-
-        # Server-side circuit breaker: if this session has had too many
-        # consecutive screencast connection failures, reject immediately
-        # instead of burning 5s on a doomed open_timeout.
-        if _screencast_cb_check(session_id):
-            logger.debug(
-                "Screencast circuit breaker open for session %s — rejecting",
-                session_id,
-            )
-            await websocket.close(code=1011, reason="screencast unavailable")
             return
 
         sandbox = await sandbox_cls.get(session.sandbox_id)

@@ -45,9 +45,7 @@ def hide_cursor(display_name: str | None = None) -> bool:
         libx11 = ctypes.cdll.LoadLibrary(libx11_path)
         libxfixes = ctypes.cdll.LoadLibrary(libxfixes_path)
     except OSError as e:
-        print(
-            f"[hide_cursor] Failed to load X11/Xfixes libraries: {e}", file=sys.stderr
-        )
+        print(f"[hide_cursor] Failed to load X11/Xfixes libraries: {e}", file=sys.stderr)
         return False
 
     # XOpenDisplay
@@ -76,9 +74,7 @@ def hide_cursor(display_name: str | None = None) -> bool:
     libx11.XFlush.restype = ctypes.c_int
     libx11.XFlush(display)
 
-    print(
-        f"[hide_cursor] X11 cursor hidden on {display_name} (holding connection open)"
-    )
+    print(f"[hide_cursor] X11 cursor hidden on {display_name} (holding connection open)")
 
     # Keep connection alive — XFixesHideCursor is per-client.
     # If we close the display or exit, the cursor reappears.

@@ -356,11 +356,6 @@ const handleBrowseUrl = (url: string) => {
   display: block;
 }
 
-.tool-browser-icon {
-  flex-shrink: 0;
-  display: block;
-}
-
 .tool-chip-text {
   font-size: 13px;
   line-height: 1.35;

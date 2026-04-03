@@ -155,16 +155,6 @@ describe('ToolPanelContent', () => {
     expect(wrapper.text()).toContain('Report');
   });
 
-  it('keeps the persistent browser viewer mounted for completed sessions until replay screenshots exist', () => {
-    const wrapper = mountToolPanelContent({
-      isSessionComplete: true,
-      replayScreenshotUrl: '',
-      isLoading: false,
-    });
-
-    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(true);
-  });
-
   it('hides URL status bar in live preview (X11 screencast captures native Chrome address bar)', () => {
     const wrapper = mountToolPanelContent({
       toolContent: {

@@ -360,6 +360,7 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
     apiError.message = 'Network error, please check your connection';
   }
 
+  console.error('API Error:', apiError.message || JSON.stringify(apiError));
   return Promise.reject(apiError);
 };
 
@@ -640,6 +641,7 @@ const handleSSEAuthError = async <T = unknown>(
     if (newAccessToken) {
       // Emit event for token refresh success
       window.dispatchEvent(new CustomEvent('auth:token-refreshed'));
+      if (import.meta.env.DEV) console.log('Token refreshed for SSE connection, will retry connection');
       return true; // Indicate successful refresh
     }
     return false; // No new token obtained

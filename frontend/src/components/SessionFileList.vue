@@ -237,14 +237,13 @@ const isReportFile = (file: FileInfo): boolean => {
 
 // Get display name for a file (use metadata title or resolved title for reports)
 const getDisplayName = (file: FileInfo): string => {
-    const metadataTitle = typeof file.metadata?.title === 'string' ? file.metadata.title : null
     // Reports (markdown) and PDF reports — show title from metadata
-    if (metadataTitle) {
+    if (file.metadata?.title) {
         const ext = file.filename.split('.').pop()?.toLowerCase();
         if (isReportFile(file) || file.metadata?.is_pdf_report || file.metadata?.is_report) {
             return ext === 'pdf'
-                ? metadataTitle
-                : metadataTitle;
+                ? `${file.metadata.title}`
+                : file.metadata.title;
         }
     }
     if (isReportFile(file) && resolvedTitles.value[file.file_id]) {
