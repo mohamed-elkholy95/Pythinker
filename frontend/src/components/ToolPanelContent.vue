@@ -575,10 +575,11 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { MonitorUp, X, Loader2, FileText, PencilLine, Play } from 'lucide-vue-next';
+import { MonitorUp, X, Loader2, FileText, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 import { cleanDisplayText, getToolLiveLabel } from '@/utils/toolDisplay';
 import { useCanvasLiveSync } from '@/composables/useCanvasLiveSync';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
@@ -758,6 +759,23 @@ function dismissBrowserView() {
   browserViewShownAt = null;
   clearBrowserHoldTimer();
 }
+
+// Tool state
+const toolName = computed(() => props.toolContent?.name || '');
+const toolFunction = computed(() => props.toolContent?.function || '');
+const toolStatus = computed(() => props.toolContent?.status || '');
+const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+const terminalToolNames = new Set(['shell', 'terminal', 'code_executor', 'code_execute']);
+const isTerminalTool = computed(() => terminalToolNames.has(toolName.value));
+
+// Artifact tools (report outputs saved via code executor)
+const isArtifactTool = computed(() => {
+  return toolName.value === 'code_executor' && (
+    toolFunction.value === 'code_save_artifact' ||
+    toolFunction.value === 'code_read_artifact'
+  );
+});
+
 const shouldShowArtifactEditor = computed(() => {
   if (!isArtifactTool.value) return false;
   return !!artifactInlineContent.value || !!resolvedFilePath.value;
@@ -803,6 +821,31 @@ const showPlanPresentation = computed(() => {
   if (showReportPresentation.value) return false;
   if (props.showTimeline && !props.realTime && !isViewingLatestTimelineStep.value) return false;
   return (props.planPresentationText || '').length > 0;
+});
+
+// Activity detection
+const isActiveOperation = computed(() => {
+  const isToolActive = toolStatus.value === 'calling' || toolStatus.value === 'running';
+  return isToolActive && props.live;
+});
+
+/**
+ * Show a pre-reply loading skeleton in the panel when the tool is actively
+ * being called but no streaming content is available yet.
+ * Excludes views that handle their own loading states or show live content.
+ */
+const showLiveViewSkeleton = computed(() => {
+  if (!props.live) return false;
+  if (!isActiveOperation.value) return false;
+  if (shouldShowUnifiedStreaming.value) return false;
+  if (isSummaryPhase.value || props.summaryStreamText) return false;
+  if (showPlanPresentation.value) return false;
+  // Synthetic planning tool — never show skeleton, the plan overlay will render
+  if (props.toolContent?.name === 'planning') return false;
+  if (props.isReplayMode) return false;
+  // These views handle their own skeleton or show live content
+  const noSkeleton = new Set(['search', 'live_preview', 'wide_research', 'terminal', 'editor', 'deals']);
+  return !noSkeleton.has(currentViewType.value ?? '');
 });
 
 /** Derive a stable key for the current content view — transitions fire only on key change.
@@ -883,63 +926,6 @@ const shouldShowUnifiedStreaming = computed(() => {
     summaryStreamText: props.summaryStreamText,
   });
 });
-
-const activeViewKey = computed((): string | null => {
-  if (showReportPresentation.value) return 'report';
-  if (showPlanPresentation.value) return 'plan';
-  // Synthetic planning tool — force plan overlay even before text arrives,
-  // so the stale browser from a previous session doesn't show through.
-  if (isPlanningTool.value) return 'plan';
-  if (shouldShowUnifiedStreaming.value) return 'streaming';
-  if (showLiveViewSkeleton.value) return 'skeleton';
-
-  if (props.isReplayMode && !props.realTime && !!props.replayScreenshotUrl && (currentViewType.value === 'live_preview' || !currentViewType.value)) {
-    return 'replay-user';
-  }
-  if (props.isReplayMode && !props.realTime && !props.replayScreenshotUrl && (currentViewType.value === 'live_preview' || !currentViewType.value)) {
-    return 'replay-user-loading';
-  }
-
-  // Pass-through: persistent browser visible, no overlay needed
-  if (currentViewType.value === 'live_preview' && showPersistentBrowser.value) return null;
-  if (currentViewType.value === 'live_preview') return 'live-preview-fallback';
-  if (currentViewType.value === 'terminal') return 'terminal';
-  if (currentViewType.value === 'editor') return 'editor';
-  if (currentViewType.value === 'search') return 'search';
-  if (currentViewType.value === 'deals') return 'deals';
-  if (currentViewType.value === 'chart') return 'chart';
-  if (currentViewType.value === 'canvas' && resolvedCanvasProjectId.value) return 'canvas';
-  if (currentViewType.value === 'generic') return 'generic';
-  if (currentViewType.value === 'wide_research') return 'wide-research';
-
-  if (props.isReplayMode && !!props.replayScreenshotUrl) return 'replay-final';
-  if (props.isReplayMode && !props.replayScreenshotUrl) return 'replay-final-loading';
-  if (!showPersistentBrowser.value) return 'generic-fallback';
-
-  return null;
-});
-
-/** Crossfade only between non-null overlay views.
- *  Browser pass-through (activeViewKey === null) switches instantly
- *  to prevent the z-index:-1 persistent browser from bleeding through
- *  during opacity transitions. */
-const previousViewKey = ref<string | null>(null);
-watch(activeViewKey, (_newKey, oldKey) => {
-  // Only update previous when actually transitioning between non-null keys
-  if (oldKey !== undefined) previousViewKey.value = oldKey ?? null;
-});
-
-const useCrossfade = computed(() => {
-  return activeViewKey.value !== null && previousViewKey.value !== null;
-});
-
-// Tool state
-const toolName = computed(() => props.toolContent?.name || '');
-const toolFunction = computed(() => props.toolContent?.function || '');
-const toolStatus = computed(() => props.toolContent?.status || '');
-const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
-const terminalToolNames = new Set(['shell', 'terminal', 'code_executor', 'code_execute']);
-const isTerminalTool = computed(() => terminalToolNames.has(toolName.value));
 
 // Canvas live view
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
@@ -1023,14 +1009,6 @@ const chartTypeBadge = computed(() => {
     .join(' ');
 });
 
-// Artifact tools (report outputs saved via code executor)
-const isArtifactTool = computed(() => {
-  return toolName.value === 'code_executor' && (
-    toolFunction.value === 'code_save_artifact' ||
-    toolFunction.value === 'code_read_artifact'
-  );
-});
-
 const artifactInlineContent = computed(() => {
   if (!isArtifactTool.value) return '';
   // Prefer streaming_content (from tool_stream event) for instant preview
@@ -1068,31 +1046,6 @@ const toolDisplay = computed(() => {
     args: props.toolContent.args,
     display_command: props.toolContent.display_command
   });
-});
-
-// Activity detection
-const isActiveOperation = computed(() => {
-  const isToolActive = toolStatus.value === 'calling' || toolStatus.value === 'running';
-  return isToolActive && props.live;
-});
-
-/**
- * Show a pre-reply loading skeleton in the panel when the tool is actively
- * being called but no streaming content is available yet.
- * Excludes views that handle their own loading states or show live content.
- */
-const showLiveViewSkeleton = computed(() => {
-  if (!props.live) return false;
-  if (!isActiveOperation.value) return false;
-  if (shouldShowUnifiedStreaming.value) return false;
-  if (isSummaryPhase.value || props.summaryStreamText) return false;
-  if (showPlanPresentation.value) return false;
-  // Synthetic planning tool — never show skeleton, the plan overlay will render
-  if (props.toolContent?.name === 'planning') return false;
-  if (props.isReplayMode) return false;
-  // These views handle their own skeleton or show live content
-  const noSkeleton = new Set(['search', 'live_preview', 'wide_research', 'terminal', 'editor', 'deals']);
-  return !noSkeleton.has(currentViewType.value ?? '');
 });
 
 // Shell progress computed removed (unused in template).
@@ -1370,6 +1323,55 @@ const livePreviewPlaceholderDetail = computed(() => {
 const showPersistentBrowser = computed(() => {
   return !!props.sessionId && !props.isReplayMode && !(sessionCompleteState.value && !!props.replayScreenshotUrl)
 })
+
+const activeViewKey = computed((): string | null => {
+  if (showReportPresentation.value) return 'report';
+  if (showPlanPresentation.value) return 'plan';
+  // Synthetic planning tool — force plan overlay even before text arrives,
+  // so the stale browser from a previous session doesn't show through.
+  if (isPlanningTool.value) return 'plan';
+  if (shouldShowUnifiedStreaming.value) return 'streaming';
+  if (showLiveViewSkeleton.value) return 'skeleton';
+
+  if (props.isReplayMode && !props.realTime && !!props.replayScreenshotUrl && (currentViewType.value === 'live_preview' || !currentViewType.value)) {
+    return 'replay-user';
+  }
+  if (props.isReplayMode && !props.realTime && !props.replayScreenshotUrl && (currentViewType.value === 'live_preview' || !currentViewType.value)) {
+    return 'replay-user-loading';
+  }
+
+  // Pass-through: persistent browser visible, no overlay needed
+  if (currentViewType.value === 'live_preview' && showPersistentBrowser.value) return null;
+  if (currentViewType.value === 'live_preview') return 'live-preview-fallback';
+  if (currentViewType.value === 'terminal') return 'terminal';
+  if (currentViewType.value === 'editor') return 'editor';
+  if (currentViewType.value === 'search') return 'search';
+  if (currentViewType.value === 'deals') return 'deals';
+  if (currentViewType.value === 'chart') return 'chart';
+  if (currentViewType.value === 'canvas' && resolvedCanvasProjectId.value) return 'canvas';
+  if (currentViewType.value === 'generic') return 'generic';
+  if (currentViewType.value === 'wide_research') return 'wide-research';
+
+  if (props.isReplayMode && !!props.replayScreenshotUrl) return 'replay-final';
+  if (props.isReplayMode && !props.replayScreenshotUrl) return 'replay-final-loading';
+  if (!showPersistentBrowser.value) return 'generic-fallback';
+
+  return null;
+});
+
+/** Crossfade only between non-null overlay views.
+ *  Browser pass-through (activeViewKey === null) switches instantly
+ *  to prevent the z-index:-1 persistent browser from bleeding through
+ *  during opacity transitions. */
+const previousViewKey = ref<string | null>(null);
+watch(activeViewKey, (_newKey, oldKey) => {
+  // Only update previous when actually transitioning between non-null keys
+  if (oldKey !== undefined) previousViewKey.value = oldKey ?? null;
+});
+
+const useCrossfade = computed(() => {
+  return activeViewKey.value !== null && previousViewKey.value !== null;
+});
 
 let _lastForwardedToolEventKey = '';
 

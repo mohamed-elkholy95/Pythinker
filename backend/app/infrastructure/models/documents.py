@@ -23,6 +23,7 @@ from app.domain.models.session import (
     ResearchMode,
     Session,
     SessionStatus,
+    TakeoverReason,
     TakeoverState,
     ThinkingLevel,
 )

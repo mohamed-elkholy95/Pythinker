@@ -11,8 +11,6 @@ import {
   mockAssistantMessage,
   mockToolMessage,
   mockStepMessage,
-  mockAssistantAttachmentsMessage,
-  mockUserAttachmentsMessage,
 } from '../mocks/api'
 
 const structuredSummaryText = `I have completed a comprehensive comparison of GLM-5 against Claude Sonnet 4.5 and Opus 4.6.

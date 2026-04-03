@@ -118,6 +118,7 @@ import { ToolContent } from '@/types/message';
 import type { ConsoleRecord } from '@/types/response';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import LiveViewer from '@/components/LiveViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';

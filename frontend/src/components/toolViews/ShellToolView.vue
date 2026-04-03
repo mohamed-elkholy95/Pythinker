@@ -44,6 +44,7 @@
 import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
+import type { ShellToolContent } from '@/types/toolContent';
 import type { ConsoleRecord } from '@/types/response';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
@@ -82,7 +83,7 @@ defineExpose({
 });
 
 const commandBlocks = ref<CommandBlock[]>([]);
-const refreshTimer = ref<number | null>(null);
+const refreshTimer = ref<ReturnType<typeof setInterval> | null>(null);
 
 // Shiki highlighting for shell output
 const { highlightTerminalDualTheme } = useShiki();

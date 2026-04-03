@@ -242,8 +242,8 @@ const getDisplayName = (file: FileInfo): string => {
         const ext = file.filename.split('.').pop()?.toLowerCase();
         if (isReportFile(file) || file.metadata?.is_pdf_report || file.metadata?.is_report) {
             return ext === 'pdf'
-                ? `${file.metadata.title}`
-                : file.metadata.title;
+                ? String(file.metadata.title)
+                : String(file.metadata.title);
         }
     }
     if (isReportFile(file) && resolvedTitles.value[file.file_id]) {

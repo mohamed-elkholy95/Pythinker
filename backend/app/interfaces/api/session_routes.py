@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import re
-import time as _time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Literal
@@ -2102,7 +2101,6 @@ async def screencast_websocket(
             additional_headers=_sandbox_ws_extra_headers(),
             **_sandbox_ws_connect_kwargs(),
         ) as sandbox_ws:
-            _screencast_cb_record_success(session_id)
             logger.debug("Connected to screencast at %s", redacted_sandbox_ws_url)
 
             async def forward_from_sandbox():
@@ -2172,7 +2170,6 @@ async def screencast_websocket(
                         await task
 
     except (ConnectionError, websockets.exceptions.WebSocketException) as e:
-        _screencast_cb_record_failure(session_id)
         error_text = _safe_exc_text(e)
         if "No such container" in error_text or "404 Client Error" in error_text:
             logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")
@@ -2182,7 +2179,6 @@ async def screencast_websocket(
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason="screencast unavailable")
     except Exception as e:
-        _screencast_cb_record_failure(session_id)
         error_text = _safe_exc_text(e)
         if "No such container" in error_text or "404 Client Error" in error_text:
             logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")

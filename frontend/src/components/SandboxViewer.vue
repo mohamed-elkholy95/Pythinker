@@ -214,13 +214,6 @@ const MAX_RECONNECT_ATTEMPTS = 5
 const NON_RETRYABLE_WS_CODES = new Set([1002, 1003, 1007, 1008])
 let intentionalClose = false
 
-// Session-scoped circuit breaker: stops all reconnect attempts when sandbox
-// is confirmed dead (e.g., Chrome PID exhaustion, container crash).
-// Unlike connectionAttempts which resets on tab visibility, this persists
-// for the lifetime of the component and only resets on manual reconnect().
-let sessionFailureCount = 0
-const MAX_SESSION_FAILURES = 5
-
 // Connection liveness watchdog — detects dead streams
 // (e.g., Chrome hung, proxy died, backend crashed)
 // NOTE: Chrome's Page.startScreencast only sends frames when the compositor
@@ -496,7 +489,6 @@ function disconnect(): void {
 
 function reconnect(): void {
   connectionAttempts = 0
-  sessionFailureCount = 0  // Reset circuit breaker on manual reconnect
   error.value = null
   debouncedInitConnection()
 }

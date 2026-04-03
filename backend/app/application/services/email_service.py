@@ -11,6 +11,7 @@ from email.message import Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import parseaddr
+from pathlib import Path
 
 from app.application.errors.exceptions import BadRequestError
 from app.core.config import get_settings

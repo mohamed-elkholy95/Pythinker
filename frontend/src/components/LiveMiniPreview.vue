@@ -95,7 +95,7 @@
       <!-- Planning preview -->
       <div v-else-if="isPlanningPhase" class="dc-panel">
         <div class="dc-header">
-          <span class="dc-header-title">{{ streamingPresentation.headline.value }}</span>
+          <span class="dc-header-title">{{ isPlanStreaming ? 'Creating plan' : 'Plan ready' }}</span>
           <div v-if="isPlanStreaming" class="activity-dot"></div>
         </div>
         <div class="dc-body">
@@ -135,11 +135,11 @@
             >
               <div class="sr-icon-wrap">
                 <img
-                  v-if="(result.url || result.link) && !faviconErrors[result.url ?? result.link ?? '']"
-                  :src="getFavicon(result.url ?? result.link ?? '')"
+                  v-if="(result.url || result.link) && !isFaviconError(result.url ?? result.link ?? '')"
+                  :src="getFaviconUrl(result.url ?? result.link ?? '')"
                   alt=""
                   class="sr-favicon"
-                  @error="onFaviconError(result.url ?? result.link ?? '')"
+                  @error="handleFaviconError(result.url ?? result.link ?? '')"
                 />
                 <span v-else class="sr-favicon-fallback">{{ getIconLetterFromUrl(result.url ?? result.link ?? '', result.title) }}</span>
               </div>
@@ -242,16 +242,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
-import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
-import { getToolDisplay, getToolLiveLabel } from '@/utils/toolDisplay';
 import { useFavicon } from '@/composables/useFavicon';
+import { getToolDisplay, getToolLiveLabel } from '@/utils/toolDisplay';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
 import type { ToolEventData } from '@/types/event';
@@ -604,6 +603,7 @@ const shouldShowFinalScreenshot = computed(() => {
 
 // Wide research state
 const { miniState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal();
+const { getUrl: getFaviconUrl, isError: isFaviconError, handleError: handleFaviconError, getLetter: getIconLetterFromUrl } = useFavicon();
 
 const isWideResearch = computed(() => {
   const toolName = props.toolName?.toLowerCase() || '';
@@ -614,15 +614,6 @@ const isWideResearch = computed(() => {
 const truncate = (text: string, maxLength: number): string => {
   if (!text) return '';
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
-};
-
-const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
-
-const faviconErrors: Record<string, boolean> = reactive({});
-
-const onFaviconError = (url: string) => {
-  faviconErrors[url] = true;
-  markFaviconFailed(url);
 };
 
 const fileName = computed(() => {

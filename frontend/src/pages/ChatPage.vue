@@ -592,7 +592,6 @@ import * as agentApi from '../api/agent';
 import type { ThinkingMode } from '../api/agent';
 import type { SSECallbacks, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent, ThoughtContent } from '../types/message';
-import type { ChartToolContent } from '@/types/toolContent';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import { normalizeUserMessageForDedup } from '@/utils/userMessageDedup';
 import {
@@ -687,6 +686,10 @@ import {
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
+import { syncToolMessage } from '@/utils/toolMessageTree';
+import { syncPhaseMessage } from '@/utils/phaseMessages';
+import { syncReportMessage } from '@/utils/reportMessages';
+import { syncSkillDeliveryMessage } from '@/utils/skillDeliveryMessages';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { DEFAULT_SESSION_RECONNECT_POLICY } from '@/core/session/reconnectPolicy';
 import {
@@ -703,6 +706,7 @@ import { useMcpStatus } from '@/composables/useMcpStatus';
 import { useShareSession } from '@/composables/useShareSession';
 import { usePanelSplitter } from '@/composables/usePanelSplitter';
 import { useTakeoverCta } from '@/composables/useTakeoverCta';
+import type { ChartToolContent } from '@/types/toolContent';
 
 // ── Pinia stores (single source of truth) ──
 const toolStore = useToolStore()
@@ -716,15 +720,6 @@ const userDismissedPanel = computed(() => uiStore.userDismissedPanel)
 const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats)
 const isStale = computed(() => connectionStore.isStale)
 const isLeftPanelShow = computed(() => uiStore.isLeftPanelShow)
-
-// Writable refs from stores (avoids verbose store prefix everywhere)
-const { lastEventId } = storeToRefs(connectionStore)
-
-// Computed aliases from stores (read-only; mutations go through store actions)
-const isToolPanelOpen = computed(() => uiStore.isRightPanelOpen)
-const userDismissedPanel = computed(() => uiStore.userDismissedPanel)
-const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats)
-const isStale = computed(() => connectionStore.isStale)
 
 const router = useRouter()
 const { t } = useI18n()
@@ -855,8 +850,6 @@ const createInitialState = () => ({
 
 // Create reactive state
 const state = reactive(createInitialState());
-const activeHeaderModelName = ref('')
-
 const activeHeaderModelName = ref('')
 
 // Destructure refs from reactive state
@@ -1160,10 +1153,6 @@ const isReplayMode = computed(() => {
 let messageIdCounter = 0;
 const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 
-type ToolPanelInstance = InstanceType<typeof ToolPanel> & {
-  isShow?: boolean
-}
-
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 
@@ -1219,6 +1208,8 @@ const {
   isMobileViewport,
   isToolPanelOpen,
 });
+
+const toolPanelPainted = computed(() => toolPanelSize.value > 0);
 
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
@@ -3588,15 +3579,16 @@ const closeFilePreview = () => {
 
 // ── Canvas Viewer handlers ──
 const openCanvasViewer = (tool: ToolContent) => {
-  const content = tool?.content;
+  const content = tool?.content as ChartToolContent | undefined;
   if (!content) return;
   const pngFileId = content.png_file_id;
   if (!pngFileId) return;
   canvasViewer.imageUrl = fileApi.getFileUrl(pngFileId);
   canvasViewer.pngFileId = pngFileId;
-  canvasViewer.filename = content.title ? `${String(content.title).replace(/\s+/g, '_')}.png` : 'chart.png';
-  canvasViewer.width = content.width || 800;
-  canvasViewer.height = content.height || 600;
+  const safeTitle = typeof content.title === 'string' ? content.title.trim() : '';
+  canvasViewer.filename = safeTitle ? `${safeTitle.replace(/\s+/g, '_')}.png` : 'chart.png';
+  canvasViewer.width = typeof content.width === 'number' ? content.width : 800;
+  canvasViewer.height = typeof content.height === 'number' ? content.height : 600;
   canvasViewer.visible = true;
 };
 

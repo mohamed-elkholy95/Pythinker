@@ -1251,6 +1251,7 @@ class SearchTool(BaseTool):
             # Each cross-origin navigation spawns a new renderer (~140-390 MiB)
             # that Chrome does not eagerly GC.  This single navigation reclaims
             # ~1-2 GiB after a typical 5-URL preview cycle.
+            preview_cleanup_enabled = getattr(_preview_cfg, "browser_preview_cleanup_enabled", True)
             if preview_cleanup_enabled:
                 try:
                     if hasattr(self._browser, "navigate_for_display"):

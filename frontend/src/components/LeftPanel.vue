@@ -156,30 +156,32 @@
       </div>
       <div class="all-tasks-header">
         <span class="all-tasks-title">{{ t('All tasks') }}</span>
-        <Popover v-if="!isAgentsWorkspace">
-          <PopoverTrigger as-child>
-            <button
-              class="all-tasks-filter-btn"
-              :class="{ 'all-tasks-filter-btn-active': channelFilter !== 'all' }"
-              data-testid="session-source-filter-trigger"
-              aria-label="Filter tasks"
-            >
-              <SlidersHorizontal :size="14" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="end" :side-offset="4" class="!w-auto !min-w-[120px] !rounded-xl !p-1">
-            <button
-              v-for="filter in (['all', 'telegram', 'web'] as const)"
-              :key="filter"
-              class="filter-menu-item"
-              :class="{ 'filter-menu-item-active': channelFilter === filter }"
-              :data-testid="`session-source-filter-${filter}`"
-              @click="setChannelFilter(filter)"
-            >
-              {{ filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1) }}
-            </button>
-          </PopoverContent>
-        </Popover>
+        <div v-if="!isAgentsWorkspace" data-testid="session-source-filters">
+          <Popover>
+            <PopoverTrigger as-child>
+              <button
+                class="all-tasks-filter-btn"
+                :class="{ 'all-tasks-filter-btn-active': channelFilter !== 'all' }"
+                data-testid="session-source-filter-trigger"
+                aria-label="Filter tasks"
+              >
+                <SlidersHorizontal :size="14" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" :side-offset="4" class="!w-auto !min-w-[120px] !rounded-xl !p-1">
+              <button
+                v-for="filter in (['all', 'telegram', 'web'] as const)"
+                :key="filter"
+                class="filter-menu-item"
+                :class="{ 'filter-menu-item-active': channelFilter === filter }"
+                :data-testid="`session-source-filter-${filter}`"
+                @click="setChannelFilter(filter)"
+              >
+                {{ filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1) }}
+              </button>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
       <div class="flex flex-col flex-1 min-h-0">
         <div

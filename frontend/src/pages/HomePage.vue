@@ -114,12 +114,13 @@ import { ref, onMounted, computed, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
+import { consumeComposerDraft } from '@/utils/composerDraft';
+import type { FileInfo } from '@/api/file';
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import PaletteIcon from '../components/icons/PaletteIcon.vue';
 import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
 import { Tag } from 'lucide-vue-next';
 import { ChevronDown } from 'lucide-vue-next';
-import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
@@ -325,8 +326,8 @@ const createSessionWithMode = async (mode: AgentMode, seedMessage?: string) => {
   const draft = consumeComposerDraft({
     message: message.value,
     attachments: attachments.value,
-    setMessage: (value) => { message.value = value; },
-    setAttachments: (value) => { attachments.value = value; },
+    setMessage: (value: string) => { message.value = value; },
+    setAttachments: (value: FileInfo[]) => { attachments.value = value; },
   });
 
   try {
@@ -370,8 +371,8 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
     const draft = consumeComposerDraft({
       message: message.value,
       attachments: attachments.value,
-      setMessage: (value) => { message.value = value; },
-      setAttachments: (value) => { attachments.value = value; },
+      setMessage: (value: string) => { message.value = value; },
+      setAttachments: (value: FileInfo[]) => { attachments.value = value; },
     });
     let submitMessage = draft.message;
     if (skillIds.includes('skill-creator')) {

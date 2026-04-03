@@ -377,7 +377,6 @@ import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLay
 import { groupConsecutiveTools } from '../composables/useToolGrouping';
 import { normalizeTimestampSeconds } from '../utils/time';
 import { stripLeakedToolCallMarkup } from '@/utils/messageSanitizer';
-import { getToolLiveLabel } from '@/utils/toolDisplay';
 
 
 const props = defineProps<{
@@ -477,14 +476,6 @@ const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
 const skillDeliveryContent = computed(() => props.message.content as SkillDeliveryContent);
-const skillInvokeTitle = computed(() => {
-  const liveLabel = getToolLiveLabel({
-    current_step: toolContent.value.current_step,
-    display_command: toolContent.value.display_command,
-  });
-  if (liveLabel) return liveLabel;
-  return toolContent.value.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.value.display_command || 'Working');
-});
 
 // Collapse consecutive identical tool operations into groups with count badges
 const groupedTools = computed(() => {
@@ -516,19 +507,6 @@ const reportData = computed<ReportData>(() => {
     attachments: content.attachments,
     sources: content.sources,
   };
-});
-
-// Filter out the report's own .md file from the attachment grid — it duplicates
-// the report card content (created by _ensure_report_file on the backend).
-const _reportSupplementaryAttachments = computed(() => {
-  const atts = reportData.value.attachments;
-  if (!atts || atts.length === 0) return [];
-  const reportId = reportData.value.id;
-  return atts.filter((file) => {
-    const fname = file.filename || file.file_path?.split('/').pop() || '';
-    // Pattern: report-{uuid}.md — exact match for the auto-generated report file
-    return !fname.startsWith(`report-${reportId}`) || !fname.endsWith('.md');
-  });
 });
 
 // Control step expand/collapse state

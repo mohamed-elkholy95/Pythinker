@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from importlib import import_module
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from app.domain.external.sandbox import Sandbox
 
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
-from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
+from app.domain.services.tools.base import BaseTool, tool
 from app.domain.services.tools.shell_classifier import ShellCommandClassifier
 from app.domain.services.tools.timeout_policy import TimeoutPolicy
 
@@ -89,14 +91,6 @@ class ShellTool(BaseTool):
         self._classifier = ShellCommandClassifier()
         self._timeout_policy = TimeoutPolicy()
         self._bg_jobs: dict[str, _BackgroundJob] = {}  # job_id → job
-
-    def _get_config(self) -> DomainConfig:
-        """Return the injected DomainConfig, falling back to get_settings lazily."""
-        if self._config is not None:
-            return self._config
-        from app.core.config import get_settings
-
-        return get_settings()
 
     def _get_config(self) -> DomainConfig:
         """Return the injected DomainConfig, falling back to get_settings lazily."""
@@ -415,7 +409,7 @@ class ShellTool(BaseTool):
                     message=f"Background command blocked by security review: {issues_str}",
                 )
 
-        job_id = str(uuid.uuid4())[:8]
+        job_id = str(uuid4())[:8]
         job = _BackgroundJob(job_id=job_id, session_id=id, exec_dir=exec_dir, command=command)
 
         # Ensure output dir exists, start command with nohup, capture PID

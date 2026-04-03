@@ -133,7 +133,6 @@ import { useI18n } from 'vue-i18n'
 import {
   Sparkles,
   Cpu,
-  Link,
   Lock,
   SlidersHorizontal,
   Thermometer,
@@ -146,6 +145,7 @@ const { t } = useI18n()
 // Server config — the actual running state (source of truth from .env)
 const serverConfig = ref<ServerConfig>({
   model_name: '',
+  model_display_name: '',
   api_base: '',
   temperature: 0.6,
   max_tokens: 8192,

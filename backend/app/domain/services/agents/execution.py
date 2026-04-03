@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -20,7 +21,6 @@ from app.domain.models.event import (
     MessageEvent,
     ReportEvent,
     SkillEvent,
-    SkillToolContent,
     StepEvent,
     StepStatus,
     StreamEvent,
@@ -34,7 +34,6 @@ from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType, is_terminal_status
 from app.domain.models.source_citation import SourceCitation
 from app.domain.models.tool_name import ToolName
-from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.context_manager import ContextManager, InsightType
@@ -274,6 +273,7 @@ class ExecutionAgent(BaseAgent):
         # Pre-planning search context for real-time web info propagation
         self._pre_planning_search_context: str | None = None
         self._pre_planning_search_queries: list[str] = []
+        self._tool_call_start_times: dict[str, float] = {}
 
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
@@ -536,6 +536,9 @@ class ExecutionAgent(BaseAgent):
                 _skill_settings = self._get_config()
                 _already_emitted = getattr(self, "_skill_chips_emitted", set())
                 if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
+                    from app.domain.services.skill_registry import get_skill_registry
+
+                    registry = await get_skill_registry()
                     for sid in skill_context.skill_ids:
                         skill = await registry.get_skill(sid)
                         if skill:
@@ -721,7 +724,7 @@ class ExecutionAgent(BaseAgent):
                 elif isinstance(event, ToolEvent):
                     # Record tool call start time for Prometheus latency tracking
                     if event.status == ToolStatus.CALLING and event.tool_call_id:
-                        _tool_call_start_times[event.tool_call_id] = time.monotonic()
+                        self._tool_call_start_times[event.tool_call_id] = time.monotonic()
 
                     # Track tool usage for prompt adapter
                     if event.status == ToolStatus.CALLED:
@@ -736,8 +739,8 @@ class ExecutionAgent(BaseAgent):
                             from app.core.prometheus_metrics import record_tool_call
 
                             _tool_latency = 0.0
-                            if event.tool_call_id and event.tool_call_id in _tool_call_start_times:
-                                _tool_latency = time.monotonic() - _tool_call_start_times.pop(event.tool_call_id)
+                            if event.tool_call_id and event.tool_call_id in self._tool_call_start_times:
+                                _tool_latency = time.monotonic() - self._tool_call_start_times.pop(event.tool_call_id)
 
                             # Classify: HTTP 4xx from pre-checks are client errors, not tool errors
                             _metric_status = "success"

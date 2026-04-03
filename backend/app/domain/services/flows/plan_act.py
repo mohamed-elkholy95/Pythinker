@@ -47,7 +47,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step
+from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step, StepType
 from app.domain.models.request_contract import RequestContract
 from app.domain.models.session import SessionStatus
 from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition

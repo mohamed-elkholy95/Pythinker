@@ -106,6 +106,22 @@ RESEARCH_COMPLEXITY_HINTS = [
     "validate findings",
 ]
 
+_TOOL_HINT_TO_EXPECTED: dict[str, list[str]] = {
+    "web_search": ["search"],
+    "browser": [
+        "search",
+        "browser_agent_run",
+        "browser_agent_extract",
+        "playwright_navigate",
+        "playwright_get_content",
+    ],
+    "file": ["file_read", "file_write", "file_view", "file_find_in_content", "file_find_by_name"],
+    "shell": ["shell_exec", "shell_view", "shell_wait", "shell_write_to_process", "shell_kill_process"],
+    "deal_search": ["search"],
+    "deal_find_coupons": ["search"],
+    "deal_compare_prices": ["search"],
+}
+
 
 def _format_plan_as_markdown(plan: Plan, *, complexity: str, planner_kind: str) -> str:
     """Format a Plan object as deterministic markdown for live-view streaming.

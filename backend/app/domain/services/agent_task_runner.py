@@ -2217,22 +2217,6 @@ class AgentTaskRunner(TaskRunner):
                     self._session_id,
                 )
         except Exception as e:
-            logger.warning("Agent %s: Final file sweep failed: %s", self._agent_id, e)
-
-        Runs before ``release_task_resources`` so the sandbox is still available.
-        Non-fatal if sandbox was already destroyed by a concurrent teardown.
-        """
-        logger.info(f"Agent {self._agent_id} task done, running final file sweep")
-        try:
-            synced = await self._sweep_workspace_files()
-            if synced:
-                logger.info(
-                    "Agent %s: Final sweep synced %d file(s) to session %s",
-                    self._agent_id,
-                    len(synced),
-                    self._session_id,
-                )
-        except Exception as e:
             logger.warning(
                 "Agent %s: Final file sweep failed (sandbox may be destroyed): %s",
                 self._agent_id,

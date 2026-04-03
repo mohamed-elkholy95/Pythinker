@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from app.domain.external.config import DomainConfig
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
-from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
