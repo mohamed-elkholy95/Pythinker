@@ -91,6 +91,7 @@ jobs:
       - name: Dependency vulnerability scan (pip-audit)
         if: needs.changes.outputs.backend == 'true'
         run: |
+          pip install --upgrade pip
           pip install pip-audit
           # --ignore-vuln: CVE-2025-69872 (diskcache pickle deserialization) — no fix upstream; low risk in Docker
           pip-audit -r requirements.txt --ignore-vuln CVE-2025-69872

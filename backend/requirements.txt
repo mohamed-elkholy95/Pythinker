@@ -12,6 +12,7 @@ uvicorn>=0.32.0,<1.0.0
 # LLM providers (let browser-use control openai version)
 openai>=2.7.2
 instructor>=1.14.5
+anthropic>=0.89.0
 
 # Data validation
 pydantic>=2.9.0,<3.0.0
@@ -39,6 +40,7 @@ tenacity>=8.2.0,<10.0.0
 rich>=14.0.0,<15.0.0
 markdownify>=1.2.0,<2.0.0
 rapidfuzz>=3.9.0,<4.0.0
+pygments>=2.20.0
 reportlab>=4.2.0,<5.0.0  # Telegram PDF delivery generation engine
 # Keep html5lib on wheel-backed modern release to avoid legacy build path
 # that imports pkg_resources in pip-audit's ephemeral resolver environment.
