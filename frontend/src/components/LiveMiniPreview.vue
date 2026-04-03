@@ -250,7 +250,7 @@ import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { isTakeoverOverlayActive } from '@/composables/takeoverOverlayState';
-import { getToolDisplay } from '@/utils/toolDisplay';
+import { getToolDisplay, getToolLiveLabel } from '@/utils/toolDisplay';
 import { useFavicon } from '@/composables/useFavicon';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
@@ -415,7 +415,13 @@ const streamingPresentation = useStreamingPresentationState({
   isPlanStreaming: computed(() => !!props.isPlanStreaming),
   planPresentationText: computed(() => props.planPresentationText || ''),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || props.toolName || ''),
-  toolDescription: computed(() => toolDisplay.value?.description || ''),
+  toolDescription: computed(() => {
+    const liveLabel = getToolLiveLabel({
+      current_step: props.toolContent?.current_step,
+      display_command: props.toolContent?.display_command,
+    });
+    return liveLabel || toolDisplay.value?.description || '';
+  }),
   baseViewType: computed(() => baseViewTypeForPresentation.value),
   isSessionComplete: computed(() => !!props.isSessionComplete),
   replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),

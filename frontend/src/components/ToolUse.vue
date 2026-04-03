@@ -91,6 +91,7 @@ import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
 import FastSearchInline from "./FastSearchInline.vue";
 import BrowserOrbitIcon from "./icons/BrowserOrbitIcon.vue";
+import { getToolLiveLabel } from "@/utils/toolDisplay";
 
 /**
  * Configuration: Tools that should be rendered as inline text messages
@@ -159,6 +160,13 @@ const isBrowserFamilyTool = computed(() => {
 
 const chipLabel = computed(() => {
   if (isBrowserFamilyTool.value) return 'Browsing';
+  if (isRunning.value) {
+    const liveLabel = getToolLiveLabel({
+      current_step: props.tool.current_step,
+      display_command: props.tool.display_command,
+    });
+    if (liveLabel) return liveLabel;
+  }
   return toolInfo.value?.description ?? t('Search');
 });
 

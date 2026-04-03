@@ -579,7 +579,7 @@ import { MonitorUp, X, Loader2, FileText, Play } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
-import { cleanDisplayText } from '@/utils/toolDisplay';
+import { cleanDisplayText, getToolLiveLabel } from '@/utils/toolDisplay';
 import { useCanvasLiveSync } from '@/composables/useCanvasLiveSync';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay } from '@/utils/toolDisplay';
@@ -699,9 +699,13 @@ const currentToolForProgress = computed(() => {
     args: props.toolContent.args,
     display_command: props.toolContent.display_command
   });
+  const liveLabel = getToolLiveLabel({
+    current_step: props.toolContent.current_step,
+    display_command: props.toolContent.display_command,
+  });
   return {
     name: display.displayName,
-    function: display.actionLabel,
+    function: liveLabel || display.actionLabel,
     functionArg: display.resourceLabel,
     status: props.toolContent.status,
     icon: display.icon
@@ -1124,6 +1128,13 @@ watch(
  * @see docs/guides/TOOL_STANDARDIZATION.md
  */
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');
+const toolLiveSubtitle = computed(() => {
+  if (!props.toolContent) return '';
+  return getToolLiveLabel({
+    current_step: props.toolContent.current_step,
+    display_command: props.toolContent.display_command,
+  });
+});
 
 // Reuse shared placeholder-cleaning utility from toolDisplay.ts (DRY — "Reuse First" rule).
 const cleanActivitySubtitle = cleanDisplayText;
@@ -1138,7 +1149,7 @@ const streamingPresentation = useStreamingPresentationState({
   isPlanStreaming: computed(() => !!props.isPlanStreaming),
   planPresentationText: computed(() => props.planPresentationText || ''),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || ''),
-  toolDescription: computed(() => toolSubtitle.value || ''),
+  toolDescription: computed(() => toolLiveSubtitle.value || toolSubtitle.value || ''),
   baseViewType: computed(() => {
     if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
       return currentViewType.value;

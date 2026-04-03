@@ -180,7 +180,7 @@
           <CheckIcon :size="10" :stroke-width="2.5" />
         </div>
         <span class="step-compact-title step-compact-title--skill">
-          {{ toolContent.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.display_command || 'Working') }}
+          {{ skillInvokeTitle }}
         </span>
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -377,6 +377,7 @@ import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLay
 import { groupConsecutiveTools } from '../composables/useToolGrouping';
 import { normalizeTimestampSeconds } from '../utils/time';
 import { stripLeakedToolCallMarkup } from '@/utils/messageSanitizer';
+import { getToolLiveLabel } from '@/utils/toolDisplay';
 
 
 const props = defineProps<{
@@ -476,6 +477,14 @@ const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
 const skillDeliveryContent = computed(() => props.message.content as SkillDeliveryContent);
+const skillInvokeTitle = computed(() => {
+  const liveLabel = getToolLiveLabel({
+    current_step: toolContent.value.current_step,
+    display_command: toolContent.value.display_command,
+  });
+  if (liveLabel) return liveLabel;
+  return toolContent.value.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.value.display_command || 'Working');
+});
 
 // Collapse consecutive identical tool operations into groups with count badges
 const groupedTools = computed(() => {
