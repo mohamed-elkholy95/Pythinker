@@ -14,7 +14,6 @@ Features:
 
 import asyncio
 import logging
-import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -27,6 +26,7 @@ from app.domain.models.event import BaseEvent, ToolEvent
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.search import QueryExpander, SearchType
+from app.domain.utils.task_ids import generate_remote_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class WideResearchFlow:
         Returns:
             Aggregated research result
         """
-        self._research_id = str(uuid.uuid4())[:12]
+        self._research_id = generate_remote_task_id()
         started_at = datetime.now(UTC)
 
         logger.info(f"Starting wide research {self._research_id} on topic: {config.topic}")
@@ -221,7 +221,7 @@ class WideResearchFlow:
         Yields:
             Progress events and final result
         """
-        self._research_id = str(uuid.uuid4())[:12]
+        self._research_id = generate_remote_task_id()
         started_at = datetime.now(UTC)
 
         # Emit start event

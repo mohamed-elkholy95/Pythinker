@@ -164,7 +164,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import TiptapReportEditor from './TiptapReportEditor.vue';
 import type { ReportData, ReportSection } from './types';
-import { collapseDuplicateReportBlocks } from './reportContentNormalizer';
+import {
+  collapseDuplicateReportBlocks,
+  stripLegacyPreviouslyCalledMarkers,
+} from './reportContentNormalizer';
 
 export type { ReportData, ReportSection };
 
@@ -183,7 +186,9 @@ const emit = defineEmits<{
 
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
-const normalizedReportContent = computed(() => collapseDuplicateReportBlocks(props.report.content || ''));
+const normalizedReportContent = computed(() =>
+  collapseDuplicateReportBlocks(stripLegacyPreviouslyCalledMarkers(props.report.content || '')),
+);
 
 const getSuggestionIcon = (index: number) => {
   const icons = [Puzzle, MessageCircle, MessageCircle, Briefcase];

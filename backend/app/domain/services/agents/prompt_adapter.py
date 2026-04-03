@@ -134,13 +134,13 @@ Search Context Tips:
 
         # Keep bounded
         if len(self._context.recent_tools) > self._max_recent_tools:
-            self._context.recent_tools = self._context.recent_tools[-self._max_recent_tools :]
+            self._context.recent_tools[:] = self._context.recent_tools[-self._max_recent_tools :]
 
         # Track errors
         if not success and error:
             self._context.recent_errors.append(f"{tool_name}: {error[:100]}")
             if len(self._context.recent_errors) > 5:
-                self._context.recent_errors = self._context.recent_errors[-5:]
+                self._context.recent_errors[:] = self._context.recent_errors[-5:]
 
         # Update primary context
         self._context.primary_context = self._infer_context()

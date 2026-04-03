@@ -17,7 +17,7 @@ from app.domain.services.analyzers import (
     QualityAnalyzer,
     SecurityAnalyzer,
 )
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,9 @@ class DeepScanAnalyzerTool(BaseTool):
         Args:
             strict_mode: If True, use stricter detection thresholds
         """
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(should_defer=True, is_read_only=True, category="analysis"),
+        )
         self._security_analyzer = SecurityAnalyzer(strict_mode=strict_mode)
         self._quality_analyzer = QualityAnalyzer()
         self._dependency_analyzer = DependencyAnalyzer()

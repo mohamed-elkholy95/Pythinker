@@ -1,5 +1,5 @@
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 
 class IdleTool(BaseTool):
@@ -8,7 +8,9 @@ class IdleTool(BaseTool):
     name: str = "idle"
 
     def __init__(self):
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(is_read_only=True, category="utility"),
+        )
 
     @tool(
         name="idle",

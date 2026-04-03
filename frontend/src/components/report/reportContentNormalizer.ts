@@ -2,6 +2,7 @@ const H1_HEADING_RE = /^#\s+(.+)$/gm;
 const UNVERIFIED_MARKER_RE = /\[(?:unverified(?:\s+[^\]\n]*?)?|not verified)\]?/gi;
 const VERIFIED_MARKER_RE = /\[(?:verified(?:\s+[^\]\n]*?)?)\]?/gi;
 const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
+const LEGACY_PREVIOUSLY_CALLED_RE = /\s*\[Previously called \w+\]/g;
 
 // Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by ( or ": "
 // The (?!:\s) lookahead prevents matching link-ref-defs "[1]: URL" while still allowing
@@ -103,6 +104,11 @@ export const normalizeVerificationMarkers = (markdown: string): string => {
 };
 
 const normalizeLineEndings = (content: string): string => content.replace(/\r\n?/g, '\n');
+
+export const stripLegacyPreviouslyCalledMarkers = (content: string): string => {
+  if (!content) return content;
+  return content.replace(LEGACY_PREVIOUSLY_CALLED_RE, '');
+};
 
 /**
  * Converts a reference-section line to ordered-list markdown (`N. text`).
@@ -336,7 +342,8 @@ export const prepareMarkdownForViewer = (
   const shouldCollapse = options?.collapseDuplicateBlocks ?? true;
   const shouldStripMainTitle = options?.stripMainTitle ?? false;
 
-  let normalized = normalizeMarkdownLayout(markdown);
+  let normalized = stripLegacyPreviouslyCalledMarkers(markdown);
+  normalized = normalizeMarkdownLayout(normalized);
   normalized = normalizeInlineBlockquotes(normalized);
   if (shouldCollapse) {
     normalized = collapseDuplicateReportBlocks(normalized);
@@ -350,7 +357,9 @@ export const prepareMarkdownForViewer = (
 
 export const preparePlainTextForViewer = (text: string): string => {
   if (!text) return '';
-  const normalized = normalizeLineEndings(text).replace(/\t/g, '    ').trimEnd();
+  const normalized = stripLegacyPreviouslyCalledMarkers(
+    normalizeLineEndings(text).replace(/\t/g, '    ').trimEnd(),
+  );
   const escapedFenceContent = normalized.replace(/```/g, '``\\`');
   return `\`\`\`text\n${escapedFenceContent}\n\`\`\``;
 };

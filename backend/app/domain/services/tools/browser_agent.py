@@ -22,7 +22,7 @@ except ImportError:
 
 from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 from app.domain.utils.browser_use_session import cdp_browser_session_extra_kwargs
 from app.domain.utils.llm_compat import is_native_openai
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
@@ -321,7 +321,9 @@ class BrowserAgentTool(BaseTool):
         """
         if not BROWSER_USE_AVAILABLE:
             raise ImportError("browser_use package is not installed. Install it with: pip install browser-use")
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="browser"),
+        )
         self._cdp_url = cdp_url
         self._browser: Browser | None = None
         self._progress_queue: asyncio.Queue[ToolProgressEvent] = asyncio.Queue(

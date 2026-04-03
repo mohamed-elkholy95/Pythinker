@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from app.domain.external.scraper import Scraper
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -35,7 +35,10 @@ class ScrapingTool(BaseTool):
         memory_service: MemoryService | None = None,
         user_id: str | None = None,
     ) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="scraping"),
+        )
         self.scraper = scraper
         self._memory_service = memory_service
         self._user_id = user_id

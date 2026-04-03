@@ -1,7 +1,7 @@
 """Tests for collaboration pattern data models.
 
 Tests cover:
-- PatternType enum — all 4 members, string values, str mixin behaviour
+- PatternType enum — all 6 members, string values, str mixin behaviour
 - CollaborationContext dataclass — required fields, defaults, auto timestamp
 - CollaborationResult dataclass — required fields, defaults, success/failure states,
   participant_contributions, metadata storage
@@ -33,12 +33,25 @@ class TestPatternType:
     def test_mentor_student_value(self):
         assert PatternType.MENTOR_STUDENT == "mentor_student"
 
+    def test_map_reduce_value(self):
+        assert PatternType.MAP_REDUCE == "map_reduce"
+
+    def test_pipeline_value(self):
+        assert PatternType.PIPELINE == "pipeline"
+
     def test_member_count(self):
-        assert len(PatternType) == 4
+        assert len(PatternType) == 6
 
     def test_all_members_present(self):
         names = {m.name for m in PatternType}
-        assert names == {"DEBATE", "ASSEMBLY_LINE", "SWARM", "MENTOR_STUDENT"}
+        assert names == {
+            "DEBATE",
+            "ASSEMBLY_LINE",
+            "SWARM",
+            "MENTOR_STUDENT",
+            "MAP_REDUCE",
+            "PIPELINE",
+        }
 
     def test_str_mixin_equality(self):
         # PatternType inherits from str, so direct string comparison works.

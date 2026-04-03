@@ -25,7 +25,7 @@ from app.domain.models.mcp_resource import (
     ResourceType,
 )
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool
+from app.domain.services.tools.base import BaseTool, ToolDefaults
 from app.domain.services.tools.dynamic_toolset import get_warmup_manager
 
 logger = logging.getLogger(__name__)
@@ -1340,7 +1340,9 @@ class MCPTool(BaseTool):
     ]
 
     def __init__(self):
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="mcp"),
+        )
         self._initialized = False
         self._tools = []
         self.manager: MCPClientManager | None = None

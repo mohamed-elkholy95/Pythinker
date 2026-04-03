@@ -11,7 +11,7 @@ from app.domain.models.canvas import CanvasElement, CanvasProject, ElementType
 if TYPE_CHECKING:
     from app.application.services.canvas_service import CanvasService
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,9 @@ class CanvasTool(BaseTool):
         user_id: str,
         session_id: str,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(should_defer=True, category="canvas"),
+        )
         self._canvas_service = canvas_service
         self._user_id = user_id
         self._session_id = session_id

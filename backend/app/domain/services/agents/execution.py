@@ -32,7 +32,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType
+from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType, is_terminal_status
 from app.domain.models.source_citation import SourceCitation
 from app.domain.models.tool_name import ToolName
 from app.domain.models.tool_result import ToolResult
@@ -173,10 +173,10 @@ _SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
 
 SKILL_AWARENESS_PROMPT = """
 <skill_awareness>
-Before beginning execution, check if any available skills match the current task.
-If you have the skill_invoke tool and the task involves a domain covered by an available skill,
-invoke that skill first to get specialized instructions. Skill-guided execution produces
-higher-quality results.
+Before beginning execution, check whether any available skills match the current task.
+If a matching skill exists and is not already active, invoke skill_invoke before any other tool use.
+If the matching skill is already active from the current conversation, continue with the loaded instructions instead of invoking again.
+Treat loaded skill instructions as authoritative for the task domain they cover.
 
 Available skill domains: {skill_names}
 </skill_awareness>
@@ -189,9 +189,10 @@ SKILL_ENFORCEMENT_PROMPT = """
 You MUST follow this protocol for EVERY task:
 
 1. **CHECK**: Does the task match any available skill domain? ({skill_names})
-2. **INVOKE**: If yes, call skill_invoke FIRST before any other tool
-3. **FOLLOW**: Execute according to the loaded skill instructions
-4. **REPORT**: Reference which skill guided your execution
+2. **INVOKE**: If yes, call skill_invoke FIRST before any other tool, unless that skill is already active
+3. **FOLLOW**: Execute according to the loaded skill instructions exactly
+4. **REPORT**: Reference which skill guided your execution only after the skill has actually been loaded
+5. **IDEMPOTENCE**: Do not invoke the same active skill repeatedly for the same task unless the task domain changes
 
 Skipping skill invocation when a matching skill exists is a protocol violation.
 Skills are not optional suggestions — they are mandatory workflow enhancers.
@@ -266,6 +267,7 @@ class ExecutionAgent(BaseAgent):
         )
         self._user_request: str | None = None  # Track for critic context
         self._research_depth: str = "STANDARD"  # Set by PlanActFlow before summarization
+        self.consecutive_summarization_failures: int = 0
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -487,23 +489,25 @@ class ExecutionAgent(BaseAgent):
         if message.skills:
             logger.info(f"Loading skill context for skills: {message.skills}")
             try:
-                from app.domain.services.skill_registry import get_skill_registry
+                from app.domain.services.agents.coordinator import build_worker_skill_context
 
-                registry = await get_skill_registry()
-                # Ensure registry is fresh so newly-created skills are visible immediately
-                await registry._ensure_fresh()
-                skill_context = await registry.build_context(
+                skill_context = await build_worker_skill_context(
+                    self,
                     message.skills,
-                    expand_dynamic=True,
+                    base_system_prompt=SYSTEM_PROMPT,
+                    execution_system_prompt=EXECUTION_SYSTEM_PROMPT,
                 )
+                if skill_context is None:
+                    logger.warning(f"No skills found in registry for IDs: {message.skills}")
+                    skill_context = None
 
                 # Validate that skills were actually loaded
-                if not skill_context.skill_ids:
+                if skill_context is None or not skill_context.skill_ids:
                     logger.warning(f"No skills found in registry for IDs: {message.skills}")
 
-                if skill_context.prompt_addition:
+                original_count = len(self.tools)
+                if skill_context and skill_context.prompt_addition:
                     # Extend system prompt with skill context (restored after step)
-                    self.system_prompt = SYSTEM_PROMPT + EXECUTION_SYSTEM_PROMPT + skill_context.prompt_addition
                     logger.info(
                         f"✓ Injected skill context for skills: {skill_context.skill_ids} "
                         f"({len(skill_context.prompt_addition)} chars) "
@@ -514,10 +518,8 @@ class ExecutionAgent(BaseAgent):
 
                 # Phase 3.5: Apply tool restrictions from skills (restored after step)
                 tool_restrictions = None
-                if skill_context.has_tool_restrictions():
-                    original_count = len(self.tools)
-                    allowed = skill_context.allowed_tools
-                    self.tools = [t for t in self.tools if t.name in allowed]
+                if skill_context and skill_context.has_tool_restrictions():
+                    allowed = skill_context.allowed_tools or []
                     tool_restrictions = list(allowed) if allowed else None
                     logger.info(
                         f"Applied skill tool restrictions: {original_count} → {len(self.tools)} tools "
@@ -535,7 +537,10 @@ class ExecutionAgent(BaseAgent):
                 # Only emit the "Loading skill" chip ONCE per session (first step).
                 _skill_settings = self._get_config()
                 _already_emitted = getattr(self, "_skill_chips_emitted", set())
-                if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
+                if skill_context and _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
+                    from app.domain.services.skill_registry import get_skill_registry
+
+                    registry = await get_skill_registry()
                     for sid in skill_context.skill_ids:
                         skill = await registry.get_skill(sid)
                         if skill:
@@ -887,7 +892,7 @@ class ExecutionAgent(BaseAgent):
             # status sync does not override COMPLETED → FAILED.
             # If stuck recovery was exhausted, use TERMINATED so analytics can
             # distinguish force-terminated steps from genuine completions.
-            if step.status != ExecutionStatus.FAILED:
+            if not is_terminal_status(step.status):
                 if self._stuck_recovery_exhausted:
                     step.status = ExecutionStatus.TERMINATED
                     step.success = False
@@ -937,6 +942,17 @@ class ExecutionAgent(BaseAgent):
             summarization_context: Additional summarize-time context prepared by
                 the flow (for example workspace deliverables or artifact manifest).
         """
+        if self.consecutive_summarization_failures >= 3:
+            yield ErrorEvent(
+                error="Summarization failed repeatedly. Please try again later.",
+                error_type="summarization",
+                recoverable=False,
+                error_category="domain",
+                severity="error",
+                error_code="SUMMARIZATION_CIRCUIT_OPEN",
+            )
+            return
+
         # Record summarization context metrics
         _metrics.record_counter(
             "pythinker_summarization_context_total",
@@ -2005,6 +2021,7 @@ class ExecutionAgent(BaseAgent):
                 sources = self.get_collected_sources() if self._collected_sources else None
 
                 report_event_id = report_event_id or str(uuid.uuid4())
+                self.consecutive_summarization_failures = 0
                 yield ReportEvent(
                     id=report_event_id,
                     title=title,
@@ -2024,6 +2041,7 @@ class ExecutionAgent(BaseAgent):
             else:
                 message_event = MessageEvent(message=message_content)
                 message_event_id = message_event.id
+                self.consecutive_summarization_failures = 0
                 yield message_event
 
             # Follow-up suggestions — graceful degradation (non-critical)
@@ -2063,6 +2081,7 @@ class ExecutionAgent(BaseAgent):
                         title=f"[Partial] {_cancel_title}",
                         content=_cancel_notice + _cancel_partial,
                     )
+                    self.consecutive_summarization_failures = 0
                     logger.warning("Summarize interrupted: emitted %d-char partial report", len(_cancel_partial))
             raise
         except Exception as e:
@@ -2097,6 +2116,7 @@ class ExecutionAgent(BaseAgent):
                         title=f"[Partial] {_salvage_title}",
                         content=_salvage_notice + _salvage_clean,
                     )
+                    self.consecutive_summarization_failures = 0
                     logger.warning(
                         "Summarize error recovery: emitted %d-char partial report from accumulated stream",
                         len(_salvage_clean),
@@ -2132,12 +2152,24 @@ class ExecutionAgent(BaseAgent):
                         title=f"[Partial] {_candidate_title}",
                         content=_candidate_notice + _candidate_clean,
                     )
+                    self.consecutive_summarization_failures = 0
                     logger.warning(
                         "Summarize error recovery: emitted %d-char partial report from cached fallback",
                         len(_candidate_clean),
                     )
                     return
 
+            self.consecutive_summarization_failures += 1
+            if self.consecutive_summarization_failures >= 3:
+                yield ErrorEvent(
+                    error="Summarization failed 3 times in a row. Please retry later.",
+                    error_type="summarization",
+                    recoverable=False,
+                    error_category="domain",
+                    severity="error",
+                    error_code="SUMMARIZATION_CIRCUIT_OPEN",
+                )
+                return
             yield ErrorEvent(error=f"Failed to generate summary: {_exc_label}")
 
     # ── Response generation helpers (delegated to ResponseGenerator) ──

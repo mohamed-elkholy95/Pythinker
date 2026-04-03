@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ class CronTool(BaseTool):
         cron_service: CronServiceProtocol,
         user_id: str,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="schedule"),
+        )
         self._cron_service = cron_service
         self._user_id = user_id
 

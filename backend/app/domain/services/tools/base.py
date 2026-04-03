@@ -2,7 +2,7 @@ import inspect
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -27,6 +27,54 @@ class ToolSchema:
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
     required: list[str] = field(default_factory=list)
+
+
+def _allow_tool_permissions(*_: Any, **__: Any) -> str:
+    return "allow"
+
+
+@dataclass(frozen=True)
+class ToolDefaults:
+    """Default tool capabilities for domain tool definitions.
+
+    Mirrors Claude Code's ``buildTool()`` pattern — every tool carries fail-closed
+    defaults that subclasses override. This ensures safe behaviour when metadata is
+    not explicitly set.
+    """
+
+    is_enabled: bool = True
+    is_read_only: bool = False
+    is_destructive: bool = False
+    is_concurrency_safe: bool = False
+    check_permissions: Callable[..., str] = _allow_tool_permissions
+    # --- Extended fields (Phase 1A) ---
+    user_facing_name: str = ""
+    max_result_size_chars: int = 8000
+    should_defer: bool = False
+    category: str = "general"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "is_enabled": self.is_enabled,
+            "is_read_only": self.is_read_only,
+            "is_destructive": self.is_destructive,
+            "is_concurrency_safe": self.is_concurrency_safe,
+            "check_permissions": self.check_permissions,
+            "user_facing_name": self.user_facing_name,
+            "max_result_size_chars": self.max_result_size_chars,
+            "should_defer": self.should_defer,
+            "category": self.category,
+        }
+
+
+def build_tool(tool_def: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, Any]:
+    """Merge default tool metadata with a tool definition and explicit overrides."""
+    merged: dict[str, Any] = ToolDefaults().to_dict()
+    if tool_def:
+        merged.update(dict(tool_def))
+    if overrides:
+        merged.update(overrides)
+    return merged
 
 
 logger = logging.getLogger(__name__)
@@ -395,34 +443,61 @@ def log_tool_end(
     )
 
 
-def tool(name: str, description: str, parameters: dict[str, dict[str, Any]], required: list[str]) -> Callable:
-    """Tool registration decorator
+def tool(
+    name: str,
+    description: str,
+    parameters: dict[str, dict[str, Any]],
+    required: list[str],
+    *,
+    is_read_only: bool = False,
+    is_destructive: bool = False,
+    is_concurrency_safe: bool = False,
+) -> Callable:
+    """Tool registration decorator with optional per-function metadata.
 
     Args:
         name: Tool name
         description: Tool description
         parameters: Tool parameter definitions
         required: List of required parameters
+        is_read_only: Whether this function performs no side effects
+        is_destructive: Whether this function can cause irreversible changes
+        is_concurrency_safe: Whether this function can run in parallel
 
     Returns:
         Decorator function
     """
 
     def decorator(func):
-        # Create tool schema directly using provided parameters, without automatic extraction
-        schema = {
-            "type": "function",
-            "function": {
+        tool_def = build_tool(
+            {
                 "name": name,
                 "description": description,
                 "parameters": {"type": "object", "properties": parameters, "required": required},
+            }
+        )
+        schema = {
+            "type": "function",
+            "function": {
+                "name": tool_def["name"],
+                "description": tool_def["description"],
+                "parameters": tool_def["parameters"],
+                "required": tool_def.get("required", required),
             },
         }
 
         # Store tool information
-        func._function_name = name
-        func._tool_description = description
+        func._function_name = tool_def["name"]
+        func._tool_description = tool_def["description"]
+        func._tool_definition = tool_def
         func._tool_schema = schema
+
+        # Store per-function metadata (Phase 1A)
+        func._tool_metadata = ToolDefaults(
+            is_read_only=is_read_only,
+            is_destructive=is_destructive,
+            is_concurrency_safe=is_concurrency_safe,
+        )
 
         return func
 
@@ -430,7 +505,13 @@ def tool(name: str, description: str, parameters: dict[str, dict[str, Any]], req
 
 
 class BaseTool:
-    """Base tool class, providing common tool calling methods with observation limiting and caching"""
+    """Base tool class, providing common tool calling methods with observation limiting and caching.
+
+    Every BaseTool instance carries a ``_defaults`` ToolDefaults with fail-closed
+    metadata (nothing is read-only, nothing is concurrency-safe, nothing is
+    destructive by default). Subclasses override via ``build_tool()`` in their
+    ``__init__``.
+    """
 
     name: str = ""
     max_observe: int | None = None  # Per-tool observation limit (None = use category default)
@@ -442,6 +523,7 @@ class BaseTool:
         max_observe: int | None = None,
         enable_caching: bool = False,
         progress_callback: ProgressCallback | None = None,
+        defaults: ToolDefaults | None = None,
     ):
         """Initialize base tool class
 
@@ -449,12 +531,14 @@ class BaseTool:
             max_observe: Optional custom observation limit for this tool instance
             enable_caching: Enable result caching for cacheable tools
             progress_callback: Optional callback for progress updates
+            defaults: Optional ToolDefaults to override fail-closed defaults
         """
         self._tools_cache = None
         self._result_cache = None  # Redis cache instance
         self.enable_caching = enable_caching
         self._progress_callback = progress_callback
         self._active_progress: ToolProgress | None = None
+        self._defaults = defaults or ToolDefaults()
 
         if max_observe is not None:
             self.max_observe = max_observe
@@ -468,6 +552,48 @@ class BaseTool:
                     break
             else:
                 self.max_observe = DEFAULT_MAX_OBSERVE
+
+    # ── Tool metadata properties (Phase 1A) ────────────────────────────
+
+    @property
+    def is_read_only(self) -> bool:
+        """Tool performs no side effects (reads, views, searches)."""
+        return self._defaults.is_read_only
+
+    @property
+    def is_destructive(self) -> bool:
+        """Tool can cause irreversible changes (delete, overwrite)."""
+        return self._defaults.is_destructive
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        """Tool can safely execute in parallel with others."""
+        return self._defaults.is_concurrency_safe
+
+    @property
+    def is_enabled(self) -> bool:
+        """Whether this tool is currently enabled."""
+        return self._defaults.is_enabled
+
+    @property
+    def max_result_size_chars(self) -> int:
+        """Maximum result size before offloading to ToolResultStore."""
+        return self._defaults.max_result_size_chars
+
+    @property
+    def should_defer(self) -> bool:
+        """Whether this tool should be deferred (loaded on-demand via ToolSearch)."""
+        return self._defaults.should_defer
+
+    @property
+    def tool_category(self) -> str:
+        """Tool category for grouping and display."""
+        return self._defaults.category
+
+    @property
+    def user_facing_name(self) -> str:
+        """Human-readable name for display. Falls back to tool name."""
+        return self._defaults.user_facing_name or self.name
 
     def set_progress_callback(self, callback: ProgressCallback | None) -> None:
         """Set the progress callback for this tool.
@@ -529,6 +655,17 @@ class BaseTool:
         """
         logger.warning(f"Tool {self.name} does not support checkpoint resume")
         return None
+
+    def get_function_metadata(self, function_name: str) -> ToolDefaults:
+        """Get per-function metadata for a specific tool function.
+
+        Returns the function-level ``_tool_metadata`` if the ``@tool`` decorator
+        supplied one, otherwise falls back to the instance-level ``_defaults``.
+        """
+        for _, method in inspect.getmembers(self, inspect.ismethod):
+            if hasattr(method, "_function_name") and method._function_name == function_name:
+                return getattr(method, "_tool_metadata", self._defaults)
+        return self._defaults
 
     def get_tools(self) -> list[dict[str, Any]]:
         """Get all registered tools
@@ -695,3 +832,54 @@ class BaseTool:
             "would_truncate": self.max_observe and message_length > self.max_observe,
             "truncation_amount": max(0, message_length - (self.max_observe or message_length)),
         }
+
+
+# ── Cross-validation (Phase 1A) ─────────────────────────────────────
+
+
+def validate_metadata_consistency(tools: list[BaseTool]) -> list[str]:
+    """Cross-validate BaseTool instance metadata against ToolName enum classifications.
+
+    Compares each tool function's ``_tool_metadata`` / instance ``_defaults`` with
+    the canonical ``ToolName`` enum sets (``_READ_ONLY``, ``_SAFE_PARALLEL``, ``_ACTION``).
+    Returns a list of human-readable mismatch warnings.
+
+    Intended to be called once at startup (e.g. in ``PlanActFlow.__init__`` or
+    ``AgentContextFactory.create``). Mismatches are non-fatal — they are logged as
+    warnings to surface classification drift.
+    """
+    from app.domain.models.tool_name import ToolName
+
+    warnings: list[str] = []
+
+    for tool_instance in tools:
+        for _, method in inspect.getmembers(tool_instance, inspect.ismethod):
+            fn_name = getattr(method, "_function_name", None)
+            if fn_name is None:
+                continue
+
+            # Get the most specific metadata: per-function > instance defaults
+            meta: ToolDefaults = getattr(method, "_tool_metadata", tool_instance._defaults)
+
+            # Try to resolve against ToolName enum
+            try:
+                tn = ToolName(fn_name)
+            except ValueError:
+                continue  # Dynamic/MCP tool — no enum entry to validate against
+
+            # Read-only check
+            if meta.is_read_only and not tn.is_read_only:
+                warnings.append(f"{fn_name}: BaseTool says is_read_only=True but ToolName._READ_ONLY disagrees")
+            if not meta.is_read_only and tn.is_read_only:
+                warnings.append(f"{fn_name}: ToolName._READ_ONLY=True but BaseTool metadata says is_read_only=False")
+
+            # Safe-parallel check
+            if meta.is_concurrency_safe and not tn.is_safe_parallel:
+                warnings.append(
+                    f"{fn_name}: BaseTool says is_concurrency_safe=True but ToolName._SAFE_PARALLEL disagrees"
+                )
+
+    for w in warnings:
+        logger.warning("[metadata-consistency] %s", w)
+
+    return warnings

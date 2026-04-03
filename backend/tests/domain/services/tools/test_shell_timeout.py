@@ -10,7 +10,7 @@ from app.domain.services.tools.shell import ShellTool
 
 
 class _SafeSecurityCritic:
-    async def review_code(self, _code: str, _language: str) -> SimpleNamespace:
+    async def review_code(self, _code: str, _language: str, context: str | None = None) -> SimpleNamespace:
         return SimpleNamespace(
             safe=True,
             risk_level=RiskLevel.LOW,

@@ -6,7 +6,7 @@ Provides functionality to switch from Discuss mode to Agent mode for complex tas
 import logging
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,9 @@ class AgentModeTool(BaseTool):
 
     def __init__(self):
         """Initialize agent mode tool"""
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="agent"),
+        )
         self._mode_switch_requested = False
         self._task_description: str | None = None
 

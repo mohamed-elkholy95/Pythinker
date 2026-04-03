@@ -12,7 +12,7 @@ import aiohttp
 from app.domain.external.browser import Browser
 from app.domain.external.scraper import Scraper
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 from app.domain.services.tools.paywall_detector import PaywallDetector
 
 logger = logging.getLogger(__name__)
@@ -221,7 +221,13 @@ class BrowserTool(BaseTool):
             max_observe: Optional custom observation limit (default: 10000)
             scraper: Optional scraper service injected from composition root
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(
+                max_result_size_chars=10_000,
+                category="browser",
+            ),
+        )
         self.browser = browser
         self._scraper = scraper
         # Per-session URL visit counter to warn/reject repeated visits

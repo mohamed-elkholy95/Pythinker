@@ -7,7 +7,7 @@ status checking, diff viewing, and commit history.
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 
 class GitTool(BaseTool):
@@ -22,7 +22,10 @@ class GitTool(BaseTool):
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 5000)
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(is_read_only=True, is_concurrency_safe=True, category="git"),
+        )
         self.sandbox = sandbox
 
     @tool(

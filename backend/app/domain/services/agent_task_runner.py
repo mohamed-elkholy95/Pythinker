@@ -56,8 +56,6 @@ from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorMode,
     create_coordinator_flow,
 )
-from app.domain.services.plotly_capability_check import PlotlyCapabilityCheck
-from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
 from app.domain.services.tool_content_handlers import get_content_handler_registry
 from app.domain.services.tool_event_handler import ToolEventHandler
 from app.domain.services.tools.mcp import MCPTool
@@ -245,14 +243,9 @@ class AgentTaskRunner(TaskRunner):
         # Per-tool content handler registry (replaces elif chain)
         self._content_handlers = get_content_handler_registry()
         self._comparison_chart_generator = ComparisonChartGenerator()
-        # Phase 5: LLM-powered Plotly chart orchestrator
-        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(
-            sandbox=self._sandbox,
-            session_id=session_id,
-            llm=self._llm,
-        )
-        # Capability check — gates Plotly path; falls back to SVG when unavailable
-        self._plotly_capability_checker = PlotlyCapabilityCheck()
+        # Phase 5: Plotly components are loaded lazily only when enabled.
+        self._plotly_chart_orchestrator = None
+        self._plotly_capability_checker = None
         self._delivery_scope_id: str | None = None
         self._delivery_scope_root: str | None = None
         self._workspace_deliverables_root: str | None = None  # Set from session.workspace_structure
@@ -808,6 +801,7 @@ class AgentTaskRunner(TaskRunner):
         # during execution) as an attachment so users get the complete original report
         # alongside the summarized version.
         full_content = self._get_pre_trim_report_content()
+        report_suffix_parts: list[str] = []
         if full_content and full_content.strip() and full_content.strip() != event.content.strip():
             full_name = f"full-report-{event.id}.md"
             if not self._has_attachment(existing, full_name):
@@ -875,7 +869,7 @@ class AgentTaskRunner(TaskRunner):
                 elif ci.content_type == "text/html":
                     # Render as clickable link (rewritten to API URL after sync)
                     chart_lines.append(f"[Open interactive chart]({ci.filename})")
-            event.content += "\n".join(chart_lines) + "\n"
+            report_suffix_parts.append("\n".join(chart_lines) + "\n")
 
         # Inject inline references for agent-created charts (from chart_create tool)
         # that are in attachments but not yet referenced in report content.
@@ -895,21 +889,17 @@ class AgentTaskRunner(TaskRunner):
                 chart_title = metadata.get("chart_title", "Chart")
                 agent_chart_lines.append(f"![{chart_title}]({fname})")
         if agent_chart_lines:
-            event.content = (
-                (event.content or "") + "\n\n---\n\n## Agent Charts\n\n" + "\n\n".join(agent_chart_lines) + "\n"
-            )
+            report_suffix_parts.append("\n\n---\n\n## Agent Charts\n\n" + "\n\n".join(agent_chart_lines) + "\n")
 
-        # Skip canonical write when a human-named markdown report attachment already exists.
-        _has_existing_report_md = any(
-            att.content_type == "text/markdown"
-            and att.filename is not None
-            and not att.filename.startswith("full-report-")
-            for att in existing
-        )
+        report_suffix = "".join(report_suffix_parts)
+        report_content = self._resolve_canonical_report_content(event.content, full_content)
+        if report_suffix:
+            report_content = report_content.rstrip() + report_suffix
+        event.content = report_content
 
         # --- Write summarized report file (now includes chart references) ---
         expected_name = f"report-{event.id}.md"
-        if not self._has_attachment(existing, expected_name) and not _has_existing_report_md:
+        if not self._has_exact_report_attachment(existing, expected_name):
             file_path = f"{workspace_root}/{expected_name}"
             try:
                 result = await self._sandbox.file_write(file=file_path, content=event.content)
@@ -1032,11 +1022,29 @@ class AgentTaskRunner(TaskRunner):
         settings = get_settings()
 
         # Phase 4: Use Plotly if feature flag enabled
-        if settings.feature_plotly_charts_enabled:
+        if settings.plotly_enabled:
             return await self._ensure_plotly_chart_files(event, attachments, force_generation, generation_mode)
 
         # Legacy SVG path (Phase 6 will remove this)
         return await self._ensure_legacy_svg_chart(event, attachments, force_generation, generation_mode)
+
+    def _get_plotly_capability_checker(self):
+        if self._plotly_capability_checker is None:
+            from app.domain.services.plotly_capability_check import PlotlyCapabilityCheck
+
+            self._plotly_capability_checker = PlotlyCapabilityCheck()
+        return self._plotly_capability_checker
+
+    def _get_plotly_chart_orchestrator(self):
+        if self._plotly_chart_orchestrator is None:
+            from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
+
+            self._plotly_chart_orchestrator = PlotlyChartOrchestrator(
+                sandbox=self._sandbox,
+                session_id=self._session_id,
+                llm=self._llm,
+            )
+        return self._plotly_chart_orchestrator
 
     async def _ensure_plotly_chart_files(
         self,
@@ -1053,9 +1061,13 @@ class AgentTaskRunner(TaskRunner):
         if self._has_attachment(attachments, html_name) or self._has_attachment(attachments, png_name):
             return attachments
 
+        settings = get_settings()
+        if not settings.plotly_enabled:
+            return await self._ensure_legacy_svg_chart(event, attachments, force_generation, generation_mode)
+
         # Capability check: skip Plotly when runtime is unavailable (saves ~2s probe time)
         try:
-            cap = await self._plotly_capability_checker.check(self._sandbox, self._session_id)
+            cap = await self._get_plotly_capability_checker().check(self._sandbox, self._session_id)
         except Exception as _cap_exc:
             cap = None
             logger.warning("Plotly capability check raised: %s — proceeding to SVG fallback", _cap_exc)
@@ -1077,7 +1089,7 @@ class AgentTaskRunner(TaskRunner):
         # Run Plotly chart orchestrator
         chart_error: str | None = None
         try:
-            chart_result = await self._plotly_chart_orchestrator.generate_chart(
+            chart_result = await self._get_plotly_chart_orchestrator().generate_chart(
                 report_title=event.title,
                 markdown_content=event.content,
                 report_id=event.id,
@@ -1238,6 +1250,15 @@ class AgentTaskRunner(TaskRunner):
                 return True
         return False
 
+    def _has_exact_report_attachment(self, attachments: list[FileInfo], expected_name: str) -> bool:
+        """Check whether the exact canonical report file already exists."""
+        for attachment in attachments:
+            if attachment.filename == expected_name:
+                return True
+            if attachment.file_path and attachment.file_path.rsplit("/", 1)[-1] == expected_name:
+                return True
+        return False
+
     def _get_pre_trim_report_content(self) -> str | None:
         """Retrieve the full pre-summarization markdown from the executor's cache.
 
@@ -1272,6 +1293,14 @@ class AgentTaskRunner(TaskRunner):
                     except Exception as e:
                         logger.warning("Failed to recover report from file_write memory: %s", e)
         return None
+
+    def _resolve_canonical_report_content(self, summary_content: str, full_content: str | None) -> str:
+        """Pick the most complete markdown body available for persistence."""
+        summary_text = summary_content or ""
+        full_text = full_content.strip() if isinstance(full_content, str) and full_content.strip() else None
+        if full_text and len(full_text) >= len(summary_text.strip()):
+            return full_text
+        return summary_text
 
     def _resolve_chart_generation_mode(self) -> str:
         """Resolve user override for chart generation from current task text."""
@@ -1726,9 +1755,9 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "deal_scraper":
                     # Content already populated by base.py:_create_tool_event()
                     logger.debug("Agent %s: deal_scraper tool content from base.py", self._agent_id)
-                elif event.tool_name == "skill_invoke":
+                elif event.tool_name in ("skill_invoke", "result_retrieval"):
                     # Skill invocation — content handled by skill_invoke tool
-                    logger.debug("Agent %s: skill_invoke tool event processed", self._agent_id)
+                    logger.debug("Agent %s: %s tool event processed", self._agent_id, event.tool_name)
                 else:
                     logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
 
@@ -2289,6 +2318,21 @@ class AgentTaskRunner(TaskRunner):
         if self._agent_factory:
             logger.debug(f"Cleaning up Agent {self._agent_id}'s Pythinker factory session")
             self._agent_factory.cleanup_session(self._session_id)
+
+        # Release any session-scoped tool result spillover before dropping the agent state.
+        # The agent cleanup path already owns session teardown, so this is the least invasive
+        # place to remove disk-backed tool result artifacts.
+        for agent in (
+            getattr(self, "_planner", None),
+            getattr(self, "_executor", None),
+            getattr(self, "_verifier", None),
+        ):
+            store = getattr(agent, "_tool_result_store", None)
+            if store and hasattr(store, "cleanup_disk"):
+                try:
+                    store.cleanup_disk()
+                except Exception as exc:
+                    logger.debug("ToolResultStore cleanup skipped: %s", exc)
 
         # Shutdown coordinator flow if used
         if self._coordinator_flow:

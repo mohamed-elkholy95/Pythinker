@@ -1,5 +1,5 @@
-from app.domain.models.event import MessageEvent
-from app.interfaces.schemas.event import EventMapper
+from app.domain.models.event import MessageEvent, PartialResultEvent
+from app.interfaces.schemas.event import EventMapper, PartialResultSSEEvent
 from app.interfaces.schemas.session import ListSessionItem
 
 
@@ -77,3 +77,17 @@ async def test_event_mapper_strips_other_internal_status_prefixes_from_message_e
     assert "SYSTEM NOTE:" not in sse_event.data.content
     assert "Top search result URLs are being previewed in the background." not in sse_event.data.content
     assert sse_event.data.content == "Got it! I will analyze the issue."
+
+
+async def test_event_mapper_maps_partial_result_events() -> None:
+    event = PartialResultEvent(
+        step_index=3,
+        step_title="Research",
+        headline="Found three relevant sources.",
+    )
+
+    sse_event = await EventMapper.event_to_sse_event(event)
+
+    assert isinstance(sse_event, PartialResultSSEEvent)
+    assert sse_event.event == "partial_result"
+    assert sse_event.data.step_title == "Research"

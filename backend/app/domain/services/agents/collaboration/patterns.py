@@ -38,6 +38,8 @@ class PatternType(str, Enum):
     ASSEMBLY_LINE = "assembly_line"
     SWARM = "swarm"
     MENTOR_STUDENT = "mentor_student"
+    MAP_REDUCE = "map_reduce"
+    PIPELINE = "pipeline"
 
 
 @dataclass
@@ -521,6 +523,171 @@ class MentorStudentPattern(CollaborationPattern):
         return f"Synthesized output for: {task}\n\nAdvice incorporated:\n" + "\n".join(advice_summary)
 
 
+class MapReducePattern(CollaborationPattern):
+    """Map-Reduce pattern: parallel worker subtasks (map) + single reducer (reduce).
+
+    The task is decomposed into independent subtasks executed concurrently.
+    A reducer then combines all worker outputs into a final result.
+    """
+
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.MAP_REDUCE
+
+    async def execute(
+        self,
+        context: CollaborationContext,
+        subtasks: list[str] | None = None,
+        reducer_id: str | None = None,
+    ) -> CollaborationResult:
+        """Execute the map-reduce pattern.
+
+        Args:
+            context: Collaboration context
+            subtasks: Explicit subtasks for workers. Defaults to one per participant.
+            reducer_id: Agent ID to act as reducer. Defaults to first participant.
+
+        Returns:
+            Collaboration result with reduced output
+        """
+        start_time = datetime.now(UTC)
+        contributions: dict[str, str] = {}
+
+        logger.info(f"Starting map-reduce: {context.session_id}")
+
+        # Build subtask list — one per participant if not provided
+        if not subtasks:
+            subtasks = [
+                f"Subtask {i + 1} of: {context.task_description}" for i in range(max(1, len(context.participants)))
+            ]
+
+        # Identify reducer (first participant) and workers (rest)
+        if not reducer_id and context.participants:
+            reducer_id = context.participants[0]
+        workers = [p for p in context.participants if p != reducer_id]
+
+        # --- Map phase: dispatch subtasks to workers in parallel ---
+        async def _map_worker(participant: str, subtask: str) -> tuple[str, str]:
+            self._protocol.send_message(
+                sender_id="map_reduce_coordinator",
+                sender_type="coordinator",
+                recipient_id=participant,
+                message_type=MessageType.TASK_DELEGATION,
+                subject="Map subtask",
+                content=subtask,
+                payload={"subtask": subtask},
+            )
+            # Simulate worker output (real impl waits for response message)
+            return participant, f"[{participant}] map result: {subtask[:40]}..."
+
+        map_tasks = [_map_worker(workers[i % max(1, len(workers))], st) for i, st in enumerate(subtasks)]
+        map_results: list[tuple[str, str]] = await asyncio.gather(*map_tasks)
+
+        for participant, result in map_results:
+            contributions[participant] = contributions.get(participant, "") + result + "\n"
+
+        # --- Reduce phase: reducer combines all worker outputs ---
+        worker_outputs = [result for _, result in map_results]
+        reduced = await self._reduce(context.task_description, worker_outputs, reducer_id)
+        if reducer_id:
+            contributions[reducer_id] = reduced
+
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
+
+        return CollaborationResult(
+            session_id=context.session_id,
+            pattern_type=self.pattern_type,
+            success=True,
+            final_output=reduced,
+            participant_contributions=contributions,
+            confidence=0.8,
+            duration_ms=duration,
+            metadata={
+                "subtasks_mapped": len(subtasks),
+                "reducer": reducer_id,
+            },
+        )
+
+    async def _reduce(self, task: str, outputs: list[str], reducer_id: str | None) -> str:
+        """Combine worker outputs into a final result."""
+        combined = "\n\n".join(outputs)
+        return f"Reduced output for '{task}' (reducer={reducer_id}):\n{combined}"
+
+
+class PipelinePattern(CollaborationPattern):
+    """Pipeline pattern: sequential named stages, each stage receives previous output.
+
+    Each stage is a named processing step. The output of stage N becomes the
+    input for stage N+1. Unlike AssemblyLine, stages are defined by name rather
+    than by capability category, making this pattern suitable when the caller
+    controls stage ordering explicitly.
+    """
+
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.PIPELINE
+
+    async def execute(
+        self,
+        context: CollaborationContext,
+        stages: list[str] | None = None,
+    ) -> CollaborationResult:
+        """Execute the pipeline pattern.
+
+        Args:
+            context: Collaboration context
+            stages: Ordered list of stage names. Defaults to a three-stage pipeline.
+
+        Returns:
+            Collaboration result with final stage output
+        """
+        start_time = datetime.now(UTC)
+        contributions: dict[str, str] = {}
+
+        logger.info(f"Starting pipeline: {context.session_id}")
+
+        if not stages:
+            stages = ["plan", "execute", "verify"]
+
+        current_input = context.task_description
+        stage_outputs: list[tuple[str, str]] = []
+
+        for i, stage_name in enumerate(stages):
+            participant = context.participants[i % max(1, len(context.participants))]
+
+            self._protocol.send_message(
+                sender_id="pipeline_coordinator",
+                sender_type="coordinator",
+                recipient_id=participant,
+                message_type=MessageType.TASK_DELEGATION,
+                subject=f"Pipeline stage: {stage_name}",
+                content=current_input,
+                payload={"stage": stage_name, "stage_index": i},
+            )
+
+            # Simulate stage processing (real impl awaits response message)
+            stage_output = f"[{stage_name}|{participant}] {current_input[:50]}..."
+            contributions[participant] = stage_output
+            stage_outputs.append((stage_name, stage_output))
+            current_input = stage_output  # Chain: output → next input
+
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
+
+        return CollaborationResult(
+            session_id=context.session_id,
+            pattern_type=self.pattern_type,
+            success=True,
+            final_output=current_input,
+            participant_contributions=contributions,
+            confidence=0.8,
+            duration_ms=duration,
+            metadata={
+                "stages": stages,
+                "stages_completed": len(stage_outputs),
+            },
+        )
+
+
 class PatternExecutor:
     """Executor for running collaboration patterns."""
 
@@ -531,6 +698,8 @@ class PatternExecutor:
             PatternType.ASSEMBLY_LINE: AssemblyLinePattern(),
             PatternType.SWARM: SwarmPattern(),
             PatternType.MENTOR_STUDENT: MentorStudentPattern(),
+            PatternType.MAP_REDUCE: MapReducePattern(),
+            PatternType.PIPELINE: PipelinePattern(),
         }
 
     def get_pattern(self, pattern_type: PatternType) -> CollaborationPattern:
@@ -593,6 +762,14 @@ class PatternExecutor:
         # Check for swarm-suitable tasks
         if any(word in task_lower for word in ["explore", "research", "comprehensive"]) and num_participants >= 3:
             return PatternType.SWARM
+
+        # Check for map-reduce tasks
+        if any(word in task_lower for word in ["aggregate", "summarize many", "process all"]) and num_participants >= 2:
+            return PatternType.MAP_REDUCE
+
+        # Check for pipeline tasks
+        if any(word in task_lower for word in ["step by step", "stage", "sequential"]):
+            return PatternType.PIPELINE
 
         # Check for assembly-suitable tasks
         if task_complexity >= 0.7:

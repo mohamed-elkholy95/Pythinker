@@ -103,7 +103,9 @@ async def test_fast_ack_refiner_prefers_specific_fallback_for_generic_topics_ack
         "2. Tokenizers used in LLMs."
     )
     result = await refiner.generate(user_message)
-    assert result == "Got it! I will research LLM architecture and Tokenizers used in LLMs and compile a concise report."
+    assert (
+        result == "Got it! I will research LLM architecture and Tokenizers used in LLMs and compile a concise report."
+    )
     assert "tokenizers used in llms" in result.lower()
 
 

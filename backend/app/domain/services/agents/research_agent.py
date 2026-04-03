@@ -9,6 +9,7 @@ import logging
 from typing import Any, Protocol, runtime_checkable
 
 from app.domain.models.research_task import ResearchTask
+from app.domain.services.prompts.research import RESEARCH_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,7 @@ class ResearchSubAgent:
         tools: Dictionary of available tools (search, etc.)
     """
 
-    SYSTEM_PROMPT = """You are a research assistant. Your task is to:
-1. Search for information on the given topic
-2. Extract key facts and insights
-3. Cite sources where possible
-4. Provide a concise, factual summary
-
-Focus on accuracy and relevance. Do not speculate."""
+    SYSTEM_PROMPT = RESEARCH_SYSTEM_PROMPT
 
     # Maximum number of search results to process
     MAX_SEARCH_RESULTS = 5
@@ -139,7 +134,12 @@ Focus on accuracy and relevance. Do not speculate."""
             {"role": "system", "content": self.SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"Research topic: {task.query}\n\nContext:\n{context}\n\nProvide a concise research summary.",
+                "content": (
+                    f"Research topic: {task.query}\n\n"
+                    f"Context:\n{context}\n\n"
+                    "Return a concise factual summary with source-aware notes. "
+                    "If the evidence is incomplete, say what is unconfirmed rather than inferring it."
+                ),
             },
         ]
 

@@ -8,6 +8,13 @@ Provides common utilities used across domain services:
 """
 
 from app.domain.utils.llm_compat import is_native_openai
+from app.domain.utils.task_ids import (
+    generate_agent_task_id,
+    generate_bash_task_id,
+    generate_prefixed_task_id,
+    generate_remote_task_id,
+    generate_workflow_task_id,
+)
 from app.domain.utils.text import (
     TextTruncator,
     TruncationResult,
@@ -46,6 +53,11 @@ __all__ = [
     "ensure_int",
     "ensure_list",
     "ensure_str",
+    "generate_agent_task_id",
+    "generate_bash_task_id",
+    "generate_prefixed_task_id",
+    "generate_remote_task_id",
+    "generate_workflow_task_id",
     "get_dict_value",
     "get_nested_value",
     "is_dict",

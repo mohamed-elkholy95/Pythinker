@@ -6,7 +6,7 @@ Provides test execution, listing, and coverage capabilities for agents.
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 
 class TestRunnerTool(BaseTool):
@@ -21,7 +21,10 @@ class TestRunnerTool(BaseTool):
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 5000)
         """
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="test"),
+        )
         self.sandbox = sandbox
 
     @tool(

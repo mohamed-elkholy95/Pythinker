@@ -10,8 +10,8 @@
       class="fixed top-[28px] left-1/2 -translate-x-1/2 z-[1050] flex max-h-screen flex-col-reverse p-4 max-w-[90%] gap-2.5"
     >
       <li
-        v-for="toast in toasts"
-        :key="toast.id"
+        v-for="toast in notifications"
+        :key="toast.key"
         role="status"
         aria-live="off"
         aria-atomic="true"
@@ -26,35 +26,35 @@
         <!-- Rich layout (title + subtitle) for progress toasts -->
         <div v-if="toast.title" class="flex items-start gap-3">
           <div class="flex-shrink-0 mt-0.5">
-            <div v-if="toast.type === 'progress'" class="text-[var(--status-running)]">
+            <div v-if="toast.priority === 'immediate'" class="text-[var(--status-running)]">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
-            <div v-else-if="toast.type === 'error'"><ErrorIcon /></div>
-            <div v-else-if="toast.type === 'success'"><SuccessIcon /></div>
+            <div v-else-if="toast.priority === 'high'"><ErrorIcon /></div>
+            <div v-else-if="toast.priority === 'medium'"><SuccessIcon /></div>
             <div v-else><InfoIcon /></div>
           </div>
           <div class="flex flex-col gap-0.5 min-w-0">
             <span class="text-[13px] font-semibold text-[var(--text-primary)] leading-tight">{{ toast.title }}</span>
-            <span class="text-[12px] text-[var(--text-secondary)] leading-snug">{{ toast.message }}</span>
+            <span class="text-[12px] text-[var(--text-secondary)] leading-snug">{{ toast.text }}</span>
           </div>
         </div>
 
         <!-- Simple layout (single line) for standard toasts -->
         <div v-else class="flex items-center gap-2.5">
           <div>
-            <div v-if="toast.type === 'error'" class="me-2.5 inline-flex relative top-1">
+            <div v-if="toast.priority === 'high'" class="me-2.5 inline-flex relative top-1">
               <ErrorIcon />
             </div>
-            <div v-else-if="toast.type === 'info'" class="me-2.5 inline-flex relative top-1">
+            <div v-else-if="toast.priority === 'low'" class="me-2.5 inline-flex relative top-1">
               <InfoIcon />
             </div>
-            <div v-else-if="toast.type === 'success'" class="me-2.5 inline-flex relative top-1">
+            <div v-else-if="toast.priority === 'medium'" class="me-2.5 inline-flex relative top-1">
               <SuccessIcon />
             </div>
-            {{ toast.message }}
+            {{ toast.text }}
           </div>
         </div>
       </li>
@@ -68,64 +68,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
 import ErrorIcon from '@/components/icons/ErrorIcon.vue';
 import InfoIcon from '@/components/icons/InfoIcon.vue';
 import SuccessIcon from '@/components/icons/SuccessIcon.vue';
+import { useNotifications } from '@/composables/useNotifications';
 
-interface Toast {
-  id: number;
-  message: string;
-  title?: string;
-  type: 'error' | 'info' | 'success' | 'progress';
-  duration?: number;
-}
-
-const toasts = ref<Toast[]>([]);
-let toastCounter = 0;
-
-// Add toast
-const addToast = (message: string, type: 'error' | 'info' | 'success' | 'progress' = 'info', duration: number = 3000, title?: string) => {
-  const id = toastCounter++;
-  const toast: Toast = { id, message, title, type, duration };
-  toasts.value.push(toast);
-
-  // Set automatic removal
-  if (duration > 0) {
-    setTimeout(() => {
-      removeToast(id);
-    }, duration);
-  }
-
-  return id;
-};
-
-// Remove toast
-const removeToast = (id: number) => {
-  const index = toasts.value.findIndex(toast => toast.id === id);
-  if (index !== -1) {
-    toasts.value.splice(index, 1);
-  }
-};
-
-// Create custom event bus
-const handleToastEvent = (event: CustomEvent) => {
-  const { message, type, duration, title } = event.detail;
-  addToast(message, type, duration, title);
-};
-
-// Listen for custom events
-onMounted(() => {
-  window.addEventListener('toast', handleToastEvent as EventListener);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('toast', handleToastEvent as EventListener);
-});
-
-// Expose methods for external use
-defineExpose({
-  addToast,
-  removeToast
-});
+const { notifications } = useNotifications();
 </script>

@@ -6,11 +6,12 @@ This model enables the "Wide Research" pattern where:
 - The 100th item gets the same quality attention as the 1st
 """
 
-import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+
+from app.domain.utils.task_ids import generate_remote_task_id
 
 
 class ResearchStatus(str, Enum):
@@ -44,7 +45,7 @@ class ResearchTask(BaseModel):
         completed_at: Timestamp when task completed
     """
 
-    id: str = Field(default_factory=lambda: f"research_{uuid.uuid4().hex[:12]}")
+    id: str = Field(default_factory=generate_remote_task_id)
     query: str = Field(..., description="The specific research query")
     parent_task_id: str = Field(..., description="ID of the parent research request")
     index: int = Field(..., ge=0, description="Position in the research batch")

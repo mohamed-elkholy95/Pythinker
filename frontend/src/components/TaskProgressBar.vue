@@ -264,6 +264,7 @@ import type { ToolContent } from '@/types/message'
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState'
 import { useElapsedTimer } from '@/composables/useElapsedTimer'
 import { extractToolPreview } from '@/utils/toolPreviewFormatter'
+import { getToolLiveLabel } from '@/utils/toolDisplay'
 
 interface Props {
   plan?: PlanEventData
@@ -470,6 +471,11 @@ const currentToolDisplayName = computed(() => {
 })
 
 const currentToolActionLabel = computed(() => {
+  const liveLabel = getToolLiveLabel({
+    current_step: props.toolContent?.current_step,
+    display_command: props.toolContent?.display_command,
+  })
+  if (liveLabel) return liveLabel
   if (props.currentTool?.function) return props.currentTool.function
   return isToolRunning.value ? 'processing' : 'idle'
 })

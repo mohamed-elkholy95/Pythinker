@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 if TYPE_CHECKING:
     from app.domain.external.browser import Browser
@@ -249,7 +249,10 @@ class DealScraperTool(BaseTool):
         browser: Browser | None = None,
         max_observe: int | None = None,
     ) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(should_defer=True, category="scraping"),
+        )
         self._deal_finder = deal_finder
         self._browser = browser
         self._progress_queue: asyncio.Queue[ToolProgressEvent] = asyncio.Queue(

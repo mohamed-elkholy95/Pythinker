@@ -18,11 +18,12 @@ Key concepts:
 
 import logging
 import re
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
+
+from app.domain.utils.task_ids import generate_agent_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ class TaskDecomposer:
         complexity = self._estimate_complexity(task)
 
         return Subtask(
-            id=str(uuid.uuid4())[:8],
+            id=generate_agent_task_id(),
             description=task.strip(),
             subtask_type=subtask_type,
             strategy=DecompositionStrategy.ATOMIC,
@@ -371,7 +372,7 @@ class TaskDecomposer:
         strategy = DecompositionStrategy.RECURSIVE if needs_decomposition else DecompositionStrategy.ATOMIC
 
         subtask = Subtask(
-            id=str(uuid.uuid4())[:8],
+            id=generate_agent_task_id(),
             description=item,
             subtask_type=subtask_type,
             strategy=strategy,

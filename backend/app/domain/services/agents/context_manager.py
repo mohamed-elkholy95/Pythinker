@@ -477,7 +477,7 @@ class FileContext:
     is_deliverable: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolContext:
     """Context from tool execution"""
 

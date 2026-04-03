@@ -1,7 +1,10 @@
 import { ref } from 'vue';
 import type { ReportData, ReportSection } from '@/components/report/types';
 import type { FileInfo } from '@/api/file';
-import { collapseDuplicateReportBlocks } from '@/components/report/reportContentNormalizer';
+import {
+  collapseDuplicateReportBlocks,
+  stripLegacyPreviouslyCalledMarkers,
+} from '@/components/report/reportContentNormalizer';
 
 const isReportModalOpen = ref(false);
 const currentReport = ref<ReportData | null>(null);
@@ -95,7 +98,7 @@ export function createReportFromMarkdown(
   attachments?: FileInfo[],
   lastModified?: number
 ): ReportData {
-  const normalizedContent = collapseDuplicateReportBlocks(content);
+  const normalizedContent = collapseDuplicateReportBlocks(stripLegacyPreviouslyCalledMarkers(content));
   const title = extractTitleFromMarkdown(normalizedContent);
   const sections = extractSectionsFromMarkdown(normalizedContent);
 

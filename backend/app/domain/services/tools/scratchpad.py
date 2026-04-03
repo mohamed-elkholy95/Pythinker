@@ -13,7 +13,7 @@ from typing import Any
 
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.scratchpad import Scratchpad
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,10 @@ class ScratchpadTool(BaseTool):
     name: str = "scratchpad"
 
     def __init__(self, scratchpad: Scratchpad, max_observe: int | None = None) -> None:
-        super().__init__(max_observe=max_observe)
+        super().__init__(
+            max_observe=max_observe,
+            defaults=ToolDefaults(category="scratchpad"),
+        )
         self._scratchpad = scratchpad
 
     @tool(

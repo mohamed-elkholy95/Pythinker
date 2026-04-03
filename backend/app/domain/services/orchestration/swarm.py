@@ -14,7 +14,6 @@ delegates tasks to specialized agents based on requirements.
 import asyncio
 import json
 import logging
-import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,6 +39,7 @@ from app.domain.services.orchestration.handoff import (
     HandoffReason,
     get_handoff_protocol,
 )
+from app.domain.utils.task_ids import generate_agent_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class AgentStatus(str, Enum):
 class SwarmTask:
     """A task for the swarm to execute."""
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=generate_agent_task_id)
     description: str = ""
     original_request: str = ""
     context: dict[str, Any] = field(default_factory=dict)
@@ -186,7 +186,7 @@ class Swarm:
         # Callers should pass the user/task session_id for correlation; a
         # random UUID is generated when none is provided so the constructor
         # never raises a Pydantic ValidationError.
-        self._session_id: str = session_id or str(uuid.uuid4())
+        self._session_id: str = session_id or generate_agent_task_id()
 
         # Active agents
         self._agents: dict[str, AgentInstance] = {}
@@ -575,7 +575,7 @@ class Swarm:
                 return instance
 
         # Create new instance
-        instance_id = str(uuid.uuid4())
+        instance_id = generate_agent_task_id()
         agent = await self._factory.create_agent(spec.agent_type, instance_id, spec)
 
         # Phase 4: Inject shared StateManifest blackboard so agents can exchange findings

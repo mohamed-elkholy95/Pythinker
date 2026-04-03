@@ -14,6 +14,11 @@ export interface ToolDisplayInput {
   display_command?: string;
 }
 
+export interface ToolLiveLabelInput {
+  current_step?: string;
+  display_command?: string;
+}
+
 export interface ToolDisplayInfo {
   toolKey: string;
   displayName: string;
@@ -91,6 +96,10 @@ function truncate(value: string, max = 60): string {
   return value.length > max ? `${value.slice(0, max)}...` : value;
 }
 
+function normalizeLiveLabel(value: string): string {
+  return truncate(cleanDisplayText(value.trim()), 90);
+}
+
 function isPlaceholderValue(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   return normalized === 'undefined' || normalized === 'null' || normalized === 'none' || normalized === 'nan';
@@ -106,6 +115,21 @@ export function cleanDisplayText(value: string): string {
     .replace(/\s+\|\s+/g, ' | ')
     .replace(/\s+\|\s*$/g, '')
     .trim();
+}
+
+/**
+ * Prefer the concrete runtime step text when available, then fall back to
+ * the human-readable display command. Returns an empty string when neither
+ * is useful.
+ */
+export function getToolLiveLabel(input: ToolLiveLabelInput): string {
+  const currentStep = normalizeLiveLabel(input.current_step ?? '');
+  if (currentStep) return currentStep;
+
+  const displayCommand = normalizeLiveLabel(input.display_command ?? '');
+  if (displayCommand) return displayCommand;
+
+  return '';
 }
 
 /**
@@ -406,7 +430,18 @@ export function getToolDisplay(input: ToolDisplayInput): ToolDisplayInfo {
   const displayName = TOOL_NAME_MAP[toolKey] || humanize(toolKey);
 
   const functionName = input.function || '';
-  const actionLabel = TOOL_FUNCTION_MAP[functionName] || DEFAULT_ACTION_BY_TOOL[toolKey] || 'Working';
+  const isBrowserFamilyTool =
+    toolKey === 'browser'
+    || toolKey === 'browser_agent'
+    || toolKey === 'playwright'
+    || functionName.startsWith('browser_')
+    || functionName.startsWith('playwright_')
+    || BROWSER_FUNCTIONS.has(functionName)
+    || displayName.toLowerCase().includes('browser');
+  const actionLabel =
+    TOOL_FUNCTION_MAP[functionName]
+    || DEFAULT_ACTION_BY_TOOL[toolKey]
+    || (isBrowserFamilyTool ? 'Browsing' : 'Working');
 
   const argKey = TOOL_FUNCTION_ARG_MAP[functionName] || '';
   const resourceLabel = formatResource(argKey, input.args);

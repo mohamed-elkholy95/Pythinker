@@ -17,7 +17,7 @@ from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.skill_package_repository import SkillPackageRepository
 from app.domain.services.skill_packager import get_skill_packager
 from app.domain.services.skill_validator import CustomSkillValidator
-from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,9 @@ class SkillCreatorTool(BaseTool):
             skill_package_repo: Repository for persisting skill packages.
                 When ``None`` the save step is skipped silently.
         """
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(category="skill"),
+        )
         self._user_id = user_id
         self._emit_event = emit_event
         self._skill_package_repo = skill_package_repo
@@ -325,7 +327,9 @@ class SkillListTool(BaseTool):
     name: str = "skill_list"
 
     def __init__(self, user_id: str | None = None):
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(is_read_only=True, category="skill"),
+        )
         self._user_id = user_id
 
     @tool(
@@ -386,7 +390,9 @@ class SkillDeleteTool(BaseTool):
     name: str = "skill_delete"
 
     def __init__(self, user_id: str | None = None):
-        super().__init__()
+        super().__init__(
+            defaults=ToolDefaults(is_destructive=True, category="skill"),
+        )
         self._user_id = user_id
 
     @tool(

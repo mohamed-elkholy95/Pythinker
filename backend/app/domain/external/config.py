@@ -69,6 +69,9 @@ class DomainConfig(Protocol):
     def uses_static_sandbox_addresses(self) -> bool: ...
 
     @property
+    def qdrant_enabled(self) -> bool: ...
+
+    @property
     def sandbox_address(self) -> str: ...
 
     # ── Execution limits ─────────────────────────────────────────────
@@ -169,6 +172,9 @@ class DomainConfig(Protocol):
     # ── Charts ─────────────────────────────────────────────────────────
     @property
     def feature_plotly_charts_enabled(self) -> bool: ...
+
+    @property
+    def plotly_enabled(self) -> bool: ...
 
     # ── Cron ───────────────────────────────────────────────────────────
     @property

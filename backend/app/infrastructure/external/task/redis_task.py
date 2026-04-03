@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from typing import TYPE_CHECKING, ClassVar
 
 from app.domain.external.task import Task, TaskRunner
+from app.domain.utils.task_ids import generate_agent_task_id
 from app.infrastructure.external.message_queue.redis_stream_queue import MessageQueue, RedisStreamQueue
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ class RedisStreamTask(Task):
             runner: The TaskRunner instance that will execute this task
         """
         self._runner = runner
-        self._id = str(uuid.uuid4())
+        self._id = generate_agent_task_id()
         self._execution_task: asyncio.Task | None = None
         self._background_tasks: set[asyncio.Task] = set()
 

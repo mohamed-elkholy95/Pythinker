@@ -201,7 +201,9 @@ class AcknowledgmentGenerator:
         message_lower = user_message.lower()
         topic = self._extract_numbered_topics_summary(user_message)
         if not topic:
-            topic = self._compact_subject(request_focus) or self._compact_subject(self._extract_research_topic(user_message))
+            topic = self._compact_subject(request_focus) or self._compact_subject(
+                self._extract_research_topic(user_message)
+            )
         topic = self._normalize_subject(topic)
         if topic and len(topic.split()) <= 8 and len(topic) <= 60:
             if self._is_research_report_request(user_message) or "report" in message_lower:

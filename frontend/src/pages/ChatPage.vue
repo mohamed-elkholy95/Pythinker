@@ -639,7 +639,11 @@ import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
 import { ReportModal, TaskCompletedFooter, TaskInterruptedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
-import { collapseDuplicateReportBlocks, preparePlainTextForViewer } from '@/components/report/reportContentNormalizer';
+import {
+  collapseDuplicateReportBlocks,
+  preparePlainTextForViewer,
+  stripLegacyPreviouslyCalledMarkers,
+} from '@/components/report/reportContentNormalizer';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
@@ -708,15 +712,14 @@ import { useTakeoverCta } from '@/composables/useTakeoverCta';
 const toolStore = useToolStore()
 const connectionStore = useConnectionStore()
 const uiStore = useUIStore()
-
-// Writable refs from stores (avoids verbose store prefix everywhere)
 const { lastEventId } = storeToRefs(connectionStore)
 
-// Computed aliases from stores (read-only; mutations go through store actions)
+// Targeted selectors from stores (read-only; mutations go through store actions)
 const isToolPanelOpen = computed(() => uiStore.isRightPanelOpen)
 const userDismissedPanel = computed(() => uiStore.userDismissedPanel)
 const isReceivingHeartbeats = computed(() => connectionStore.isReceivingHeartbeats)
 const isStale = computed(() => connectionStore.isStale)
+const isLeftPanelShow = computed(() => uiStore.isLeftPanelShow)
 
 const router = useRouter()
 const { t } = useI18n()
@@ -735,15 +738,10 @@ useConnectorDialog()
 const { lastCapturedError: _lastCapturedError, clearError: _clearError } = useErrorBoundary()
 
 // Response phase state machine (from connectionStore — single source of truth)
-const {
-  phase: responsePhase,
-  isLoading,
-  isThinking,
-  isSettled,
-  isError: _isError,
-  isTimedOut: _isTimedOut,
-  isStopped: _isStopped,
-} = storeToRefs(connectionStore)
+const responsePhase = computed(() => connectionStore.phase)
+const isLoading = computed(() => connectionStore.isLoading)
+const isThinking = computed(() => connectionStore.isThinking)
+const isSettled = computed(() => connectionStore.isSettled)
 const { transitionTo, resetPhase: _resetResponsePhase } = connectionStore
 
 // SSE connection management with stale detection
@@ -1923,6 +1921,7 @@ const resetState = () => {
   streamController.resetReliabilitySummary();
   lastSubmittedReliabilitySignature.value = null;
   pendingUserEchoMessage.value = null;
+  connectionStore.resetAll();
 
   // Clear streaming content buffer and search sources cache
   streamingContentBuffer.clear();
@@ -1951,7 +1950,7 @@ watch(
 );
 
 // Recalculate dock position after sidebar transition completes (280ms)
-watch(() => uiStore.isLeftPanelShow, () => {
+watch(isLeftPanelShow, () => {
   setTimeout(updateChatBottomDockMetrics, 300);
 });
 
@@ -1987,7 +1986,7 @@ watch(isLoading, (loading) => {
 });
 
 // React to stale detection from connectionStore (triggers reconnection)
-watch(() => connectionStore.isStale, (stale) => {
+watch(isStale, (stale) => {
   if (!stale) return
   streamController.recordStaleDetection()
   handleStaleConnection()
@@ -3454,10 +3453,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   // Strip internal context-compression placeholders that may leak from backend
-  const placeholderStripped = (reportData.content || '').replace(
-    /\[Previously called \w+\]/g,
-    '',
-  ).trim();
+  const placeholderStripped = stripLegacyPreviouslyCalledMarkers(reportData.content || '').trim();
   const normalizedReportContent = collapseDuplicateReportBlocks(placeholderStripped);
   if (!normalizedReportContent) {
     console.warn('[ChatPage] Report content was only placeholder text — skipping');
@@ -3594,7 +3590,7 @@ const openTextFileInReportModal = async (file: FileInfo) => {
     const extension = file.filename.split('.').pop()?.toLowerCase() || '';
     const contentForModal =
       extension === 'md' || extension === 'markdown'
-        ? collapseDuplicateReportBlocks(textContent)
+        ? collapseDuplicateReportBlocks(stripLegacyPreviouslyCalledMarkers(textContent))
         : preparePlainTextForViewer(textContent);
     const reportPreview: ReportData = {
       id: file.file_id,

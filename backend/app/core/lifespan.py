@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.application.services.maintenance_service import MaintenanceService
 from app.core.config import get_settings
 from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
+from app.domain.models.hooks import validate_hook_configs
 from app.infrastructure.models.canvas_documents import (
     CanvasProjectDocument,
     CanvasVersionDocument,
@@ -43,6 +44,7 @@ from app.interfaces.dependencies import get_agent_service
 
 logger = get_logger(__name__)
 settings = get_settings()
+validate_hook_configs(getattr(settings, "hook_configs", []))
 
 BEANIE_DOCUMENT_MODELS = [
     AgentDocument,
@@ -524,37 +526,40 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Stale session cleanup failed (non-critical): {e}")
 
         # Initialize Qdrant (optional, graceful degradation if unavailable)
-        try:
-            await get_qdrant().initialize()
-            _health_state["qdrant"] = True
-
-            # Connect Qdrant to domain layer for vector memory operations
-            from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
-            from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-
-            qdrant_repo = QdrantMemoryRepository()
-            set_vector_memory_repository(qdrant_repo)
-
-            # Wire task artifact, tool log repos, and embedding provider
-            from app.domain.repositories.vector_repos import (
-                set_embedding_provider,
-                set_task_artifact_repository,
-                set_tool_log_repository,
-            )
-            from app.infrastructure.external.embedding.client import get_embedding_client
-            from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
-            from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
-
-            set_task_artifact_repository(QdrantTaskRepository())
-            set_tool_log_repository(QdrantToolLogRepository())
+        if settings.qdrant_enabled:
             try:
-                set_embedding_provider(get_embedding_client())
-            except RuntimeError:
-                logger.warning("No embedding API key — embedding provider not set")
-            logger.info("Vector memory repositories connected to Qdrant")
-        except Exception as e:
-            logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
-            _health_state["qdrant"] = False
+                await get_qdrant().initialize()
+                _health_state["qdrant"] = True
+
+                # Connect Qdrant to domain layer for vector memory operations
+                from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
+                from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+
+                qdrant_repo = QdrantMemoryRepository()
+                set_vector_memory_repository(qdrant_repo)
+
+                # Wire task artifact, tool log repos, and embedding provider
+                from app.domain.repositories.vector_repos import (
+                    set_embedding_provider,
+                    set_task_artifact_repository,
+                    set_tool_log_repository,
+                )
+                from app.infrastructure.external.embedding.client import get_embedding_client
+                from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
+                from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
+
+                set_task_artifact_repository(QdrantTaskRepository())
+                set_tool_log_repository(QdrantToolLogRepository())
+                try:
+                    set_embedding_provider(get_embedding_client())
+                except RuntimeError:
+                    logger.warning("No embedding API key — embedding provider not set")
+                logger.info("Vector memory repositories connected to Qdrant")
+            except Exception as e:
+                logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
+                _health_state["qdrant"] = False
+        else:
+            logger.info("Qdrant disabled; skipping vector memory initialization")
 
         # Eagerly create memory indexes to avoid first-request latency spike.
         # Only one worker needs to create indexes (idempotent but avoids 4x DB calls).
@@ -570,16 +575,17 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Memory index pre-creation failed (will retry on first use): {e}")
 
         # Initialize BM25 encoder from existing memories (for hybrid search)
-        try:
-            from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
-            from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+        if settings.qdrant_enabled:
+            try:
+                from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
+                from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
 
-            db = get_mongodb().client[settings.mongodb_database]
-            memory_repo = MongoMemoryRepository(database=db)
-            logger.info("Initializing BM25 encoder from stored memories...")
-            await initialize_bm25_from_memories(memory_repo)
-        except Exception as e:
-            logger.warning(f"BM25 encoder initialization failed (non-critical): {e}")
+                db = get_mongodb().client[settings.mongodb_database]
+                memory_repo = MongoMemoryRepository(database=db)
+                logger.info("Initializing BM25 encoder from stored memories...")
+                await initialize_bm25_from_memories(memory_repo)
+            except Exception as e:
+                logger.warning(f"BM25 encoder initialization failed (non-critical): {e}")
 
         # Initialize Sandbox Pool (Phase 3: Pre-warming) if enabled.
         # In static dev sandbox mode (SANDBOX_ADDRESS configured), pooling can
