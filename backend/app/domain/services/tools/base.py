@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.domain.exceptions.base import ToolNotFoundException
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.cache_layer import (
     _generate_cache_key,
@@ -46,6 +47,8 @@ class ToolDefaults:
     is_read_only: bool = False
     is_destructive: bool = False
     is_concurrency_safe: bool = False
+    required_tier: PermissionTier = PermissionTier.DANGER
+    required_tier_explicit: bool = False
     check_permissions: Callable[..., str] = _allow_tool_permissions
     # --- Extended fields (Phase 1A) ---
     user_facing_name: str = ""
@@ -59,6 +62,8 @@ class ToolDefaults:
             "is_read_only": self.is_read_only,
             "is_destructive": self.is_destructive,
             "is_concurrency_safe": self.is_concurrency_safe,
+            "required_tier": self.required_tier,
+            "required_tier_explicit": self.required_tier_explicit,
             "check_permissions": self.check_permissions,
             "user_facing_name": self.user_facing_name,
             "max_result_size_chars": self.max_result_size_chars,
@@ -452,6 +457,7 @@ def tool(
     is_read_only: bool = False,
     is_destructive: bool = False,
     is_concurrency_safe: bool = False,
+    required_tier: PermissionTier | None = None,
 ) -> Callable:
     """Tool registration decorator with optional per-function metadata.
 
@@ -497,6 +503,8 @@ def tool(
             is_read_only=is_read_only,
             is_destructive=is_destructive,
             is_concurrency_safe=is_concurrency_safe,
+            required_tier=required_tier if required_tier is not None else PermissionTier.DANGER,
+            required_tier_explicit=required_tier is not None,
         )
 
         return func
@@ -569,6 +577,11 @@ class BaseTool:
     def is_concurrency_safe(self) -> bool:
         """Tool can safely execute in parallel with others."""
         return self._defaults.is_concurrency_safe
+
+    @property
+    def required_tier(self) -> PermissionTier:
+        """Minimum permission tier required to execute this tool."""
+        return self._defaults.required_tier
 
     @property
     def is_enabled(self) -> bool:

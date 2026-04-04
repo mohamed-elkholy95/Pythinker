@@ -2,9 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
-import re
 import time
-import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -12,34 +10,22 @@ from app.domain.exceptions.base import AgentConfigurationException, ToolNotFound
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
 from app.domain.models.agent import Agent
-from app.domain.models.event import (
-    BaseEvent,
-    CouponItem,
-    DealItem,
-    DealToolContent,
-    ErrorEvent,
-    MessageEvent,
-    SearchToolContent,
-    StreamEvent,
-    ToolEvent,
-    ToolStatus,
-    ToolStreamEvent,
-    WaitEvent,
-)
+from app.domain.models.event import BaseEvent, MessageEvent, UsageEvent
 from app.domain.models.message import Message
-from app.domain.models.search import SearchResultItem
 from app.domain.models.state_manifest import StateEntry, StateManifest
-from app.domain.models.tool_call import ToolCallEnvelope
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.models.tool_result import ToolResult
+from app.domain.models.turn_summary import TurnSummary
 from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceededError
+from app.domain.services.agents.compaction import CompactionConfig, CompactionResult
+from app.domain.services.agents.error_handler import ErrorHandler
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
-from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
+from app.domain.services.agents.llm_conversation_mixin import LlmConversationMixin
+from app.domain.services.agents.security_assessor import SecurityAssessor
 from app.domain.services.agents.stuck_detector import StuckDetector
-from app.domain.services.agents.tool_stream_parser import (
-    content_type_for_function,
-    extract_partial_content,
-    is_streamable_function,
+from app.domain.services.agents.tool_invocation_mixin import (
+    ToolInvocationMixin,
+    _extract_url_from_args,  # noqa: F401  # re-exported for backward compat
 )
 
 if TYPE_CHECKING:
@@ -55,10 +41,7 @@ from app.domain.models.tool_name import ToolName
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.context_manager import SandboxContextManager
 from app.domain.services.tools.base import BaseTool
-from app.domain.services.tools.command_formatter import CommandFormatter
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
-from app.domain.services.tools.tool_profiler import get_tool_profiler
-from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
@@ -67,60 +50,8 @@ logger = logging.getLogger(__name__)
 # Canonical source: ToolName.safe_parallel_tools()
 SAFE_PARALLEL_TOOLS = ToolName.safe_parallel_tools()
 
-# Maximum number of concurrent tool executions (increased for better throughput)
-MAX_CONCURRENT_TOOLS = 5
 
 
-def _extract_url_from_args(arguments: dict) -> str | None:
-    """Extract URL from tool call arguments.
-
-    Checks common URL parameter names used across tools.
-    """
-    for key in ("url", "target_url", "page_url", "query"):
-        val = arguments.get(key)
-        if val and isinstance(val, str) and val.startswith(("http://", "https://")):
-            return val
-    return None
-
-
-def _extract_search_result_urls(result: ToolResult | None) -> list[str]:
-    """Extract URL candidates from common search tool payload shapes."""
-    if result is None or result.data is None:
-        return []
-
-    data = result.data
-    if hasattr(data, "model_dump"):
-        with contextlib.suppress(Exception):
-            data = data.model_dump()
-
-    raw_results: Any = None
-    if isinstance(data, dict):
-        raw_results = data.get("results")
-    else:
-        with contextlib.suppress(AttributeError):
-            raw_results = data.results
-
-    if not isinstance(raw_results, list):
-        return []
-
-    urls: list[str] = []
-    seen: set[str] = set()
-    for item in raw_results:
-        candidate: str | None = None
-        if isinstance(item, dict):
-            value = item.get("link") or item.get("url")
-            if isinstance(value, str):
-                candidate = value
-        else:
-            value = getattr(item, "link", None) or getattr(item, "url", None)
-            if isinstance(value, str):
-                candidate = value
-
-        if candidate and candidate.startswith(("http://", "https://")) and candidate not in seen:
-            seen.add(candidate)
-            urls.append(candidate)
-
-    return urls
 
 
 # ── Graduated wall-clock pressure (design 2A) ─────────────────────────
@@ -152,26 +83,6 @@ def _should_block_tool_at_pressure(tool_name: str, level: str) -> bool:
     return False
 
 
-_LONG_TIMEOUT_TOOLS: frozenset[str] = frozenset(
-    {
-        "wide_research",
-        "info_search_web",
-        "deal_scraper_search",
-        "deal_scraper_compare",
-        "deal_scraper_recommend",
-    }
-)
-_DEFAULT_TOOL_TIMEOUT: float = 120.0
-_LONG_TOOL_TIMEOUT: float = 300.0
-
-
-def _resolve_tool_timeout(function_name: str) -> float:
-    """Return timeout in seconds based on tool type."""
-    if function_name.startswith("browser_"):
-        return _LONG_TOOL_TIMEOUT
-    if function_name in _LONG_TIMEOUT_TOOLS:
-        return _LONG_TOOL_TIMEOUT
-    return _DEFAULT_TOOL_TIMEOUT
 
 
 def _extract_embedded_json(text: str) -> str | None:
@@ -194,7 +105,7 @@ def _extract_embedded_json(text: str) -> str | None:
     return None
 
 
-class BaseAgent:
+class BaseAgent(ToolInvocationMixin, LlmConversationMixin):
     """
     Base agent class, defining the basic behavior of the agent
     """
@@ -231,15 +142,6 @@ class BaseAgent:
         "verifying": ToolName.for_phase("verifying"),
     }
 
-    _TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE: ClassVar[str] = (
-        "TOKEN BUDGET CRITICAL (95%+). You MUST conclude your current step and summarize results now. "
-        "Do not start any new exploratory tool calls."
-    )
-    _TOKEN_BUDGET_HARD_STOP_MESSAGE: ClassVar[str] = (
-        "TOKEN BUDGET EMERGENCY (99%+). Tool calls are now disabled. "
-        "Provide the best possible final summary from gathered evidence."
-    )
-
     def __init__(
         self,
         agent_id: str,
@@ -265,6 +167,7 @@ class BaseAgent:
         self._background_tasks: set[asyncio.Task] = set()
         self._metadata_index: ToolMetadataIndex | None = None  # Lazy-built from self.tools
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
+        self._active_tier: PermissionTier = PermissionTier.DANGER
         self._step_model_override: str | None = None  # DeepCode Phase 1: Adaptive model selection
         self._user_thinking_mode: str | None = None  # User-selected thinking mode override
         self._circuit_breaker = circuit_breaker
@@ -363,6 +266,14 @@ class BaseAgent:
         else:
             self._pipeline = self._build_default_pipeline()
 
+        from app.domain.services.agents.agent_loop import AgentLoop
+        from app.domain.services.agents.tool_dispatcher import ToolDispatcher
+
+        self._tool_dispatcher = ToolDispatcher(self)
+        self._agent_loop = AgentLoop(self, self._tool_dispatcher)
+
+        self._reset_turn_accounting()
+
     def _build_default_pipeline(self) -> "MiddlewarePipeline":
         """Build default middleware pipeline from existing embedded services.
 
@@ -372,12 +283,21 @@ class BaseAgent:
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
         from app.domain.services.agents.middleware_adapters.error_handler import ErrorHandlerMiddleware
         from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
+        from app.domain.services.agents.middleware_adapters.permission_gate import PermissionGateMiddleware
         from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
         from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
         from app.domain.services.agents.middleware_pipeline import MiddlewarePipeline
+        from app.domain.services.tools.metadata_index import ToolMetadataIndex
 
         pipeline = MiddlewarePipeline()
-        pipeline.use(SecurityAssessmentMiddleware(assessor=self._security_assessor))
+        metadata_index = ToolMetadataIndex(self.tools)
+        pipeline.use(
+            SecurityAssessmentMiddleware(
+                assessor=self._security_assessor,
+                tool_metadata_index=metadata_index,
+            )
+        )
+        pipeline.use(PermissionGateMiddleware(tool_metadata_index=metadata_index))
         pipeline.use(HallucinationGuardMiddleware(detector=self._hallucination_detector))
         pipeline.use(EfficiencyMonitorMiddleware(monitor=self._efficiency_monitor))
         pipeline.use(StuckDetectionMiddleware(detector=self._stuck_detector))
@@ -391,6 +311,18 @@ class BaseAgent:
         from app.core.config import get_feature_flags
 
         return get_feature_flags()
+
+    def set_active_tier(self, tier: PermissionTier) -> None:
+        """Set the active tool permission tier for subsequent tool dispatch."""
+        self._active_tier = tier
+
+    def _should_block_tool_at_pressure_level(self, tool_name: str, level: str) -> bool:
+        """Expose wall-clock pressure blocking to extracted loop helpers."""
+        return _should_block_tool_at_pressure(tool_name, level)
+
+    def _extract_embedded_json(self, text: str) -> str | None:
+        """Expose embedded-JSON extraction to extracted loop helpers."""
+        return _extract_embedded_json(text)
 
     async def _ask_structured_tiered(
         self,
@@ -426,16 +358,6 @@ class BaseAgent:
             temperature=kwargs.get("temperature"),
             max_tokens=kwargs.get("max_tokens"),
         )
-
-    # Tool result compaction limits for memory writes.
-    # Tightened from 8K→4K to prevent context overflow on research-heavy sessions.
-    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 4000  # was 8000
-    _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 1000  # was 2000
-    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 2500  # was 5000
-    # Max search results to keep in LLM context (rest is compacted).
-    # Reduced from 8→5 to cap context at ~35K chars (was ~56K), preventing
-    # LLM timeouts when the model chokes on oversized tool-call payloads.
-    _SEARCH_RESULT_MAX_FOR_LLM: ClassVar[int] = 5
 
     def set_token_budget(self, budget: Any) -> None:
         """Inject a TokenBudget for proactive phase-level token management.
@@ -690,924 +612,6 @@ class BaseAgent:
             return ""
         return self.state_manifest.to_context_string(max_entries=max_entries)
 
-    def _record_tool_usage(self, tool_name: str, success: bool, duration_ms: float) -> None:
-        """Record tool usage for dynamic toolset prioritization.
-
-        Args:
-            tool_name: Name of the executed tool
-            success: Whether execution was successful
-            duration_ms: Execution duration in milliseconds
-        """
-        try:
-            manager = get_toolset_manager()
-            manager.record_tool_usage(tool_name, success, duration_ms)
-        except Exception as e:
-            logger.debug(f"Failed to record tool usage for {tool_name}: {e}")
-
-    def _create_tool_event(
-        self,
-        tool_call_id: str,
-        tool_name: str,
-        function_name: str,
-        function_args: dict[str, Any],
-        status: ToolStatus,
-        **kwargs,
-    ) -> ToolEvent:
-        """Create ToolEvent with command formatting applied.
-
-        Args:
-            tool_call_id: Unique ID for this tool call
-            tool_name: Name of the tool
-            function_name: Function being called
-            function_args: Function arguments
-            status: Tool execution status
-            **kwargs: Additional fields for ToolEvent
-
-        Returns:
-            ToolEvent with display_command, command_category, and command_summary populated
-        """
-        # Format command for human-readable display
-        try:
-            display_command, command_category, command_summary = CommandFormatter.format_tool_call(
-                tool_name=tool_name,
-                function_name=function_name,
-                function_args=function_args,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to format command: {e}")
-            display_command = f"{function_name}(...)"
-            command_category = "other"
-            command_summary = function_name
-
-        # Populate tool_content for search tools (Pythinker-style search results display)
-        tool_content = kwargs.pop("tool_content", None)
-        search_functions = ToolName.search_tools()
-        # Max results shown in the search results panel per tool invocation.
-        # wide_research collects up to 20 results across 16 queries; cap display at 20
-        # so the panel is informative without being overwhelming.
-        search_panel_max = 20
-        if tool_content is None and status == ToolStatus.CALLED and function_name in search_functions:
-            function_result = kwargs.get("function_result")
-            # Extract search results from ToolResult.data if valid result with data
-            if (
-                function_result
-                and hasattr(function_result, "success")
-                and function_result.success
-                and hasattr(function_result, "data")
-                and function_result.data
-            ):
-                data = function_result.data
-                results_list: list[SearchResultItem] = []
-
-                # Handle SearchResults object (API search path)
-                if hasattr(data, "results") and data.results:
-                    results_list = [
-                        SearchResultItem(
-                            title=r.title or "No title",
-                            link=r.link or "",
-                            snippet=r.snippet or "",
-                        )
-                        for r in data.results[:search_panel_max]
-                    ]
-                # Handle wide_research dict with "sources" key
-                elif isinstance(data, dict) and data.get("sources"):
-                    results_list = [
-                        SearchResultItem(
-                            title=s.get("title", "No title"),
-                            link=s.get("url", s.get("link", "")),
-                            snippet=s.get("snippet", ""),
-                        )
-                        for s in data["sources"][:search_panel_max]
-                    ]
-
-                if results_list:
-                    tool_content = SearchToolContent(results=results_list)
-                    logger.info(f"SearchToolContent created with {len(results_list)} results for {function_name}")
-
-        # Handle deal scraper tools — emit structured DealToolContent
-        deal_functions = {"deal_search", "deal_compare_prices", "deal_find_coupons"}
-        if tool_content is None and status == ToolStatus.CALLED and function_name in deal_functions:
-            function_result = kwargs.get("function_result")
-            if (
-                function_result
-                and hasattr(function_result, "success")
-                and function_result.success
-                and hasattr(function_result, "data")
-                and function_result.data is not None
-            ):
-                data = function_result.data
-                raw_deals = data.get("deals", []) if isinstance(data, dict) else []
-                deal_items = [
-                    DealItem(
-                        store=d.get("store", d.get("store_name", "")),
-                        price=d.get("price"),
-                        original_price=d.get("original_price"),
-                        discount_percent=d.get("discount_percent", d.get("discount", None)),
-                        product_name=d.get("title", d.get("product_name", "")),
-                        url=d.get("url", d.get("product_url", "")),
-                        score=d.get("score"),
-                        in_stock=d.get("in_stock"),
-                        coupon_code=d.get("coupon_code"),
-                        image_url=d.get("image_url"),
-                    )
-                    for d in raw_deals[:10]
-                ]
-                raw_coupons = data.get("coupons", []) if isinstance(data, dict) else []
-                coupon_items = [
-                    CouponItem(
-                        code=c.get("code", ""),
-                        description=c.get("description", ""),
-                        store=c.get("store_name", c.get("store", "")),
-                        expiry=c.get("expiry_date", c.get("expiry")),
-                        verified=bool(c.get("verified", False)),
-                        source=c.get("source", ""),
-                    )
-                    for c in raw_coupons[:10]
-                ]
-                # Determine best deal by score
-                best_idx: int | None = None
-                if deal_items:
-                    scored = [(i, d.score or 0) for i, d in enumerate(deal_items)]
-                    best_idx = max(scored, key=lambda x: x[1])[0] if any(s > 0 for _, s in scored) else 0
-                query_str = function_args.get("query", function_args.get("product", ""))
-                # Extract store metadata (always present even when deals are empty)
-                searched_stores: list[str] = data.get("searched_stores", []) if isinstance(data, dict) else []
-                store_errors: list[dict[str, str]] = data.get("store_errors", []) if isinstance(data, dict) else []
-                empty_reason = data.get("empty_reason") if isinstance(data, dict) else None
-                stores_attempted = data.get("stores_attempted") if isinstance(data, dict) else None
-                stores_with_results = data.get("stores_with_results") if isinstance(data, dict) else None
-                tool_content = DealToolContent(
-                    deals=deal_items,
-                    coupons=coupon_items,
-                    query=query_str,
-                    best_deal_index=best_idx,
-                    searched_stores=searched_stores,
-                    store_errors=store_errors,
-                    empty_reason=empty_reason if isinstance(empty_reason, str) else None,
-                    stores_attempted=stores_attempted if isinstance(stores_attempted, int) else None,
-                    stores_with_results=stores_with_results if isinstance(stores_with_results, int) else None,
-                )
-                logger.info(
-                    f"DealToolContent created with {len(deal_items)} deals, "
-                    f"{len(coupon_items)} coupons, {len(searched_stores)} stores for {function_name}"
-                )
-
-        # For CALLED events, merge resolved coordinates from browser click/input
-        # into function_args so the frontend cursor overlay can track index-based actions.
-        # Creates a new dict to avoid mutating the original args reference.
-        final_args = function_args
-        if status == ToolStatus.CALLED:
-            function_result = kwargs.get("function_result")
-            if (
-                function_result
-                and hasattr(function_result, "data")
-                and isinstance(function_result.data, dict)
-                and {"resolved_x", "resolved_y"}.issubset(function_result.data)
-            ):
-                final_args = {
-                    **function_args,
-                    "coordinate_x": function_result.data["resolved_x"],
-                    "coordinate_y": function_result.data["resolved_y"],
-                }
-
-        return ToolEvent(
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            function_name=function_name,
-            function_args=final_args,
-            status=status,
-            display_command=display_command,
-            command_category=command_category,
-            command_summary=command_summary,
-            tool_content=tool_content,
-            **kwargs,
-        )
-
-    async def invoke_tool(
-        self,
-        tool: BaseTool,
-        function_name: str,
-        arguments: dict[str, Any],
-        skip_security: bool = False,
-    ) -> ToolResult:
-        """Invoke specified tool, with retry mechanism and exponential backoff.
-
-        Integrates with:
-        - ToolHallucinationDetector for pre-execution validation
-        - ToolExecutionProfiler for timing and reliability tracking
-        - SecurityAssessor for risk evaluation
-        - StuckDetector for action pattern detection
-        - SandboxCrashError pre-check (REL-009)
-        """
-        import time
-
-        # REL-009: Check sandbox health before tool execution.
-        # If the sandbox backing this tool has crashed, fail fast instead of
-        # sending requests to a dead container.
-        session_id = getattr(self, "_session_id", None)
-        if session_id and hasattr(tool, "sandbox"):
-            try:
-                from app.core.sandbox_manager import SandboxState, get_sandbox_manager
-
-                manager = get_sandbox_manager()
-                managed = manager._sandboxes.get(session_id)
-                if managed and managed.state == SandboxState.FAILED:
-                    from app.domain.exceptions.base import SandboxCrashError
-
-                    raise SandboxCrashError(
-                        f"Sandbox for session {session_id} is in FAILED state — cannot execute tool '{function_name}'"
-                    )
-            except ImportError:
-                pass  # Graceful degradation if sandbox_manager unavailable
-
-        profiler = get_tool_profiler()
-        tool_tracer = None
-        flags = self._resolve_feature_flags()
-        if flags.get("tool_tracing"):
-            tool_tracer = get_tool_tracer()
-        start_time = time.perf_counter()
-
-        # Create standardized envelope for this tool call
-        tool_call_id = str(uuid.uuid4())
-        envelope = ToolCallEnvelope(
-            tool_call_id=tool_call_id,
-            tool_name=tool.name,
-            function_name=function_name,
-            arguments=arguments,
-        )
-
-        # Log tool invocation via structured logger
-        log_start = self._log.tool_started(function_name, tool_call_id, arguments)
-
-        # Pre-execution hallucination check (validates tool name and parameters)
-        validation_result = self._hallucination_detector.validate_tool_call(
-            tool_name=function_name,
-            parameters=arguments,
-        )
-
-        self._total_tool_calls += 1
-
-        if not validation_result.is_valid:
-            logger.warning(
-                f"Tool hallucination detected: {validation_result.error_message}",
-                extra={
-                    "function_name": function_name,
-                    "error_type": validation_result.error_type,
-                    "suggestions": validation_result.suggestions,
-                    "session_id": getattr(self, "_session_id", None),
-                    "agent_id": getattr(self, "_agent_id", None),
-                },
-            )
-            # Build correction message with suggestions if available
-            correction_message = validation_result.error_message or "Tool validation failed"
-            if validation_result.suggestions:
-                correction_message += f" Suggestions: {', '.join(validation_result.suggestions)}"
-
-            self._total_hallucinations += 1
-
-            # Check if hallucination rate warrants escalation
-            try:
-                from app.core.config import get_settings
-
-                _settings = get_settings()
-                if (
-                    getattr(_settings, "feature_hallucination_escalation_enabled", False)
-                    and not self._hallucination_escalated
-                    and self._total_tool_calls >= getattr(_settings, "hallucination_escalation_min_samples", 10)
-                ):
-                    rate = self._total_hallucinations / max(1, self._total_tool_calls)
-                    threshold = getattr(_settings, "hallucination_escalation_threshold", 0.15)
-                    if rate >= threshold:
-                        self._hallucination_escalated = True
-                        logger.warning(
-                            "Hallucination rate escalation triggered: rate=%.2f "
-                            "(threshold=%.2f, calls=%d, hallucinations=%d)",
-                            rate,
-                            threshold,
-                            self._total_tool_calls,
-                            self._total_hallucinations,
-                        )
-            except Exception:
-                logger.debug(
-                    "Hallucination escalation check failed (non-critical)",
-                    exc_info=True,
-                )
-
-            return ToolResult(success=False, message=correction_message)
-
-        # Security assessment before execution (skip for user-confirmed actions)
-        if not skip_security:
-            security_assessment = self._security_assessor.assess_action(function_name, arguments)
-            if security_assessment.blocked:
-                self._log.security_event("blocked", function_name, security_assessment.reason)
-                envelope.mark_blocked(security_assessment.reason)
-                return ToolResult(success=False, message=f"Action blocked for security: {security_assessment.reason}")
-
-            if security_assessment.risk_level == ActionSecurityRisk.HIGH:
-                self._log.security_event("high_risk", function_name, security_assessment.reason)
-
-        # Circuit breaker: reject calls to tools that are failing repeatedly
-        if self._circuit_breaker and not self._circuit_breaker.can_execute(function_name):
-            msg = f"Tool '{function_name}' circuit is open — skipping to avoid cascading failures"
-            logger.warning(msg)
-            envelope.mark_failed(msg)
-            return ToolResult(success=False, message=msg)
-
-        retries = 0
-        current_interval = self.retry_interval
-        last_error = ""
-        result: ToolResult | None = None
-        envelope.mark_started()
-
-        # WP-5: Capture trace context for per-tool distributed tracing spans.
-        # _trace_ctx is injected by PlanActFlow after agent construction when
-        # feature_tool_tracing is enabled.
-        _trace_ctx_for_tool = getattr(self, "_trace_ctx", None)
-
-        # Phase 4: HITL interrupt — block high-risk tool calls before execution
-        if flags.get("hitl_enabled"):
-            try:
-                from app.domain.services.flows.hitl_policy import get_hitl_policy
-
-                _hitl_assessment = get_hitl_policy().assess(function_name, arguments)
-                if _hitl_assessment.requires_approval:
-                    logger.warning(
-                        "HITL interrupt: tool=%s risk=%s level=%s — returning requires_approval",
-                        function_name,
-                        _hitl_assessment.reason,
-                        _hitl_assessment.risk_level,
-                    )
-                    return ToolResult(
-                        success=False,
-                        message=(
-                            f"[HITL] This action requires human approval before execution. "
-                            f"Risk: {_hitl_assessment.reason} (level={_hitl_assessment.risk_level}). "
-                            "Please confirm or cancel the action."
-                        ),
-                    )
-            except Exception as _hitl_err:
-                logger.debug("HITL policy check failed (non-critical): %s", _hitl_err)
-
-        # ── URL Failure Guard: pre-check ─────────────────────────────────────
-        _guard_url: str | None = None
-        if self._url_failure_guard is not None:
-            _guard_url = _extract_url_from_args(arguments)
-            if _guard_url:
-                _guard_decision = self._url_failure_guard.check_url(_guard_url)
-                try:
-                    from app.core.prometheus_metrics import url_guard_actions_total, url_guard_escalations_total
-
-                    url_guard_actions_total.inc({"tier": str(_guard_decision.tier), "action": _guard_decision.action})
-                    if _guard_decision.action in ("warn", "block"):
-                        url_guard_escalations_total.inc({"tier": str(_guard_decision.tier)})
-                except Exception:
-                    logger.debug("URL guard metrics emission failed (non-critical)", exc_info=True)
-                if _guard_decision.action == "block":
-                    # Tier 3: Hard-block — skip execution entirely
-                    logger.warning(
-                        "URL guard BLOCKED %s (tier=%d): %s",
-                        _guard_url,
-                        _guard_decision.tier,
-                        _guard_decision.message,
-                    )
-                    return ToolResult(success=False, message=_guard_decision.message)
-                if _guard_decision.action == "warn" and _guard_decision.message:
-                    # Tier 2: Inject warning — execution still proceeds
-                    logger.info(
-                        "URL guard WARNING for %s (tier=%d)",
-                        _guard_url,
-                        _guard_decision.tier,
-                    )
-                    self._efficiency_nudges.append(
-                        {
-                            "message": _guard_decision.message,
-                            "read_count": 0,
-                            "action_count": 0,
-                            "confidence": 0.90,
-                            "hard_stop": False,
-                        }
-                    )
-
-        while retries <= self.max_retries:
-            try:
-                # ORPHANED TASK FIX: Check cancellation BEFORE invoking function
-                # Prevents tool execution if cancelled during retry loop
-                await self._cancel_token.check_cancelled()
-
-                # WP-5: Wrap actual execution in a distributed-tracing span when enabled
-                if flags.get("tool_tracing") and _trace_ctx_for_tool:
-                    with _trace_ctx_for_tool.span(
-                        f"tool:{function_name}",
-                        "tool_execution",
-                        {
-                            "tool.name": function_name,
-                            "agent.id": getattr(self, "_agent_id", ""),
-                            "attempt": retries,
-                        },
-                    ) as _tool_span:
-                        result = await asyncio.wait_for(
-                            tool.invoke_function(function_name, **arguments),
-                            timeout=_resolve_tool_timeout(function_name),
-                        )
-                        try:
-                            _tool_span.set_attribute("tool.success", result.success)
-                            _tool_span.set_attribute("tool.result_size", len(str(result.message or "")))
-                        except Exception as _span_err:
-                            logger.debug("Tool span attribute set failed (non-critical): %s", _span_err)
-                else:
-                    result = await asyncio.wait_for(
-                        tool.invoke_function(function_name, **arguments),
-                        timeout=_resolve_tool_timeout(function_name),
-                    )
-            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
-                raise
-            except TimeoutError:
-                _timeout_used = _resolve_tool_timeout(function_name)
-                last_error = f"Tool execution timed out after {_timeout_used:.0f}s"
-                self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
-                # Classify timeout: network-related tools are recoverable, others are fatal
-                network_tools = {"info_search_web", "browser_get_content", "browser_navigate", "mcp_call_tool"}
-                if function_name in network_tools and retries < self.max_retries:
-                    retries += 1
-                    logger.info(f"Recoverable timeout for {function_name}, retrying ({retries}/{self.max_retries})")
-                    await asyncio.sleep(current_interval)
-                    current_interval *= self.retry_backoff
-                    continue
-                envelope.mark_failed(last_error)
-                break
-            except Exception as e:
-                last_error = str(e)
-                retries += 1
-                if retries <= self.max_retries:
-                    await asyncio.sleep(current_interval)
-                    current_interval *= self.retry_backoff
-                    continue
-                self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
-                envelope.mark_failed(last_error)
-                break
-
-            # Post-execution tracking (non-critical — must not prevent result return)
-            try:
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                profiler.record_execution(
-                    tool_name=function_name,
-                    duration_ms=duration_ms,
-                    success=result.success if result else False,
-                    error=result.message if result and not result.success else None,
-                )
-
-                if tool_tracer:
-                    tool_tracer.trace_execution(
-                        tool_name=function_name,
-                        arguments=arguments,
-                        result=result,
-                        duration_ms=duration_ms,
-                    )
-
-                self._record_tool_usage(
-                    function_name, success=result.success if result else False, duration_ms=duration_ms
-                )
-
-                result_preview = str(result.message)[:500] if result else ""
-                self._stuck_detector.track_tool_action(
-                    tool_name=function_name,
-                    tool_args=arguments,
-                    success=result.success if result else False,
-                    result=result_preview,
-                    error=result.message if result and not result.success else None,
-                )
-
-                # Tool efficiency monitoring (analysis paralysis detection)
-                try:
-                    self._efficiency_monitor.record(function_name)
-                    signal = self._efficiency_monitor.check_efficiency()
-
-                    if not signal.is_balanced and signal.nudge_message:
-                        logger.info(
-                            f"Tool efficiency nudge (hard_stop={signal.hard_stop}): {signal.nudge_message[:80]}... "
-                            f"(reads={signal.read_count}, actions={signal.action_count}, "
-                            f"confidence={signal.confidence})"
-                        )
-
-                        self._metrics.increment(
-                            "pythinker_tool_efficiency_nudges_total",
-                            labels={
-                                "threshold": "hard_stop" if signal.hard_stop else "soft",
-                                "read_count": str(signal.read_count),
-                                "action_count": str(signal.action_count),
-                            },
-                        )
-
-                        self._efficiency_nudges.append(
-                            {
-                                "message": signal.nudge_message,
-                                "read_count": signal.read_count,
-                                "action_count": signal.action_count,
-                                "confidence": signal.confidence,
-                                "hard_stop": signal.hard_stop,
-                            }
-                        )
-                except Exception as e:
-                    logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
-
-                # URL Failure Guard: ingest search results and record URL failures.
-                if self._url_failure_guard and result:
-                    try:
-                        if result.success and "search" in function_name:
-                            discovered_urls = _extract_search_result_urls(result)
-                            if discovered_urls:
-                                self._url_failure_guard.record_search_results(discovered_urls)
-                        if _guard_url and not result.success:
-                            self._url_failure_guard.record_failure(
-                                _guard_url,
-                                result.message[:200] if result.message else "Unknown error",
-                                function_name,
-                            )
-                            # Fix 2: If a 404 URL was NOT from search results,
-                            # it was fabricated by the LLM.  Record it so the
-                            # URL hallucination context is injected.
-                            _msg_lower = (result.message or "").lower()
-                            if (
-                                "404" in _msg_lower or "not found" in _msg_lower
-                            ) and not self._url_failure_guard.is_url_from_search_results(_guard_url):
-                                self._url_failure_guard.record_guessed_url_failure(_guard_url)
-                        from app.core.prometheus_metrics import url_guard_tracked_urls
-
-                        metrics = self._url_failure_guard.get_metrics()
-                        url_guard_tracked_urls.set(value=float(metrics.get("tracked_urls", 0)))
-                    except Exception as _guard_err:
-                        logger.debug("URL failure guard post-execution handling failed: %s", _guard_err)
-
-                try:
-                    from app.domain.services.agents.task_state_manager import get_task_state_manager
-
-                    task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
-                    await task_state_manager.record_action(
-                        function_name=function_name,
-                        success=result.success if result else False,
-                        result=result.data
-                        if result and result.data is not None
-                        else result.message
-                        if result
-                        else None,
-                        error=result.message if result and not result.success else None,
-                    )
-                except Exception as e:
-                    logger.debug(f"Task state recording failed for {function_name}: {e}")
-
-                envelope.mark_completed(
-                    success=result.success if result else False,
-                    message=result.message if result else None,
-                )
-                self._log.tool_completed(
-                    function_name,
-                    tool_call_id,
-                    log_start,
-                    success=result.success if result else False,
-                    message=result.message if result else None,
-                )
-            except Exception as e:
-                logger.warning(f"Post-execution tracking failed for {function_name}: {e}")
-
-            # Circuit breaker: record success
-            if self._circuit_breaker and result and result.success:
-                self._circuit_breaker.record_success(function_name)
-
-            return result
-
-        # Retry loop exhausted — record failure metrics
-        if self._circuit_breaker:
-            self._circuit_breaker.record_failure(function_name)
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        profiler.record_execution(
-            tool_name=function_name, duration_ms=duration_ms, success=False, error=last_error[:200]
-        )
-
-        if tool_tracer:
-            tool_tracer.trace_execution(
-                tool_name=function_name,
-                arguments=arguments,
-                result=None,
-                duration_ms=duration_ms,
-                error=last_error[:200],
-            )
-
-        self._stuck_detector.track_tool_action(
-            tool_name=function_name,
-            tool_args=arguments,
-            success=False,
-            error=last_error[:200],
-        )
-
-        # Tool efficiency monitoring (even on failure, track the attempt)
-        try:
-            self._efficiency_monitor.record(function_name)
-            signal = self._efficiency_monitor.check_efficiency()
-
-            if not signal.is_balanced and signal.nudge_message:
-                logger.info(
-                    f"Tool efficiency nudge after failure (hard_stop={signal.hard_stop}): "
-                    f"(reads={signal.read_count}, actions={signal.action_count})"
-                )
-                self._metrics.increment(
-                    "pythinker_tool_efficiency_nudges_total",
-                    labels={
-                        "threshold": "hard_stop" if signal.hard_stop else "soft",
-                        "read_count": str(signal.read_count),
-                        "action_count": str(signal.action_count),
-                    },
-                )
-                self._efficiency_nudges.append(
-                    {
-                        "message": signal.nudge_message,
-                        "read_count": signal.read_count,
-                        "action_count": signal.action_count,
-                        "confidence": signal.confidence,
-                        "hard_stop": signal.hard_stop,
-                    }
-                )
-        except Exception as e:
-            logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
-
-        # URL Failure Guard: record failure when retries exhausted
-        if self._url_failure_guard and _guard_url:
-            try:
-                self._url_failure_guard.record_failure(_guard_url, last_error[:200], function_name)
-                from app.core.prometheus_metrics import url_guard_tracked_urls
-
-                metrics = self._url_failure_guard.get_metrics()
-                url_guard_tracked_urls.set(value=float(metrics.get("tracked_urls", 0)))
-            except Exception as _guard_err:
-                logger.debug("URL failure guard recording failed (retry exhausted): %s", _guard_err)
-
-        try:
-            from app.domain.services.agents.task_state_manager import get_task_state_manager
-
-            task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
-            await task_state_manager.record_action(
-                function_name=function_name,
-                success=False,
-                result=None,
-                error=last_error[:200],
-            )
-        except Exception as e:
-            logger.debug(f"Task state recording failed for {function_name} error path: {e}")
-
-        return ToolResult(success=False, message=last_error)
-
-    @staticmethod
-    def _truncate_text(content: str, max_chars: int) -> str:
-        """Truncate text with a compact marker."""
-        if len(content) <= max_chars:
-            return content
-        truncated_chars = len(content) - max_chars
-        return f"{content[:max_chars]}\n\n... [truncated {truncated_chars:,} chars]"
-
-    def _tool_data_preview(self, data: Any, max_chars: int) -> str:
-        """Create a bounded preview string for tool result data."""
-        if hasattr(data, "model_dump"):
-            data = data.model_dump()
-
-        if isinstance(data, str):
-            return self._truncate_text(data, max_chars)
-
-        try:
-            serialized = json.dumps(data, ensure_ascii=False, default=str)
-        except Exception:
-            serialized = str(data)
-
-        return self._truncate_text(serialized, max_chars)
-
-    @staticmethod
-    def _sanitize_search_result_html(result: ToolResult) -> ToolResult:
-        """Strip noisy HTML from search result content before serialization.
-
-        When search results contain raw HTML with tags like <script>, <nav>,
-        <footer>, <style> etc., and the content exceeds 2000 chars, strip those
-        tags to keep only meaningful text. This prevents prompt pollution and
-        reduces token waste.
-        """
-        if result is None or result.data is None:
-            return result
-
-        html_noise_tags = re.compile(
-            r"<(script|style|nav|footer|header|aside|iframe|noscript|svg|form)\b[^>]*>.*?</\1>",
-            re.DOTALL | re.IGNORECASE,
-        )
-        all_tags = re.compile(r"<[^>]+>")
-
-        def _clean_html_content(text: str) -> str:
-            """Strip HTML tags from text content if it appears to contain raw HTML."""
-            if not isinstance(text, str) or len(text) < 2000:
-                return text
-            # Only sanitize if it actually looks like HTML
-            if not re.search(r"<(?:script|nav|footer|style|div|span)\b", text, re.IGNORECASE):
-                return text
-            # Remove noise tags and their content first
-            cleaned = html_noise_tags.sub("", text)
-            # Strip remaining HTML tags
-            cleaned = all_tags.sub(" ", cleaned)
-            # Collapse whitespace
-            cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            if not cleaned or len(cleaned) < 50:
-                return "[Page content was primarily HTML markup with no meaningful text]"
-            return cleaned
-
-        data = result.data
-        modified = False
-
-        # Handle dict-shaped data with "results" list (common search payload)
-        if isinstance(data, dict):
-            results_list = data.get("results")
-            if isinstance(results_list, list):
-                new_results = []
-                for item in results_list:
-                    if isinstance(item, dict):
-                        for key in ("snippet", "content", "text", "description"):
-                            if key in item and isinstance(item[key], str):
-                                cleaned = _clean_html_content(item[key])
-                                if cleaned != item[key]:
-                                    item = {**item, key: cleaned}
-                                    modified = True
-                        new_results.append(item)
-                    else:
-                        new_results.append(item)
-                if modified:
-                    return ToolResult(
-                        success=result.success,
-                        message=result.message,
-                        data={**data, "results": new_results},
-                    )
-
-        # Handle object-shaped data with .results attribute
-        if hasattr(data, "results") and not isinstance(data, dict):
-            for item in getattr(data, "results", []) or []:
-                for key in ("snippet", "content", "text", "description"):
-                    val = getattr(item, key, None)
-                    if isinstance(val, str):
-                        cleaned = _clean_html_content(val)
-                        if cleaned != val:
-                            try:
-                                setattr(item, key, cleaned)
-                                modified = True
-                            except (AttributeError, TypeError):
-                                pass
-
-        # Handle raw string message containing HTML
-        if result.message and isinstance(result.message, str) and len(result.message) > 2000:
-            cleaned_msg = _clean_html_content(result.message)
-            if cleaned_msg != result.message:
-                return ToolResult(
-                    success=result.success,
-                    message=cleaned_msg,
-                    data=result.data,
-                )
-
-        return result
-
-    def _serialize_tool_result_for_memory(self, result: ToolResult, function_name: str = "") -> str:
-        """Serialize tool results with size guardrails to avoid memory bloat."""
-        # P2-16: Sanitize raw HTML in search results before serialization
-        if function_name and ("search" in function_name.lower() or function_name in ToolName._SEARCH):
-            result = self._sanitize_search_result_html(result)
-
-        raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
-        if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
-            return raw
-
-        # ── ToolResultStore offload (Component 1) ─────────────────────
-        # Store full content externally, keep only preview + ref in conversation.
-        if self._tool_result_store and self._tool_result_store.should_offload(raw):
-            result_id, preview = self._tool_result_store.store(raw, function_name)
-            return ToolResult(
-                success=result.success,
-                message="Tool output stored externally.",
-                data={
-                    "_stored_externally": True,
-                    "_result_ref": result_id,
-                    "_original_size_chars": len(raw),
-                    "_preview": preview,
-                },
-            ).model_dump_json()
-
-        compacted_data: dict[str, Any] = {
-            "_compacted": True,
-            "_original_size_chars": len(raw),
-        }
-        if result.data is not None:
-            compacted_data["_preview"] = self._tool_data_preview(result.data, self._TOOL_RESULT_DATA_PREVIEW_CHARS)
-
-        compacted = ToolResult(
-            success=result.success,
-            message=self._truncate_text(
-                result.message or "Tool output compacted for memory.",
-                self._TOOL_RESULT_MESSAGE_PREVIEW_CHARS,
-            ),
-            data=compacted_data,
-        ).model_dump_json()
-
-        if len(compacted) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
-            return compacted
-
-        # Final fallback for extreme payloads
-        return ToolResult(
-            success=result.success,
-            message=self._truncate_text(
-                result.message or "Tool output omitted from memory to control context size.",
-                1000,
-            ),
-            data={
-                "_compacted": True,
-                "_original_size_chars": len(raw),
-            },
-        ).model_dump_json()
-
-    def _truncate_args_for_logging(self, arguments: dict[str, Any], max_len: int = 100) -> dict[str, str]:
-        """Truncate large argument values for logging to prevent log bloat."""
-        truncated = {}
-        for key, value in arguments.items():
-            str_value = str(value)
-            if len(str_value) > max_len:
-                truncated[key] = f"{str_value[:max_len]}... (truncated, {len(str_value)} chars total)"
-            else:
-                truncated[key] = str_value
-        return truncated
-
-    def _parse_tool_arguments(self, raw_arguments: Any, *, function_name: str) -> dict[str, Any]:
-        """Parse tool-call arguments using strict JSON object semantics.
-
-        Tool-call arguments are execution-critical. They must be a JSON object
-        so we can safely pass them as ``**kwargs``. Unlike generic LLM output
-        parsing, do not run permissive "repair" heuristics here because those
-        can silently transform prose/truncated text into incorrect keys.
-        """
-        if raw_arguments is None:
-            return {}
-
-        if isinstance(raw_arguments, dict):
-            return raw_arguments
-
-        if not isinstance(raw_arguments, str):
-            raise ValueError(f"expected JSON object string, got {type(raw_arguments).__name__}")
-
-        stripped = raw_arguments.strip()
-        if not stripped or stripped.lower() == "null":
-            return {}
-
-        try:
-            parsed = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid JSON: {exc.msg}") from exc
-
-        if parsed is None:
-            return {}
-        if parsed == []:
-            return {}
-        if not isinstance(parsed, dict):
-            raise ValueError(f"expected JSON object for tool '{function_name}', got {type(parsed).__name__}")
-        return parsed
-
-    def _tool_requires_arguments(self, function_name: str) -> bool:
-        """Return True when the tool schema declares required parameters."""
-        for tool_def in self.get_available_tools() or []:
-            func = tool_def.get("function", {})
-            if func.get("name") != function_name:
-                continue
-            params = func.get("parameters", {}) or {}
-            required = params.get("required", []) or []
-            return len(required) > 0
-        return False
-
-    def _invalid_tool_args_result(self, *, function_name: str, raw_arguments: Any, error: ValueError) -> ToolResult:
-        """Create a deterministic error result for malformed tool-call arguments."""
-        raw_preview = self._truncate_text(str(raw_arguments), 240)
-        logger.warning(
-            "Skipping malformed tool call '%s': %s (raw_args=%s)",
-            function_name,
-            error,
-            raw_preview,
-        )
-        return ToolResult.error(
-            f"Invalid JSON arguments for tool '{function_name}'. Please resend this tool call with a valid JSON object."
-        )
-
-    def _to_tool_call(self, tc: dict) -> Any:
-        """Convert an LLM tool_call dict to a ParallelToolExecutor ToolCall.
-
-        Args:
-            tc: Raw tool_call dict from LLM response (has 'id' and 'function' keys)
-
-        Returns:
-            ToolCall dataclass for ParallelToolExecutor
-        """
-        from app.domain.services.agents.parallel_executor import ToolCall as ToolCallParallel
-
-        return ToolCallParallel(
-            id=tc.get("id", ""),
-            tool_name=tc.get("function", {}).get("name", ""),
-            arguments=tc.get("function", {}).get("arguments", {}),
-        )
-
     @property
     def metadata_index(self) -> "ToolMetadataIndex":
         """Lazily build and cache the tool metadata index."""
@@ -1721,11 +725,14 @@ class BaseAgent:
 
         _settings = get_settings()
         _session_timeout = getattr(_settings, "max_session_wall_clock_seconds", 3600)
+        self._reset_turn_accounting()
+        self._turn_started_at = time.monotonic()
 
         try:
             async with asyncio.timeout(_session_timeout if _session_timeout > 0 else None):
                 async for _event in self._execute_inner(request, format):
                     yield _event
+                yield self._usage_event_from_summary(self._build_turn_summary())
         except TimeoutError:
             logger.warning(
                 "Agent session wall-clock timeout after %ds (session=%s)",
@@ -1744,891 +751,75 @@ class BaseAgent:
                 }
             )
             yield MessageEvent(message=_timeout_content)
+            yield self._usage_event_from_summary(self._build_turn_summary())
             await self.cleanup_background_tasks()
 
+    def _reset_turn_accounting(self) -> None:
+        self._turn_iterations = 0
+        self._turn_prompt_tokens = 0
+        self._turn_completion_tokens = 0
+        self._turn_tools_called: list[str] = []
+        self._turn_started_at: float | None = None
+
+    def _estimate_prompt_tokens(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> int:
+        prompt_tokens = self._token_manager.count_messages_tokens(messages)
+        if tools:
+            with contextlib.suppress(TypeError, ValueError):
+                prompt_tokens += self._token_manager.count_tokens(json.dumps(tools))
+        return prompt_tokens
+
+    def _estimate_completion_tokens(self, response: dict[str, Any]) -> int:
+        completion_tokens = 0
+        content = response.get("content")
+        if isinstance(content, str) and content:
+            completion_tokens += self._token_manager.count_tokens(content)
+
+        tool_calls = response.get("tool_calls")
+        if tool_calls:
+            with contextlib.suppress(TypeError, ValueError):
+                completion_tokens += self._token_manager.count_tokens(json.dumps(tool_calls))
+        return completion_tokens
+
+    def _build_turn_summary(self) -> TurnSummary:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        input_price = float(getattr(settings, "llm_input_price_per_million", 0.0) or 0.0)
+        output_price = float(getattr(settings, "llm_output_price_per_million", 0.0) or 0.0)
+        duration_seconds = 0.0
+        if self._turn_started_at is not None:
+            duration_seconds = max(0.0, time.monotonic() - self._turn_started_at)
+
+        estimated_cost_usd = (self._turn_prompt_tokens / 1_000_000) * input_price + (
+            self._turn_completion_tokens / 1_000_000
+        ) * output_price
+
+        return TurnSummary(
+            iterations=max(1, self._turn_iterations),
+            tools_called=list(self._turn_tools_called),
+            prompt_tokens=self._turn_prompt_tokens,
+            completion_tokens=self._turn_completion_tokens,
+            estimated_cost_usd=estimated_cost_usd,
+            duration_seconds=duration_seconds,
+        )
+
+    @staticmethod
+    def _usage_event_from_summary(summary: TurnSummary) -> UsageEvent:
+        return UsageEvent(
+            iterations=summary.iterations,
+            prompt_tokens=summary.prompt_tokens,
+            completion_tokens=summary.completion_tokens,
+            estimated_cost_usd=summary.estimated_cost_usd,
+            duration_seconds=summary.duration_seconds,
+        )
+
     async def _execute_inner(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
-        format = format or self.format
-        # Don't use json_object format when tools are available - causes empty responses
-        # Only enforce JSON format after tool calling is complete
-        has_tools = bool(self.get_available_tools())
-        initial_format = None if has_tools else format
-        message = await self.ask(request, initial_format)
-
-        # Use weighted iteration tracking for better handling of large tasks
-        iteration_budget = float(self.max_iterations)
-        iteration_spent = 0.0
-        step_iteration_count = 0  # Per-step iteration counter
-        warning_emitted = False
-        graceful_completion_requested = False
-
-        # Reset per-step stability counters
-        self._compression_cycles_this_step = 0
-        self._compression_guard_active = False
-        self._step_start_time = time.monotonic()
-        self._recent_truncation_count = 0  # Prevent stale count from prior step
-        self._stuck_recovery_exhausted = False
-        self._consecutive_cap_hits = 0
-        self._set_context_cap_read_block(blocked=False, escalation=0)
-        self._json_nudge_sent = False  # Proactive JSON nudge gate (one per step)
-
-        # ── Middleware context for this execution ──
-        from app.core.config import get_settings as _get_mw_settings
-        from app.domain.services.agents.middleware import (
-            MiddlewareContext as _MwCtx,
-        )
-        from app.domain.services.agents.middleware import (
-            MiddlewareSignal as _MwSig,
-        )
-
-        _mw_ctx = _MwCtx(
-            agent_id=self._agent_id,
-            session_id=getattr(self, "_session_id", ""),
-            active_phase=self._active_phase,
-            research_depth=getattr(self, "_research_depth", None),
-        )
-        _mw_ctx.step_start_time = time.monotonic()
-        self._mw_ctx = _mw_ctx  # Expose to ask_with_messages for after_step hook
-
-        # Compute wall clock budget for middleware
-        _mw_s = _get_mw_settings()
-        _mw_depth = getattr(self, "_research_depth", None)
-        if _mw_depth == "QUICK":
-            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_quick_seconds", 300.0)
-        elif _mw_depth == "DEEP":
-            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_deep_seconds", 900.0)
-        elif _mw_depth == "STANDARD":
-            _mw_ctx.wall_clock_budget = getattr(_mw_s, "step_budget_standard_seconds", 600.0)
-        else:
-            _mw_ctx.wall_clock_budget = getattr(_mw_s, "max_step_wall_clock_seconds", 600.0)
-
-        await self._pipeline.run_before_execution(_mw_ctx)
-        wall_clock_exceeded = False
-
-        try:
-            while iteration_spent < iteration_budget:
-                if not message.get("tool_calls"):
-                    break
-
-                tool_calls = message["tool_calls"]
-                tool_responses = []
-                wall_clock_pressure_active: str | None = None
-
-                # ── Middleware before_step (hallucination guard + wall clock pressure) ──
-                _mw_ctx.elapsed_seconds = time.monotonic() - _mw_ctx.step_start_time
-                _mw_ctx.iteration_count = int(iteration_spent)
-                _mw_ctx.step_iteration_count = step_iteration_count
-
-                _step_mw = await self._pipeline.run_before_step(_mw_ctx)
-                if _step_mw.signal == _MwSig.FORCE:
-                    logger.warning("Middleware before_step FORCE: %s", _step_mw.message)
-                    self._stuck_recovery_exhausted = True
-                    break
-                if _step_mw.signal == _MwSig.INJECT:
-                    logger.info("Middleware before_step INJECT: %s", _step_mw.message)
-                    message = await self.ask_with_messages([{"role": "user", "content": _step_mw.message}])
-                    graceful_completion_requested = True
-                    wall_clock_pressure_active = _step_mw.metadata.get("pressure_level")
-                    continue
-
-                # Inject any advisory messages from middleware context
-                for _inj in _mw_ctx.injected_messages:
-                    await self._add_to_memory([_inj])
-                _mw_ctx.injected_messages.clear()
-
-                # Calculate iteration cost for this cycle
-                iteration_cost = self._calculate_iteration_cost(tool_calls)
-                iteration_spent += iteration_cost
-                step_iteration_count += 1
-
-                # Check per-step iteration budget
-                if step_iteration_count >= self.max_step_iterations:
-                    logger.warning(
-                        f"Step iteration budget exhausted ({step_iteration_count}/{self.max_step_iterations}). "
-                        "Setting stuck_recovery_exhausted flag."
-                    )
-                    self._stuck_recovery_exhausted = True
-                    break
-
-                # Hard wall-clock limit check (distinct from graduated pressure)
-                if _mw_ctx.wall_clock_budget > 0 and _mw_ctx.elapsed_seconds > _mw_ctx.wall_clock_budget:
-                    logger.warning(
-                        "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
-                        _mw_ctx.elapsed_seconds,
-                        _mw_ctx.wall_clock_budget,
-                    )
-                    wall_clock_exceeded = True
-                    self._stuck_recovery_exhausted = True
-                    break
-
-                # Check if we're approaching the limit
-                remaining_budget = iteration_budget - iteration_spent
-                budget_ratio = iteration_spent / iteration_budget
-
-                # Emit warning at threshold
-                if budget_ratio >= self.iteration_warning_threshold and not warning_emitted:
-                    logger.warning(
-                        f"Approaching iteration limit: {iteration_spent:.1f}/{iteration_budget} "
-                        f"({budget_ratio * 100:.0f}% used)"
-                    )
-                    warning_emitted = True
-
-                # Request graceful completion when near limit
-                if remaining_budget < 10 and not graceful_completion_requested:
-                    logger.warning(
-                        f"Low iteration budget ({remaining_budget:.1f} remaining), requesting completion on next cycle"
-                    )
-                    graceful_completion_requested = True
-
-                if wall_clock_pressure_active:
-                    tool_calls = [
-                        tc
-                        for tc in tool_calls
-                        if not _should_block_tool_at_pressure(
-                            tc.get("function", {}).get("name", ""),
-                            wall_clock_pressure_active,
-                        )
-                    ]
-
-                # Check if we can execute tools in parallel
-                if self._can_parallelize_tools(tool_calls):
-                    # Parse all arguments first
-                    parsed_calls = []
-                    for tool_call in tool_calls[:MAX_CONCURRENT_TOOLS]:  # Limit parallel calls
-                        if not tool_call.get("function"):
-                            continue
-                        function_name = tool_call["function"]["name"]
-                        tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                        raw_function_args = tool_call["function"].get("arguments", "{}")
-                        try:
-                            function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
-                        except ValueError as parse_error:
-                            self._recent_truncation_count += 1
-                            parse_result = self._invalid_tool_args_result(
-                                function_name=function_name,
-                                raw_arguments=raw_function_args,
-                                error=parse_error,
-                            )
-                            tool_name = function_name or "unknown_tool"
-                            with contextlib.suppress(Exception):
-                                tool_name = self.get_tool(function_name).name
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool_name,
-                                function_name=function_name,
-                                function_args={},
-                                status=ToolStatus.CALLED,
-                                function_result=parse_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        parse_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        try:
-                            tool = self.get_tool(function_name)
-                        except ToolNotFoundException as tnf:
-                            logger.warning("Tool not found: %s — returning error result", function_name)
-                            not_found_result = ToolResult(
-                                success=False,
-                                message=str(tnf),
-                            )
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=function_name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLED,
-                                function_result=not_found_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        not_found_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        # ── Middleware before_tool_call (parallel path) ──
-                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
-
-                        _tc_info_p = _ToolCallInfo(
-                            call_id=tool_call_id, function_name=function_name, arguments=function_args
-                        )
-                        _tc_mw_p = await self._pipeline.run_before_tool_call(_mw_ctx, _tc_info_p)
-                        if _tc_mw_p.signal == _MwSig.SKIP_TOOL:
-                            logger.info("Middleware before_tool_call SKIP: %s — %s", function_name, _tc_mw_p.message)
-                            skip_result = ToolResult(
-                                success=False,
-                                message=_tc_mw_p.message or f"Tool {function_name} skipped by middleware",
-                            )
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLED,
-                                function_result=skip_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        skip_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        security_assessment = self._security_assessor.assess_action(function_name, function_args)
-                        confirmation_state = (
-                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
-                        )
-
-                        if security_assessment.requires_confirmation:
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLING,
-                                security_risk=security_assessment.risk_level.value,
-                                security_reason=security_assessment.reason,
-                                security_suggestions=security_assessment.suggestions,
-                                confirmation_state=confirmation_state,
-                            )
-                            yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
-                            return
-
-                        # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
-                        # Prevents tools from starting if SSE disconnect happened
-                        await self._cancel_token.check_cancelled()
-
-                        # Emit tool_stream preview so the frontend can show content
-                        # in the editor/terminal BEFORE the tool starts executing.
-                        raw_args = tool_call["function"].get("arguments", "{}")
-                        if is_streamable_function(function_name):
-                            partial = extract_partial_content(function_name, raw_args)
-                            if partial:
-                                yield ToolStreamEvent(
-                                    tool_call_id=tool_call_id,
-                                    tool_name=tool.name,
-                                    function_name=function_name,
-                                    partial_content=partial,
-                                    content_type=content_type_for_function(function_name),
-                                    is_final=True,
-                                )
-
-                        # Emit CALLING events for all parallel tools
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLING,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=confirmation_state,
-                        )
-                        parsed_calls.append(
-                            (
-                                tool_call,
-                                tool_call_id,
-                                function_args,
-                                tool,
-                                security_assessment,
-                            )
-                        )
-
-                    # Execute all tools concurrently with semaphore
-                    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
-                    tasks = []
-                    for tool_call, tool_call_id, function_args, tool, _ in parsed_calls:
-                        function_name = tool_call["function"]["name"]
-                        tasks.append(
-                            self._execute_parallel_tool(semaphore, tool, function_name, function_args, tool_call_id)
-                        )
-
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    # Re-raise cancellation signals before processing results
-                    for result in results:
-                        if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt)):
-                            raise result
-
-                    # Process results and emit CALLED events
-                    if len(parsed_calls) != len(results):
-                        logger.error(
-                            f"Parallel execution result count mismatch: {len(parsed_calls)} calls vs {len(results)} results"
-                        )
-                    for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
-                        parsed_calls, results, strict=True
-                    ):
-                        function_name = tool_call["function"]["name"]
-                        if isinstance(result, Exception):
-                            result = ToolResult(success=False, message=str(result))
-
-                        # ── Middleware after_tool_call (parallel path) ──
-                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
-
-                        _tc_info_par = _ToolCallInfo(
-                            call_id=tool_call_id, function_name=function_name, arguments=function_args
-                        )
-                        await self._pipeline.run_after_tool_call(_mw_ctx, _tc_info_par, result)
-
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLED,
-                            function_result=result,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=(
-                                "awaiting_confirmation" if security_assessment.requires_confirmation else None
-                            ),
-                        )
-
-                        tool_responses.append(
-                            {
-                                "role": "tool",
-                                "function_name": function_name,
-                                "tool_call_id": tool_call_id,
-                                "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
-                            }
-                        )
-                else:
-                    # Sequential execution for non-parallelizable tools (original behavior)
-                    for tool_call in tool_calls:
-                        if not tool_call.get("function"):
-                            continue
-
-                        function_name = tool_call["function"]["name"]
-                        tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                        raw_function_args = tool_call["function"].get("arguments", "{}")
-                        try:
-                            function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
-                        except ValueError as parse_error:
-                            self._recent_truncation_count += 1
-                            parse_result = self._invalid_tool_args_result(
-                                function_name=function_name,
-                                raw_arguments=raw_function_args,
-                                error=parse_error,
-                            )
-                            tool_name = function_name or "unknown_tool"
-                            with contextlib.suppress(Exception):
-                                tool_name = self.get_tool(function_name).name
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool_name,
-                                function_name=function_name,
-                                function_args={},
-                                status=ToolStatus.CALLED,
-                                function_result=parse_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        parse_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        try:
-                            tool = self.get_tool(function_name)
-                        except ToolNotFoundException as tnf:
-                            logger.warning("Tool not found: %s — returning error result", function_name)
-                            not_found_result = ToolResult(
-                                success=False,
-                                message=str(tnf),
-                            )
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=function_name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLED,
-                                function_result=not_found_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        not_found_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        # ── Middleware before_tool_call ──
-                        from app.domain.services.agents.middleware import ToolCallInfo as _ToolCallInfo
-
-                        _tc_info = _ToolCallInfo(
-                            call_id=tool_call_id, function_name=function_name, arguments=function_args
-                        )
-                        _tc_mw = await self._pipeline.run_before_tool_call(_mw_ctx, _tc_info)
-                        if _tc_mw.signal == _MwSig.SKIP_TOOL:
-                            logger.info("Middleware before_tool_call SKIP: %s — %s", function_name, _tc_mw.message)
-                            skip_result = ToolResult(
-                                success=False,
-                                message=_tc_mw.message or f"Tool {function_name} skipped by middleware",
-                            )
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLED,
-                                function_result=skip_result,
-                            )
-                            tool_responses.append(
-                                {
-                                    "role": "tool",
-                                    "function_name": function_name,
-                                    "tool_call_id": tool_call_id,
-                                    "content": self._serialize_tool_result_for_memory(
-                                        skip_result, function_name=function_name
-                                    ),
-                                }
-                            )
-                            continue
-
-                        # Generate event before tool call
-                        security_assessment = self._security_assessor.assess_action(function_name, function_args)
-                        confirmation_state = (
-                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
-                        )
-                        if security_assessment.requires_confirmation:
-                            yield self._create_tool_event(
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                function_args=function_args,
-                                status=ToolStatus.CALLING,
-                                security_risk=security_assessment.risk_level.value,
-                                security_reason=security_assessment.reason,
-                                security_suggestions=security_assessment.suggestions,
-                                confirmation_state=confirmation_state,
-                            )
-                            yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
-                            return
-                        # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
-                        # Prevents tools from starting if SSE disconnect happened
-                        await self._cancel_token.check_cancelled()
-
-                        # Emit tool_stream preview so the frontend can show content
-                        # in the editor/terminal BEFORE the tool starts executing.
-                        raw_args_seq = tool_call["function"].get("arguments", "{}")
-                        if is_streamable_function(function_name):
-                            partial = extract_partial_content(function_name, raw_args_seq)
-                            if partial:
-                                yield ToolStreamEvent(
-                                    tool_call_id=tool_call_id,
-                                    tool_name=tool.name,
-                                    function_name=function_name,
-                                    partial_content=partial,
-                                    content_type=content_type_for_function(function_name),
-                                    is_final=True,
-                                )
-
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLING,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=confirmation_state,
-                        )
-
-                        # ORPHANED TASK FIX: Check cancellation BEFORE invoking tool
-                        # Prevents execution if cancelled between emit and invoke
-                        await self._cancel_token.check_cancelled()
-
-                        # Live shell streaming: poll sandbox for real-time output
-                        flags = self._resolve_feature_flags()
-                        if (
-                            flags.get("live_shell_streaming")
-                            and function_name == "shell_exec"
-                            and hasattr(tool, "sandbox")
-                        ):
-                            from app.domain.services.tools.shell_output_poller import (
-                                ShellOutputPoller,
-                            )
-
-                            session_id = function_args.get("id", "")
-                            poll_interval = flags.get("live_shell_poll_interval_ms", 500)
-                            max_polls = flags.get("live_shell_max_polls", 600)
-                            poller = ShellOutputPoller(
-                                sandbox=tool.sandbox,
-                                session_id=session_id,
-                                tool_call_id=tool_call_id,
-                                tool_name=tool.name,
-                                function_name=function_name,
-                                poll_interval_ms=int(poll_interval) if poll_interval else 500,
-                                max_polls=int(max_polls) if max_polls else 600,
-                            )
-                            poll_task = asyncio.create_task(poller.start_polling())
-                            exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
-                            try:
-                                while not exec_task.done():
-                                    await asyncio.sleep(0.3)
-                                    async for ev in poller.drain_events():
-                                        yield ev
-                                result = exec_task.result()
-                            finally:
-                                poller.stop()
-                                if not poll_task.done():
-                                    await poll_task
-                                # Drain any remaining events
-                                async for ev in poller.drain_events():
-                                    yield ev
-                        elif getattr(tool, "supports_progress", False) and hasattr(tool, "drain_progress_events"):
-                            # Tools with built-in progress queue (e.g. DealScraperTool)
-                            tool._active_tool_call_id = tool_call_id
-                            tool._active_function_name = function_name
-                            exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
-                            try:
-                                while not exec_task.done():
-                                    await asyncio.sleep(0.3)
-                                    async for ev in tool.drain_progress_events():
-                                        yield ev
-                                result = exec_task.result()
-                            finally:
-                                # Drain any remaining events after completion
-                                async for ev in tool.drain_progress_events():
-                                    yield ev
-                        else:
-                            result = await self.invoke_tool(tool, function_name, function_args)
-
-                        # ── Middleware after_tool_call ──
-                        await self._pipeline.run_after_tool_call(_mw_ctx, _tc_info, result)
-
-                        # Generate event after tool call (reuse pre-execution security_assessment)
-                        yield self._create_tool_event(
-                            tool_call_id=tool_call_id,
-                            tool_name=tool.name,
-                            function_name=function_name,
-                            function_args=function_args,
-                            status=ToolStatus.CALLED,
-                            function_result=result,
-                            security_risk=security_assessment.risk_level.value,
-                            security_reason=security_assessment.reason,
-                            security_suggestions=security_assessment.suggestions,
-                            confirmation_state=confirmation_state,
-                        )
-
-                        tool_responses.append(
-                            {
-                                "role": "tool",
-                                "function_name": function_name,
-                                "tool_call_id": tool_call_id,
-                                "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
-                            }
-                        )
-
-                # Annotate tool results with step time after 50% mark (design 2A)
-                if _mw_ctx.metadata.get("wall_clock_advisory_sent") and self._step_start_time is not None:
-                    _now = time.monotonic()
-                    _el = _now - self._step_start_time
-                    _tag = f"\n[Step time: {_el:.0f}s/{_mw_ctx.wall_clock_budget:.0f}s]"
-                    for tr in tool_responses:
-                        if tr.get("role") == "tool" and isinstance(tr.get("content"), str):
-                            tr["content"] += _tag
-
-                # If graceful completion was requested, add a hint to wrap up
-                if graceful_completion_requested:
-                    tool_responses.append(
-                        {
-                            "role": "system",
-                            "content": (
-                                "[SYSTEM: Approaching execution limit. Please complete the current task "
-                                "and provide a summary of your findings. If the task is not complete, "
-                                "summarize what was accomplished and what remains to be done.]"
-                            ),
-                        }
-                    )
-                    graceful_completion_requested = False  # Only inject once
-
-                # Phase 4b: Skill enforcement nudge — remind agent to invoke skill
-                if (
-                    step_iteration_count >= getattr(self, "_skill_enforcement_nudge_after", 3)
-                    and getattr(self, "_force_skill_invoke_first_turn", False)
-                    and not getattr(self, "_skill_invoked_this_step", False)
-                    and not getattr(self, "_skill_enforcement_nudge_sent", False)
-                ):
-                    try:
-                        from app.core.config import get_settings as _get_skill_settings
-
-                        _sk_cfg = _get_skill_settings()
-                        if getattr(_sk_cfg, "skill_enforcement_nudge_enabled", True):
-                            from app.domain.services.agents.execution import SKILL_ENFORCEMENT_NUDGE
-
-                            tool_responses.append({"role": "user", "content": SKILL_ENFORCEMENT_NUDGE})
-                            self._skill_enforcement_nudge_sent = True
-                            # Reset tool_choice to auto since the forced call didn't happen
-                            self.tool_choice = None
-                            self._force_skill_invoke_first_turn = False
-                            logger.debug("Skill enforcement: nudge injected after %d iterations", step_iteration_count)
-                    except Exception:
-                        logger.debug("Skill enforcement: nudge injection failed", exc_info=True)
-
-                message = await self.ask_with_messages(tool_responses)
-            else:
-                # Budget exhausted - provide informative error with context
-                logger.error(
-                    f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} after processing tool calls"
-                )
-                yield ErrorEvent(
-                    error=(
-                        f"Task execution limit reached ({int(iteration_spent)} iterations). "
-                        "The task was too complex to complete in a single run. "
-                        "Consider breaking it into smaller sub-tasks or increasing the iteration limit."
-                    ),
-                    error_type="iteration_limit",
-                    recoverable=True,
-                    retry_hint="Try breaking your request into smaller, focused tasks.",
-                )
-        except Exception as _exc:
-            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
-                _err_result = await self._pipeline.run_on_error(self._mw_ctx, _exc)
-                if _err_result.signal == _MwSig.ABORT:
-                    raise
-                # Only suppress if a middleware explicitly handled the error
-                # (indicated by a non-empty message). Default pipeline returns
-                # CONTINUE with no message — that must still re-raise.
-                if not _err_result.message:
-                    raise
-                logger.exception(
-                    "Agent execution error handled by middleware (%s): %s",
-                    _err_result.signal,
-                    _err_result.message,
-                )
-            else:
-                raise
-        finally:
-            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
-                await self._pipeline.run_after_execution(self._mw_ctx)
-                self._mw_ctx = None  # Clear reference
-
-        # Re-enforce JSON format after tool-calling loop completes.
-        # The while-loop ran without format enforcement (initial_format=None) to
-        # avoid empty-response bugs with some LLM providers.  Now that the loop
-        # has exited we must verify the response is valid JSON and, if not,
-        # salvage the prose directly (cheaper than an extra LLM call).
-        _final_text = (message.get("content") or "").strip()
-        if has_tools and format == "json_object":
-            _is_valid_json = False
-            if _final_text:
-                try:
-                    json.loads(_final_text)
-                    _is_valid_json = True
-                except (ValueError, TypeError):
-                    pass
-
-            if not _is_valid_json and _final_text and len(_final_text) > 10:
-                # ── Fast-path: wrap prose directly as JSON ─────────────────
-                # Skip the extra LLM round-trip — the pre-enforcement text
-                # is the actual answer, just not JSON-formatted.  Wrapping it
-                # immediately avoids 2-3 recovery LLM calls that GLM-class
-                # providers often fail anyway (empty response / non-JSON).
-                _stripped = _final_text.lstrip()
-                if _stripped.startswith("{") or _stripped.startswith("["):
-                    try:
-                        _parsed = json.loads(_final_text)
-                        if isinstance(_parsed, dict):
-                            logger.info("Post-tool response was already valid JSON (%d chars)", len(_final_text))
-                            _is_valid_json = True
-                    except (ValueError, TypeError):
-                        pass
-
-                if not _is_valid_json:
-                    # Try to extract embedded JSON from mixed prose+JSON output
-                    # e.g. "Here is the result:\n{...valid json...}\nDone."
-                    _embedded_json = _extract_embedded_json(_final_text)
-                    if _embedded_json is not None:
-                        logger.info(
-                            "Extracted embedded JSON from %d-char mixed prose response",
-                            len(_final_text),
-                        )
-                        message["content"] = _embedded_json
-                        _is_valid_json = True
-                    else:
-                        logger.info(
-                            "Wrapping %d-char prose response as JSON (skipping re-enforcement LLM call)",
-                            len(_final_text),
-                        )
-                        _salvage_summary = _final_text[:500].split("\n")[0].strip()
-                        _final_text = json.dumps({"success": True, "result": _salvage_summary, "attachments": []})
-                        message["content"] = _final_text
-                        _is_valid_json = True
-
-            if not _is_valid_json:
-                # ── Fallback: one LLM call with explicit schema example ───
-                logger.info("Re-enforcing JSON format on post-tool-loop response")
-                message = await self.ask_with_messages(
-                    [
-                        {
-                            "role": "user",
-                            "content": (
-                                "Respond with ONLY a valid JSON object. "
-                                'Example: {"success": true, "result": "brief summary", "attachments": []}. '
-                                "No prose, no markdown fencing, no explanation."
-                            ),
-                        }
-                    ],
-                    format="json_object",
-                )
-
-        final_content = (message.get("content") or "").strip() or None
-        if not final_content and not wall_clock_exceeded:
-            # ── Summarization recovery via LLM ────────────────────────────
-            # The tool loop produced no text at all (not even prose).  This
-            # usually means context saturation.  Truncate tool results and
-            # ask the LLM for a summary in one shot.
-            logger.info("Attempting summarization recovery for empty final message")
-            await self._ensure_memory()
-            for msg in self.memory.messages:
-                if msg.get("role") == "tool":
-                    content = msg.get("content", "")
-                    if isinstance(content, str) and len(content) > 300:
-                        msg["content"] = content[:300] + "\n[... truncated for recovery ...]"
-            recovery_message = await self.ask_with_messages(
-                [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Respond with ONLY a JSON object summarizing what you accomplished. "
-                            'Example: {"success": true, "result": "summary here", "attachments": []}. '
-                            "No other text."
-                        ),
-                    }
-                ],
-                format="json_object",
-            )
-            recovery_content = (recovery_message.get("content") or "").strip()
-            if recovery_content and len(recovery_content) > 10:
-                try:
-                    json.loads(recovery_content)
-                    logger.info("Summarization recovery succeeded (%d chars)", len(recovery_content))
-                    final_content = recovery_content
-                except (ValueError, TypeError):
-                    logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
-                    final_content = json.dumps({"success": True, "result": recovery_content[:500], "attachments": []})
-
-        # ── Final fallback — guarantees non-None final_content ─────────
-        if not final_content:
-            # ── Stage 1: Salvage pre-enforcement prose or JSON ────────────
-            # The LLM sometimes writes its answer as plain text or returns a
-            # JSON object whose "content" key was empty despite having _final_text.
-            _stripped = (_final_text or "").lstrip()
-            if _final_text and len(_final_text) > 20:
-                if _stripped.startswith("{") or _stripped.startswith("["):
-                    # Attempt to salvage valid JSON from pre-enforcement text
-                    try:
-                        _parsed = json.loads(_final_text)
-                        if isinstance(_parsed, dict):
-                            # Extract the most useful field as the result
-                            _result = _parsed.get("result") or _parsed.get("summary") or _parsed.get("content")
-                            if _result and isinstance(_result, str) and len(_result) > 10:
-                                logger.info("Salvaging %d-char JSON response via result extraction", len(_final_text))
-                                final_content = _final_text
-                    except (ValueError, TypeError):
-                        pass
-                else:
-                    # Wrap raw prose as JSON
-                    logger.info(
-                        "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
-                        len(_final_text),
-                    )
-                    _salvage_summary = _final_text[:300].split("\n")[0].strip()
-                    final_content = json.dumps(
-                        {
-                            "success": True,
-                            "result": _salvage_summary,
-                            "attachments": [],
-                        }
-                    )
-
-            # ── Stage 2: Summarization recovery via LLM ──────────────────
-            # Ask the LLM to summarize what it did during the tool loop.
-            if not final_content and not wall_clock_exceeded:
-                logger.info("Attempting summarization recovery for empty final message")
-                recovery_message = await self.ask_with_messages(
-                    [
-                        {
-                            "role": "user",
-                            "content": (
-                                "You completed tool calls but did not provide a text response. "
-                                "Respond with ONLY a JSON object: "
-                                '{"success": true, "result": "<brief summary of what you accomplished>", "attachments": []}. '
-                                "No markdown, no extra text."
-                            ),
-                        }
-                    ],
-                    format="json_object",
-                )
-                recovery_content = (recovery_message.get("content") or "").strip()
-                if recovery_content and len(recovery_content) > 10:
-                    try:
-                        json.loads(recovery_content)
-                        logger.info(
-                            "Summarization recovery succeeded as JSON (%d chars)",
-                            len(recovery_content),
-                        )
-                        final_content = recovery_content
-                    except (ValueError, TypeError):
-                        logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
-                        final_content = json.dumps(
-                            {
-                                "success": True,
-                                "result": recovery_content[:500],
-                                "attachments": [],
-                            }
-                        )
-
-                if not final_content:
-                    logger.warning("Agent produced empty final message — yielding fallback")
-                    fallback_error = (
-                        "Step time limit exceeded. No result produced."
-                        if wall_clock_exceeded
-                        else "I was unable to produce a complete response. Please try again or rephrase your request."
-                    )
-                    final_content = json.dumps(
-                        {
-                            "success": False,
-                            "result": None,
-                            "attachments": [],
-                            "error": fallback_error,
-                        }
-                    )
-        yield MessageEvent(message=final_content)
-
-        # Cleanup background tasks on normal exit (e.g. background memory saves)
-        await self.cleanup_background_tasks()
+        async for event in self._agent_loop.run(request, format):
+            yield event
 
     async def _execute_parallel_tool(
         self,
@@ -2684,750 +875,6 @@ class BaseAgent:
         await self._ensure_memory()
         self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
-
-    def _current_token_usage_ratio(self) -> float:
-        """Return current memory token usage ratio against effective limit."""
-        if not self.memory:
-            return 0.0
-        token_count = self._token_manager.count_messages_tokens(self.memory.get_messages())
-        effective_limit = max(1, self._token_manager._effective_limit)
-        return token_count / effective_limit
-
-    def _resolve_budget_action(self, usage_ratio: float):
-        """Resolve token budget action with manager-aware fallback."""
-        from app.domain.services.agents.token_budget_manager import BudgetAction
-
-        manager = getattr(self, "_token_budget_manager", None)
-        if manager and hasattr(manager, "enforce_budget_policy"):
-            return manager.enforce_budget_policy(usage_ratio)
-
-        if usage_ratio >= 0.99:
-            return BudgetAction.HARD_STOP_TOOLS
-        if usage_ratio >= 0.98:
-            return BudgetAction.FORCE_HARD_STOP_NUDGE
-        if usage_ratio >= 0.95:
-            return BudgetAction.FORCE_CONCLUDE
-        if usage_ratio >= 0.90:
-            return BudgetAction.REDUCE_VERBOSITY
-        return BudgetAction.NORMAL
-
-    async def _inject_budget_notice_if_needed(self, notice: str) -> None:
-        """Append a budget notice once to avoid repeated duplicate injections."""
-        if not self.memory:
-            return
-        current_messages = self.memory.get_messages()
-        if current_messages:
-            last = current_messages[-1]
-            if last.get("role") == "user" and last.get("content") == notice:
-                return
-        await self._add_to_memory([{"role": "user", "content": notice}])
-
-    def _filter_read_tools(self, tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
-        """Drop read-only tools, keeping only action-capable tools."""
-        if tools is None:
-            return None
-        filtered = [
-            tool
-            for tool in tools
-            if not self._efficiency_monitor._is_read_tool(tool.get("function", {}).get("name", ""))
-        ]
-        return filtered or None
-
-    # Hard character cap for total conversation context.  If all messages
-    # combined exceed this, aggressively truncate every tool result to 500 chars.
-    # This is the last-resort safety valve against 60-80s LLM calls caused by
-    # context window saturation (observed: 78.7s at ~80K chars).
-    # Now configurable via settings: hard_context_char_cap / hard_context_char_cap_deep_research
-    _HARD_CONTEXT_CHAR_CAP: ClassVar[int] = 50000  # Fallback if settings unavailable
-
-    def _set_context_cap_read_block(self, *, blocked: bool, escalation: int = 0) -> None:
-        """Toggle read blocking on the efficiency monitor middleware.
-
-        At escalation 3-4: blocks file_read/file_read_range only.
-        At escalation 5+: blocks ALL read-only tools (search, browser, shell_view, etc.)
-        to prevent any tool from re-flooding context.
-        """
-        from app.domain.services.agents.middleware_adapters.efficiency_monitor import (
-            EfficiencyMonitorMiddleware,
-        )
-
-        for mw in self._pipeline.middleware:
-            if isinstance(mw, EfficiencyMonitorMiddleware):
-                mw._context_cap_file_read_blocked = blocked
-                mw._context_cap_escalation = escalation
-                break
-
-    @property
-    def _effective_context_char_cap(self) -> int:
-        """Return the effective hard context cap, respecting per-flow settings."""
-        try:
-            from app.core.config import get_settings
-
-            settings = get_settings()
-            # If this agent is part of a deep_research flow, use the higher cap
-            if getattr(self, "_is_deep_research", False):
-                return getattr(settings, "hard_context_char_cap_deep_research", 100_000)
-            return getattr(settings, "hard_context_char_cap", 50_000)
-        except Exception:
-            return self._HARD_CONTEXT_CHAR_CAP
-
-    async def ask_with_messages(self, messages: list[dict[str, Any]], format: str | None = None) -> dict[str, Any]:
-        await self._add_to_memory(messages)
-
-        # Check and handle token limits before making LLM call
-        await self._ensure_within_token_limit()
-
-        # Hard safety valve: if total context still exceeds cap after budget
-        # management, force-truncate all tool results to prevent 60s+ LLM calls.
-        await self._ensure_memory()
-        all_msgs = self.memory.get_messages()
-        total_chars = sum(len(str(m.get("content", ""))) for m in all_msgs)
-        _cap = self._effective_context_char_cap
-        if total_chars > _cap:
-            self._consecutive_cap_hits += 1
-            _escalation = self._consecutive_cap_hits
-            logger.warning(
-                "Hard context cap hit (%d > %d chars, consecutive=%d), applying graduated truncation",
-                total_chars,
-                _cap,
-                _escalation,
-            )
-
-            # Record metric for cap hit observability
-            try:
-                from app.core.prometheus_metrics import context_cap_hits_total
-
-                context_cap_hits_total.inc({"escalation": str(min(_escalation, 5))})
-            except Exception:
-                logger.debug("context_cap_hits_total increment failed (non-fatal)", exc_info=True)
-
-            # Graduated eviction: older tool results are truncated more
-            # aggressively, recent ones are preserved with more context.
-            # Target drops with each consecutive hit to break the growth cycle.
-            _target_pct = max(0.60, 0.80 - 0.05 * (_escalation - 1))
-            _target = int(_cap * _target_pct)
-            tool_indices = [i for i, m in enumerate(all_msgs) if m.get("role") == "tool"]
-            n_tools = len(tool_indices)
-            trimmed = list(all_msgs)  # shallow copy
-
-            # Scale limits by overshoot ratio: more aggressive when further over cap.
-            # Floor drops with consecutive hits (0.3 → 0.2 → 0.1 min).
-            _overshoot = total_chars / _cap  # e.g. 1.3 means 30% over
-            _scale_floor = max(0.10, 0.30 - 0.10 * (_escalation - 1))
-            _scale = max(_scale_floor, 1.0 / _overshoot)
-
-            # Per-message floor also drops with escalation (100 → 60 → 30).
-            _msg_floor = max(30, 100 - 20 * (_escalation - 1))
-
-            for rank, idx in enumerate(tool_indices):
-                m = trimmed[idx]
-                content = m.get("content", "")
-                if not isinstance(content, str):
-                    continue
-                # Determine limit based on recency (0.0 = oldest, 1.0 = newest)
-                age_ratio = 0.0 if n_tools <= 1 else rank / (n_tools - 1)
-                if age_ratio < 0.33:
-                    limit = int(200 * _scale)  # oldest third: aggressive truncation
-                elif age_ratio < 0.66:
-                    limit = int(600 * _scale)  # middle third: moderate truncation
-                else:
-                    limit = int(1500 * _scale)  # newest third: preserve more context
-                limit = max(limit, _msg_floor)
-                if len(content) > limit:
-                    trimmed[idx] = {**m, "content": content[:limit] + "\n[... truncated ...]"}
-            self.memory.messages = trimmed
-
-            # Verify we reached the target; if not, do a second pass
-            _after = sum(len(str(m.get("content", ""))) for m in trimmed)
-            if _after > _target and tool_indices:
-                # Second-pass floor also tightens with escalation
-                _second_floor = max(50, 150 - 25 * (_escalation - 1))
-                for idx in tool_indices:
-                    m = trimmed[idx]
-                    content = m.get("content", "")
-                    if isinstance(content, str) and len(content) > _second_floor:
-                        trimmed[idx] = {**m, "content": content[:_second_floor] + "\n[... truncated ...]"}
-                self.memory.messages = trimmed
-
-            # Third pass (escalation 3+): also truncate older assistant messages.
-            # Large step results in assistant messages contribute significantly
-            # to context growth and are missed by tool-only truncation.
-            if _escalation >= 3:
-                _after = sum(len(str(m.get("content", ""))) for m in trimmed)
-                if _after > _target:
-                    assistant_indices = [
-                        i
-                        for i, m in enumerate(trimmed)
-                        if m.get("role") == "assistant" and len(str(m.get("content", ""))) > 500
-                    ]
-                    # Preserve the most recent assistant message (current step output)
-                    if assistant_indices:
-                        _asst_limit = max(200, 800 - 150 * (_escalation - 2))
-                        for idx in assistant_indices[:-1]:  # skip the last (newest)
-                            m = trimmed[idx]
-                            content = str(m.get("content", ""))
-                            if len(content) > _asst_limit:
-                                trimmed[idx] = {
-                                    **m,
-                                    "content": content[:_asst_limit] + "\n[... earlier output truncated ...]",
-                                }
-                        self.memory.messages = trimmed
-
-            # Escalation 3+: block reads via middleware and inject nudge.
-            if _escalation >= 3:
-                logger.warning(
-                    "Context cap hit %d consecutive times — blocking reads and injecting step-advance nudge",
-                    _escalation,
-                )
-                # Activate read blocking on the efficiency monitor middleware.
-                # Pass escalation level so the middleware can broaden the block
-                # from file_read-only (3-4) to ALL read tools (5+).
-                self._set_context_cap_read_block(blocked=True, escalation=_escalation)
-                self._efficiency_nudges.append(
-                    {
-                        "message": (
-                            "IMPORTANT: You have been operating near the context limit for too long. "
-                            "Stop reading files and gathering more information. Immediately synthesize "
-                            "what you have and produce your final output for this step."
-                        ),
-                        "confidence": 0.95,
-                        "hard_stop": _escalation >= 5,
-                    }
-                )
-
-            # Escalation 5+: hard circuit breaker — force step advancement.
-            # The nudge alone relies on the LLM choosing to stop, which doesn't
-            # reliably break the loop.  Setting _stuck_recovery_exhausted triggers
-            # a real break in the execute() loop via plan_act.
-            if _escalation >= 5:
-                logger.warning(
-                    "Context cap escalation %d >= 5: forcing step advancement via stuck_recovery_exhausted",
-                    _escalation,
-                )
-                self._stuck_recovery_exhausted = True
-
-                # Record metric for forced step advance observability
-                try:
-                    from app.core.prometheus_metrics import forced_step_advance_total
-
-                    forced_step_advance_total.inc({"reason": "context_cap_escalation"})
-                except Exception:
-                    logger.debug("forced_step_advance_total increment failed (non-fatal)", exc_info=True)
-        else:
-            # Context is under cap — reset consecutive counter and unblock reads.
-            # Use 75% threshold (not 90%) so trivial dips don't reset the counter
-            # only for the next tool response to immediately re-flood context.
-            if self._consecutive_cap_hits > 0 and total_chars < _cap * 0.75:
-                self._consecutive_cap_hits = 0
-                self._set_context_cap_read_block(blocked=False, escalation=0)
-
-        # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
-        if self._efficiency_nudges:
-            # Take the most severe nudge (hard_stop takes priority)
-            nudge = max(self._efficiency_nudges, key=lambda n: (n.get("hard_stop", False), n["confidence"]))
-            # Always use "user" role — many LLM APIs (e.g. GLM-5) reject mid-conversation system messages
-            nudge_message = {
-                "role": "user",
-                "content": nudge["message"],
-            }
-            await self._add_to_memory([nudge_message])
-            self._efficiency_nudges.clear()
-
-        # Inject blocked-domains context from URL failure guard so the LLM
-        # stops wasting cycles on domains that have been confirmed unreliable.
-        # Only inject when the set of blocked domains changes (not every turn).
-        if self._url_failure_guard is not None:
-            _blocked_ctx = self._url_failure_guard.get_blocked_domains_context()
-            if _blocked_ctx:
-                _injected_set: set[str] = getattr(self, "_injected_blocked_domains", set())
-                _current_blocked = frozenset(
-                    d
-                    for d, c in self._url_failure_guard._domain_failures.items()
-                    if c >= self._url_failure_guard._domain_block_threshold
-                )
-                if _current_blocked != _injected_set:
-                    await self._add_to_memory([{"role": "user", "content": _blocked_ctx}])
-                    self._injected_blocked_domains = _current_blocked  # type: ignore[attr-defined]
-
-            # Fix 2: Inject URL hallucination warning when the agent has
-            # fabricated URLs that returned 404.  Instructs the model to
-            # only use URLs from search results.
-            _halluc_ctx = self._url_failure_guard.get_url_hallucination_context()
-            if _halluc_ctx:
-                _injected_halluc: set[str] = getattr(self, "_injected_halluc_domains", set())
-                _current_halluc = frozenset(self._url_failure_guard._guessed_url_domains)
-                if _current_halluc != _injected_halluc:
-                    await self._add_to_memory([{"role": "user", "content": _halluc_ctx}])
-                    self._injected_halluc_domains = _current_halluc  # type: ignore[attr-defined]
-
-        response_format = None
-        if format:
-            response_format = {"type": format}
-
-        from app.domain.services.agents.token_budget_manager import BudgetAction
-
-        empty_response_count = 0
-        max_empty_responses = 5
-        # Safety valve: cap consecutive after_step INJECT retries to prevent
-        # infinite text→inject→text loops when stuck detection fires on
-        # stale tool-action history.
-        after_step_inject_count = 0
-        max_after_step_injects = 2
-
-        for _retry in range(self.max_retries + max_empty_responses):
-            usage_ratio = self._current_token_usage_ratio()
-            budget_action = self._resolve_budget_action(usage_ratio)
-            available_tools = self.get_available_tools()
-            max_tokens_override: int | None = None
-
-            if self._truncation_retry_max_tokens is not None:
-                max_tokens_override = self._truncation_retry_max_tokens
-
-            # Force text-only response after repeated truncations to escape
-            # the empty-args loop (e.g. GLM-5 hitting output limits).
-            if self._recent_truncation_count >= max(1, self.max_consecutive_truncations - 1):
-                available_tools = []
-                logger.warning(
-                    "Forcing text-only response after %d consecutive truncations",
-                    self._recent_truncation_count,
-                )
-
-            if budget_action == BudgetAction.REDUCE_VERBOSITY:
-                llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
-                reduced_limit = max(512, llm_default_max // 2)
-                max_tokens_override = (
-                    reduced_limit if max_tokens_override is None else min(max_tokens_override, reduced_limit)
-                )
-            elif budget_action == BudgetAction.FORCE_CONCLUDE:
-                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE)
-            elif budget_action == BudgetAction.FORCE_HARD_STOP_NUDGE:
-                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE)
-                available_tools = self._filter_read_tools(available_tools)
-            elif budget_action == BudgetAction.HARD_STOP_TOOLS:
-                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_HARD_STOP_MESSAGE)
-                available_tools = None
-                self._active_phase = "summarizing"
-
-            try:
-                # Build message list for LLM — inject scratchpad transiently
-                llm_messages = self.memory.get_messages()
-                if self._scratchpad and not self._scratchpad.is_empty:
-                    scratchpad_content = self._scratchpad.get_content()
-                    if scratchpad_content:
-                        # Insert scratchpad after system messages, before conversation.
-                        # Uses "user" role for GLM-5 compatibility.
-                        insert_idx = 0
-                        for idx, m in enumerate(llm_messages):
-                            if m.get("role") == "system":
-                                insert_idx = idx + 1
-                            else:
-                                break
-                        llm_messages = list(llm_messages)  # shallow copy to avoid mutating memory
-                        llm_messages.insert(
-                            insert_idx,
-                            {"role": "user", "content": scratchpad_content},
-                        )
-
-                # ── Pre-call token validation ───────────────────────────
-                # Prevent sending oversized payloads that cause LLM timeouts.
-                # If token count exceeds 70% of the effective limit, force
-                # emergency compaction BEFORE the call instead of timing out.
-                _pre_call_tokens = self._token_manager.count_messages_tokens(llm_messages)
-                _pre_call_limit = self._token_manager._effective_limit
-                if _pre_call_tokens > _pre_call_limit * 0.70:
-                    logger.warning(
-                        "Pre-call token validation: %d tokens (%.0f%% of %d limit), forcing emergency compaction",
-                        _pre_call_tokens,
-                        (_pre_call_tokens / _pre_call_limit) * 100,
-                        _pre_call_limit,
-                    )
-                    # Aggressively truncate all tool results except the last 2
-                    _tool_idxs = [i for i, m in enumerate(llm_messages) if m.get("role") == "tool"]
-                    _keep_n = 2
-                    for tidx in _tool_idxs[:-_keep_n] if len(_tool_idxs) > _keep_n else []:
-                        _tc = llm_messages[tidx].get("content", "")
-                        if isinstance(_tc, str) and len(_tc) > 150:
-                            llm_messages[tidx] = {
-                                **llm_messages[tidx],
-                                "content": _tc[:150] + "\n[...pre-call compacted...]",
-                            }
-                    # Persist the compacted state back to memory
-                    self.memory.messages = llm_messages
-
-                message = await self.llm.ask(
-                    llm_messages,
-                    tools=available_tools,
-                    response_format=response_format,
-                    tool_choice=self.tool_choice,
-                    model=self._step_model_override,  # DeepCode Phase 1: Adaptive model selection
-                    max_tokens=max_tokens_override,
-                )
-            except TokenLimitExceededError as e:
-                logger.warning(f"Token limit exceeded, trimming context: {e}")
-                await self._handle_token_limit_exceeded()
-                continue
-            except Exception as e:
-                error_context = self._error_handler.classify_error(e)
-                if error_context.error_type == ErrorType.TOKEN_LIMIT:
-                    await self._handle_token_limit_exceeded()
-                    continue
-                raise
-
-            # Detect truncated responses via _finish_reason from LLM adapters
-            is_truncated = message.get("_finish_reason") == "length" or message.get("_tool_args_truncated", False)
-
-            # Also detect malformed/truncated tool-call arguments heuristically.
-            # Some providers return finish_reason="stop" even when tool args are
-            # cut off or malformed. Validate args strictly before execution.
-            if not is_truncated and message.get("tool_calls"):
-                for tc in message.get("tool_calls", []):
-                    func = tc.get("function", {}) if isinstance(tc, dict) else {}
-                    tool_name = func.get("name", "unknown")
-                    raw_args = func.get("arguments", "")
-
-                    try:
-                        parsed_args = self._parse_tool_arguments(raw_args, function_name=tool_name)
-                    except ValueError as parse_err:
-                        logger.warning(
-                            "Tool call '%s' has malformed args (%s) — treating as truncation",
-                            tool_name,
-                            parse_err,
-                        )
-                        is_truncated = True
-                        break
-
-                    if not parsed_args and self._tool_requires_arguments(tool_name):
-                        logger.warning(
-                            "Tool call '%s' has empty args despite required parameters — treating as truncation",
-                            tool_name,
-                        )
-                        is_truncated = True
-                        break
-
-            if is_truncated and message.get("tool_calls"):
-                # Truncated tool calls have malformed/empty JSON — drop and retry.
-                # Tell the LLM to break content into smaller pieces to avoid
-                # hitting the output limit again.
-                self._recent_truncation_count += 1
-                llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
-                if self._truncation_retry_max_tokens is None:
-                    self._truncation_retry_max_tokens = max(512, llm_default_max // 2)
-                else:
-                    self._truncation_retry_max_tokens = max(512, self._truncation_retry_max_tokens // 2)
-                logger.warning(
-                    "LLM response truncated with partial tool_calls (consecutive: %d) — requesting smaller output",
-                    self._recent_truncation_count,
-                )
-                await self._add_to_memory(
-                    [
-                        {"role": "assistant", "content": message.get("content") or ""},
-                        {
-                            "role": "user",
-                            "content": (
-                                "Your previous response was cut off due to output length limits, "
-                                "so the tool call arguments were lost. "
-                                "Please break your work into SMALLER pieces:\n"
-                                "- If writing a file, write it in sections using multiple smaller writes\n"
-                                "- If the content is long, summarize first then write details separately\n"
-                                "- Do NOT try to write the entire content in a single tool call\n"
-                                "Continue with a smaller action now."
-                            ),
-                        },
-                    ]
-                )
-                continue
-
-            if is_truncated and message.get("content"):
-                # Text-only truncation: request continuation instead of returning partial answer
-                self._recent_truncation_count += 1
-                if self._recent_truncation_count <= 2:
-                    logger.warning(
-                        "LLM response truncated (text-only, consecutive: %d) — requesting continuation",
-                        self._recent_truncation_count,
-                    )
-                    await self._add_to_memory(
-                        [
-                            {"role": "assistant", "content": message["content"]},
-                            {
-                                "role": "user",
-                                "content": "Your previous response was cut off. Please continue from where you stopped.",
-                            },
-                        ]
-                    )
-                    continue
-                logger.warning("Final answer truncated after %d continuation attempts", self._recent_truncation_count)
-                message["content"] = message["content"] + "\n\n[Note: Response may be incomplete due to length limits]"
-
-            filtered_message = {}
-            if message.get("role") == "assistant":
-                if not message.get("content") and not message.get("tool_calls"):
-                    empty_response_count += 1
-                    if empty_response_count >= max_empty_responses:
-                        logger.error(
-                            f"Empty response from LLM after {empty_response_count} attempts, returning fallback"
-                        )
-                        return {
-                            "role": "assistant",
-                            "content": (
-                                "I encountered difficulties completing this step. "
-                                "The information gathered so far has been preserved. "
-                                "Please try again or rephrase your request."
-                            ),
-                        }
-                    logger.warning(
-                        f"Assistant message has no content ({empty_response_count}/{max_empty_responses}), retry"
-                    )
-                    await self._add_to_memory(
-                        [
-                            {"role": "assistant", "content": ""},
-                            {"role": "user", "content": "no thinking, please continue"},
-                        ]
-                    )
-                    continue
-                filtered_message = {
-                    "role": "assistant",
-                    "content": message.get("content"),
-                }
-                if message.get("tool_calls"):
-                    tool_calls = message.get("tool_calls", [])
-                    # Allow multiple tool calls for safe parallel tools
-                    if self._can_parallelize_tools(tool_calls):
-                        filtered_message["tool_calls"] = tool_calls[:MAX_CONCURRENT_TOOLS]
-                    else:
-                        filtered_message["tool_calls"] = tool_calls[:1]
-            else:
-                logger.warning(f"Unknown message role: {message.get('role')}")
-                filtered_message = message
-
-            # ── Stuck detection via middleware pipeline ──
-            # StuckDetectionMiddleware.after_step() calls track_response() and
-            # handles recovery (INJECT) or exhaustion (FORCE).
-            if hasattr(self, "_mw_ctx") and self._mw_ctx is not None:
-                from app.domain.services.agents.middleware import (
-                    MiddlewareSignal as _MwSig,
-                )
-
-                self._mw_ctx.metadata["last_response"] = filtered_message
-                _after_result = await self._pipeline.run_after_step(self._mw_ctx)
-
-                if _after_result.signal == _MwSig.FORCE:
-                    self._stuck_recovery_exhausted = True
-                    # Don't break — just set flag, let caller handle
-                elif _after_result.signal == _MwSig.INJECT:
-                    after_step_inject_count += 1
-                    if after_step_inject_count > max_after_step_injects:
-                        logger.warning(
-                            "after_step INJECT cap reached (%d/%d) — forcing response through",
-                            after_step_inject_count,
-                            max_after_step_injects,
-                        )
-                        # Fall through to return the response instead of looping
-                    else:
-                        await self._add_to_memory(
-                            [filtered_message, {"role": "user", "content": _after_result.message}]
-                        )
-                        continue
-
-            await self._add_to_memory([filtered_message])
-            empty_response_count = 0  # Reset on successful non-empty response
-            self._recent_truncation_count = 0  # Reset truncation counter on success
-            self._truncation_retry_max_tokens = None
-            return filtered_message
-
-        # Retry loop exhausted — return graceful fallback instead of crashing
-        logger.error("LLM retry loop exhausted, returning fallback response")
-        return {
-            "role": "assistant",
-            "content": (
-                "I encountered difficulties completing this step. "
-                "The information gathered so far has been preserved. "
-                "Please try again or rephrase your request."
-            ),
-        }
-
-    async def _ensure_within_token_limit(self) -> None:
-        """Ensure memory is within token limits, trim if necessary.
-
-        When feature_token_budget_manager is enabled and a TokenBudget is set,
-        uses budget-aware sliding window compression. Otherwise falls back to
-        the legacy two-stage strategy (proactive compaction + hard trim).
-        """
-        await self._ensure_memory()
-        if self._compression_guard_active:
-            # Guard already tripped for this step; avoid repeated compression loops.
-            return
-        current_messages = self.memory.get_messages()
-
-        # ── Budget-aware path (Phase 2) ──────────────────────────────
-        flags = self._resolve_feature_flags()
-        if (
-            flags.get("token_budget_manager")
-            and self._token_budget is not None
-            and self._token_budget_manager is not None
-        ):
-            from app.domain.services.agents.token_budget_manager import BudgetPhase
-
-            phase = self._active_phase or "execution"
-            budget_phase_map = {
-                "planning": BudgetPhase.PLANNING,
-                "executing": BudgetPhase.EXECUTION,
-                "verifying": BudgetPhase.EXECUTION,
-                "summarizing": BudgetPhase.SUMMARIZATION,
-            }
-            budget_phase = budget_phase_map.get(phase, BudgetPhase.EXECUTION)
-
-            ok, reason = self._token_budget_manager.check_before_call(
-                self._token_budget,
-                budget_phase,
-                current_messages,
-            )
-            if not ok:
-                self._compression_cycles_this_step += 1
-                if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                    self._trip_compression_guard(
-                        stage_label="budget-aware",
-                        current_messages=current_messages,
-                    )
-                    return
-                logger.info("Token budget exceeded (%s), compressing to fit", reason)
-                compressed = self._token_budget_manager.compress_to_fit(
-                    self._token_budget,
-                    budget_phase,
-                    current_messages,
-                )
-                self.memory.messages = compressed
-            return
-
-        # ── Legacy path (reactive two-stage) ─────────────────────────
-        # Stage 1: Proactive compaction before hitting the hard limit.
-        # Uses configurable context_compression_trigger_pct (default 0.80) for
-        # earlier triggering. Falls back to TokenManager early_warning (0.60).
-        token_count = self._token_manager.count_messages_tokens(current_messages)
-        try:
-            from app.core.config import get_settings
-
-            trigger_threshold = getattr(get_settings(), "context_compression_trigger_pct", 0.80)
-        except Exception:
-            trigger_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
-        if token_count > self._token_manager._effective_limit * trigger_threshold:
-            self._compression_cycles_this_step += 1
-            if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                self._trip_compression_guard(
-                    stage_label="legacy-stage-1",
-                    current_messages=current_messages,
-                )
-                return
-            # Use graduated compaction when enabled (preserves more info)
-            flags = self._resolve_feature_flags()
-            if flags.get("graduated_compaction") and self.memory.config.use_graduated_compaction:
-                self.memory.graduated_compact()
-            else:
-                self.memory.smart_compact()
-            current_messages = self.memory.get_messages()
-            logger.debug(
-                f"Proactive context compaction at {token_count} tokens "
-                f"({token_count / self._token_manager._effective_limit:.0%} utilization)"
-            )
-
-        # Stage 2: Hard-limit trim if still over after compaction.
-        if not self._token_manager.is_within_limit(current_messages):
-            self._compression_cycles_this_step += 1
-            if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                self._trip_compression_guard(
-                    stage_label="legacy-stage-2",
-                    current_messages=current_messages,
-                )
-                return
-            logger.warning("Memory exceeds token limit, trimming...")
-            # Capture the first user message before trimming — it contains the original
-            # request and must survive trimming to prevent topic drift / hallucination.
-            first_user_msg = next((m for m in current_messages if m.get("role") == "user"), None)
-            trimmed_messages, tokens_removed = self._token_manager.trim_messages(
-                current_messages, preserve_system=True, preserve_recent=6
-            )
-            # Re-inject first user message if it was lost during trimming
-            if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
-                # Insert after system messages, before the remaining conversation
-                insert_idx = 0
-                for i, m in enumerate(trimmed_messages):
-                    if m.get("role") == "system":
-                        insert_idx = i + 1
-                    else:
-                        break
-                trimmed_messages.insert(insert_idx, first_user_msg)
-                logger.info("Re-injected first user message after trimming to preserve topic anchor")
-            self.memory.messages = trimmed_messages
-            await self._repository.save_memory(self._agent_id, self.name, self.memory)
-            logger.info(f"Trimmed memory, removed {tokens_removed} tokens")
-
-        # Stage 3: Structured compaction (emergency LLM summary) when still over limit.
-        current_messages = self.memory.get_messages()
-        if not self._token_manager.is_within_limit(current_messages):
-            flags_s3 = self._resolve_feature_flags()
-            if flags_s3.get("structured_compaction"):
-                self._compression_cycles_this_step += 1
-                if self._compression_cycles_this_step <= self.max_compression_cycles_per_step:
-                    from app.domain.services.agents.memory_manager import get_memory_manager
-
-                    mm = get_memory_manager()
-                    compacted_msgs, tokens_saved = await mm.structured_compact(
-                        current_messages, self.llm, preserve_recent=6
-                    )
-                    if tokens_saved > 0:
-                        self.memory.messages = compacted_msgs
-                        await self._repository.save_memory(self._agent_id, self.name, self.memory)
-                        logger.info("Structured compaction saved ~%d tokens", tokens_saved)
-
-    async def _handle_token_limit_exceeded(self) -> None:
-        """Handle token limit exceeded error by aggressively trimming context.
-
-        Memory compaction and trimming are done synchronously (fast, in-memory),
-        but the MongoDB save is done in the background to avoid blocking the retry loop.
-        """
-        await self._ensure_memory()
-
-        # First compact verbose tool results (fast, in-memory)
-        self.memory.smart_compact()
-
-        # Then trim messages (fast, in-memory)
-        all_messages = self.memory.get_messages()
-        # Capture the first user message before trimming for topic preservation
-        first_user_msg = next((m for m in all_messages if m.get("role") == "user"), None)
-        trimmed_messages, tokens_removed = self._token_manager.trim_messages(
-            all_messages,
-            preserve_system=True,
-            preserve_recent=4,  # More aggressive trim
-        )
-        # Re-inject first user message if lost during aggressive trimming
-        if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
-            insert_idx = 0
-            for i, m in enumerate(trimmed_messages):
-                if m.get("role") == "system":
-                    insert_idx = i + 1
-                else:
-                    break
-            trimmed_messages.insert(insert_idx, first_user_msg)
-            logger.info("Re-injected first user message after aggressive trim to preserve topic anchor")
-        self.memory.messages = trimmed_messages
-
-        # Save to MongoDB in background (non-blocking) to avoid delaying retry
-        # Snapshot messages to avoid race with main loop mutating self.memory
-        from app.domain.models.memory import Memory
-
-        memory_snapshot = Memory(messages=list(self.memory.messages))
-
-        async def _save_background() -> None:
-            try:
-                await self._repository.save_memory(self._agent_id, self.name, memory_snapshot)
-                logger.debug("Background memory save completed after token limit handling")
-            except Exception as e:
-                logger.warning(f"Background memory save failed after token limit handling: {e}")
-
-        task = asyncio.create_task(_save_background())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
-
     async def cleanup_background_tasks(self, timeout: float = 5.0) -> None:  # noqa: ASYNC109
         """Await pending background tasks with timeout, cancel remaining, and clear the set."""
         if not self._background_tasks:
@@ -3467,6 +914,66 @@ class BaseAgent:
         else:
             self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
+    async def compact(
+        self,
+        config: CompactionConfig | None = None,
+    ) -> CompactionResult:
+        """Compact memory through a small, explicit contract."""
+        from app.domain.services.agents.compaction import (
+            CompactionConfig,
+            CompactionResult,
+            CompactionStrategy,
+        )
+        from app.domain.services.agents.memory_manager import get_memory_manager
+
+        config = config or CompactionConfig()
+
+        await self._ensure_memory()
+        before_messages = list(self.memory.get_messages())
+        tokens_before = self._token_manager.count_messages_tokens(before_messages)
+
+        if config.strategy == CompactionStrategy.TRUNCATE:
+            trim_manager = TokenManager(
+                model_name=getattr(self.llm, "model_name", "gpt-4"),
+                max_context_tokens=config.target_tokens,
+                safety_margin=0,
+            )
+            trimmed_messages, _tokens_removed = trim_manager.trim_messages(
+                before_messages,
+                preserve_system=True,
+                preserve_recent=config.preserve_last_n_messages,
+            )
+            self.memory.messages = trimmed_messages
+        elif config.strategy == CompactionStrategy.SUMMARIZE:
+            memory_manager = get_memory_manager()
+            compacted_messages, _tokens_saved = await memory_manager.structured_compact(
+                before_messages,
+                self.llm,
+                preserve_recent=config.preserve_last_n_messages,
+            )
+            self.memory.messages = compacted_messages
+        else:
+            memory_manager = get_memory_manager()
+            optimized_messages, _report = memory_manager.optimize_context(
+                before_messages,
+                preserve_recent=config.preserve_last_n_messages,
+                token_threshold=config.target_tokens,
+            )
+            self.memory.messages = optimized_messages
+
+        after_messages = list(self.memory.messages)
+        tokens_after = self._token_manager.count_messages_tokens(after_messages)
+        messages_removed = max(0, len(before_messages) - len(after_messages))
+
+        await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
+        return CompactionResult(
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            messages_removed=messages_removed,
+            strategy_used=config.strategy,
+        )
 
     async def compact_memory(self) -> None:
         await self._ensure_memory()
@@ -3545,99 +1052,3 @@ class BaseAgent:
         self._efficiency_nudges.clear()
 
         logger.debug("Reliability state reset")
-
-    def _trip_compression_guard(self, stage_label: str, current_messages: list[dict[str, Any]]) -> None:
-        """Latch compression guard and apply one-shot emergency trim.
-
-        This prevents repeated compaction churn within the same step while still
-        preserving a minimal anchored context for graceful completion.
-        """
-        if self._compression_guard_active:
-            return
-        self._compression_guard_active = True
-        self._stuck_recovery_exhausted = True
-        logger.warning(
-            "Compression oscillation guard triggered (%d/%d cycles this step, %s). "
-            "Applying emergency context trim and skipping further compression this step.",
-            self._compression_cycles_this_step,
-            self.max_compression_cycles_per_step,
-            stage_label,
-        )
-
-        first_user_msg = next((m for m in current_messages if m.get("role") == "user"), None)
-        trimmed_messages, _tokens_removed = self._token_manager.trim_messages(
-            current_messages,
-            preserve_system=True,
-            preserve_recent=2,
-        )
-        if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
-            insert_idx = 0
-            for i, msg in enumerate(trimmed_messages):
-                if msg.get("role") == "system":
-                    insert_idx = i + 1
-                else:
-                    break
-            trimmed_messages.insert(insert_idx, first_user_msg)
-        self.memory.messages = trimmed_messages
-
-    async def ask_streaming(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
-        """Execute a request with streaming LLM response.
-
-        Yields StreamEvents as content chunks arrive, then MessageEvent for full response.
-        Falls back to non-streaming if LLM doesn't support streaming.
-
-        Args:
-            request: The user request
-            format: Optional response format
-
-        Yields:
-            StreamEvent for each content chunk, then MessageEvent with full content
-        """
-        # Add request to memory
-        await self._add_to_memory([{"role": "user", "content": request}])
-        await self._ensure_within_token_limit()
-
-        # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
-        if self._efficiency_nudges:
-            nudge = max(self._efficiency_nudges, key=lambda n: (n.get("hard_stop", False), n["confidence"]))
-            # Always use "user" role — many LLM APIs (e.g. GLM-5) reject mid-conversation system messages
-            nudge_message = {
-                "role": "user",
-                "content": nudge["message"],
-            }
-            await self._add_to_memory([nudge_message])
-            self._efficiency_nudges.clear()
-
-        # Check if LLM supports streaming
-        if not hasattr(self.llm, "ask_stream"):
-            # Fall back to non-streaming — use ask_with_messages([]) since
-            # user message was already added to memory above
-            response = await self.ask_with_messages([], format)
-            yield MessageEvent(message=response.get("content", ""))
-            return
-
-        response_format = {"type": format} if format else None
-        full_content = ""
-
-        try:
-            async for chunk in self.llm.ask_stream(
-                self.memory.get_messages(),
-                tools=None,  # Streaming typically used without tools
-                response_format=response_format,
-            ):
-                full_content += chunk
-                yield StreamEvent(content=chunk, is_final=False)
-
-            # Yield final stream event and message
-            yield StreamEvent(content="", is_final=True)
-
-            # Save response to memory
-            await self._add_to_memory([{"role": "assistant", "content": full_content}])
-
-            yield MessageEvent(message=full_content)
-
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
-            # Fall back to non-streaming on error
-            response = await self.ask_with_messages([], format)
-            yield MessageEvent(message=response.get("content", ""))

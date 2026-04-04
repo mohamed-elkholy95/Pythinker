@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.tools.base import BaseTool, ToolDefaults, tool
 from app.domain.services.tools.metadata_index import ToolMetadataIndex
 
@@ -20,6 +21,7 @@ class TestToolMetadataIndex:
                 required=[],
                 is_read_only=True,
                 is_concurrency_safe=True,
+                required_tier=PermissionTier.READ_ONLY,
             )
             async def read_fn(self):
                 pass
@@ -30,6 +32,7 @@ class TestToolMetadataIndex:
                 parameters={},
                 required=[],
                 is_destructive=True,
+                required_tier=PermissionTier.WORKSPACE_WRITE,
             )
             async def write_fn(self):
                 pass
@@ -65,6 +68,30 @@ class TestToolMetadataIndex:
         meta = index.get("read_fn")
         assert meta is not None
         assert meta.is_read_only is True
+        assert meta.required_tier is PermissionTier.READ_ONLY
+
+    def test_get_required_tier_from_metadata(self):
+        index = ToolMetadataIndex([self._make_tool()])
+        assert index.get_required_tier("read_fn") is PermissionTier.READ_ONLY
+        assert index.get_required_tier("write_fn") is PermissionTier.WORKSPACE_WRITE
+
+    def test_infers_read_only_tier_when_required_tier_is_unset(self):
+        class ReadOnlyTool(BaseTool):
+            name = "read_only_tool"
+
+            @tool(
+                name="read_only_fn",
+                description="Reads without side effects",
+                parameters={},
+                required=[],
+                is_read_only=True,
+                is_concurrency_safe=True,
+            )
+            async def read_only_fn(self):
+                pass
+
+        index = ToolMetadataIndex([ReadOnlyTool()])
+        assert index.get_required_tier("read_only_fn") is PermissionTier.READ_ONLY
 
     def test_get_unknown_returns_none(self):
         index = ToolMetadataIndex([self._make_tool()])
@@ -76,8 +103,10 @@ class TestToolMetadataIndex:
         # file_read is in ToolName._READ_ONLY and _SAFE_PARALLEL
         assert index.is_read_only("file_read") is True
         assert index.is_safe_parallel("file_read") is True
+        assert index.get_required_tier("file_read") is PermissionTier.READ_ONLY
         # shell_exec is NOT in _READ_ONLY or _SAFE_PARALLEL
         assert index.is_read_only("shell_exec") is False
+        assert index.get_required_tier("shell_exec") is PermissionTier.DANGER
 
     def test_fallback_to_mcp_patterns(self):
         """MCP tool names should fall back to ToolName MCP pattern matching."""

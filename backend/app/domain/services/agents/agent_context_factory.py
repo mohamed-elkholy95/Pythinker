@@ -37,17 +37,21 @@ class AgentContextFactory:
         from app.domain.services.agents.middleware_adapters.efficiency_monitor import EfficiencyMonitorMiddleware
         from app.domain.services.agents.middleware_adapters.error_handler import ErrorHandlerMiddleware
         from app.domain.services.agents.middleware_adapters.hallucination_guard import HallucinationGuardMiddleware
+        from app.domain.services.agents.middleware_adapters.permission_gate import PermissionGateMiddleware
         from app.domain.services.agents.middleware_adapters.security_assessment import SecurityAssessmentMiddleware
         from app.domain.services.agents.middleware_adapters.stuck_detection import StuckDetectionMiddleware
         from app.domain.services.agents.middleware_adapters.token_budget import TokenBudgetMiddleware
         from app.domain.services.agents.middleware_adapters.url_failure_guard import UrlFailureGuardMiddleware
         from app.domain.services.agents.middleware_adapters.wall_clock_pressure import WallClockPressureMiddleware
+        from app.domain.services.tools.metadata_index import ToolMetadataIndex
 
         tool_names = self._extract_tool_names(tools or [])
+        metadata_index = ToolMetadataIndex(tools or [])
 
         pipeline.use(WallClockPressureMiddleware())
         pipeline.use(TokenBudgetMiddleware())
-        pipeline.use(SecurityAssessmentMiddleware())
+        pipeline.use(SecurityAssessmentMiddleware(tool_metadata_index=metadata_index))
+        pipeline.use(PermissionGateMiddleware(tool_metadata_index=metadata_index))
         pipeline.use(HallucinationGuardMiddleware(detector=ToolHallucinationDetector(tool_names)))
         pipeline.use(EfficiencyMonitorMiddleware(research_mode=research_mode))
         pipeline.use(UrlFailureGuardMiddleware())

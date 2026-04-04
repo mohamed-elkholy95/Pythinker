@@ -23,6 +23,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.flows.base import BaseFlow
@@ -124,6 +125,7 @@ class CoordinatorFlow(BaseFlow):
         self._mcp_tool = mcp_tool
         self._search_engine = search_engine
         self._mode = mode
+        self._active_tier = PermissionTier.DANGER
 
         # Initialize the agent factory
         self._factory = SpecializedAgentFactory(
@@ -148,6 +150,12 @@ class CoordinatorFlow(BaseFlow):
         self._current_task: SwarmTask | None = None
         self._plan: Plan | None = None
         self._complexity: TaskComplexity = TaskComplexity.SIMPLE
+
+    def set_active_permission_tier(self, tier: PermissionTier) -> None:
+        """Apply the live session permission tier to the coordinator and swarm factory."""
+        self._active_tier = tier
+        if hasattr(self._factory, "set_active_tier"):
+            self._factory.set_active_tier(tier)
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """Execute the coordinator flow.

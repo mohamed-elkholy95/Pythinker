@@ -15,7 +15,9 @@ from app.domain.models.agent_response import (
 )
 from app.domain.models.event import VerificationEvent, VerificationStatus
 from app.domain.models.plan import Plan, Step
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class TestVerifierConfig:
@@ -145,6 +147,51 @@ class TestVerifierAgent:
         verifier = VerifierAgent(llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools)
         assert verifier.llm == mock_llm
         assert verifier.config.enabled is True
+
+    def test_set_active_tier_filters_visible_tools(self, mock_llm, mock_json_parser):
+        """Tier sync should not crash and should hide tools above the active tier."""
+
+        class ReadOnlyTool(BaseTool):
+            name = "read_only"
+
+            @tool(
+                name="file_read",
+                description="Read a file",
+                parameters={},
+                required=[],
+                is_read_only=True,
+            )
+            async def file_read(self):
+                pass
+
+        class DangerousTool(BaseTool):
+            name = "dangerous"
+
+            @tool(
+                name="shell_exec",
+                description="Execute shell commands",
+                parameters={},
+                required=[],
+                required_tier=PermissionTier.DANGER,
+            )
+            async def shell_exec(self):
+                pass
+
+        verifier = VerifierAgent(
+            llm=mock_llm,
+            json_parser=mock_json_parser,
+            tools=[ReadOnlyTool(), DangerousTool()],
+        )
+
+        assert "file_read" in verifier._tool_names
+        assert "shell_exec" in verifier._tool_names
+
+        verifier.set_active_tier(PermissionTier.READ_ONLY)
+
+        assert "file_read" in verifier._tool_names
+        assert "shell_exec" not in verifier._tool_names
+        assert "file_read" in verifier._tool_descriptions
+        assert "shell_exec" not in verifier._tool_descriptions
 
     def test_should_skip_simple_plan(self, mock_llm, mock_json_parser, mock_tools, simple_plan):
         """Test that simple plans are skipped"""

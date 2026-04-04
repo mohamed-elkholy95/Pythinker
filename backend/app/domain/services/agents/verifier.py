@@ -45,12 +45,14 @@ from app.domain.models.event import (
     VerificationStatus,
 )
 from app.domain.models.plan import Plan, Step
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.prompts.verifier import (
     VERIFIER_SYSTEM_PROMPT,
     VERIFY_PLAN_PROMPT,
     VERIFY_SIMPLE_PLAN_PROMPT,
 )
 from app.domain.services.tools.base import BaseTool
+from app.domain.services.tools.metadata_index import ToolMetadataIndex
 from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
 
@@ -148,10 +150,34 @@ class VerifierAgent:
         self.config = config or VerifierConfig()
         self._feature_flags = feature_flags
         self._self_consistency_checker = self_consistency_checker
+        self._active_tier = PermissionTier.DANGER
+        self._metadata_index = ToolMetadataIndex([tool for tool in tools if isinstance(tool, BaseTool)])
 
-        # Extract tool names for prompts
-        self._tool_names = self._get_tool_names()
-        self._tool_descriptions = self._get_tool_descriptions()
+        # Extract the visible tool catalog for prompts.
+        self._refresh_tool_catalog()
+
+    def set_active_tier(self, tier: PermissionTier) -> None:
+        """Update the live permission tier used for tool feasibility checks."""
+        self._active_tier = tier
+        self._refresh_tool_catalog()
+
+    def _refresh_tool_catalog(self) -> None:
+        """Rebuild the visible tool catalog for the current permission tier."""
+        visible_tool_defs = list(self._iter_visible_tool_defs())
+        self._tool_names = self._get_tool_names(visible_tool_defs)
+        self._tool_descriptions = self._get_tool_descriptions(visible_tool_defs)
+
+    def _iter_visible_tool_defs(self) -> list[dict[str, Any]]:
+        """Return tool schemas visible at the current permission tier."""
+        visible_tools: list[dict[str, Any]] = []
+        for tool in self.tools:
+            for tool_def in tool.get_tools():
+                func = tool_def.get("function", {})
+                function_name = func.get("name", "unknown")
+                required_tier = self._metadata_index.get_required_tier(function_name)
+                if required_tier <= self._active_tier:
+                    visible_tools.append(tool_def)
+        return visible_tools
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -161,24 +187,22 @@ class VerifierAgent:
 
         return get_feature_flags()
 
-    def _get_tool_names(self) -> list[str]:
+    def _get_tool_names(self, tool_defs: list[dict[str, Any]]) -> list[str]:
         """Get list of available tool names."""
         names = []
-        for tool in self.tools:
-            for tool_def in tool.get_tools():
-                func = tool_def.get("function", {})
-                names.append(func.get("name", "unknown"))
+        for tool_def in tool_defs:
+            func = tool_def.get("function", {})
+            names.append(func.get("name", "unknown"))
         return names
 
-    def _get_tool_descriptions(self) -> str:
+    def _get_tool_descriptions(self, tool_defs: list[dict[str, Any]]) -> str:
         """Get formatted tool descriptions for prompts."""
         descriptions = []
-        for tool in self.tools:
-            for tool_def in tool.get_tools():
-                func = tool_def.get("function", {})
-                name = func.get("name", "unknown")
-                desc = func.get("description", "No description")[:100]
-                descriptions.append(f"- {name}: {desc}")
+        for tool_def in tool_defs:
+            func = tool_def.get("function", {})
+            name = func.get("name", "unknown")
+            desc = func.get("description", "No description")[:100]
+            descriptions.append(f"- {name}: {desc}")
         return "\n".join(descriptions)
 
     async def _ask_structured_tiered(

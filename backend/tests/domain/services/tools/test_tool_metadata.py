@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.tools.base import (
     BaseTool,
     ToolDefaults,
@@ -23,6 +24,7 @@ class TestToolDefaults:
         assert td.is_read_only is False
         assert td.is_destructive is False
         assert td.is_concurrency_safe is False
+        assert td.required_tier is PermissionTier.DANGER
         assert td.should_defer is False
         assert td.max_result_size_chars == 8000
         assert td.category == "general"
@@ -32,12 +34,14 @@ class TestToolDefaults:
         td = ToolDefaults(
             is_read_only=True,
             is_concurrency_safe=True,
+            required_tier=PermissionTier.READ_ONLY,
             category="search",
             max_result_size_chars=30_000,
         )
         assert td.is_read_only is True
         assert td.is_concurrency_safe is True
         assert td.is_destructive is False  # Not overridden
+        assert td.required_tier is PermissionTier.READ_ONLY
         assert td.category == "search"
         assert td.max_result_size_chars == 30_000
 
@@ -53,6 +57,7 @@ class TestToolDefaults:
         assert "is_read_only" in d
         assert "is_destructive" in d
         assert "is_concurrency_safe" in d
+        assert "required_tier" in d
         assert "check_permissions" in d
         assert "user_facing_name" in d
         assert "max_result_size_chars" in d
@@ -70,11 +75,13 @@ class TestBuildTool:
         merged = build_tool()
         assert merged["is_read_only"] is False
         assert merged["is_destructive"] is False
+        assert merged["required_tier"] is PermissionTier.DANGER
         assert merged["max_result_size_chars"] == 8000
 
     def test_overrides_via_kwargs(self):
-        merged = build_tool(is_read_only=True, category="file")
+        merged = build_tool(is_read_only=True, required_tier=PermissionTier.READ_ONLY, category="file")
         assert merged["is_read_only"] is True
+        assert merged["required_tier"] is PermissionTier.READ_ONLY
         assert merged["category"] == "file"
         assert merged["is_destructive"] is False  # Not overridden
 
@@ -98,6 +105,7 @@ class TestBaseToolMetadata:
         assert bt.is_read_only is False
         assert bt.is_destructive is False
         assert bt.is_concurrency_safe is False
+        assert bt.required_tier is PermissionTier.DANGER
         assert bt.should_defer is False
         assert bt.max_result_size_chars == 8000
         assert bt.tool_category == "general"
@@ -108,6 +116,7 @@ class TestBaseToolMetadata:
             defaults=ToolDefaults(
                 is_read_only=True,
                 is_concurrency_safe=True,
+                required_tier=PermissionTier.READ_ONLY,
                 category="search",
                 max_result_size_chars=20_000,
                 user_facing_name="Search",
@@ -116,6 +125,7 @@ class TestBaseToolMetadata:
         assert bt.is_read_only is True
         assert bt.is_concurrency_safe is True
         assert bt.is_destructive is False
+        assert bt.required_tier is PermissionTier.READ_ONLY
         assert bt.tool_category == "search"
         assert bt.max_result_size_chars == 20_000
         assert bt.user_facing_name == "Search"
@@ -148,6 +158,7 @@ class TestToolDecoratorMetadata:
             required=[],
             is_read_only=True,
             is_concurrency_safe=True,
+            required_tier=PermissionTier.READ_ONLY,
         )
         async def test_fn():
             pass
@@ -157,6 +168,7 @@ class TestToolDecoratorMetadata:
         assert meta.is_read_only is True
         assert meta.is_concurrency_safe is True
         assert meta.is_destructive is False  # Default
+        assert meta.required_tier is PermissionTier.READ_ONLY
 
     def test_decorator_default_metadata_is_fail_closed(self):
         @tool(
@@ -172,6 +184,7 @@ class TestToolDecoratorMetadata:
         assert meta.is_read_only is False
         assert meta.is_concurrency_safe is False
         assert meta.is_destructive is False
+        assert meta.required_tier is PermissionTier.DANGER
 
     def test_decorator_destructive_flag(self):
         @tool(

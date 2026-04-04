@@ -22,6 +22,8 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from app.domain.models.tool_permission import PermissionTier
+
 if TYPE_CHECKING:
     from app.domain.models.plan import Plan, Step
     from app.domain.services.agents.base import BaseAgent
@@ -45,6 +47,7 @@ class FlowStepExecutor:
     """
 
     __slots__ = (
+        "_active_tier",
         "_agent_factory",
         "_agent_id",
         "_agent_registry",
@@ -74,9 +77,18 @@ class FlowStepExecutor:
         self._agent_id: str = agent_id
         self._session_id: str = session_id
         self._enable_multi_agent: bool = enable_multi_agent
+        self._active_tier: PermissionTier = PermissionTier.DANGER
         self._agent_registry = agent_registry
         self._agent_factory = agent_factory
         self._specialized_agents: dict[str, BaseAgent] = {}
+        self._default_executor.set_active_tier(self._active_tier)
+
+    def set_active_tier(self, tier: PermissionTier) -> None:
+        """Apply the current permission tier to default and cached executors."""
+        self._active_tier = tier
+        self._default_executor.set_active_tier(tier)
+        for agent in self._specialized_agents.values():
+            agent.set_active_tier(tier)
 
     # ── Agent Selection ────────────────────────────────────────────────
 
@@ -157,6 +169,7 @@ class FlowStepExecutor:
                             f"{self._agent_id}_{agent_type.value}",
                             spec,
                         )
+                        agent.set_active_tier(self._active_tier)
                         self._specialized_agents[cache_key] = agent
                         logger.info(f"Created specialized {agent_type.value} agent for step")
                     return self._specialized_agents[cache_key]
@@ -180,6 +193,7 @@ class FlowStepExecutor:
                         f"{self._agent_id}_{best_spec.agent_type.value}",
                         best_spec,
                     )
+                    agent.set_active_tier(self._active_tier)
                     self._specialized_agents[cache_key] = agent
                     logger.info(
                         f"Selected specialized {best_spec.agent_type.value} agent "

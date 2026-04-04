@@ -461,6 +461,29 @@ class TestEventSerialization:
         assert sse_event.event == "stream"
         assert getattr(sse_event.data, "phase", None) == "summarizing"
 
+    @pytest.mark.asyncio
+    async def test_usage_event_maps_to_sse_payload(self):
+        """Test UsageEvent is preserved through SSE mapping."""
+        from app.domain.models.event import UsageEvent
+
+        event = UsageEvent(
+            iterations=3,
+            prompt_tokens=120,
+            completion_tokens=45,
+            estimated_cost_usd=0.0025,
+            duration_seconds=1.75,
+        )
+
+        sse_event = await EventMapper.event_to_sse_event(event)
+
+        assert sse_event is not None
+        assert sse_event.event == "usage"
+        assert sse_event.data.iterations == 3
+        assert sse_event.data.prompt_tokens == 120
+        assert sse_event.data.completion_tokens == 45
+        assert sse_event.data.estimated_cost_usd == 0.0025
+        assert sse_event.data.duration_seconds == 1.75
+
     def test_tool_event_json_serialization(self):
         """Test ToolEvent JSON serialization."""
         event = create_tool_event(

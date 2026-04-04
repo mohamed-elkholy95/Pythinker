@@ -16,6 +16,7 @@ from app.domain.models.agent import Agent
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent, StepEvent, StepStatus, ToolEvent
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.orchestration.agent_types import (
@@ -212,9 +213,16 @@ class DefaultAgentFactory:
         self._browser = browser
         self._search_engine = search_engine
         self._mcp_tool = mcp_tool
+        self._active_tier = PermissionTier.DANGER
 
         # Cache of created agents
         self._agents: dict[str, SwarmAgent] = {}
+
+    def set_active_tier(self, tier: PermissionTier) -> None:
+        """Apply a live permission tier to existing and future agents."""
+        self._active_tier = tier
+        for agent in self._agents.values():
+            self._apply_active_tier(agent)
 
     async def create_agent(
         self,
@@ -253,9 +261,15 @@ class DefaultAgentFactory:
         )
 
         self._agents[agent_id] = agent
+        self._apply_active_tier(agent)
         logger.info(f"Created swarm agent: {agent_type.value} ({agent_id[:8]})")
 
         return agent
+
+    def _apply_active_tier(self, agent: BaseAgent) -> None:
+        """Apply the current tier to an agent when it supports tier sync."""
+        if hasattr(agent, "set_active_tier"):
+            agent.set_active_tier(self._active_tier)
 
     async def _ensure_agent_document_exists(self, agent_id: str) -> None:
         """Ensure an agent document exists in the database.
@@ -426,6 +440,7 @@ class SpecializedAgentFactory(DefaultAgentFactory):
                 tools=tools,
             )
             self._agents[agent_id] = agent
+            self._apply_active_tier(agent)
             logger.info(f"Created custom agent: {agent_type.value} ({agent_id[:8]})")
             return agent
 

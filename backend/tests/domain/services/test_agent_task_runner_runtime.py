@@ -13,8 +13,12 @@ import app.domain.utils.markdown_to_pdf as markdown_to_pdf
 from app.domain.models.event import MessageEvent, ReportEvent, ToolEvent, ToolStatus, WaitEvent
 from app.domain.models.message import Message
 from app.domain.models.session import AgentMode, ResearchMode
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.middleware import MiddlewareContext, MiddlewareSignal, ToolCallInfo
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class _FlowWithExecutor:
@@ -28,6 +32,54 @@ class _FlowWithExecutor:
     async def run(self, _message: Message) -> AsyncGenerator[object, None]:
         for event in self._events:
             yield event
+
+
+class _PermissionTestTool(BaseTool):
+    name = "permission_test"
+
+    @tool(
+        name="shell_exec",
+        description="Run a shell command",
+        parameters={},
+        required=[],
+        required_tier=PermissionTier.DANGER,
+    )
+    async def shell_exec(self) -> None:
+        return None
+
+
+class _PermissionFlow:
+    def __init__(self) -> None:
+        self.executor = ExecutionAgent(
+            agent_id="agent-rt",
+            agent_repository=AsyncMock(),
+            llm=MagicMock(),
+            tools=[_PermissionTestTool()],
+            json_parser=MagicMock(),
+            feature_flags={},
+        )
+        self.executor._session_id = "session-rt"
+        self.planner = MagicMock()
+        self._task_state_manager = MagicMock()
+        self._task_state_manager._file_path = "/home/ubuntu/task_state.md"
+
+    def set_active_permission_tier(self, tier: PermissionTier) -> None:
+        self.planner.set_active_tier(tier)
+        self.executor.set_active_tier(tier)
+
+    async def run(self, _message: Message) -> AsyncGenerator[object, None]:
+        if False:
+            yield None
+
+
+class _TierSyncFlow:
+    def __init__(self, initial_tier: PermissionTier = PermissionTier.DANGER) -> None:
+        self.active_tier = initial_tier
+        self.synced_tiers: list[PermissionTier] = []
+
+    def set_active_permission_tier(self, tier: PermissionTier) -> None:
+        self.synced_tiers.append(tier)
+        self.active_tier = tier
 
 
 def _build_runner(monkeypatch: pytest.MonkeyPatch, flow: _FlowWithExecutor) -> AgentTaskRunner:
@@ -249,3 +301,62 @@ async def test_run_flow_surfaces_runtime_clarification_without_entering_flow(
     assert events[0].message == "[?] Which option should I use?"
     assert isinstance(events[1], WaitEvent)
     flow.run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_runtime_permission_tier_blocks_dangerous_tool_for_non_elevated_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _PermissionFlow()
+    runner = _build_runner(monkeypatch, flow)
+    runner._session_repository.find_by_id = AsyncMock(
+        return_value=MagicMock(resolved_active_tier=MagicMock(return_value=PermissionTier.READ_ONLY))
+    )
+
+    await runner._sync_runtime_permission_tier()
+
+    result = await flow.executor._pipeline.run_before_tool_call(
+        MiddlewareContext(
+            agent_id="agent-rt",
+            session_id="session-rt",
+            active_tier=flow.executor._active_tier,
+        ),
+        ToolCallInfo(call_id="call-1", function_name="shell_exec", arguments={}),
+    )
+
+    assert flow.executor._active_tier is PermissionTier.READ_ONLY
+    assert result.signal == MiddlewareSignal.SKIP_TOOL
+    assert "danger-full-access" in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_sync_runtime_permission_tier_applies_to_coordinator_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _build_runner(monkeypatch, _FlowWithExecutor())
+    coordinator_flow = _TierSyncFlow()
+    runner._plan_act_flow = None
+    runner._coordinator_flow = coordinator_flow
+    runner._session_repository.find_by_id = AsyncMock(
+        return_value=MagicMock(resolved_active_tier=MagicMock(return_value=PermissionTier.READ_ONLY))
+    )
+
+    await runner._sync_runtime_permission_tier()
+
+    assert coordinator_flow.synced_tiers == [PermissionTier.READ_ONLY]
+    assert coordinator_flow.active_tier is PermissionTier.READ_ONLY
+
+
+@pytest.mark.asyncio
+async def test_sync_runtime_permission_tier_does_not_escalate_when_session_lookup_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _TierSyncFlow(initial_tier=PermissionTier.READ_ONLY)
+    runner = _build_runner(monkeypatch, _FlowWithExecutor())
+    runner._plan_act_flow = flow
+    runner._session_repository.find_by_id = AsyncMock(return_value=None)
+
+    await runner._sync_runtime_permission_tier()
+
+    assert flow.synced_tiers == []
+    assert flow.active_tier is PermissionTier.READ_ONLY

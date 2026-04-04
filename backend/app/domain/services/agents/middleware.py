@@ -12,6 +12,7 @@ from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from app.domain.models.event import BaseEvent
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.models.tool_result import ToolResult
 
 
@@ -36,6 +37,7 @@ class MiddlewareContext:
     elapsed_seconds: float = 0.0
     wall_clock_budget: float = 600.0
     token_budget_ratio: float = 0.0
+    active_tier: PermissionTier = PermissionTier.DANGER
     active_phase: str | None = None
     research_depth: str | None = None
     step_start_time: float = 0.0

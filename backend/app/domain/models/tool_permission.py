@@ -8,12 +8,30 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 
 
 class PermissionAction(StrEnum):
     ALLOW = "allow"
     DENY = "deny"
+
+
+class PermissionTier(IntEnum):
+    """Ordered permission tiers for tool execution."""
+
+    READ_ONLY = 0
+    SANDBOX_WRITE = 1
+    WORKSPACE_WRITE = 2
+    DANGER = 3
+
+    def as_str(self) -> str:
+        """Return the external label used in user-facing messages."""
+        return {
+            PermissionTier.READ_ONLY: "read-only",
+            PermissionTier.SANDBOX_WRITE: "sandbox-write",
+            PermissionTier.WORKSPACE_WRITE: "workspace-write",
+            PermissionTier.DANGER: "danger-full-access",
+        }[self]
 
 
 @dataclass(frozen=True)

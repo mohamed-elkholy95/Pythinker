@@ -444,6 +444,34 @@ describe('ChatMessage', () => {
       expect(wrapper.find('.assistant-header-row').exists()).toBe(true)
       expect(wrapper.find('.assistant-message-content').exists()).toBe(false)
     })
+
+    it('does not render assistant placeholder rows with no visible content', () => {
+      const placeholderAssistantMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-placeholder-message',
+        content: {
+          ...mockAssistantMessage.content,
+          content: '   ',
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: placeholderAssistantMessage,
+          showAssistantHeader: false,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.assistant-header-row').exists()).toBe(false)
+      expect(wrapper.find('.assistant-message-content').exists()).toBe(false)
+      expect(wrapper.text()).toBe('')
+    })
   })
 
   describe('Tool messages', () => {
@@ -462,6 +490,38 @@ describe('ChatMessage', () => {
 
       const toolUse = wrapper.findComponent({ name: 'ToolUse' })
       expect(toolUse.exists()).toBe(true)
+    })
+
+    it('hides repeated skill headers while keeping the skill body visible', () => {
+      const skillToolMessage = {
+        id: 'skill-tool-message',
+        type: 'tool',
+        content: {
+          tool_call_id: 'skill-1',
+          name: 'skill_invoke',
+          function: 'skill_invoke',
+          args: { skill_name: 'research' },
+          status: 'calling',
+          timestamp: Date.now(),
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: skillToolMessage,
+          showSkillHeader: false,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.step-compact-header--skill').exists()).toBe(false)
+      expect(wrapper.find('.skill-tool-continuation').exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'ToolUse' }).exists()).toBe(true)
     })
   })
 

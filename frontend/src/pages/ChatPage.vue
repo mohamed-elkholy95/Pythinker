@@ -682,6 +682,7 @@ import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
 import { shouldShowEmptySessionState as shouldShowChatEmptySessionState } from '@/utils/chatEmptyState';
 import {
+  hasRenderableAssistantContent,
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
@@ -2547,6 +2548,18 @@ const removeRedundantAssistantAttachmentMessages = (reportAttachments: FileInfo[
   }
 };
 
+const appendIncomingAttachmentsMessage = (messageData: MessageEventData): void => {
+  if (messageData.attachments?.length <= 0) return;
+
+  messages.value.push({
+    id: generateMessageId(),
+    type: 'attachments',
+    content: {
+      ...messageData
+    } as AttachmentsContent,
+  });
+};
+
 const isInternalContextMessage = (messageData: MessageEventData): boolean => {
   const content = (messageData.content || '').trimStart();
   if (!content) return false;
@@ -2560,6 +2573,11 @@ const isInternalContextMessage = (messageData: MessageEventData): boolean => {
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
   if (isInternalContextMessage(messageData)) {
+    return;
+  }
+
+  if (messageData.role === 'assistant' && !hasRenderableAssistantContent(messageData.content)) {
+    appendIncomingAttachmentsMessage(messageData);
     return;
   }
 
@@ -2642,13 +2660,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   }
 
   if (messageData.attachments?.length > 0) {
-    messages.value.push({
-      id: generateMessageId(),
-      type: 'attachments',
-      content: {
-        ...messageData
-      } as AttachmentsContent,
-    });
+    appendIncomingAttachmentsMessage(messageData);
   }
 }
 

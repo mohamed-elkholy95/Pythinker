@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.agents.security_assessor import (
     ActionSecurityRisk,
     SecurityAssessment,
@@ -203,6 +204,30 @@ class TestAssessAction:
         for fn in ["read_file", "write_file", "exec_cmd", "fetch_url"]:
             result = assessor.assess_action(fn, {"arg": "value"})
             assert result.risk_level is ActionSecurityRisk.LOW
+
+    def test_blocks_when_required_tier_exceeds_active_tier(self):
+        assessor = SecurityAssessor()
+        result = assessor.assess_action(
+            "shell_exec",
+            {},
+            active_tier=PermissionTier.READ_ONLY,
+            required_tier=PermissionTier.DANGER,
+        )
+        assert result.blocked is True
+        assert result.risk_level is ActionSecurityRisk.HIGH
+        assert "danger-full-access" in result.reason
+        assert "read-only" in result.reason
+
+    def test_allows_when_active_tier_meets_required_tier(self):
+        assessor = SecurityAssessor()
+        result = assessor.assess_action(
+            "file_write",
+            {},
+            active_tier=PermissionTier.WORKSPACE_WRITE,
+            required_tier=PermissionTier.WORKSPACE_WRITE,
+        )
+        assert result.blocked is False
+        assert result.risk_level is ActionSecurityRisk.LOW
 
 
 class TestGetRiskSummary:

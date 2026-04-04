@@ -51,6 +51,7 @@ from app.domain.models.plan import ExecutionStatus, PlanQualityAnalyzer, Step, S
 from app.domain.models.request_contract import RequestContract
 from app.domain.models.session import SessionStatus
 from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
@@ -721,6 +722,15 @@ class PlanActFlow(BaseFlow):
             research_mode,
             self._session_id,
         )
+
+    def set_active_permission_tier(self, tier: PermissionTier) -> None:
+        """Apply the live session permission tier to all execution agents."""
+        self.planner.set_active_tier(tier)
+        self._flow_step_executor.set_active_tier(tier)
+        if self.verifier is not None:
+            self.verifier.set_active_tier(tier)
+        if getattr(self, "reflection_agent", None) is not None:
+            self.reflection_agent.set_active_tier(tier)
 
     async def _check_cancelled(self) -> None:
         """Raise CancelledError when cancellation has been requested."""

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from app.domain.models.tool_permission import PermissionTier
+
 
 class ActionSecurityRisk(str, Enum):
     """Risk levels for agent actions."""
@@ -24,9 +26,9 @@ class SecurityAssessment:
     reason: str
     risk_level: ActionSecurityRisk
     requires_confirmation: bool = False
-    suggestions: list = None
+    suggestions: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.suggestions is None:
             self.suggestions = []
 
@@ -56,7 +58,14 @@ class SecurityAssessor:
         self._blocked_count = 0
         self._high_risk_count = 0
 
-    def assess_action(self, function_name: str, arguments: dict[str, Any]) -> SecurityAssessment:
+    def assess_action(
+        self,
+        function_name: str,
+        arguments: dict[str, Any],
+        *,
+        active_tier: PermissionTier | None = None,
+        required_tier: PermissionTier | None = None,
+    ) -> SecurityAssessment:
         """
         Assess the security risk of a proposed action.
 
@@ -67,11 +76,20 @@ class SecurityAssessor:
         Returns:
             SecurityAssessment object containing decision and risk level
 
-        Note:
-            Since agents run in isolated sandbox containers, all actions are allowed.
-            The sandbox provides the security boundary, not this assessor.
         """
-        # All actions allowed - sandbox provides isolation
+        if active_tier is not None and required_tier is not None and required_tier > active_tier:
+            self._blocked_count += 1
+            self._high_risk_count += 1
+            return SecurityAssessment(
+                blocked=True,
+                reason=(
+                    f"tool '{function_name}' requires {required_tier.as_str()} permission; "
+                    f"current mode is {active_tier.as_str()}"
+                ),
+                risk_level=ActionSecurityRisk.HIGH,
+                requires_confirmation=False,
+            )
+
         return SecurityAssessment(
             blocked=False,
             reason="Action allowed in sandboxed environment",
