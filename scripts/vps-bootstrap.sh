@@ -30,6 +30,9 @@ else
   cd "$DEPLOY_DIR"
 fi
 
+echo "[preflight] Validating compose configs..."
+"$DEPLOY_DIR/scripts/validate_compose_configs.sh"
+
 # 2. Check .env exists
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
   echo ""

@@ -62,6 +62,9 @@ jobs:
             deploy_config:
               - 'docker-compose-deploy.yml'
 
+      - name: Validate compose configs
+        run: ./scripts/validate_compose_configs.sh
+
       - name: Check if any app service changed
         id: check
         run: |
