@@ -5,6 +5,10 @@
 **Author:** Mohamed Elkholy
 
 > Historical context only. The current `docker-compose-deploy.yml` in this repo has been converted to a watch-free dev-style stack with direct Docker service startup, not Dokploy + Traefik + GHCR image pulls.
+>
+> Authoritative current sources:
+> - `docker-compose-deploy.yml`
+> - `docs/architecture/PRODUCTION_DEPLOYMENT.md`
 
 ## Architecture
 

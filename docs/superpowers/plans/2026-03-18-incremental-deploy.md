@@ -1,6 +1,10 @@
 # Historical: Incremental Deploy Migration — Implementation Plan
 
 > **Historical context only.** This plan reflects the earlier Dokploy/GHCR migration path and is no longer the current deployment workflow. The live `docker-compose-deploy.yml` now runs a watch-free dev-style stack directly.
+>
+> Current authoritative sources:
+> - `docker-compose-deploy.yml`
+> - `docs/architecture/PRODUCTION_DEPLOYMENT.md`
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
