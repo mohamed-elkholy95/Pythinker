@@ -85,9 +85,9 @@ services:
       - SANDBOX_LIFECYCLE_MODE=static
       - SANDBOX_ADDRESS=sandbox
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
-      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
-      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
-      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin
+      - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD:-pythinker_admin_password_change_me}
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
       - REDIS_PASSWORD=
@@ -145,9 +145,9 @@ services:
       - SANDBOX_LIFECYCLE_MODE=static
       - SANDBOX_ADDRESS=sandbox
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
-      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
-      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
-      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin
+      - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD:-pythinker_admin_password_change_me}
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
       - REDIS_PASSWORD=
@@ -260,8 +260,8 @@ services:
     image: mongo:7.0.31
     command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-pythinker_admin_password_change_me}
     mem_limit: 512m
     ulimits:
       nofile:
