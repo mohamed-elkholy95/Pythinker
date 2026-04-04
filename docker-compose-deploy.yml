@@ -98,7 +98,7 @@ services:
       - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
       - LOG_FORMAT=${LOG_FORMAT:-json}
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health/live >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

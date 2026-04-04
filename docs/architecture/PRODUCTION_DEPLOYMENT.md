@@ -4,6 +4,8 @@
 
 `docker-compose-deploy.yml` is now the watch-free deployment entrypoint for both local and VPS-style runs. It matches the dev container layout and startup behavior, but does not use Compose Watch.
 
+The backend container healthcheck uses the liveness probe (`/api/v1/health/live`) so the container is marked healthy when the process is running, while the richer `/api/v1/health` endpoint still reports dependency state for debugging.
+
 The stack runs as direct Docker services:
 
 - `frontend`: Vite dev server on `5174`
