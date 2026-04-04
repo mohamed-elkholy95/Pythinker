@@ -176,7 +176,6 @@ services:
   # Sandbox — Isolated Docker Execution Environment
   # ---------------------------------------------------------------------------
   sandbox:
-    profiles: ["static-sandbox"]
     image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
     build:
       context: ./sandbox
