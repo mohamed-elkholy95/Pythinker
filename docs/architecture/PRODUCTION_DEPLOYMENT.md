@@ -75,6 +75,14 @@ cp .env.example .env.production
 
 ### 3. Build images
 
+Before deploying, validate the compose files:
+
+```bash
+./scripts/validate_compose_configs.sh
+```
+
+This runs the same `docker compose ... config --no-interpolate` check used by CI and the VPS bootstrap script, which catches broken service references like the sandbox dependency issue before rollout.
+
 ```bash
 docker compose -f docker-compose-production.yml build
 ```
