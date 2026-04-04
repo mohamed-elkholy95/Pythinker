@@ -46,9 +46,9 @@ The system demonstrates strong infrastructure stability (zero crashes, zero OOM 
 
 ### P0-4: Frontend Serves Zero Security Headers in Production
 - **Stream:** Security (4) + Cross-validation
-- **Details:** Neither `docker-compose-deploy.yml` nor `docker-compose-production.yml` configures Traefik to inject security headers for the frontend. The backend has its own middleware, but the frontend (Vite/nginx) has no headers.
-- **Fix:** Add Traefik middleware labels for security headers on the frontend service in both deploy compose files.
-- **Files:** `docker-compose-deploy.yml`, `docker-compose-production.yml`
+- **Details:** This finding applied to the earlier Traefik/Dokploy deployment model. The current `docker-compose-deploy.yml` no longer uses Traefik, so this item is historical and should not be treated as a live requirement for the current compose file.
+- **Fix:** If the repo reintroduces a reverse proxy deployment path, add security headers at that proxy boundary. For the current stack, handle headers in the frontend/server layer instead.
+- **Files:** historical reference only
 
 ---
 

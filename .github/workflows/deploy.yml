@@ -159,7 +159,7 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.component }},mode=max
 
   # ---------------------------------------------------------------------------
-  # Deployment is handled by Dokploy (pulls pre-built images from GHCR).
+  # Deployment now follows the watch-free compose bootstrap flow.
   # The CI SSH deploy job was removed to prevent dual-stack volume conflicts.
   # See commit history for the original deploy job if restoration is needed.
   # ---------------------------------------------------------------------------
