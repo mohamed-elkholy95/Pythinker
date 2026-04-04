@@ -22,11 +22,10 @@ def test_openrouter_config():
     print(f"Model Name: {settings.model_name}")
     print(f"Temperature: {settings.temperature}")
     print(f"Max Tokens: {settings.max_tokens}")
-    print(
-        f"API Key: {settings.api_key[:20]}..."
-        if settings.api_key
-        else "API Key: Not set"
-    )
+    if settings.api_key:
+        print(f"API Key: Set (redacted, length={len(settings.api_key)})")
+    else:
+        print("API Key: Not set")
     print("=" * 60)
 
     # Verify OpenRouter settings
