@@ -49,7 +49,7 @@
       </div>
     </div>
   </div>
-  <template v-else-if="message.type === 'assistant'">
+  <template v-else-if="message.type === 'assistant' && !isHiddenAssistantPlaceholder">
     <div
       v-if="props.renderAsSummaryCard"
       class="chat-message-entry assistant-summary-card-block flex flex-col gap-1 w-full group mt-2"
@@ -172,27 +172,45 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <div v-else-if="message.type === 'tool'" class="chat-message-entry standalone-tool-row mt-1">
+  <div
+    v-else-if="message.type === 'tool'"
+    :class="[
+      'chat-message-entry standalone-tool-row',
+      isSkillContinuation ? 'standalone-tool-row--skill-continuation' : 'mt-1',
+    ]"
+  >
     <!-- Skill invoke: render as mini-step aligned with step flow -->
-    <div v-if="toolContent.function === 'skill_invoke'" class="step-compact step-compact--has-connector">
-      <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
-        <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
-          <span class="step-running-dot" aria-hidden="true"></span>
+    <template v-if="toolContent.function === 'skill_invoke'">
+      <div v-if="props.showSkillHeader !== false" class="step-compact step-compact--has-connector">
+        <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
+          <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
+            <span class="step-running-dot" aria-hidden="true"></span>
+          </div>
+          <div v-else class="step-compact-icon step-compact-icon--done">
+            <CheckIcon :size="10" :stroke-width="2.5" />
+          </div>
+          <span class="step-compact-title step-compact-title--skill">
+            {{ toolContent.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.display_command || 'Working') }}
+          </span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="step-compact-chevron rotate-180">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
         </div>
-        <div v-else class="step-compact-icon step-compact-icon--done">
-          <CheckIcon :size="10" :stroke-width="2.5" />
+        <div class="step-compact-body step-compact-body--open">
+          <div class="step-compact-tools">
+            <ToolUse
+              :tool="toolContent"
+              :is-active="true"
+              :show-fast-search-inline="false"
+              @click="handleToolClick(toolContent)"
+            />
+          </div>
         </div>
-        <span class="step-compact-title step-compact-title--skill">
-          {{ toolContent.name === 'skill_invoke' ? 'Pythinker is working' : (toolContent.display_command || 'Working') }}
-        </span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-          class="step-compact-chevron rotate-180">
-          <path d="m6 9 6 6 6-6"></path>
-        </svg>
       </div>
-      <div class="step-compact-body step-compact-body--open">
-        <div class="step-compact-tools">
+      <div v-else class="skill-tool-continuation">
+        <div class="skill-tool-continuation-inner">
           <ToolUse
             :tool="toolContent"
             :is-active="true"
@@ -201,7 +219,7 @@
           />
         </div>
       </div>
-    </div>
+    </template>
     <!-- Regular standalone tool -->
     <div v-else class="standalone-tool-pill">
       <ToolUse
@@ -377,7 +395,7 @@ import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import FinalizationStepCard from './FinalizationStepCard.vue';
 import { copyToClipboard } from '../utils/dom';
-import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
+import { hasRenderableAssistantContent, isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 import { groupConsecutiveTools } from '../composables/useToolGrouping';
 import { normalizeTimestampSeconds } from '../utils/time';
 import { stripLeakedToolCallMarkup } from '@/utils/messageSanitizer';
@@ -496,6 +514,16 @@ const showStepThinking = computed(() => {
 const isAssistantSummaryCompact = computed(() => {
   if (props.message.type !== 'assistant') return false;
   return isStructuredSummaryAssistantMessage(assistantDisplayContent.value);
+});
+
+const isHiddenAssistantPlaceholder = computed(() => {
+  if (props.message.type !== 'assistant') return false;
+  return !hasRenderableAssistantContent(assistantDisplayContent.value);
+});
+
+const isSkillContinuation = computed(() => {
+  if (props.message.type !== 'tool') return false;
+  return toolContent.value.function === 'skill_invoke' && props.showSkillHeader === false;
 });
 
 // Convert ReportContent to ReportData for the component
@@ -783,8 +811,37 @@ watch(
   /* No padding — skill_invoke uses step-compact layout */
 }
 
+.standalone-tool-row--skill-continuation {
+  margin-top: 0;
+}
+
 .standalone-tool-pill {
   padding-left: 38px;
+}
+
+.skill-tool-continuation {
+  position: relative;
+  padding-left: 38px;
+  padding-top: 2px;
+}
+
+.skill-tool-continuation::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: -8px;
+  bottom: -6px;
+  width: 0;
+  border-left: 1.5px dashed var(--border-dark);
+  pointer-events: none;
+}
+
+.skill-tool-continuation-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
 }
 
 .step-compact-header--skill {

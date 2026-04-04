@@ -114,8 +114,6 @@ claude-code-backup/
 # ─── Internal Dev Docs (local-only) ──────────────────────────────────────────
 .tmp-*
 *.mov
-nanobot-main
-openclaw-main
 design*.html
 Pythinker/
 reference/

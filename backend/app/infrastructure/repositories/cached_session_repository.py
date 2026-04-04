@@ -13,6 +13,7 @@ from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, Session, SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agents.session_migrator import migrate_session
 from app.infrastructure.external.cache.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class CachedSessionRepository(SessionRepository):
         with contextlib.suppress(Exception):
             cached = await self._cache.get(self._cache_key(session_id))
             if cached is not None:
-                return Session.model_validate(cached)
+                return Session.model_validate(migrate_session(cached))
         return None
 
     # --- Write methods (delegate + invalidate) ---

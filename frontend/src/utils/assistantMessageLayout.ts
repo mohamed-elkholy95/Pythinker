@@ -1,6 +1,8 @@
 import type { Message, MessageContent, StepContent } from '../types/message';
+import { stripLeakedToolCallMarkup } from './messageSanitizer';
 
 const STRUCTURED_SUMMARY_MIN_LENGTH = 160;
+const INLINE_TOOL_CALL_PLACEHOLDER_RE = /^\s*\[\[(?:TOOL_CALL|FUNCTION_CALL):[\s\S]*\]\]\s*$/i;
 const REPORT_HANDOFF_CUE_PATTERNS: ReadonlyArray<RegExp> = [
   /\breport\s+covers\b/i,
   /\bdetailed\s+report\b/i,
@@ -13,6 +15,13 @@ const REPORT_SECTION_STRUCTURE_PATTERNS: ReadonlyArray<RegExp> = [
   /(^|\n)\s*\*\*[^*\n]{3,80}:\*\*/m,
   /(^|\n)\s*[-*]\s+\*\*[^*\n]{3,80}\*\*/m,
 ];
+
+export const hasRenderableAssistantContent = (text: string | null | undefined): boolean => {
+  if (!text) return false;
+  if (INLINE_TOOL_CALL_PLACEHOLDER_RE.test(text)) return false;
+
+  return stripLeakedToolCallMarkup(text).trim().length > 0;
+};
 
 /**
  * Detects structured summary-style assistant text that should be displayed as
@@ -62,6 +71,9 @@ export const shouldShowAssistantHeaderForMessage = (
   const currentMessage = messages[messageIndex];
   if (!currentMessage || currentMessage.type !== 'assistant') return false;
 
+  const assistantText = (currentMessage.content as MessageContent).content || '';
+  if (!hasRenderableAssistantContent(assistantText)) return false;
+
   const previousMessage = messages[messageIndex - 1];
   if (!previousMessage) return true;
 
@@ -70,11 +82,10 @@ export const shouldShowAssistantHeaderForMessage = (
 
   // For step/tool transitions, show header only for summary/report hand-off text.
   if (previousMessage.type === 'step' || previousMessage.type === 'tool') {
-    const assistantText = ((currentMessage.content as MessageContent).content || '').trim();
     const nextMessage = messages[messageIndex + 1];
     const transitionsIntoReport = nextMessage?.type === 'report';
 
-    return isStructuredSummaryAssistantMessage(assistantText) || transitionsIntoReport;
+    return isStructuredSummaryAssistantMessage(stripLeakedToolCallMarkup(assistantText)) || transitionsIntoReport;
   }
 
   return true;

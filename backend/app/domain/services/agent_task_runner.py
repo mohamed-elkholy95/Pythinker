@@ -40,6 +40,7 @@ from app.domain.models.event import (
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
 from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, ResearchMode, SessionStatus
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
@@ -93,6 +94,21 @@ def _extract_mcp_server_name(tool_name: str | None) -> str | None:
     if len(parts) >= 3 and parts[0] == "mcp":
         return parts[1]
     return None
+
+
+def _resolve_session_active_tier(session: object | None) -> PermissionTier:
+    """Resolve the live permission tier from a session-like object."""
+    if session is None:
+        return PermissionTier.DANGER
+
+    resolver = getattr(session, "resolved_active_tier", None)
+    if callable(resolver):
+        return resolver()
+
+    elevated_mode = getattr(session, "elevated_mode", None)
+    if isinstance(elevated_mode, str) and elevated_mode.strip().lower() == "off":
+        return PermissionTier.READ_ONLY
+    return PermissionTier.DANGER
 
 
 class AgentTaskRunner(TaskRunner):
@@ -607,6 +623,23 @@ class AgentTaskRunner(TaskRunner):
             self._init_plan_act_flow()
 
         await self._session_repository.update_mode(self._session_id, AgentMode.AGENT)
+
+    async def _sync_runtime_permission_tier(self) -> None:
+        """Bind the persisted session permission mode into the live execution flows."""
+        session = await self._session_repository.find_by_id(self._session_id)
+        if session is None:
+            logger.warning(
+                "Agent %s could not load session %s for permission sync; keeping current runtime tier",
+                self._agent_id,
+                self._session_id,
+            )
+            return
+
+        active_tier = _resolve_session_active_tier(session)
+        for flow in (self._plan_act_flow, self._coordinator_flow):
+            if flow is None or not hasattr(flow, "set_active_permission_tier"):
+                continue
+            flow.set_active_permission_tier(active_tier)
 
     @property
     def _flow(self) -> BaseFlow | None:
@@ -2072,6 +2105,8 @@ class AgentTaskRunner(TaskRunner):
             yield ErrorEvent(error="No message")
             return
 
+        await self._sync_runtime_permission_tier()
+
         mode_switch_task: str | None = None
 
         # Deal intent can dynamically switch deep_research -> deal_finding to avoid
@@ -2191,6 +2226,8 @@ class AgentTaskRunner(TaskRunner):
                 attachments=message.attachments,
                 skills=message.skills,
             )
+
+            await self._sync_runtime_permission_tier()
 
             # Run through Agent mode flow
             async with self._usage_context():

@@ -794,6 +794,21 @@ class PartialResultSSEEvent(BaseSSEEvent):
         )
 
 
+class UsageEventData(BaseEventData):
+    """SSE data for per-turn usage summaries."""
+
+    iterations: int
+    prompt_tokens: int
+    completion_tokens: int
+    estimated_cost_usd: float
+    duration_seconds: float
+
+
+class UsageSSEEvent(BaseSSEEvent):
+    event: Literal["usage"] = "usage"
+    data: UsageEventData
+
+
 AgentSSEEvent = Annotated[
     PlanSSEEvent
     | MessageSSEEvent
@@ -817,6 +832,7 @@ AgentSSEEvent = Annotated[
     | ThoughtSSEEvent
     | WorkspaceSSEEvent
     | MCPHealthSSEEvent
+    | UsageSSEEvent
     | EvalMetricsSSEEvent,
     Field(discriminator="event"),
 ]

@@ -815,6 +815,21 @@ class BudgetEvent(BaseEvent):
     session_paused: bool = False
 
 
+class UsageEvent(BaseEvent):
+    """End-of-turn usage/cost summary.
+
+    This is intended for surfacing turn-level usage to clients (SSE, logs) even
+    when the underlying provider does not supply precise billing data.
+    """
+
+    type: Literal["usage"] = "usage"
+    iterations: int
+    prompt_tokens: int
+    completion_tokens: int
+    estimated_cost_usd: float
+    duration_seconds: float
+
+
 class PhaseTransitionEvent(BaseEvent):
     """Phased research progress transition event."""
 
@@ -1011,6 +1026,7 @@ AgentEvent = Annotated[
         MultiTaskEvent,
         WorkspaceEvent,
         BudgetEvent,
+        UsageEvent,
         ProgressEvent,
         ComprehensionEvent,
         TaskRecreationEvent,

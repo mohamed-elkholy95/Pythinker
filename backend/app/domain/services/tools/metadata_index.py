@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.domain.models.tool_name import ToolName
+from app.domain.models.tool_permission import PermissionTier
 from app.domain.services.tools.base import ToolDefaults
 
 if TYPE_CHECKING:
@@ -93,6 +94,35 @@ class ToolMetadataIndex:
             return ToolName(function_name).is_action
         except ValueError:
             return False
+
+    def get_required_tier(self, function_name: str) -> PermissionTier:
+        """Return the minimum permission tier required for a tool function."""
+        meta = self._index.get(function_name)
+        if meta is not None:
+            if getattr(meta, "required_tier_explicit", False):
+                return meta.required_tier
+            if meta.is_read_only:
+                return PermissionTier.READ_ONLY
+            return meta.required_tier
+
+        try:
+            tool_name = ToolName(function_name)
+        except ValueError:
+            tool_name = None
+
+        if tool_name is not None and tool_name.is_read_only:
+            return PermissionTier.READ_ONLY
+
+        lowered = function_name.lower()
+        if ToolName.is_safe_mcp_tool(function_name):
+            return PermissionTier.READ_ONLY
+        if lowered.startswith("playwright_") or lowered.startswith("code_executor"):
+            return PermissionTier.SANDBOX_WRITE
+        if lowered.startswith("file_") or lowered.startswith("git_"):
+            return PermissionTier.WORKSPACE_WRITE
+        if lowered.startswith("browser_agent") or lowered.startswith("shell_"):
+            return PermissionTier.DANGER
+        return PermissionTier.DANGER
 
     def get_max_result_size(self, function_name: str) -> int:
         """Get the max result size for a function, defaulting to 8000."""

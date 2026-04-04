@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Message, ReportContent, StepContent } from '@/types/message'
 import {
+  hasRenderableAssistantContent,
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
@@ -56,6 +57,16 @@ The report covers:
 You can find the detailed report below.`
 
 describe('assistantMessageLayout', () => {
+  describe('hasRenderableAssistantContent', () => {
+    it('treats whitespace-only assistant text as non-renderable', () => {
+      expect(hasRenderableAssistantContent('   \n\t')).toBe(false)
+    })
+
+    it('treats leaked tool-call markup with no remaining text as non-renderable', () => {
+      expect(hasRenderableAssistantContent('[[TOOL_CALL:search {"query":"m3 ultra"}]]')).toBe(false)
+    })
+  })
+
   describe('isStructuredSummaryAssistantMessage', () => {
     it('detects long sectioned summary content', () => {
       expect(isStructuredSummaryAssistantMessage(structuredSummaryText)).toBe(true)
@@ -116,6 +127,15 @@ describe('assistantMessageLayout', () => {
       const messages: Message[] = [
         makeAssistantMessage('assistant-1', 'First response.'),
         makeAssistantMessage('assistant-2', 'Second response.'),
+      ]
+
+      expect(shouldShowAssistantHeaderForMessage(messages, 1)).toBe(false)
+    })
+
+    it('hides header for assistant placeholders with no visible content', () => {
+      const messages: Message[] = [
+        makeStepMessage('running'),
+        makeAssistantMessage('assistant-empty', '   '),
       ]
 
       expect(shouldShowAssistantHeaderForMessage(messages, 1)).toBe(false)

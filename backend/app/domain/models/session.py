@@ -9,6 +9,9 @@ from app.domain.models.file import FileInfo
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.plan import Plan
 from app.domain.models.project import ProjectContext
+from app.domain.models.tool_permission import PermissionTier
+
+CURRENT_SCHEMA_VERSION = 1
 
 
 class SessionStatus(str, Enum):
@@ -136,6 +139,7 @@ class Session(BaseModel):
     """Session model"""
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
+    schema_version: int = CURRENT_SCHEMA_VERSION
     user_id: str  # User ID that owns this session
     source: str = "web"  # Channel origin: "web" | "telegram" | "discord" | "cron" | "api"
     sandbox_id: str | None = Field(default=None)  # Identifier for the sandbox environment
@@ -199,6 +203,13 @@ class Session(BaseModel):
     thinking_level: ThinkingLevel | None = None
     verbose_mode: str | None = None  # off | on — controls verbose output
     elevated_mode: str | None = None  # off | on — controls elevated execution mode
+
+    def resolved_active_tier(self) -> PermissionTier:
+        """Resolve the live tool permission tier for this session."""
+        elevated_mode = (self.elevated_mode or "").strip().lower()
+        if elevated_mode == "off":
+            return PermissionTier.READ_ONLY
+        return PermissionTier.DANGER
 
     @field_validator("mode", mode="before")
     @classmethod

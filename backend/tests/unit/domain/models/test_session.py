@@ -5,6 +5,7 @@ sandbox_lifecycle_mode, takeover_reason coercion), serializers, and defaults.
 """
 
 from app.domain.models.session import (
+    CURRENT_SCHEMA_VERSION,
     AgentMode,
     PendingAction,
     PendingActionStatus,
@@ -17,6 +18,7 @@ from app.domain.models.session import (
     TakeoverState,
     ThinkingLevel,
 )
+from app.domain.models.tool_permission import PermissionTier
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -128,11 +130,45 @@ class TestSessionCreation:
         assert session.is_shared is False
         assert session.budget_paused is False
         assert session.budget_warning_threshold == 0.8
+        assert session.schema_version == CURRENT_SCHEMA_VERSION
 
     def test_unique_ids(self) -> None:
         sessions = [Session(user_id="u", agent_id="a") for _ in range(10)]
         ids = [s.id for s in sessions]
         assert len(ids) == len(set(ids))
+
+
+class TestSessionSchemaVersioning:
+    def test_schema_version_roundtrip(self) -> None:
+        session = Session(user_id="u", agent_id="a")
+        dumped = session.model_dump(mode="json")
+        loaded = Session.model_validate(dumped)
+        assert loaded.schema_version == CURRENT_SCHEMA_VERSION
+
+    def test_schema_version_persists_via_session_document(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from app.infrastructure.models.documents import SessionDocument
+
+        session = Session(user_id="u", agent_id="a")
+        with patch.object(SessionDocument, "get_pymongo_collection", create=True, return_value=MagicMock()):
+            doc = SessionDocument.from_domain(session)
+            loaded = doc.to_domain()
+            assert loaded.schema_version == CURRENT_SCHEMA_VERSION
+
+
+class TestSessionPermissionTier:
+    def test_elevated_off_maps_to_read_only(self) -> None:
+        session = Session(user_id="u", agent_id="a", elevated_mode="off")
+        assert session.resolved_active_tier() is PermissionTier.READ_ONLY
+
+    def test_elevated_on_maps_to_danger(self) -> None:
+        session = Session(user_id="u", agent_id="a", elevated_mode="on")
+        assert session.resolved_active_tier() is PermissionTier.DANGER
+
+    def test_unset_elevated_mode_defaults_to_danger(self) -> None:
+        session = Session(user_id="u", agent_id="a")
+        assert session.resolved_active_tier() is PermissionTier.DANGER
 
 
 # ── Validators ───────────────────────────────────────────────────────

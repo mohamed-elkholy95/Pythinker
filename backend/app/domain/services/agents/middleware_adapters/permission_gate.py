@@ -18,6 +18,7 @@ from app.domain.services.agents.middleware import (
     MiddlewareSignal,
     ToolCallInfo,
 )
+from app.domain.services.tools.metadata_index import ToolMetadataIndex
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,13 @@ class PermissionGateMiddleware(BaseMiddleware):
     When no policy is provided, all tools are allowed (fail-open default).
     """
 
-    def __init__(self, policy: PermissionPolicy | None = None) -> None:
+    def __init__(
+        self,
+        policy: PermissionPolicy | None = None,
+        tool_metadata_index: ToolMetadataIndex | None = None,
+    ) -> None:
         self._policy = policy or PermissionPolicy()
+        self._tool_metadata_index = tool_metadata_index
 
     @property
     def name(self) -> str:
@@ -56,4 +62,32 @@ class PermissionGateMiddleware(BaseMiddleware):
                 message=msg,
                 metadata={"blocked_by": "permission_gate", "tool": tool_call.function_name},
             )
+
+        if self._tool_metadata_index is None:
+            return MiddlewareResult.ok()
+
+        required_tier = self._tool_metadata_index.get_required_tier(tool_call.function_name)
+        if required_tier > ctx.active_tier:
+            message = (
+                f"tool '{tool_call.function_name}' requires {required_tier.as_str()} permission; "
+                f"current mode is {ctx.active_tier.as_str()}"
+            )
+            logger.info(
+                "PermissionGate blocked tool=%s session=%s active_tier=%s required_tier=%s",
+                tool_call.function_name,
+                ctx.session_id,
+                ctx.active_tier.as_str(),
+                required_tier.as_str(),
+            )
+            return MiddlewareResult(
+                signal=MiddlewareSignal.SKIP_TOOL,
+                message=message,
+                metadata={
+                    "blocked_by": "permission_gate",
+                    "tool": tool_call.function_name,
+                    "required_tier": required_tier.as_str(),
+                    "active_tier": ctx.active_tier.as_str(),
+                },
+            )
+
         return MiddlewareResult.ok()

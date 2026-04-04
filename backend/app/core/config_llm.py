@@ -33,6 +33,12 @@ class LLMSettingsMixin:
     max_tokens: int = 8192  # Output token limit per LLM call
     summarization_max_tokens: int = 32000  # Higher limit for report/summary generation
 
+    # Price hints for cost estimation (USD per 1M tokens).
+    # Defaults to 0.0 so cost estimation is opt-in and cannot accidentally
+    # introduce billing-looking numbers in environments without pricing config.
+    llm_input_price_per_million: float = 0.0
+    llm_output_price_per_million: float = 0.0
+
     # Ollama configuration
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

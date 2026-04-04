@@ -137,7 +137,7 @@ class TestTruncationCounterResetBetweenSteps:
         agent._token_budget_manager.compress_to_fit.return_value = [{"role": "user", "content": "x"}]
         agent._compression_cycles_this_step = agent.max_compression_cycles_per_step
 
-        with patch("app.domain.services.agents.base.logger.warning") as warning_mock:
+        with patch("app.domain.services.agents.llm_conversation_mixin.logger.warning") as warning_mock:
             await agent._ensure_within_token_limit()
             await agent._ensure_within_token_limit()
 

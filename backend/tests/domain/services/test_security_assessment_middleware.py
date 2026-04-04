@@ -60,8 +60,15 @@ class TestSecurityAssessmentMiddlewareName:
 class TestSecurityAssessmentMiddlewareAllowedAction:
     @pytest.mark.asyncio
     async def test_allowed_action_returns_continue_signal(self) -> None:
-        assessor = MagicMock()
-        assessor.assess_action.return_value = _allowed_assessment()
+        class LegacyAssessor:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+
+            def assess_action(self, function_name: str, arguments: dict) -> SecurityAssessment:
+                self.calls.append((function_name, arguments))
+                return _allowed_assessment()
+
+        assessor = LegacyAssessor()
         mw = SecurityAssessmentMiddleware(assessor=assessor)
 
         result = await mw.before_tool_call(_make_ctx(), _make_tool_call())
@@ -70,14 +77,21 @@ class TestSecurityAssessmentMiddlewareAllowedAction:
 
     @pytest.mark.asyncio
     async def test_allowed_action_calls_assessor_with_correct_args(self) -> None:
-        assessor = MagicMock()
-        assessor.assess_action.return_value = _allowed_assessment()
+        class LegacyAssessor:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+
+            def assess_action(self, function_name: str, arguments: dict) -> SecurityAssessment:
+                self.calls.append((function_name, arguments))
+                return _allowed_assessment()
+
+        assessor = LegacyAssessor()
         mw = SecurityAssessmentMiddleware(assessor=assessor)
 
         tool_call = _make_tool_call(function_name="file_read", arguments={"path": "/tmp/x"})
         await mw.before_tool_call(_make_ctx(), tool_call)
 
-        assessor.assess_action.assert_called_once_with("file_read", {"path": "/tmp/x"})
+        assert assessor.calls == [("file_read", {"path": "/tmp/x"})]
 
 
 class TestSecurityAssessmentMiddlewareBlockedAction:

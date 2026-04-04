@@ -7,6 +7,7 @@ from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, PendingAction, PendingActionStatus, Session, SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agents.session_migrator import migrate_session
 from app.infrastructure.models.documents import SessionDocument
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,7 @@ class MongoSessionRepository(SessionRepository):
         doc.setdefault("files", [])
         if "session_id" in doc:
             doc["id"] = doc.pop("session_id")
-        return Session.model_validate(doc)
+        return Session.model_validate(migrate_session(doc))
 
     async def find_by_id_full(self, session_id: str) -> Session | None:
         """Find a session by its ID with full payload (includes events/files)."""
@@ -125,7 +126,7 @@ class MongoSessionRepository(SessionRepository):
         doc.setdefault("files", [])
         if "session_id" in doc:
             doc["id"] = doc.pop("session_id")
-        return Session.model_validate(doc)
+        return Session.model_validate(migrate_session(doc))
 
     async def find_by_id_with_files(self, session_id: str) -> Session | None:
         """Find a session by ID including files but excluding heavy events array."""
@@ -141,7 +142,7 @@ class MongoSessionRepository(SessionRepository):
         doc.setdefault("files", [])
         if "session_id" in doc:
             doc["id"] = doc.pop("session_id")
-        return Session.model_validate(doc)
+        return Session.model_validate(migrate_session(doc))
 
     async def get_by_id(self, session_id: str) -> Session | None:
         """Backward-compatible alias for find_by_id."""
@@ -167,7 +168,7 @@ class MongoSessionRepository(SessionRepository):
             # Rename document id field to domain id field
             if "session_id" in doc:
                 doc["id"] = doc.pop("session_id")
-            sessions.append(Session.model_validate(doc))
+            sessions.append(Session.model_validate(migrate_session(doc)))
         return sessions
 
     async def find_user_files(self, user_id: str) -> list[dict]:
@@ -217,7 +218,7 @@ class MongoSessionRepository(SessionRepository):
         doc.setdefault("files", [])
         if "session_id" in doc:
             doc["id"] = doc.pop("session_id")
-        return Session.model_validate(doc)
+        return Session.model_validate(migrate_session(doc))
 
     async def find_by_id_and_user_id_full(self, session_id: str, user_id: str) -> Session | None:
         """Find a session by ID and user ID with full payload (includes events/files)."""
@@ -232,7 +233,7 @@ class MongoSessionRepository(SessionRepository):
         doc.setdefault("files", [])
         if "session_id" in doc:
             doc["id"] = doc.pop("session_id")
-        return Session.model_validate(doc)
+        return Session.model_validate(migrate_session(doc))
 
     async def update_title(self, session_id: str, title: str) -> None:
         """Update the title of a session"""
@@ -351,7 +352,7 @@ class MongoSessionRepository(SessionRepository):
             doc.setdefault("files", [])
             if "session_id" in doc:
                 doc["id"] = doc.pop("session_id")
-            sessions.append(Session.model_validate(doc))
+            sessions.append(Session.model_validate(migrate_session(doc)))
         return sessions
 
     async def update_status(self, session_id: str, status: SessionStatus) -> None:

@@ -21,7 +21,7 @@ class TestBaseAgentHasPipeline:
         assert hasattr(agent, "_pipeline")
         assert isinstance(agent._pipeline, MiddlewarePipeline)
 
-    def test_default_pipeline_has_5_middleware(self):
+    def test_default_pipeline_has_6_middleware(self):
         from app.domain.services.agents.base import BaseAgent
 
         agent = BaseAgent(
@@ -33,11 +33,12 @@ class TestBaseAgentHasPipeline:
         )
         names = [mw.name for mw in agent._pipeline.middleware]
         assert "security_assessment" in names
+        assert "permission_gate" in names
         assert "hallucination_guard" in names
         assert "efficiency_monitor" in names
         assert "stuck_detection" in names
         assert "error_handler" in names
-        assert len(names) == 5
+        assert len(names) == 6
 
     def test_injected_service_context_overrides_default(self):
         from app.domain.external.observability import get_null_metrics
