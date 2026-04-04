@@ -88,6 +88,7 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
       - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
       - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - REDIS_PASSWORD=
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=768
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
@@ -145,6 +146,7 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
       - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
       - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - REDIS_PASSWORD=
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=768
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}

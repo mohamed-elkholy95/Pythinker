@@ -137,6 +137,8 @@ class RedisClient:
             if self._role == "cache"
             else self._settings.redis_password
         )
+        if not self._password:
+            self._password = None
         self._max_connections = (
             getattr(self._settings, "redis_cache_max_connections", self._settings.redis_max_connections)
             if self._role == "cache"
