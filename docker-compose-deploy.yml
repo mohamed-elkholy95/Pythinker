@@ -1,137 +1,124 @@
 # =============================================================================
-# Pythinker — Production Deployment
+# Pythinker — Watch-Free Dev-Style Compose
 # =============================================================================
 #
-# Single compose file that works ANYWHERE:
+# This file uses the same container layout and startup behavior as
+# docker-compose.yml, but without Compose Watch.
 #
-#   VPS (pre-built):   docker compose -f docker-compose-deploy.yml pull && \
-#                      docker compose -f docker-compose-deploy.yml up -d
+# Usage:
+#   docker compose -f docker-compose-deploy.yml up --build -d
+#   docker compose -f docker-compose-deploy.yml logs -f backend
+#   docker compose -f docker-compose-deploy.yml down -v
 #
-#   Local (from source): docker compose -f docker-compose-deploy.yml up --build -d
-#
-#   Pin version:       IMAGE_TAG=sha-abc1234 docker compose -f docker-compose-deploy.yml pull && up -d
-#
-# CI auto-deploys on push to main via SSH (see .github/workflows/deploy.yml).
-# First-time VPS setup: ./scripts/vps-bootstrap.sh
-#
-# Routing: Traefik (Dokploy) → frontend:80 (nginx) → /api/* → backend:8000
+# The stack is intentionally simple:
+#   - frontend: Vite dev server
+#   - backend:  FastAPI + uvicorn --reload via backend/dev.sh
+#   - sandbox:  same hardened container as dev
+#   - mongodb:  standalone auth-enabled MongoDB
+#   - redis:    local dev Redis
+#   - qdrant:   local Qdrant
+#   - minio:    object storage + bucket bootstrap
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # Frontend — Nginx serving Vue 3 SPA
+  # Frontend (Vite dev server with HMR)
   # ---------------------------------------------------------------------------
   frontend:
-    image: ghcr.io/mohamed-elkholy95/pythinker-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5174:5174"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=
+      - BACKEND_URL=http://backend:8000
+      - VITE_HOST=true
     depends_on:
       backend:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
     networks:
-      - dokploy-network
-      - pythinker-internal
-    environment:
-      - BACKEND_URL=http://backend:8000
-    labels:
-      # Traefik security headers middleware
-      - "traefik.http.middlewares.pythinker-security-headers.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
-      - "traefik.http.middlewares.pythinker-security-headers.headers.customResponseHeaders.X-Frame-Options=DENY"
-      - "traefik.http.middlewares.pythinker-security-headers.headers.customResponseHeaders.Referrer-Policy=strict-origin-when-cross-origin"
-      - "traefik.http.middlewares.pythinker-security-headers.headers.customResponseHeaders.X-XSS-Protection=1; mode=block"
-      - "traefik.http.middlewares.pythinker-security-headers.headers.customResponseHeaders.Permissions-Policy=camera=(), microphone=(), geolocation=(), payment=()"
+      - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:80/ >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5174/ >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
+      start_period: 15s
 
   # ---------------------------------------------------------------------------
-  # Backend — FastAPI + uvicorn
+  # Backend (FastAPI + uvicorn --reload)
   # ---------------------------------------------------------------------------
   backend:
-    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
+    command: ["./dev.sh"]
+    stop_grace_period: 15s
+    group_add:
+      - "${DOCKER_GID:-988}"
+      - "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dspy_cache:/app/data/dspy_cache
+    ports:
+      - "8000:8000"
     depends_on:
-      sandbox:
-        condition: service_healthy
       mongodb:
         condition: service_healthy
-        restart: true
       redis:
         condition: service_healthy
-        restart: true
       qdrant:
         condition: service_healthy
       minio:
         condition: service_healthy
-    restart: always
-    deploy:
-      replicas: ${BACKEND_REPLICAS:-1}
-      resources:
-        limits:
-          memory: 2G
-          cpus: '2'
-        reservations:
-          memory: 512M
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "5"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - knowledge_base_data:/app/data/knowledge_bases
-      - dspy_cache:/app/data/dspy_cache
+      sandbox:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
-      - dokploy-network
-      - pythinker-internal
+      - pythinker-network
     env_file:
       - .env
     environment:
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
-      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=768
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
-      - FAST_MODEL=${FAST_MODEL:-}
-      - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
-      - DSPY_CACHEDIR=/app/data/dspy_cache
-      - DSPY_NUM_THREADS=${DSPY_NUM_THREADS:-4}
-      - DSPY_MAX_BOOTSTRAPPED_DEMOS=${DSPY_MAX_BOOTSTRAPPED_DEMOS:-4}
-      - DSPY_MAX_LABELED_DEMOS=${DSPY_MAX_LABELED_DEMOS:-4}
-      - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
-      - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME}
-      - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD}
+      - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-1}
+      - BACKEND_UVICORN_GRACEFUL_TIMEOUT=${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-120}
       - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 15s
 
   # ---------------------------------------------------------------------------
-  # Gateway — Telegram / Channel Integration (reuses backend image)
+  # Gateway (Telegram / channel integration) — opt-in via profile
   # ---------------------------------------------------------------------------
   gateway:
-    image: ghcr.io/mohamed-elkholy95/pythinker-backend:${IMAGE_TAG:-latest}
+    profiles: ["channels"]
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gateway
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    group_add:
+      - "${DOCKER_GID:-988}"
+      - "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dspy_cache:/app/data/dspy_cache
     depends_on:
       backend:
         condition: service_healthy
@@ -145,45 +132,37 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_healthy
-    restart: always
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - dspy_cache:/app/data/dspy_cache
+    restart: unless-stopped
     networks:
-      - dokploy-network
-      - pythinker-internal
+      - pythinker-network
     env_file:
       - .env
     environment:
       - CHANNEL_GATEWAY_ENABLED=true
-      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
-      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
-      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=768
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
       - FAST_MODEL=${FAST_MODEL:-}
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
-      - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME}
-      - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
 
   # ---------------------------------------------------------------------------
-  # Sandbox — Isolated Docker Execution Environment
+  # Sandbox (Isolated Docker execution environment)
   # ---------------------------------------------------------------------------
   sandbox:
-    image: ghcr.io/mohamed-elkholy95/pythinker-sandbox:${IMAGE_TAG:-latest}
     build:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
     hostname: sandbox
-    restart: always
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -192,10 +171,17 @@ services:
       - ALL
     cap_add:
       - CHOWN
-      - SETGID
       - SETUID
-      - NET_BIND_SERVICE
-    shm_size: '2g'
+      - SETGID
+    volumes:
+      - /app/__pycache__
+      - /app/.venv
+      - /opt/base-python-venv
+    ports:
+      - "127.0.0.1:8083:8080"
+      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:8443:8443"
+    shm_size: '${SANDBOX_SHM_SIZE:-1g}'
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -207,25 +193,33 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+      nproc:
+        soft: 4096
+        hard: 8192
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1'
+          memory: ${SANDBOX_MEM_LIMIT:-4G}
+          cpus: '${SANDBOX_CPU_LIMIT:-1.5}'
+          pids: 4096
         reservations:
-          memory: 512M
+          memory: ${SANDBOX_MEM_RESERVATION:-512M}
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
       - ENABLE_VNC=${ENABLE_VNC:-1}
-      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
-      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME}
-      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
+      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
+      - UVI_ARGS=--reload --reload-delay 10.0 --reload-dir /app/app
+      - FRAMEWORK_UVI_ARGS=--reload --reload-delay 10.0 --reload-dir /app/app
+      - WATCHFILES_FORCE_POLLING=false
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-dev-shm-usage --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --disable-component-extensions-with-background-pages --disable-features=CalculateNativeWinOcclusion,TranslateUI,BlinkGenPropertyTrees,IsolateOrigins,site-per-process --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --disable-breakpad --disable-domain-reliability --disable-hang-monitor --metrics-recording-only --mute-audio --js-flags=--max-old-space-size=512 --disable-smooth-scrolling --disable-composited-antialiasing --disable-checker-imaging --ignore-certificate-errors
       - BROWSER_PATH=/usr/local/bin/chromium
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --disable-features=IsolateOrigins,site-per-process --disable-background-networking --disable-sync --disable-translate --disable-default-apps --no-first-run --disable-extensions --js-flags=--max-old-space-size=384
       - LIBGL_ALWAYS_SOFTWARE=1
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
       - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
       - RUNTIME_API_HOST=${RUNTIME_API_HOST:-http://backend:8000}
       - RUNTIME_API_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
@@ -238,13 +232,14 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_SERVICE_NAME=sandbox-runtime
+      - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
       - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
       - GH_TOKEN=${GH_TOKEN:-}
       - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
       - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
+    restart: unless-stopped
     networks:
-      - dokploy-network
-      - pythinker-internal
+      - pythinker-network
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
@@ -253,55 +248,41 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # MongoDB — Single-Node Replica Set (for oplog/change streams)
+  # MongoDB
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0.28
-    hostname: pythinker-mongodb
-    restart: always
-    command:
-      - mongod
-      - --replSet=rs0
-      - --wiredTigerCacheSizeGB=${MONGO_CACHE_SIZE_GB:-1}
-      - --setParameter=diagnosticDataCollectionEnabled=false
-      - --setParameter=cursorTimeoutMillis=600000
-      - --setParameter=maxIndexBuildMemoryUsageMegabytes=200
+    image: mongo:7.0.31
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+    mem_limit: 512m
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
     volumes:
       - mongodb_data:/data/db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
     networks:
-      - pythinker-internal
-    deploy:
-      resources:
-        limits:
-          memory: ${MONGO_MEMORY_LIMIT:-2G}
-          cpus: '2'
-        reservations:
-          memory: 1G
+      - pythinker-network
     healthcheck:
-      test: >-
-        mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
-          try { rs.status().ok }
-          catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'pythinker-mongodb:27017'}]}).ok }
-        "
+      test: ["CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand({ping:1}).ok\" || exit 1"]
       interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # Redis — Password-Protected with AOF Persistence
+  # Redis
   # ---------------------------------------------------------------------------
   redis:
     image: redis:8.4-alpine
-    hostname: pythinker-redis
-    restart: always
+    mem_limit: 512m
     command:
       - redis-server
-      - --requirepass
-      - ${REDIS_PASSWORD}
       - --save
       - ""
       - --appendonly
@@ -315,161 +296,125 @@ services:
       - --timeout
       - "0"
       - --maxmemory
-      - ${REDIS_MAXMEMORY:-1gb}
+      - ${REDIS_MAXMEMORY:-512mb}
       - --maxmemory-policy
       - ${REDIS_MAXMEMORY_POLICY:-volatile-lfu}
       - --lazyfree-lazy-eviction
       - "yes"
-      - --lazyfree-lazy-expire
-      - "yes"
-      - --lazyfree-lazy-server-del
-      - "yes"
       - --latency-monitor-threshold
       - "100"
-      - --auto-aof-rewrite-percentage
-      - "100"
-      - --auto-aof-rewrite-min-size
-      - "64mb"
-      - --tcp-backlog
-      - "511"
-      - --hz
-      - "10"
-      - --io-threads
-      - "${REDIS_IO_THREADS:-2}"
     volumes:
-      - redis_data:/data
+      - redis_runtime_data:/data
+    restart: unless-stopped
     networks:
-      - pythinker-internal
-    sysctls:
-      - net.core.somaxconn=511
-    deploy:
-      resources:
-        limits:
-          memory: ${REDIS_MEMORY_LIMIT:-1G}
-          cpus: '1'
-        reservations:
-          memory: 256M
+      - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
+      start_period: 5s
 
   # ---------------------------------------------------------------------------
-  # Qdrant — Vector Search with gRPC
-  # ---------------------------------------------------------------------------
-  qdrant:
-    image: qdrant/qdrant:v1.16.3
-    hostname: pythinker-qdrant
-    restart: always
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
-      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
-      - QDRANT__STORAGE__QUANTIZATION__SCALAR__TYPE=int8
-      - QDRANT__STORAGE__QUANTIZATION__SCALAR__ALWAYS_RAM=true
-      - QDRANT__STORAGE__OPTIMIZERS__FLUSH_INTERVAL_SEC=5
-    networks:
-      - pythinker-internal
-    deploy:
-      resources:
-        limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-2G}
-          cpus: '1'
-        reservations:
-          memory: 512M
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # ---------------------------------------------------------------------------
-  # MinIO — S3-Compatible Object Storage
+  # MinIO (S3-compatible object storage)
   # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    hostname: pythinker-minio
-    restart: always
     command: server /data --console-address ":9001"
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-      - MINIO_HEAL_INTERVAL=12h
-      - MINIO_API_REQUESTS_MAX=${MINIO_API_REQUESTS_MAX:-100}
-      - MINIO_API_REQUESTS_DEADLINE=${MINIO_API_REQUESTS_DEADLINE:-10s}
-    volumes:
-      - minio_data:/data
-    networks:
-      - pythinker-internal
     deploy:
       resources:
         limits:
-          memory: ${MINIO_MEMORY_LIMIT:-1G}
+          memory: 512M
           cpus: '1'
         reservations:
-          memory: 256M
+          memory: 128M
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
+      - MINIO_IDENTITY_OPENID_ENABLE=off
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # MinIO Init — Create Service User (one-shot)
+  # MinIO Init (create service user)
   # ---------------------------------------------------------------------------
   minio-init:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    pull_policy: always
     depends_on:
       minio:
         condition: service_healthy
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio-dev-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minio-dev-password-change-me}
       - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
-      - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD}
+      - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD:-pythinker-svc-secret-change-me}
     entrypoint: /bin/sh
     command:
       - -c
       - |
         sleep 3 && \
-        mc alias set myminio http://pythinker-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
-        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>&1 || echo "User may already exist (OK)" && \
-        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>&1 || echo "Policy may already be attached (OK)" && \
-        mc admin user info myminio "$${MINIO_SERVICE_USER}" && \
+        mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc mb myminio/pythinker --ignore-existing && \
+        mc mb myminio/screenshots --ignore-existing && \
+        mc mb myminio/thumbnails --ignore-existing && \
+        mc mb myminio/sandbox-snapshots --ignore-existing && \
+        echo "Buckets ready: pythinker, screenshots, thumbnails, sandbox-snapshots" && \
+        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>/dev/null || true && \
+        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>/dev/null || true && \
         echo "MinIO service user '$$MINIO_SERVICE_USER' ready with readwrite policy"
     networks:
-      - pythinker-internal
+      - pythinker-network
     restart: "no"
 
-# =============================================================================
-# Volumes — Named volumes auto-create on first run, no manual setup needed
-# =============================================================================
+  # ---------------------------------------------------------------------------
+  # Qdrant (Vector database)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    container_name: pythinker-qdrant
+    mem_limit: 2g
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
-  redis_data:
-    name: pythinker-redis-data
+  redis_runtime_data:
+    name: pythinker-redis-runtime-data
   qdrant_data:
     name: pythinker-qdrant-data
   minio_data:
     name: pythinker-minio-data
-  knowledge_base_data:
-    name: pythinker-knowledge-base-data
   dspy_cache:
     name: pythinker-dspy-cache
 
-# =============================================================================
-# Networks
-# =============================================================================
 networks:
-  # Traefik network — create with: docker network create dokploy-network
-  dokploy-network:
-    external: true
-  # Internal network — databases and services only, no internet access.
-  pythinker-internal:
-    internal: true
+  pythinker-network:
+    name: pythinker-network
+    driver: bridge

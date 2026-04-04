@@ -1,8 +1,10 @@
-# Production Deployment via Dokploy + Pre-Built GHCR Images
+# Historical: Production Deployment via Dokploy + Pre-Built GHCR Images
 
 **Date:** 2026-03-18
 **Status:** Implemented
 **Author:** Mohamed Elkholy
+
+> Historical context only. The current `docker-compose-deploy.yml` in this repo has been converted to a watch-free dev-style stack with direct Docker service startup, not Dokploy + Traefik + GHCR image pulls.
 
 ## Architecture
 
