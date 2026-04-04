@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal, Self, get_args
+from typing import Annotated, Any, Literal, Self, cast, get_args, get_type_hints
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -53,7 +53,7 @@ class BaseSSEEvent(BaseModel):
 
     @classmethod
     def from_event(cls, event: AgentEvent) -> Self:
-        data_class: type[BaseEventData] = cls.__annotations__.get("data", BaseEventData)
+        data_class = cast(type[BaseEventData], get_type_hints(cls).get("data", BaseEventData))
         return cls(event=event.type, data=data_class.from_event(event))
 
 
@@ -172,31 +172,35 @@ def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
     results_list: list[SearchResultItem] = []
     # data from ToolResult (SearchResults model or dict)
     if data is not None:
-        if hasattr(data, "results") and data.results:
+        results_attr = getattr(data, "results", None)
+        if results_attr:
             results_list = [
                 SearchResultItem(
                     title=getattr(r, "title", None) or "No title",
                     link=getattr(r, "link", None) or "",
                     snippet=getattr(r, "snippet", None) or "",
                 )
-                for r in data.results[:10]
+                for r in results_attr[:10]
             ]
         elif isinstance(data, dict):
-            if data.get("results"):
-                for r in data["results"][:10]:
+            results = data.get("results")
+            if results:
+                for r in results[:10]:
                     t = r.get("title", "No title") if isinstance(r, dict) else (getattr(r, "title", None) or "No title")
                     lnk = r.get("link", "") if isinstance(r, dict) else (getattr(r, "link", None) or "")
                     snip = r.get("snippet", "") if isinstance(r, dict) else (getattr(r, "snippet", None) or "")
                     results_list.append(SearchResultItem(title=t, link=lnk, snippet=snip))
-            elif data.get("sources"):
-                for s in data["sources"][:10]:
-                    results_list.append(
-                        SearchResultItem(
-                            title=s.get("title", "No title"),
-                            link=s.get("url", s.get("link", "")),
-                            snippet=s.get("snippet", ""),
+            else:
+                sources = data.get("sources")
+                if sources:
+                    for s in sources[:10]:
+                        results_list.append(
+                            SearchResultItem(
+                                title=s.get("title", "No title"),
+                                link=s.get("url", s.get("link", "")),
+                                snippet=s.get("snippet", ""),
+                            )
                         )
-                    )
 
     if not results_list:
         return None
@@ -822,8 +826,7 @@ AgentSSEEvent = Annotated[
 class EventMapping:
     """Data class to store event type mapping information"""
 
-    sse_event_class: type[BaseEventData]
-    data_class: type[BaseEventData]
+    sse_event_class: type[BaseSSEEvent]
     event_type: str
 
 
@@ -840,7 +843,7 @@ class EventMapper:
 
         # Unwrap Annotated[...] to reach the underlying union of concrete SSE event classes.
         agent_sse_union = get_args(AgentSSEEvent)[0]
-        sse_event_classes = get_args(agent_sse_union)
+        sse_event_classes = cast(tuple[type[BaseSSEEvent], ...], get_args(agent_sse_union))
         mapping = {}
 
         for sse_event_class in sse_event_classes:
@@ -854,14 +857,7 @@ class EventMapper:
                 if hasattr(event_field, "__args__") and len(event_field.__args__) > 0:
                     event_type = event_field.__args__[0]  # Get Literal value
 
-                    # Get data class from sse_event_class
-                    data_class = None
-                    if hasattr(sse_event_class, "__annotations__") and "data" in sse_event_class.__annotations__:
-                        data_class = sse_event_class.__annotations__["data"]
-
-                    mapping[event_type] = EventMapping(
-                        sse_event_class=sse_event_class, data_class=data_class, event_type=event_type
-                    )
+                    mapping[event_type] = EventMapping(sse_event_class=sse_event_class, event_type=event_type)
 
         # Cache the mapping
         EventMapper._cached_mapping = mapping
