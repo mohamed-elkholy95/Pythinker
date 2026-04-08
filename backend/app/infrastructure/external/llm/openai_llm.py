@@ -2816,7 +2816,7 @@ To extract data from a webpage:
                             result, completion = await asyncio.wait_for(
                                 patched_client.chat.completions.create_with_completion(
                                     response_model=response_model,
-                                    max_retries=1,
+                                    max_retries=2,
                                     **params,
                                 ),
                                 timeout=_structured_timeout,
