@@ -479,7 +479,7 @@ class SkillLoader:
         try:
             resolved = full_path.resolve()
             skill_resolved = skill_path.resolve()
-            if not str(resolved).startswith(str(skill_resolved) + "/") and resolved != skill_resolved:
+            if not resolved.is_relative_to(skill_resolved):
                 logger.warning(f"Path traversal attempt blocked: {resource_path}")
                 return None
         except (OSError, ValueError):
