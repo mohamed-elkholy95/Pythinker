@@ -1,4 +1,7 @@
 <template>
+  <!-- Single stable wrapper prevents __vnode null error when Vue patches
+       the v-for list while inner v-if branches are switching message types -->
+  <div class="chat-message-wrapper">
   <div v-if="message.type === 'user'" class="chat-message-entry user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-2">
     <div class="user-message-inner flex max-w-[85%] flex-col gap-1 items-end">
       <div
@@ -350,6 +353,7 @@
     <SkillDeliveryCard :skill="skillDeliveryContent" />
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
+  </div><!-- /chat-message-wrapper -->
 </template>
 
 <script setup lang="ts">
