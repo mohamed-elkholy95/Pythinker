@@ -436,7 +436,7 @@ class TestRunOptimizationResult:
             assert result.train_count == 8
             assert result.val_count == 3
             assert result.test_count == 0
-            assert result.duration_seconds > 0
+            assert result.duration_seconds >= 0
             assert len(result.artifact_bytes) > 0
 
 

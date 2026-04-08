@@ -168,9 +168,9 @@ def test_register_unicode_font_uses_fallback_font_when_preferred_missing(monkeyp
             "Unifont": (Path("/tmp/unifont.otf"),),
         },
     )
-    monkeypatch.setattr(Path, "exists", lambda p: str(p) == "/tmp/liberation.ttf")
+    monkeypatch.setattr(Path, "exists", lambda p: p == Path("/tmp/liberation.ttf"))
 
     chosen = markdown_to_pdf.register_unicode_font("DejaVuSans")
 
     assert chosen == "LiberationSans"
-    assert register_calls == [("LiberationSans", "/tmp/liberation.ttf")]
+    assert register_calls == [("LiberationSans", str(Path("/tmp/liberation.ttf")))]
