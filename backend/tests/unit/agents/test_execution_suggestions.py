@@ -544,6 +544,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
         executor._verify_hallucination = AsyncMock(
             return_value=SimpleNamespace(
                 content=long_report,
+                disclaimer="",
                 blocking_issues=["hallucination_ratio_critical"],
                 warnings=["hallucination_detected"],
             )

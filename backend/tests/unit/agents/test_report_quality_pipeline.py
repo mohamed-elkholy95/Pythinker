@@ -236,8 +236,9 @@ class TestHallucinationDisclaimerNotRedaction:
             result = await ov.verify_hallucination(content, "research query")
 
         assert result is not None
-        assert "Reliability Notice" in result.content
-        assert "20.0% unverified" in result.content
+        # Disclaimer is now in a separate field (not inlined into content)
+        assert "Reliability Notice" in result.disclaimer
+        assert "20.0% unverified" in result.disclaimer
         assert "hallucination_ratio_moderate" in result.warnings
         assert "[…]" not in result.content
         assert "[...]" not in result.content
@@ -297,7 +298,8 @@ class TestHallucinationDisclaimerNotRedaction:
 
         assert result.blocking_issues == []
         assert "hallucination_ratio_moderate" in result.warnings
-        assert "Reliability Notice" in result.content
+        # Disclaimer is now in a separate field (not inlined into content)
+        assert "Reliability Notice" in result.disclaimer
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_block_uses_critical_path(self):

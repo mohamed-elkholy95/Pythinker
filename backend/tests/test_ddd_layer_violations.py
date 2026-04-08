@@ -52,7 +52,7 @@ FORBIDDEN_IMPORTS = [
 def _check_imports(filepath: str, forbidden: list[str]) -> list[str]:
     """Check a file for forbidden imports."""
     violations = []
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8") as f:
         try:
             tree = ast.parse(f.read())
         except SyntaxError:
