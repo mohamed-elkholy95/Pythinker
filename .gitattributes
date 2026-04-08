@@ -1,3 +1,9 @@
+# Force LF line endings for files executed inside Docker/Linux containers
+*.sh text eol=lf
+*.conf text eol=lf
+Dockerfile* text eol=lf
+docker-compose*.yml text eol=lf
+
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
 design1.html linguist-vendored=true
 docs/index.html linguist-vendored=true
