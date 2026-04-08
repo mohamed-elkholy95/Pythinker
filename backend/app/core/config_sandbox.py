@@ -170,6 +170,7 @@ class BrowserSettingsMixin:
     browser_agent_enabled: bool = True
     browser_agent_max_steps: int = 25
     browser_agent_timeout: int = 300
+    browser_agent_extract_timeout: int = 120  # Shorter timeout for data extraction tasks
     browser_agent_use_vision: bool = True
     browser_agent_max_failures: int = 5  # Max retries for failed steps
     browser_agent_llm_timeout: int = 90  # Timeout for LLM calls in seconds

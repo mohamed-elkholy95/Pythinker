@@ -638,6 +638,7 @@ CRITICAL INSTRUCTIONS:
         task: str,
         start_url: str | None = None,
         max_steps: int | None = None,
+        timeout_override: int | None = None,
     ) -> dict[str, Any]:
         """Execute browser agent task with comprehensive error handling and timeout protection
 
@@ -681,7 +682,7 @@ CRITICAL INSTRUCTIONS:
         llm = self._get_llm()
 
         effective_max_steps = max_steps or self._settings.browser_agent_max_steps
-        timeout = self._settings.browser_agent_timeout
+        timeout = timeout_override or self._settings.browser_agent_timeout
         self._start_time = time.monotonic()
         self._reset_progress_queue()
 
@@ -956,8 +957,13 @@ The agent will navigate and interact with the page as needed to extract the requ
 
         logger.info(f"Browser agent starting extraction: {extraction_goal[:100]}...")
 
-        # Use fewer steps for extraction (typically doesn't need many interactions)
-        result = await self._run_agent_task(task, url, max_steps=15)
+        # Use fewer steps and shorter timeout for extraction
+        result = await self._run_agent_task(
+            task,
+            url,
+            max_steps=15,
+            timeout_override=self._settings.browser_agent_extract_timeout,
+        )
 
         if result.get("success"):
             return ToolResult(success=True, message="Data extraction completed successfully", data=result)
