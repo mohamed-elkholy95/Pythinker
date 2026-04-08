@@ -1363,6 +1363,9 @@ const showSessionWarmupMessage = computed(() => {
   if (!hasPrompt) return false;
   if (sessionInitTimedOut.value) return true;
   if (toolPanelPainted.value) return false;
+  // Dismiss warmup once execution steps appear or a plan is ready
+  // so the TaskProgressBar with live preview can take over
+  if (plan.value?.steps?.length) return false;
 
   return (
     isLoading.value ||
