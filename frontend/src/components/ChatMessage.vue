@@ -368,7 +368,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, TaskCompletedFooter } from './report';
+import { ReportCard, TaskCompletedFooter, AttachmentsInlineGrid } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
 import type { ReasoningStage } from '@/types/reasoning';
 import type { ReportData } from './report';
