@@ -1,6 +1,6 @@
 <template>
   <div class="warmup-message" data-testid="session-warmup">
-    <div class="warmup-header">
+    <div v-if="props.state !== 'thinking'" class="warmup-header">
       <img src="/icon.svg" alt="Pythinker" class="warmup-icon" />
       <PythinkerTextIcon :width="110" :height="20" />
     </div>
