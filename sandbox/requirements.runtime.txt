@@ -70,3 +70,7 @@ opentelemetry-instrumentation-fastapi>=0.50b0
 opentelemetry-instrumentation-httpx>=0.50b0
 opentelemetry-exporter-otlp-proto-http>=1.29.0
 sentry-sdk[fastapi]>=2.19.0
+
+# Plotly chart generation (always-on — eliminates "No module named 'plotly'" fallback)
+plotly>=6.0
+kaleido>=1.0.0
