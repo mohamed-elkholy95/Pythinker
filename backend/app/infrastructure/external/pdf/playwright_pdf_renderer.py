@@ -96,9 +96,7 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
         html = self._template.render(
             title=(payload.title or "Report").strip() or "Report",
             author=(payload.author or "Pythinker AI Agent").strip() or "Pythinker AI Agent",
-            generated_date=payload.generated_at.astimezone(UTC).strftime("%B %-d, %Y")
-            if hasattr(payload.generated_at, "astimezone")
-            else "",
+            generated_date=self._format_date(payload.generated_at),
             css=self._css,
             body_html=body_html,
         )
@@ -119,6 +117,15 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
                 )
                 return await self._fallback_renderer.render(payload)
             raise
+
+    @staticmethod
+    def _format_date(dt) -> str:
+        """Format a datetime for display, cross-platform (no %-d which is Unix-only)."""
+        if not hasattr(dt, "astimezone"):
+            return ""
+        utc_dt = dt.astimezone(UTC)
+        # Use %d (zero-padded) then strip leading zero for natural display
+        return utc_dt.strftime("%B {day}, %Y").format(day=utc_dt.day)
 
     async def _render_with_playwright(self, html: str) -> bytes:
         browser = None
