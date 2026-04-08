@@ -1694,6 +1694,9 @@ class ExecutionAgent(BaseAgent):
                 )
                 verification_result = await self._verify_hallucination(message_content, self._user_request)
                 message_content = verification_result.content
+                # Append disclaimer to report only (not to chat stream step results)
+                if verification_result.disclaimer:
+                    message_content += verification_result.disclaimer
                 if verification_result.blocking_issues:
                     delivery_gate_additional_issues.extend(verification_result.blocking_issues)
                 if verification_result.warnings:
