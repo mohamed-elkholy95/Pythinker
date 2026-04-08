@@ -47,6 +47,7 @@ class HallucinationVerificationResult:
     """Structured result for hallucination verification and delivery gating."""
 
     content: str
+    disclaimer: str = ""  # Reliability notice — appended to report only, not chat stream
     blocking_issues: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     hallucination_ratio: float | None = None
@@ -727,7 +728,8 @@ class OutputVerifier:
                             _warnings.append("hallucination_verification_ungrounded")
 
                         return HallucinationVerificationResult(
-                            content=content + disclaimer,
+                            content=content,
+                            disclaimer=disclaimer,
                             warnings=_warnings,
                             hallucination_ratio=grounding_result.hallucination_score,
                             span_count=len(grounding_result.flagged_claims),
