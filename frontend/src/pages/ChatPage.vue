@@ -201,12 +201,12 @@
             @reportRate="handleReportRate"
             @selectSuggestion="handleSuggestionSelect" />
           <SessionWarmupMessage
-            v-if="showSessionWarmupMessage"
+            v-show="showSessionWarmupMessage"
             :state="warmupState"
             @retry="handleRetryInitialize"
           />
           <EmptyState
-            v-else-if="showEmptySessionState"
+            v-show="!showSessionWarmupMessage && showEmptySessionState"
             data-testid="chat-empty-session-state"
             class="chat-empty-session-state flex-1"
             icon="inbox"
@@ -214,10 +214,11 @@
           />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
+          <!-- v-show prevents __vnode null error from v-if unmount racing with SSE state changes -->
+          <div v-show="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
             <ThinkingIndicator :showText="true" label="Thinking" />
           </div>
-          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep && !isToolPanelOpen && !hasActiveToolCall" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
+          <LoadingIndicator v-show="!showFloatingThinkingIndicator && !showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep && !isToolPanelOpen && !hasActiveToolCall" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
