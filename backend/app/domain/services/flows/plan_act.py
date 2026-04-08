@@ -3663,6 +3663,7 @@ class PlanActFlow(BaseFlow):
                         from app.domain.models.prompt_profile import PromptTarget as _PromptTarget
 
                         _exec_patch = await self._resolve_profile_patch(_PromptTarget.EXECUTION)
+                        _audit_retried = False  # Allow one audit-triggered retry per step
 
                         for attempt in range(max_attempts):
                             await self._check_cancelled()
@@ -3824,8 +3825,24 @@ class PlanActFlow(BaseFlow):
                                 step_executor.reset_reliability_state()
                                 break
 
-                            # If step succeeded, break out of retry loop
+                            # If step succeeded, run action audit before accepting
                             if step.success:
+                                _tools_used_inner = set(self._step_tools_used)
+                                _audit_failed = step.description and self._apply_step_action_audit(
+                                    step, _tools_used_inner
+                                )
+                                if _audit_failed and not _audit_retried:
+                                    _audit_retried = True
+                                    logger.info(
+                                        "Step %s failed action audit, retrying once: %s",
+                                        step.id,
+                                        step.error,
+                                    )
+                                    step.success = False
+                                    step.status = ExecutionStatus.PENDING
+                                    step.error = None
+                                    self._step_tools_used.clear()
+                                    continue  # Re-enter retry loop
                                 break
 
                             # Classify error using ErrorHandler for structured retry decisions
@@ -3846,10 +3863,13 @@ class PlanActFlow(BaseFlow):
 
                         step_span.set_attribute("step.attempts", attempt + 1)
 
-                        # ── Tool completeness audit ──────────────────────────
+                        # ── Tool completeness audit (post-loop diagnostic) ──
+                        # Primary audit now runs inside the retry loop (with one
+                        # retry opportunity).  This block only logs the final
+                        # state and sets the unexecuted-scripts flag.
+                        if step.description and not step.success and _audit_retried:
+                            logger.warning("Step %s failed action audit after retry: %s", step.id, step.error)
                         if step.success and step.description:
-                            # Use per-step tool set (tracks both tool_name and function_name)
-                            # instead of sliding _recent_tools window which loses early tools
                             _tools_used = set(self._step_tools_used)
                             _audit = self._evaluate_step_actions(step.description, _tools_used)
                             if _audit["missed"]:
@@ -3861,12 +3881,12 @@ class PlanActFlow(BaseFlow):
                                     sorted(_audit["missed"]),
                                     sorted(_tools_used),
                                 )
-                            if self._apply_step_action_audit(step, _tools_used):
-                                logger.warning("Step %s failed action audit: %s", step.id, step.error)
-                                if step.error == "Step required execution but no execution tool ran" and hasattr(
-                                    step_executor, "_has_unexecuted_scripts"
-                                ):
-                                    step_executor._has_unexecuted_scripts = True
+                        if (
+                            not step.success
+                            and step.error == "Step required execution but no execution tool ran"
+                            and hasattr(step_executor, "_has_unexecuted_scripts")
+                        ):
+                            step_executor._has_unexecuted_scripts = True
 
                         # Clear per-step verifier sources for next step
                         if hasattr(step_executor, "_output_verifier") and step_executor._output_verifier:
