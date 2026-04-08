@@ -299,7 +299,7 @@ class CircuitBreaker:
         if self.state == "closed":
             return True
         if self.state == "open":
-            if datetime.now(UTC) - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+            if datetime.now(UTC) - self.last_failure_time >= timedelta(seconds=self.recovery_timeout):
                 self.state = "half-open"
                 return True
             return False
