@@ -316,7 +316,7 @@ class ResultCache:
 
         for key, cached in self._cache.items():
             check_time = cached.last_hit or cached.created_at
-            if check_time < oldest_time:
+            if check_time <= oldest_time:
                 oldest_time = check_time
                 oldest_key = key
 
