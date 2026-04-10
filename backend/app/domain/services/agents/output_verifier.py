@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.domain.services.agents.llm_grounding_verifier import ClaimVerdict
+from app.domain.utils.text import is_report_like_content
 
 if TYPE_CHECKING:
     from app.domain.external.llm import LLM
@@ -85,7 +86,7 @@ class OutputVerifier:
         "_user_request",
     )
 
-    _REWRITE_TIMEOUT_S: float = 3.0
+    _REWRITE_TIMEOUT_S: float = 15.0  # Fallback; prefer config hallucination_rewrite_timeout
     _REWRITE_MAX_RETRIES: int = 2
 
     def __init__(
@@ -225,6 +226,9 @@ class OutputVerifier:
         r"^\s*(?:\[?\d+\]?\.?\s+)?(?:[^\n]*?\s)?https?://\S+\s*$",
         re.MULTILINE,
     )
+
+    # _is_report_like_content → shared utility in domain/utils/text.py
+    _is_report_like_content = staticmethod(is_report_like_content)
 
     @staticmethod
     def _strip_unverifiable_content(text: str) -> str:
@@ -486,6 +490,9 @@ class OutputVerifier:
         )
 
         try:
+            from app.core.config import get_settings
+
+            _rewrite_timeout = getattr(get_settings(), "hallucination_rewrite_timeout", self._REWRITE_TIMEOUT_S)
             last_error: Exception | None = None
             for _attempt in range(self._REWRITE_MAX_RETRIES):
                 try:
@@ -494,7 +501,7 @@ class OutputVerifier:
                             messages=[{"role": "user", "content": rewrite_prompt}],
                             temperature=0.2,
                         ),
-                        timeout=self._REWRITE_TIMEOUT_S,
+                        timeout=_rewrite_timeout,
                     )
                     rewritten = (
                         result.get("content", "") if isinstance(result, dict) else (result.content or "")
@@ -640,13 +647,14 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >block_threshold: rewrite unsupported claims + disclaimer
-                    # - warn_threshold-block_threshold: reliability notice (non-blocking)
-                    # - <warn_threshold: pass through (noise-level, not actionable)
+                    # - >= block_threshold: rewrite unsupported claims + disclaimer
+                    # - >= warn_threshold and < block_threshold: reliability notice
+                    # - < warn_threshold: pass through (noise-level, not actionable)
+                    score = grounding_result.hallucination_score
                     _block_threshold = settings.hallucination_block_threshold
-                    _escalate_threshold = getattr(settings, "hallucination_escalate_threshold", 0.30)
+                    _escalate_threshold = settings.hallucination_ratio_escalate_threshold
                     _warn_threshold = settings.hallucination_warn_threshold
-                    if grounding_result.hallucination_score > _block_threshold:
+                    if score >= _block_threshold:
                         # Attempt to rewrite the content with flagged claims removed
                         rewritten = await self._rewrite_without_unsupported_claims(
                             content, grounding_result.flagged_claims
@@ -657,45 +665,47 @@ class OutputVerifier:
                                 len(grounding_result.flagged_claims),
                             )
                             content = rewritten
-                        disclaimer = (
-                            "\n\n> **⚠️ Reliability Warning:** This response contains claims "
-                            "that could not be verified against available sources. "
-                            "Treat specific facts and statistics with caution."
-                        )
+                        # Note: disclaimer intentionally omitted from content — the delivery gate
+                        # blocks critical-ratio outputs; the notice would never reach the user.
                         return HallucinationVerificationResult(
-                            content=content + disclaimer,
+                            content=content,
                             blocking_issues=["hallucination_ratio_critical"],
                             warnings=["hallucination_detected", "hallucination_rewrite_failed"],
-                            hallucination_ratio=grounding_result.hallucination_score,
+                            hallucination_ratio=score,
                             span_count=len(grounding_result.flagged_claims),
                         )
-                    if grounding_result.hallucination_score > _warn_threshold:
-                        ratio_pct = grounding_result.hallucination_score * 100
-                        is_escalated = grounding_result.hallucination_score > _escalate_threshold
+                    if score >= _warn_threshold:
+                        ratio_pct = score * 100
+                        is_escalated = score >= _escalate_threshold
+                        report_like_content = self._is_report_like_content(content)
+                        rewrite_targets = unsupported or grounding_result.flagged_claims
+                        report_rewritten = False
+
+                        if report_like_content:
+                            rewritten = await self._rewrite_without_unsupported_claims(content, rewrite_targets)
+                            if rewritten:
+                                content = rewritten
+                                report_rewritten = True
+                                logger.info(
+                                    "LLM grounding: rewrote report content to hedge/remove %d unsupported claim(s)",
+                                    len(rewrite_targets),
+                                )
 
                         if is_escalated:
-                            disclaimer = (
-                                f"\n\n> ⚠️ **Reliability Warning ({ratio_pct:.1f}% unverified):** "
-                                f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
-                                "verified against gathered sources. Specific facts, salary figures, "
-                                "and statistics should be independently verified before relying on them."
-                            )
                             logger.warning(
-                                "LLM grounding: escalated warning for high score %.1f%% (>%.0f%% escalate threshold)",
+                                "LLM grounding: escalated warning for high score %.1f%% (>=%.0f%% escalate threshold)",
                                 ratio_pct,
                                 _escalate_threshold * 100,
                             )
                         else:
-                            disclaimer = (
-                                f"\n\n> ⚠️ **Reliability Notice ({ratio_pct:.1f}% unverified):** "
-                                f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
-                                "fully verified against available sources. Treat specific facts, version numbers, "
-                                "and statistics with caution."
-                            )
                             logger.info(
-                                "LLM grounding: appending disclaimer for moderate score %.1f%%",
+                                "LLM grounding: moderate hallucination score %.1f%% (rewritten=%s)",
                                 ratio_pct,
+                                report_rewritten,
                             )
+                        # Disclaimer text is NOT appended to content — it creates noisy blockquotes
+                        # in every step result and the final chat message. Verification metadata
+                        # (warnings, hallucination_ratio) still propagates to the delivery gate.
 
                         # Collect unsupported claim texts for re-research when escalated.
                         _reresearch_claims: list[str] = []
@@ -709,7 +719,7 @@ class OutputVerifier:
                                 logger.info(
                                     "LLM grounding: %d claim(s) flagged for re-research (score=%.2f)",
                                     len(_reresearch_claims),
-                                    grounding_result.hallucination_score,
+                                    score,
                                 )
                                 self._context_manager.add_insight(
                                     insight_type=InsightType.BLOCKER,
@@ -722,6 +732,20 @@ class OutputVerifier:
                                     tags=["reresearch", "hallucination", "grounding"],
                                 )
 
+                        if is_escalated and report_like_content and rewrite_targets and not report_rewritten:
+                            logger.warning(
+                                "LLM grounding: escalated report grounding remained unresolved after rewrite; "
+                                "blocking delivery"
+                            )
+                            return HallucinationVerificationResult(
+                                content=content,
+                                blocking_issues=["hallucination_ratio_critical"],
+                                warnings=["hallucination_detected", "hallucination_rewrite_failed"],
+                                hallucination_ratio=score,
+                                span_count=len(grounding_result.flagged_claims),
+                                needs_reresearch_claims=_reresearch_claims,
+                            )
+
                         # Escalated (>30%): add warning that promotes delivery gate to YELLOW
                         _warnings = ["hallucination_ratio_moderate"]
                         if is_escalated:
@@ -729,16 +753,15 @@ class OutputVerifier:
 
                         return HallucinationVerificationResult(
                             content=content,
-                            disclaimer=disclaimer,
                             warnings=_warnings,
-                            hallucination_ratio=grounding_result.hallucination_score,
+                            hallucination_ratio=score,
                             span_count=len(grounding_result.flagged_claims),
                             needs_reresearch_claims=_reresearch_claims,
                         )
                     return HallucinationVerificationResult(
                         content=content,
                         warnings=["hallucination_ratio_low"],
-                        hallucination_ratio=grounding_result.hallucination_score,
+                        hallucination_ratio=score,
                         span_count=len(grounding_result.flagged_claims),
                     )
 

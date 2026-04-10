@@ -411,12 +411,13 @@ class FeatureFlagsSettingsMixin:
     # LLM-as-Judge verification uses claim-level binary verdicts instead of
     # token-level probabilities.  Coarser but more interpretable, avoids the
     # false-positive problem where LettuceDetect flagged stylistic paraphrasing.
-    # Industry standard: LLM Guard uses 0.30.  We use graduated response:
-    # warn at 15% with disclaimer, block at 50% and re-summarize.
-    # Raised block from 0.40 to 0.50 after benchmark showed claim-level verifiers
-    # have 20-30% false-positive rates on paraphrased content.
-    # Env override: HALLUCINATION_WARN_THRESHOLD, HALLUCINATION_BLOCK_THRESHOLD
+    # Industry standard: LLM Guard uses 0.30. We use graduated response:
+    # warn at 15%, escalate at 30%, and block at 60%.
+    # Env override:
+    # HALLUCINATION_WARN_THRESHOLD, HALLUCINATION_RATIO_ESCALATE_THRESHOLD,
+    # HALLUCINATION_BLOCK_THRESHOLD
     hallucination_warn_threshold: float = 0.15  # 15% -> reliability notice appended
+    hallucination_ratio_escalate_threshold: float = 0.30  # 30% -> escalated warning and targeted re-research
     hallucination_block_threshold: float = 0.60  # 60% -> block delivery, re-summarize
     # Raised from 0.50 to 0.60: claim-level verifiers have 20-30% false-positive rates
     # on paraphrased research statistics, and the 16-32K char grounding context is often
@@ -430,6 +431,10 @@ class FeatureFlagsSettingsMixin:
     hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
     hallucination_verifier_timeout: float = 60.0  # Must exceed degraded-mode timeout margin; 30s caused silent skips
     hallucination_max_claims: int = 25  # Cap extracted claims (raised from 20 for more thorough checking)
+    hallucination_rewrite_timeout: float = (
+        15.0  # Per-attempt timeout for rewriting unsupported claims (raised from 3.0s)
+    )
+    stuck_detector_research_threshold: int = 12  # research_without_output threshold for deep_research mode
     reranker_provider: str = "jina"  # "jina" (API) or "none" (skip reranking)
 
     # Context compression thresholds
