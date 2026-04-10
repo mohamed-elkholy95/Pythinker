@@ -117,6 +117,4 @@ def _families_are_compatible(left: set[str], right: set[str]) -> bool:
     if not left.isdisjoint(right):
         return True
 
-    return any(
-        family in _COMPATIBLE_FAMILIES and not _COMPATIBLE_FAMILIES[family].isdisjoint(right) for family in left
-    )
+    return any(family in _COMPATIBLE_FAMILIES and not _COMPATIBLE_FAMILIES[family].isdisjoint(right) for family in left)

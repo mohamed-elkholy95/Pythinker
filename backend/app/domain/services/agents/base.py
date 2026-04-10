@@ -52,9 +52,6 @@ logger = logging.getLogger(__name__)
 SAFE_PARALLEL_TOOLS = ToolName.safe_parallel_tools()
 
 
-
-
-
 # ── Graduated wall-clock pressure (design 2A) ─────────────────────────
 
 _WRITE_TOOLS = frozenset({"file_write", "file_str_replace", "code_save_artifact"})
@@ -82,8 +79,6 @@ def _should_block_tool_at_pressure(tool_name: str, level: str) -> bool:
         read_tools = frozenset(t.value for t in ToolName.read_only_tools())
         return tool_name in read_tools
     return False
-
-
 
 
 def _extract_embedded_json(text: str) -> str | None:
@@ -934,6 +929,7 @@ class BaseAgent(ToolInvocationMixin, LlmConversationMixin):
         await self._ensure_memory()
         self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
     async def cleanup_background_tasks(self, timeout: float = 5.0) -> None:  # noqa: ASYNC109
         """Await pending background tasks with timeout, cancel remaining, and clear the set."""
         if not self._background_tasks:

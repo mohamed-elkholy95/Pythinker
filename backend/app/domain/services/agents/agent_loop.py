@@ -56,7 +56,6 @@ def _build_missing_tool_failure_payload(required_tools: list[str]) -> str:
     )
 
 
-
 def _build_invalid_json_failure_payload(error: str) -> str:
     return json.dumps(
         {
@@ -386,9 +385,7 @@ class AgentLoop:
                     # rather than propagating a failure that cascades into blocked steps.
                     synthetic = _synthesize_payload_from_tool_results(agent)
                     if synthetic is not None:
-                        logger.info(
-                            "Synthesized success payload from tool results after failed JSON re-enforcement"
-                        )
+                        logger.info("Synthesized success payload from tool results after failed JSON re-enforcement")
                         message["content"] = synthetic
                     else:
                         logger.warning(
