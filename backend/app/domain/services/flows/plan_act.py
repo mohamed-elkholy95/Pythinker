@@ -529,6 +529,8 @@ class PlanActFlow(BaseFlow):
         if self._research_mode in _research_modes:
             self.executor._is_deep_research = True
             self.planner._is_deep_research = True
+        if hasattr(self.executor, "_stuck_detector") and self.executor._stuck_detector:
+            self.executor._stuck_detector.set_research_mode(self._research_mode)
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
         # URL Failure Guard: session-scoped, shared across all steps
@@ -1040,16 +1042,24 @@ class PlanActFlow(BaseFlow):
         # Propagate session-scoped URL failure guard to step executor
         if self._url_failure_guard and hasattr(step_executor, "_url_failure_guard"):
             step_executor._url_failure_guard = self._url_failure_guard
+        # Propagate research mode to step executor's stuck detector (Fix 4)
+        if hasattr(step_executor, "_stuck_detector") and step_executor._stuck_detector:
+            step_executor._stuck_detector.set_research_mode(self._research_mode)
         return step_executor
 
     @staticmethod
-    def _compact_prior_step_context(executor: "BaseAgent") -> None:
+    def _compact_prior_step_context(executor: "BaseAgent", *, aggressive: bool = False) -> None:
         """Truncate old tool results and large assistant messages between steps.
 
         Deep research tasks accumulate 100K+ chars across steps as tool results,
         assistant echoes, and search content pile up.  At step boundaries we
-        aggressively compact everything except the system prompt and the most
-        recent messages, keeping the conversation within the hard context cap.
+        compact everything except the system prompt and the most recent messages.
+
+        Args:
+            aggressive: When True (zero-progress replan), applies much tighter
+                limits — keeps only the last 1 tool message and strips all prior
+                assistant messages.  Prevents the context spiral where each replan
+                starts 20-40 K chars heavier than the previous one.
         """
         if not hasattr(executor, "memory") or executor.memory is None:
             return
@@ -1058,31 +1068,56 @@ class PlanActFlow(BaseFlow):
             return
 
         total_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        if total_chars < 40_000:
-            return  # Context is small enough, skip compaction
+        # Skip compaction only for very small contexts (aggressive always runs)
+        if not aggressive and total_chars < 40_000:
+            return
 
         truncated_count = 0
-        # Compact tool messages: keep only the last 2, truncate the rest
-        tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
-        for idx in tool_indices[:-2]:
-            content = messages[idx].get("content", "")
-            if isinstance(content, str) and len(content) > 150:
-                messages[idx] = {**messages[idx], "content": content[:150] + "\n[...compacted...]"}
-                truncated_count += 1
 
-        # Compact large assistant messages (>3K chars) that aren't the last one
-        # — these often contain echoed search results or interim analysis
-        assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
-        for idx in assistant_indices[:-1]:
-            content = messages[idx].get("content", "")
-            if isinstance(content, str) and len(content) > 3000:
-                messages[idx] = {**messages[idx], "content": content[:500] + "\n[...compacted...]"}
-                truncated_count += 1
+        if aggressive:
+            # Replan after zero-progress dead-end: truncate ALL tool messages
+            # (keep only the single most recent at 200 chars) and ALL prior
+            # assistant messages (keep only the last at 300 chars).
+            # This resets the context to a manageable base for the fresh plan.
+            tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+            keep_tool = tool_indices[-1:] if tool_indices else []
+            for idx in tool_indices:
+                content = messages[idx].get("content", "")
+                limit = 200 if idx in keep_tool else 60
+                if isinstance(content, str) and len(content) > limit:
+                    messages[idx] = {**messages[idx], "content": content[:limit] + "\n[...compacted...]"}
+                    truncated_count += 1
+
+            assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+            keep_asst = assistant_indices[-1:] if assistant_indices else []
+            for idx in assistant_indices:
+                content = messages[idx].get("content", "")
+                limit = 300 if idx in keep_asst else 80
+                if isinstance(content, str) and len(content) > limit:
+                    messages[idx] = {**messages[idx], "content": content[:limit] + "\n[...compacted...]"}
+                    truncated_count += 1
+        else:
+            # Normal step boundary: keep last 2 tool messages, truncate older ones
+            tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+            for idx in tool_indices[:-2]:
+                content = messages[idx].get("content", "")
+                if isinstance(content, str) and len(content) > 150:
+                    messages[idx] = {**messages[idx], "content": content[:150] + "\n[...compacted...]"}
+                    truncated_count += 1
+
+            # Compact large assistant messages (>3K chars) that aren't the last one
+            assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+            for idx in assistant_indices[:-1]:
+                content = messages[idx].get("content", "")
+                if isinstance(content, str) and len(content) > 3000:
+                    messages[idx] = {**messages[idx], "content": content[:500] + "\n[...compacted...]"}
+                    truncated_count += 1
 
         if truncated_count > 0:
             new_total = sum(len(str(m.get("content", ""))) for m in messages)
             logger.debug(
-                "Per-step compaction: truncated %d message(s), %dK → %dK chars",
+                "Per-step compaction (%s): truncated %d message(s), %dK → %dK chars",
+                "aggressive" if aggressive else "normal",
                 truncated_count,
                 total_chars // 1000,
                 new_total // 1000,
@@ -3511,9 +3546,9 @@ class PlanActFlow(BaseFlow):
                                     self._zero_progress_dead_end_replans,
                                     self._max_zero_progress_dead_end_replans,
                                 )
-                                # Aggressive compaction before replan — clear accumulated tool results
-                                # from failed steps to prevent context spiral across replans
-                                self._compact_prior_step_context(self.executor)
+                                # Aggressive compaction before replan — reset context to a clean base
+                                # so each replan doesn't start 20-40 K chars heavier than the last.
+                                self._compact_prior_step_context(self.executor, aggressive=True)
                                 yield ProgressEvent(
                                     phase=PlanningPhase.ANALYZING,
                                     message=(
