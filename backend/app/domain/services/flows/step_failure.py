@@ -20,6 +20,25 @@ class StepFailureHandler:
     - Cascade skip/block decisions through the plan
     """
 
+    @staticmethod
+    def _collect_actionable_files(step: Step) -> list[str]:
+        """Collect real file outputs that downstream steps can continue from."""
+        files: list[str] = []
+
+        attachments = getattr(step, "attachments", None) or []
+        for attachment in attachments:
+            attachment_text = str(attachment).strip()
+            if attachment_text:
+                files.append(attachment_text)
+
+        artifacts = getattr(step, "artifacts", None) or []
+        for artifact in artifacts:
+            artifact_text = str(artifact).strip()
+            if artifact_text:
+                files.append(artifact_text)
+
+        return list(dict.fromkeys(files))
+
     def handle_failure(self, plan: Plan, failed_step: Step) -> list[str]:
         """Handle step failure by marking dependent steps as blocked.
 
@@ -40,29 +59,32 @@ class StepFailureHandler:
             reason=reason[:200],
         )
 
-        # Always try to unblock dependents so the plan can make forward
-        # progress.  When the failed step produced no result at all (e.g.
-        # LLM retry loop exhausted), inject a minimal placeholder so
-        # unblock_independent_steps() recognises the blocker as "has
-        # partial results" and dependents are not permanently stuck.
+        # Only unblock dependents when the failed step left something
+        # actionable behind: a real result or concrete files the next step
+        # can continue from. Empty failures should stay blocked so the
+        # planner does not treat fake placeholders as progress.
         if blocked_ids:
             if not failed_step.result:
-                # Collect files written during this step for richer context
-                files_info = ""
-                if hasattr(failed_step, "artifacts") and failed_step.artifacts:
-                    file_list = ", ".join(str(f) for f in failed_step.artifacts[:5])
-                    files_info = f" Files created: {file_list}."
-
-                failed_step.result = (
-                    f"[Step failed: {(failed_step.error or 'execution error')[:120]}."
-                    f"{files_info}"
-                    f" Partial results may be available in workspace files.]"
-                )
-                logger.info(
-                    "Injected placeholder result on step %s to unblock %d dependents",
-                    failed_step.id,
-                    len(blocked_ids),
-                )
+                actionable_files = self._collect_actionable_files(failed_step)
+                if actionable_files:
+                    file_list = ", ".join(actionable_files[:5])
+                    failed_step.result = (
+                        f"[Step failed: {(failed_step.error or 'execution error')[:120]}."
+                        f" Files created: {file_list}."
+                        " Partial results may be available in workspace files.]"
+                    )
+                    logger.info(
+                        "Injected placeholder result on step %s to unblock %d dependents",
+                        failed_step.id,
+                        len(blocked_ids),
+                    )
+                else:
+                    logger.info(
+                        "Step %s failed without actionable partial output; keeping %d dependents blocked",
+                        failed_step.id,
+                        len(blocked_ids),
+                    )
+                    return blocked_ids
             unblocked = plan.unblock_independent_steps()
             if unblocked:
                 logger.info(
