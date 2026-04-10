@@ -192,6 +192,7 @@
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
+            :suppressContent="isMidExecutionStepResult(messages, index)"
             :activeReasoningState="!isChatMode && !showTaskProgressBar && !showPlanningCard && message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
             @toolClick="handleToolClick"
@@ -682,10 +683,12 @@ import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
 import { shouldShowEmptySessionState as shouldShowChatEmptySessionState } from '@/utils/chatEmptyState';
 import {
+  findRenderableAssistantMessageIdInCurrentTurn,
+  hasVisibleAgentActivityInCurrentTurn,
   hasRenderableAssistantContent,
   isStructuredSummaryAssistantMessage,
-  shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
+  isMidExecutionStepResult,
 } from '@/utils/assistantMessageLayout';
 import { syncToolMessage } from '@/utils/toolMessageTree';
 import { syncPhaseMessage } from '@/utils/phaseMessages';
@@ -820,7 +823,6 @@ const createInitialState = () => ({
   summaryStreamText: '', // Accumulated streaming summary text
   isSummaryStreaming: false, // True when summary is streaming live
   finalReportText: '', // Persisted final report markdown for live-view completion state
-  allowStandaloneSummaryOnNextAssistant: false, // One-shot flag: render only the final summary assistant block outside step timeline
   filePreviewOpen: false,
   filePreviewFile: null as FileInfo | null,
   toolTimeline: [] as ToolContent[],
@@ -877,7 +879,6 @@ const {
   summaryStreamText,
   isSummaryStreaming,
   finalReportText,
-  allowStandaloneSummaryOnNextAssistant,
   filePreviewOpen,
   filePreviewFile,
   toolTimeline,
@@ -1363,6 +1364,7 @@ const showSessionWarmupMessage = computed(() => {
   const hasPrompt = hasUserMessages.value || !!pendingInitialMessage.value?.message?.trim();
   if (!hasPrompt) return false;
   if (sessionInitTimedOut.value) return true;
+  if (hasVisibleAgentActivityInCurrentTurn(messages.value)) return false;
   if (toolPanelPainted.value) return false;
   // Dismiss warmup once execution steps appear or a plan is ready
   // so the TaskProgressBar with live preview can take over
@@ -1699,6 +1701,7 @@ const clearPlanPresentation = (): void => {
   lastPlanningProgressSignature.value = '';
   planningToolOpened = false;
   planningToolPendingOpen = false;
+  reportToolOpened = false;
 };
 
 /** Build a synthetic ToolContent for the planning overlay panel. */
@@ -1732,6 +1735,29 @@ const tryOpenPlanningPanel = (): void => {
   if (showToolPanelIfAllowed(syntheticTool, true)) {
     planningToolOpened = true;
     planningToolPendingOpen = false;
+  }
+};
+
+/** Auto-open the ToolPanel when report streaming begins (mirrors tryOpenPlanningPanel). */
+const tryOpenReportPanel = (): void => {
+  if (reportToolOpened || userDismissedPanel.value || !realTime.value) return;
+  if (!sessionId.value) return;
+
+  const syntheticTool: ToolContent = {
+    timestamp: Date.now(),
+    tool_call_id: `report-${sessionId.value}`,
+    name: 'report',
+    function: 'write_report',
+    args: {},
+    content: {},
+    status: 'running',
+  };
+  panelToolId.value = syntheticTool.tool_call_id;
+
+  if (!canOpenLiveViewPanel.value) return;
+
+  if (showToolPanelIfAllowed(syntheticTool, true)) {
+    reportToolOpened = true;
   }
 };
 
@@ -1778,7 +1804,6 @@ const cleanupStreamingState = () => {
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
-  allowStandaloneSummaryOnNextAssistant.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
   pendingUserEchoMessage.value = null;
@@ -1938,6 +1963,7 @@ const updateEventTimeAndResetStale = () => {
 // userDismissedPanel is a computed alias from uiStore (defined above)
 let planningToolOpened = false;
 let planningToolPendingOpen = false;
+let reportToolOpened = false;
 
 // Handler for TaskProgressBar's requestRefresh event (no-op with live preview)
 const handleThumbnailRefresh = () => {
@@ -2015,14 +2041,33 @@ const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
 
-const shouldShowStepConnector = (messageIndex: number): boolean => {
+const isConnectedTimelineMessage = (messageIndex: number): boolean => {
   const currentMessage = messages.value[messageIndex];
-  if (!currentMessage || currentMessage.type !== 'step') return false;
+  if (!currentMessage) return false;
+
+  if (currentMessage.type === 'step') return true;
+
+  if (currentMessage.type === 'tool') {
+    const tool = currentMessage.content as ToolContent;
+    return !tool.function.startsWith('message_');
+  }
+
+  if (currentMessage.type !== 'assistant') return false;
+
+  if (shouldShowAssistantHeader(messageIndex) || shouldRenderSummaryCard(messageIndex)) {
+    return false;
+  }
+
+  const assistantText = ((currentMessage.content as MessageContent).content || '').trim();
+  return hasRenderableAssistantContent(assistantText);
+};
+
+const shouldShowStepConnector = (messageIndex: number): boolean => {
+  if (!isConnectedTimelineMessage(messageIndex)) return false;
 
   for (let i = messageIndex + 1; i < messages.value.length; i += 1) {
-    if (messages.value[i].type === 'step') {
-      return true;
-    }
+    if (messages.value[i].type === 'user') break;
+    if (isConnectedTimelineMessage(i)) return true;
   }
 
   return false;
@@ -2033,16 +2078,18 @@ const shouldShowStepLeadingConnector = (messageIndex: number): boolean => {
   if (!currentMessage || currentMessage.type !== 'step') return false;
 
   for (let i = messageIndex - 1; i >= 0; i -= 1) {
-    if (messages.value[i].type === 'step') {
-      return true;
-    }
+    if (messages.value[i].type === 'user') break;
+    if (isConnectedTimelineMessage(i)) return true;
   }
 
   return false;
 };
 
 const shouldShowAssistantHeader = (messageIndex: number): boolean => {
-  return shouldShowAssistantHeaderForMessage(messages.value, messageIndex);
+  return shouldShowAssistantHeaderForMessage(messages.value, messageIndex, {
+    activeAssistantMessageId: activeAssistantMessageId.value,
+    showFloatingThinkingIndicator: showFloatingThinkingIndicator.value,
+  });
 };
 
 /** Hide "Pythinker is working" header for consecutive skill_invoke tool messages. */
@@ -2236,12 +2283,7 @@ const showFloatingThinkingIndicator = computed(() => {
 
 // Compute the ID of the last assistant message
 const activeAssistantMessageId = computed(() => {
-  for (let i = messages.value.length - 1; i >= 0; i--) {
-    if (messages.value[i].type === 'assistant') {
-      return messages.value[i].id;
-    }
-  }
-  return null;
+  return findRenderableAssistantMessageIdInCurrentTurn(messages.value);
 });
 
 const isTaskCompleted = computed(() =>
@@ -2427,51 +2469,6 @@ const upsertToolTimeline = (toolContent: ToolContent) => {
   toolTimeline.value.push(toolContent);
 };
 
-const maybeAppendAssistantMessageToStep = (
-  messageData: MessageEventData,
-  allowStandaloneSummary = false,
-): boolean => {
-  if (messageData.role !== 'assistant') return false;
-
-  const text = (messageData.content || '').trim();
-  if (!text) return false;
-
-  let targetStep: StepContent | undefined;
-  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-    const candidate = messages.value[i];
-    const candidateType = candidate.type as string;
-    if (candidateType === 'step') {
-      targetStep = candidate.content as StepContent;
-      break;
-    }
-    // Stop if we hit another top-level conversational block.
-    if (!['tool', 'attachments', 'thought', 'phase'].includes(candidateType)) {
-      return false;
-    }
-  }
-  if (!targetStep) return false;
-
-  if (!shouldNestAssistantMessageInStep(text, targetStep, { allowStandaloneSummary })) {
-    return false;
-  }
-
-  const lastTool = targetStep.tools[targetStep.tools.length - 1];
-  if (lastTool?.name === 'message' && String(lastTool.args?.text || '') === text) {
-    return true;
-  }
-
-  targetStep.tools.push({
-    tool_call_id: `inline-message-${messageData.timestamp}-${targetStep.tools.length}`,
-    name: 'message',
-    function: 'message',
-    args: { text },
-    status: 'called',
-    timestamp: messageData.timestamp,
-  });
-
-  return true;
-};
-
 const getAttachmentAliases = (file: FileInfo): Set<string> => {
   const aliases = new Set<string>();
   const normalizedFileId = (file.file_id || '').trim();
@@ -2581,8 +2578,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     return;
   }
 
-  const allowStandaloneSummary = messageData.role === 'assistant' && allowStandaloneSummaryOnNextAssistant.value;
-
   // Assistant message means agent finished thinking
   if (messageData.role === 'assistant') {
     // Track anchor event ID for follow-up suggestions
@@ -2592,14 +2587,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   // Clear summary streaming overlay — message takes over
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
-
-  // Keep per-step narration nested inside the active step thread.
-  if (maybeAppendAssistantMessageToStep(messageData, allowStandaloneSummary)) {
-    if (messageData.role === 'assistant') {
-      allowStandaloneSummaryOnNextAssistant.value = false;
-    }
-    return;
-  }
 
   // Suppress agent-mode guided prompt echo from server.
   // When the user clicks "Use Agent Mode", we send a guided prompt wrapping the original.
@@ -2654,10 +2641,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
       ...messageData
     } as MessageContent,
   });
-
-  if (messageData.role === 'assistant') {
-    allowStandaloneSummaryOnNextAssistant.value = false;
-  }
 
   if (messageData.attachments?.length > 0) {
     appendIncomingAttachmentsMessage(messageData);
@@ -3145,9 +3128,9 @@ const handleStreamEvent = (streamData: StreamEventData) => {
     }
     if (streamData.is_final) {
       isSummaryStreaming.value = false;
-      allowStandaloneSummaryOnNextAssistant.value = summaryStreamText.value.trim().length > 0;
       // Keep text visible briefly — cleared when ReportEvent arrives
     } else {
+      if (!isSummaryStreaming.value) tryOpenReportPanel();
       isSummaryStreaming.value = true;
     }
     return;
@@ -3420,7 +3403,6 @@ const handleReportEvent = (reportData: ReportEventData) => {
   // Clear summary streaming overlay — report card takes over
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
-  allowStandaloneSummaryOnNextAssistant.value = false;
 
   const reportAttachments = reportData.attachments ?? [];
   removeRedundantAssistantAttachmentMessages(reportAttachments);
@@ -3709,7 +3691,34 @@ const handleDoneEvent = () => {
   });
   ensureCompletionSuggestions();
   markShortAssistantCompletion();
+  ensureReportMessage();
   finalizeSession('done', SessionStatus.COMPLETED);
+};
+
+/** Fallback: if streaming produced report text but no ReportEvent arrived, create the report card. */
+const ensureReportMessage = () => {
+  const hasReportMsg = messages.value.some((m) => m.type === 'report');
+  if (hasReportMsg) return;
+
+  const text = (finalReportText.value || summaryStreamText.value || '').trim();
+  if (text.length < 200) return;
+
+  finalReportText.value = text;
+  const sections = extractSectionsFromMarkdown(text);
+  const epochSec = Math.floor(Date.now() / 1000);
+  const fallbackReport: ReportContent = {
+    id: `fallback-${sessionId.value}`,
+    event_id: `fallback-${sessionId.value}`,
+    title: sections[0]?.title || 'Research Report',
+    content: text,
+    lastModified: epochSec * 1000,
+    fileCount: 0,
+    sections,
+    sources: [],
+    attachments: [],
+    timestamp: epochSec,
+  };
+  syncReportMessage(messages.value, fallbackReport, generateMessageId);
 };
 
 const handleWaitEvent = (data: unknown) => {
@@ -3846,6 +3855,7 @@ const eventRegistry = createEventHandlerRegistry({
   attachments: () => { /* standalone attachments event — no UI handler yet */ },
   wide_research: () => { /* handled by research workflow composable */ },
   deep_research: () => { /* handled by research workflow composable */ },
+  usage: () => { /* UsageEvent — token/cost tracking, no UI action needed */ },
 })
 
 // Process a single event (extracted from handleEvent for batching)
@@ -3964,6 +3974,7 @@ const chat = async (
   // Reset user dismissal so the panel auto-opens for the new agent run
   planningToolOpened = false;
   planningToolPendingOpen = false;
+  reportToolOpened = false;
   uiStore.resetDismissed()
   toolStore.clearAll()
   const normalizedMessage = message.trim();

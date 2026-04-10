@@ -50,7 +50,8 @@ export type AgentSSEEvent = {
     | 'partial_result'
     | 'phase'
     | 'eval_metrics'
-    | 'mcp_health';
+    | 'mcp_health'
+    | 'usage';
   data:
     | ToolEventData
     | ToolStreamEventData
