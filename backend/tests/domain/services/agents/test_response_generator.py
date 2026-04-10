@@ -1540,6 +1540,22 @@ class TestRunDeliveryIntegrityGate:
         assert passed is False
         assert "missing_references_section" in issues
 
+    def test_critical_string_issue_sets_red_gate_severity(self, caplog: pytest.LogCaptureFixture) -> None:
+        rg = self._make_rg_with_flags({"delivery_integrity_gate": True})
+        with caplog.at_level("INFO", logger="app.domain.services.agents.response_generator"):
+            passed, issues = rg.run_delivery_integrity_gate(
+                content="# Report\n\nSome content.",
+                response_policy=_make_response_policy(),
+                coverage_result=self._null_coverage(),
+                stream_metadata={},
+                truncation_exhausted=False,
+                additional_issues=["hallucination_ratio_critical"],
+            )
+
+        assert passed is False
+        assert "hallucination_ratio_critical" in issues
+        assert "Delivery gate: red" in caplog.text
+
     def test_artifact_references_boilerplate_detected(self) -> None:
         rg = self._make_rg_with_flags({"delivery_integrity_gate": True})
         rg.set_artifact_references([{"filename": "report.md"}])

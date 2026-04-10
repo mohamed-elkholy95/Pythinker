@@ -54,6 +54,7 @@ class TestHandleFailure:
 
     def test_injects_placeholder_when_no_result(self) -> None:
         step = _make_step(step_id="s1", error="timeout", result=None)
+        step.attachments = ["report.md"]
         plan = _make_plan([step])
         plan.mark_blocked_cascade.return_value = ["s2"]
         plan.unblock_independent_steps.return_value = []
@@ -75,6 +76,7 @@ class TestHandleFailure:
 
     def test_unblocked_removed_from_blocked_list(self) -> None:
         step = _make_step(step_id="s1", error="err", result=None)
+        step.attachments = ["partial.md"]
         plan = _make_plan([step])
         plan.mark_blocked_cascade.return_value = ["s2", "s3"]
         plan.unblock_independent_steps.return_value = ["s2"]
@@ -92,6 +94,17 @@ class TestHandleFailure:
         blocked = self.handler.handle_failure(plan, step)
 
         assert blocked == []
+        plan.unblock_independent_steps.assert_not_called()
+
+    def test_failed_step_without_actionable_output_stays_blocking(self) -> None:
+        step = _make_step(step_id="s1", error="invalid json", result=None)
+        plan = _make_plan([step])
+        plan.mark_blocked_cascade.return_value = ["s2"]
+
+        blocked = self.handler.handle_failure(plan, step)
+
+        assert blocked == ["s2"]
+        assert step.result is None
         plan.unblock_independent_steps.assert_not_called()
 
     def test_reason_truncated_to_200(self) -> None:

@@ -15,6 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domain.services.plotly_chart_orchestrator import (
+    _CHART_ANALYSIS_PROMPT,
     ChartAnalysisResult,
     PlotlyChartOrchestrator,
 )
@@ -97,6 +98,24 @@ class TestChartAnalysisResult:
                     {"label": "B", "value": 20.0},
                 ],
             )
+
+
+class TestChartAnalysisPrompt:
+    """Prompt contract tests for chart-analysis quality guards."""
+
+    def test_prompt_rejects_proxy_metrics_for_performance_titles(self):
+        assert (
+            'If the metric is "Parameters", do not title the chart "Inference Performance".' in _CHART_ANALYSIS_PROMPT
+        )
+
+    def test_prompt_rejects_spec_sheet_numbers_as_default_chart_data(self):
+        assert "The only available numbers are specs" in _CHART_ANALYSIS_PROMPT
+        assert "parameter counts" in _CHART_ANALYSIS_PROMPT
+        assert "memory sizes" in _CHART_ANALYSIS_PROMPT
+
+    def test_prompt_biases_toward_skip_when_chart_would_be_misleading(self):
+        assert "If no good chart exists" in _CHART_ANALYSIS_PROMPT
+        assert "A skipped chart is better than a misleading chart." in _CHART_ANALYSIS_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +233,68 @@ class TestLLMChartAnalysis:
         )
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_llm_path_rejects_proxy_metric_masquerading_as_performance(
+        self, orchestrator_with_llm, mock_llm, mock_sandbox
+    ):
+        """A spec metric should not survive when the report is framed as performance."""
+        mock_llm.ask_structured.return_value = ChartAnalysisResult(
+            should_generate=True,
+            chart_type="bar",
+            title="LLM Inference Performance",
+            metric_name="Parameters",
+            lower_is_better=False,
+            points=[
+                {"label": "Llama 3.3 70B", "value": 70.0, "display_value": "70B"},
+                {"label": "DeepSeek R1 32B", "value": 32.0, "display_value": "32B"},
+                {"label": "Mistral 7B", "value": 7.0, "display_value": "7B"},
+            ],
+            reason="Compares available model sizes.",
+        )
+
+        result = await orchestrator_with_llm.generate_chart(
+            report_title="DGX Spark Inference Performance Comparison",
+            markdown_content=(
+                "# DGX Spark Inference Performance\n"
+                "The report compares model throughput and latency, but also lists model parameter counts.\n"
+            ),
+            report_id="test-report-proxy-metric",
+        )
+
+        assert result is None
+        mock_sandbox.exec_command.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_llm_path_allows_spec_metric_when_report_is_explicitly_about_specs(
+        self, orchestrator_with_llm, mock_llm
+    ):
+        """Spec metrics are valid when the report itself is explicitly a spec comparison."""
+        mock_llm.ask_structured.return_value = ChartAnalysisResult(
+            should_generate=True,
+            chart_type="bar",
+            title="LLM Parameter Count Comparison",
+            metric_name="Parameters",
+            lower_is_better=False,
+            points=[
+                {"label": "Llama 3.3 70B", "value": 70.0, "display_value": "70B"},
+                {"label": "DeepSeek R1 32B", "value": 32.0, "display_value": "32B"},
+                {"label": "Mistral 7B", "value": 7.0, "display_value": "7B"},
+            ],
+            reason="Compares model parameter counts directly.",
+        )
+
+        result = await orchestrator_with_llm.generate_chart(
+            report_title="Open Model Parameter Count Comparison",
+            markdown_content=(
+                "# Open Model Parameter Count Comparison\n"
+                "| Model | Parameters |\n|---|---|\n| Llama 3.3 | 70B |\n| DeepSeek R1 | 32B |\n"
+            ),
+            report_id="test-report-spec-metric",
+        )
+
+        assert result is not None
+        assert result.data_points == 3
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_llm(self, orchestrator_without_llm):

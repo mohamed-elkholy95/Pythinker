@@ -215,6 +215,7 @@ class TestPlaceholderResultUnblocking:
         step1.status = ExecutionStatus.FAILED
         step1.error = "LLM retry loop exhausted"
         step1.result = None
+        step1.attachments = ["notes.md"]
 
         handler.handle_failure(plan, step1)
 
@@ -231,12 +232,28 @@ class TestPlaceholderResultUnblocking:
         step1.status = ExecutionStatus.FAILED
         step1.error = "execution error"
         step1.result = None
+        step1.attachments = ["findings.md"]
 
         blocked_ids = handler.handle_failure(plan, step1)
 
         # Step3 should be unblocked (not in the blocked list)
         assert step3.status == ExecutionStatus.PENDING
         assert "3" not in blocked_ids
+
+    def test_failed_step_without_result_and_without_files_stays_blocking(self) -> None:
+        """No placeholder should be injected when the failed step left nothing actionable."""
+        handler = StepFailureHandler()
+        plan, step1, _step2, step3 = _make_plan_with_dependency()
+
+        step1.status = ExecutionStatus.FAILED
+        step1.error = "execution error"
+        step1.result = None
+
+        blocked_ids = handler.handle_failure(plan, step1)
+
+        assert step1.result is None
+        assert step3.status == ExecutionStatus.BLOCKED
+        assert "3" in blocked_ids
 
     def test_failed_step_with_partial_result_still_unblocks(self) -> None:
         """Existing behavior: partial results should still unblock dependents."""

@@ -183,6 +183,37 @@ class TestTelegramDeliveryIntegrityGate:
         assert passed is True
         assert issues == []
 
+    def test_delivery_integrity_gate_marks_moderate_report_grounding_as_yellow(self, caplog):
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        rg = _make_rg()
+        coverage_result = SimpleNamespace(is_valid=True, missing_requirements=[])
+        content = (
+            "# Final Report\n\n"
+            "## Findings\nGrounded claim [1][2][3].\n\n"
+            "## References\n[1] https://example.com/a\n[2] https://example.com/b\n[3] https://example.com/c"
+        )
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        with caplog.at_level("INFO", logger="app.domain.services.agents.response_generator"):
+            passed, issues = rg.run_delivery_integrity_gate(
+                content=content,
+                response_policy=policy,
+                coverage_result=coverage_result,
+                stream_metadata={"provider": "test"},
+                truncation_exhausted=False,
+                additional_warnings=["hallucination_ratio_moderate"],
+                delivery_channel="web",
+            )
+
+        assert passed is True
+        assert issues == []
+        assert "Delivery gate: yellow" in caplog.text
+
 
 def _make_output_verifier(*, hallucination_verification_enabled: bool = True):
     """Build a minimal OutputVerifier with all dependencies mocked."""
@@ -218,16 +249,28 @@ def _make_grounding_result(score: float, claim_count: int = 2, skipped: bool = F
 
 
 class TestHallucinationDisclaimerNotRedaction:
-    """The warn-block hallucination ratio branch must append a disclaimer
-    and must NOT produce span redaction markers."""
+    """Moderate grounding hits should rewrite report drafts without redaction markers."""
 
     @pytest.mark.asyncio
-    async def test_moderate_ratio_appends_disclaimer(self):
+    async def test_moderate_report_ratio_rewrites_before_appending_notice(self):
         ov = _make_output_verifier()
-        content = "# Research Report\n\nSome findings here with specific facts and numbers."
+        content = (
+            "# Research Report\n\n"
+            "## Findings\n"
+            "The device delivers an exact 102 GB/s in all workloads and always requires FP4 for peak gains. [1][2][3]"
+        )
         grounding_result = _make_grounding_result(score=0.20, claim_count=2)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(
+            return_value={
+                "content": (
+                    "# Research Report\n\n"
+                    "## Findings\n"
+                    "Independent reports suggest some peak gains depend on highly optimized low-precision paths. [1][2][3]"
+                )
+            }
+        )
 
         with patch(
             "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
@@ -236,20 +279,22 @@ class TestHallucinationDisclaimerNotRedaction:
             result = await ov.verify_hallucination(content, "research query")
 
         assert result is not None
-        # Disclaimer is now in a separate field (not inlined into content)
-        assert "Reliability Notice" in result.disclaimer
-        assert "20.0% unverified" in result.disclaimer
+        # Disclaimer text is no longer appended — verification metadata
+        # propagates via warnings/hallucination_ratio to the delivery gate.
         assert "hallucination_ratio_moderate" in result.warnings
+        assert result.hallucination_ratio == pytest.approx(0.20)
+        ov._llm.ask.assert_awaited_once()
         assert "[…]" not in result.content
         assert "[...]" not in result.content
 
     @pytest.mark.asyncio
-    async def test_moderate_ratio_does_not_produce_redaction_markers(self):
+    async def test_moderate_non_report_ratio_skips_rewrite_and_keeps_notice(self):
         ov = _make_output_verifier()
-        content = "# Report\n\nSome findings."
+        content = "A concise answer with one unsupported benchmark claim."
         grounding_result = _make_grounding_result(score=0.18, claim_count=1)
         mock_verifier = AsyncMock()
         mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock()
 
         with patch(
             "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
@@ -257,6 +302,11 @@ class TestHallucinationDisclaimerNotRedaction:
         ):
             result = await ov.verify_hallucination(content, "query")
 
+        # Non-report content: no rewrite attempted, disclaimer metadata only
+        assert result.content == content
+        assert "hallucination_ratio_moderate" in result.warnings
+        assert result.hallucination_ratio == pytest.approx(0.18)
+        ov._llm.ask.assert_not_awaited()
         assert "[…]" not in result.content
         assert "[...]" not in result.content
 
@@ -278,7 +328,8 @@ class TestHallucinationDisclaimerNotRedaction:
             result = await ov.verify_hallucination(content, "query")
 
         assert "hallucination_ratio_critical" in result.blocking_issues
-        assert "could not be verified against available sources" in result.content
+        # Disclaimer text removed from content — metadata propagates via blocking_issues
+        assert result.hallucination_ratio == pytest.approx(0.62)
 
     @pytest.mark.asyncio
     async def test_ratio_between_warn_and_block_is_moderate(self):
@@ -298,8 +349,92 @@ class TestHallucinationDisclaimerNotRedaction:
 
         assert result.blocking_issues == []
         assert "hallucination_ratio_moderate" in result.warnings
-        # Disclaimer is now in a separate field (not inlined into content)
-        assert "Reliability Notice" in result.disclaimer
+        assert result.hallucination_ratio == pytest.approx(0.25)
+
+    @pytest.mark.asyncio
+    async def test_ratio_at_warn_threshold_is_moderate(self):
+        """Warn threshold is inclusive: exactly 15% should produce a notice."""
+        ov = _make_output_verifier()
+        content = "Short factual answer with one weak claim."
+        grounding_result = _make_grounding_result(score=0.15, claim_count=1)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock()
+
+        with patch(
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert result.blocking_issues == []
+        assert "hallucination_ratio_moderate" in result.warnings
+        assert result.hallucination_ratio == pytest.approx(0.15)
+        ov._llm.ask.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ratio_at_escalate_threshold_is_escalated(self):
+        """Escalate threshold is inclusive: exactly 30% should mark the report as escalated."""
+        ov = _make_output_verifier()
+        content = "# Research Report\n\n## Findings\nClaim text [1][2][3]"
+        grounding_result = _make_grounding_result(score=0.30, claim_count=2)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(
+            return_value={"content": "# Research Report\n\n## Findings\nHedged claim text [1][2][3]"}
+        )
+
+        with patch(
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert result.blocking_issues == []
+        assert "hallucination_ratio_moderate" in result.warnings
+        assert "hallucination_verification_ungrounded" in result.warnings
+        assert result.hallucination_ratio == pytest.approx(0.30)
+
+    @pytest.mark.asyncio
+    async def test_ratio_at_block_threshold_uses_critical_path(self):
+        """Block threshold is inclusive: exactly 60% must block delivery."""
+        ov = _make_output_verifier()
+        content = "A concise answer with several unsupported metrics."
+        grounding_result = _make_grounding_result(score=0.60, claim_count=3)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(return_value={"content": ""})
+
+        with patch(
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert "hallucination_ratio_critical" in result.blocking_issues
+        assert result.hallucination_ratio == pytest.approx(0.60)
+
+    @pytest.mark.asyncio
+    async def test_escalated_report_ratio_blocks_when_rewrite_cannot_fix_it(self):
+        """Escalated report grounding must block delivery when rewrite fails or times out."""
+        ov = _make_output_verifier()
+        content = (
+            "# Research Report\n\n## Findings\nThe device sustains 102.4 GB/s and always exposes a 2.5GbE port. [1][2]"
+        )
+        grounding_result = _make_grounding_result(score=0.50, claim_count=2)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
+        ov._llm.ask = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        with patch(
+            "app.application.providers.grounding_verifier.get_llm_grounding_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert "hallucination_ratio_critical" in result.blocking_issues
+        assert result.hallucination_ratio == pytest.approx(0.50)
+        assert result.needs_reresearch_claims
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_block_uses_critical_path(self):
@@ -706,6 +841,55 @@ class TestDirectDeliveryShortCircuit:
         assert "`report-report-fixed-id.md`" in report.content
         assert "No file artifacts were created" not in report.content
 
+    @pytest.mark.asyncio
+    async def test_summarize_blocks_low_quality_report_stub_before_artifact_repair(self):
+        from app.domain.models.event import ErrorEvent, ReportEvent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        stub_report = "Compiling the final DGX Spark benchmarks and best practices research report."
+        retry_stub = "Need to browse additional sources to extract verified benchmark data."
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._delivery_channel = "web"
+        agent._resolve_feature_flags = MagicMock(return_value={"delivery_integrity_gate": True})
+        agent._output_coverage_validator = MagicMock(
+            validate=MagicMock(
+                side_effect=lambda output, **_: SimpleNamespace(
+                    is_valid="## Artifact References" in output,
+                    missing_requirements=[] if "## Artifact References" in output else ["artifact references"],
+                )
+            )
+        )
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(True, []))
+
+        call_count = 0
+
+        async def summary_stream(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield stub_report if call_count == 1 else retry_stub
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
+
+        error = next(event for event in events if isinstance(event, ErrorEvent))
+        assert error.error == "Summary generation failed: final report content was incomplete"
+        assert not any(isinstance(event, ReportEvent) for event in events)
+        agent._output_coverage_validator.validate.assert_not_called()
+        agent._run_delivery_integrity_gate.assert_not_called()
+
     def test_delivery_gate_blocks_false_no_artifacts_when_artifacts_exist(self):
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
@@ -781,14 +965,8 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
-        """Critical hallucination ratio is downgraded to warning when all steps completed.
-
-        hallucination_ratio_critical is soft-non-downgradable — it blocks delivery
-        only when steps are incomplete. When all steps completed, the report file
-        is already saved so blocking the summary just frustrates the user.
-        A reliability disclaimer is appended instead.
-        """
+    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
+        """Critical hallucination ratio must still block completed-plan delivery."""
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
@@ -825,10 +1003,8 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        # hallucination_ratio_critical is downgraded when all steps completed —
-        # the report is delivered with a disclaimer instead of being blocked
-        assert not any(isinstance(event, ErrorEvent) for event in events)
-        assert any(isinstance(event, ReportEvent) for event in events)
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_hallucination_ratio_critical_blocks_when_steps_incomplete(self):

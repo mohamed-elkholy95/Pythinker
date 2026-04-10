@@ -561,6 +561,12 @@ class TestExecutionAgentDeliveryIntegrityGate:
     def test_hallucination_ratio_critical_is_not_downgradable(self, executor):
         """Critical hallucination ratio is non-downgradable — must block delivery."""
         assert executor._can_downgrade_delivery_integrity_issues(["hallucination_ratio_critical"]) is False
+        assert (
+            executor._can_downgrade_delivery_integrity_issues(
+                ["hallucination_ratio_critical"], all_steps_completed=True
+            )
+            is False
+        )
 
     def test_stream_truncation_unresolved_is_not_downgradable(self, executor):
         """Structural corruption (truncated output) must always block."""
