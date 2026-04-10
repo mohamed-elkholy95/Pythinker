@@ -523,6 +523,30 @@ describe('ChatMessage', () => {
       expect(wrapper.find('.skill-tool-continuation').exists()).toBe(true)
       expect(wrapper.findComponent({ name: 'ToolUse' }).exists()).toBe(true)
     })
+
+    it('renders standalone tool rows as connected timeline items when requested', () => {
+      const toolMessage = {
+        id: 'standalone-tool-message',
+        ...mockToolMessage,
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: toolMessage,
+          showStepConnector: true,
+        },
+        global: {
+          stubs: {
+            ToolUse: true,
+            Bot: true,
+          },
+        },
+      })
+
+      const row = wrapper.find('.standalone-tool-row')
+      expect(row.classes()).toContain('timeline-bridge')
+      expect(row.classes()).toContain('timeline-bridge--has-connector')
+    })
   })
 
   describe('Step messages', () => {
@@ -719,6 +743,33 @@ describe('ChatMessage', () => {
 
       expect(wrapper.find('.step-compact-title').exists()).toBe(true)
       expect(wrapper.find('.step-compact-title').text()).toBe(mockStepMessage.content.description)
+    })
+  })
+
+  describe('Assistant timeline bridges', () => {
+    it('renders headerless assistant updates as connected timeline items when requested', () => {
+      const assistantMessage = {
+        id: 'assistant-progress-message',
+        ...mockAssistantMessage,
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: assistantMessage,
+          showAssistantHeader: false,
+          showStepConnector: true,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      const bridge = wrapper.find('.assistant-timeline-bridge')
+      expect(bridge.exists()).toBe(true)
+      expect(bridge.classes()).toContain('timeline-bridge--has-connector')
     })
   })
 })

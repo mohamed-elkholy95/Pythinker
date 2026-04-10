@@ -1,4 +1,4 @@
-import type { Message, MessageContent, StepContent } from '../types/message';
+import type { AttachmentsContent, Message, MessageContent } from '../types/message';
 import { stripLeakedToolCallMarkup } from './messageSanitizer';
 
 const STRUCTURED_SUMMARY_MIN_LENGTH = 160;
@@ -39,25 +39,82 @@ export const isStructuredSummaryAssistantMessage = (text: string): boolean => {
   return REPORT_SECTION_STRUCTURE_PATTERNS.some((pattern) => pattern.test(normalized));
 };
 
+export const findRenderableAssistantMessageIdInCurrentTurn = (
+  messages: Message[],
+): string | null => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type === 'user') break;
+    if (message.type !== 'assistant') continue;
+
+    const assistantText = (message.content as MessageContent).content || '';
+    if (hasRenderableAssistantContent(assistantText)) {
+      return message.id;
+    }
+  }
+
+  return null;
+};
+
 /**
- * Determines whether assistant text should be rendered inline inside the
- * currently running step thread.
+ * Returns true when an assistant message is sandwiched between step/tool messages
+ * (i.e. it is a mid-execution step result, not the final handoff to the user).
+ *
+ * These messages should be completely hidden — they break the visual continuity
+ * of the step timeline and surface intermediate artefacts like Reliability Notices
+ * that belong only in the final delivered answer.
  */
-export const shouldNestAssistantMessageInStep = (
-  text: string,
-  stepContent?: StepContent,
-  options?: { allowStandaloneSummary?: boolean },
+export const isMidExecutionStepResult = (messages: Message[], messageIndex: number): boolean => {
+  const current = messages[messageIndex];
+  if (!current || current.type !== 'assistant') return false;
+
+  const prev = messages[messageIndex - 1];
+  const next = messages[messageIndex + 1];
+
+  const prevIsActivity = prev?.type === 'step' || prev?.type === 'tool' || prev?.type === 'phase';
+  const nextIsActivity = next?.type === 'step' || next?.type === 'tool' || next?.type === 'phase';
+
+  // Suppress when sandwiched between agent activity events — the next step/tool
+  // makes it clear the agent is still working, not delivering a final answer.
+  return prevIsActivity && nextIsActivity;
+};
+
+export const hasVisibleAgentActivityInCurrentTurn = (
+  messages: Message[],
 ): boolean => {
-  const normalized = text.trim();
-  if (!normalized || !stepContent) return false;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type === 'user') break;
 
-  // Inline narration belongs to active step threads (running/completed).
-  if (stepContent.status !== 'running' && stepContent.status !== 'completed') return false;
+    if (message.type === 'assistant') {
+      const assistantText = (message.content as MessageContent).content || '';
+      if (hasRenderableAssistantContent(assistantText)) {
+        return true;
+      }
+      continue;
+    }
 
-  // Only the final summary handoff is allowed to be standalone.
-  if (options?.allowStandaloneSummary) return false;
+    if (message.type === 'attachments') {
+      const attachmentsContent = message.content as AttachmentsContent;
+      if (attachmentsContent.role === 'assistant') {
+        return true;
+      }
+      continue;
+    }
 
-  return true;
+    if (
+      message.type === 'step' ||
+      message.type === 'tool' ||
+      message.type === 'report' ||
+      message.type === 'skill_delivery' ||
+      message.type === 'thought' ||
+      message.type === 'phase'
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 /**
@@ -67,12 +124,20 @@ export const shouldNestAssistantMessageInStep = (
 export const shouldShowAssistantHeaderForMessage = (
   messages: Message[],
   messageIndex: number,
+  options?: {
+    activeAssistantMessageId?: string | null;
+    showFloatingThinkingIndicator?: boolean;
+  },
 ): boolean => {
   const currentMessage = messages[messageIndex];
   if (!currentMessage || currentMessage.type !== 'assistant') return false;
 
   const assistantText = (currentMessage.content as MessageContent).content || '';
   if (!hasRenderableAssistantContent(assistantText)) return false;
+
+  if (options?.showFloatingThinkingIndicator && currentMessage.id === options.activeAssistantMessageId) {
+    return false;
+  }
 
   const previousMessage = messages[messageIndex - 1];
   if (!previousMessage) return true;

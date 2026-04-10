@@ -3,7 +3,6 @@ import type { Message, ReportContent, StepContent } from '@/types/message'
 import {
   hasRenderableAssistantContent,
   isStructuredSummaryAssistantMessage,
-  shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout'
 
@@ -74,32 +73,6 @@ describe('assistantMessageLayout', () => {
 
     it('ignores short inline narration', () => {
       expect(isStructuredSummaryAssistantMessage('Checked files and proceeding to next step.')).toBe(false)
-    })
-  })
-
-  describe('shouldNestAssistantMessageInStep', () => {
-    it('nests structured summaries by default to keep timeline continuity', () => {
-      expect(shouldNestAssistantMessageInStep(structuredSummaryText, makeStep('running'))).toBe(true)
-    })
-
-    it('allows only explicit final-summary breakout to render outside step thread', () => {
-      expect(
-        shouldNestAssistantMessageInStep(structuredSummaryText, makeStep('running'), {
-          allowStandaloneSummary: true,
-        }),
-      ).toBe(false)
-    })
-
-    it('still nests assistant text when the step is completed', () => {
-      expect(shouldNestAssistantMessageInStep('Quick update', makeStep('completed'))).toBe(true)
-    })
-
-    it('does not nest into pending/non-active steps', () => {
-      expect(shouldNestAssistantMessageInStep('Quick update', makeStep('pending'))).toBe(false)
-    })
-
-    it('nests short narration into active running steps', () => {
-      expect(shouldNestAssistantMessageInStep('Reading the next source now.', makeStep('running'))).toBe(true)
     })
   })
 
