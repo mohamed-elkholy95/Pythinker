@@ -960,6 +960,29 @@ class AgentTaskRunner(TaskRunner):
             )
             existing = [*existing, report_info]
 
+        # --- Supersede stale execution-phase report files ---
+        # When summarization re-runs (e.g. after grounding failure), old agent-written
+        # .md files should not appear alongside the canonical report-{id}.md.
+        _canonical_prefixes = ("report-", "full-report-", "comparison-chart-")
+        _stale = [
+            att
+            for att in existing
+            if att.filename
+            and att.filename.endswith(".md")
+            and not any(att.filename.startswith(p) for p in _canonical_prefixes)
+            and att.file_id  # only already-uploaded files (not just-created ones)
+        ]
+        if _stale:
+            _stale_names = [a.filename for a in _stale]
+            logger.info(
+                "Superseding %d stale execution-phase report(s) for session=%s: %s",
+                len(_stale),
+                self._session_id,
+                _stale_names,
+            )
+            _stale_set = {id(a) for a in _stale}
+            existing = [a for a in existing if id(a) not in _stale_set]
+
         # --- Generate PDF version of the report ---
         pdf_info = await self._generate_report_pdf(event, report_metadata)
         if pdf_info:
