@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.domain.services.chart_semantics import get_chart_spec_rejection_reason
 from app.domain.utils.text import extract_json_from_shell_output
 
 if TYPE_CHECKING:
@@ -96,31 +97,107 @@ class ChartAnalysisResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 _CHART_ANALYSIS_PROMPT = """\
-Analyze this report and decide if a meaningful data visualization chart should be generated.
+You are a report chart analyst.
 
-GENERATE a chart when:
-- The report COMPARES 2+ distinct items on the SAME numeric metric (e.g., latencies, prices, scores, ratings)
-- Values are directly comparable on a single axis with one unit
-- A bar chart would help the reader understand relative differences at a glance
+Your job is NOT to find any numbers.
+Your job is to decide whether the report contains a SINGLE, RELEVANT, COMPARABLE quantitative story that deserves a chart.
 
-DO NOT generate a chart when:
-- The report is a guide, tutorial, how-to, or qualitative overview
-- The data lists features/specs of a SINGLE product (e.g., one credit card's fee + rewards + bonus — these are different attributes, not comparable items)
-- Values have incompatible units (e.g., "$0 fee" vs "3% cash back" vs "None")
-- Numbers are citation references like [23], page numbers, or IDs — NOT data
-- There are fewer than 2 comparable numeric data points
-- The table is informational (test format, eligibility docs, study tips) rather than a ranking or benchmark
+Return a JSON object matching the provided schema exactly.
 
+PRIMARY RULE
+Only generate a chart when the metric is genuinely meaningful for the report's subject and helps a reader understand the main comparison faster than text alone.
+
+Think before deciding:
+1. What is the report actually comparing?
+2. What variable would a serious reader care about most?
+3. Are the candidate values directly comparable on one scale with one meaning?
+4. Would this chart communicate insight, or just visualize arbitrary numbers?
+
+GENERATE A CHART ONLY IF ALL ARE TRUE
+- The report compares 2+ distinct items.
+- There is one shared metric across those items.
+- That metric is central to the report's purpose, not incidental.
+- Values are numeric and directly comparable on a single axis.
+- The chart would be readable and decision-useful.
+- The chart title and metric would make immediate sense to a human without extra explanation.
+
+DO NOT GENERATE A CHART IF ANY ARE TRUE
+- The report is mainly a guide, tutorial, workflow, best-practices document, or qualitative analysis.
+- The report discusses one product/system and lists different attributes of that single thing.
+- The only available numbers are specs, capacities, IDs, citations, dates, version numbers, parameter counts, memory sizes, core counts, model sizes, or other descriptive fields that are NOT the report's key outcome metric.
+- The metric is a weak proxy that would mislead readers.
+- The data mixes incompatible meanings or units.
+- The chart would have a misleading title such as "performance" while plotting something else like parameters, memory, or price.
+- There are fewer than 2 truly comparable points.
+- The labels would be too long, too numerous, or too cluttered to read clearly.
+- The values are ordinal/qualitative disguised as numbers.
+- The report contains rankings/scores with no trustworthy underlying metric definition.
+
+RELEVANCE TEST
+A metric is relevant only if it answers the report's main question.
+Examples:
+- Good: latency, price, benchmark score, throughput, error rate, success rate, battery life.
+- Bad unless explicitly the main comparison target: parameter count, VRAM, memory size, core count, release year, model family size.
+- Extremely bad: plotting model parameter count under a title like "LLM Inference Performance".
+
+SEMANTIC INTEGRITY RULE
+The chart title, metric_name, and points must describe the SAME thing.
+If the metric is "Parameters", do not title the chart "Inference Performance".
+If the report is about performance but only spec-sheet numbers are available, set should_generate=false.
+
+READABILITY RULES
+- Prefer 3 to 6 points.
+- Hard maximum 8 points.
+- Use short, human-readable labels.
+- Do not generate a chart if labels are likely to overlap badly or require excessive truncation.
+- Choose only one metric.
+- Ignore secondary metrics even if numeric.
+
+CHART TYPE RULES
+- "bar": default for comparing categories/items on one metric.
+- "line": only for clear time series or ordered progression.
+- "grouped_bar": only when comparing the same metric across 2 small sub-series with the same unit.
+- "pie": only for part-of-whole with <= 6 slices and total-share semantics.
+If unsure, use "bar" or skip chart generation.
+
+LOWER_IS_BETTER
+Set lower_is_better=True only for metrics where smaller is objectively better, such as:
+- latency
+- price
+- cost
+- fees
+- power consumption
+- error rate
+- failure rate
+Otherwise set it to False.
+
+EXTRACTION RULES
 If should_generate is True:
-- Extract ONLY genuinely numeric, comparable data points on the SAME metric
-- Each point needs: label (item name), value (number), optional display_value (formatted string)
-- Set lower_is_better=True for metrics where low values are desirable (fees, latency, cost, error rate, price)
-- Choose chart_type: "bar" for rankings/comparisons, "line" for time series, "pie" for part-of-whole (max 7 slices)
-- Limit to 8 data points maximum (pick the most important if more exist)
+- Extract ONLY the best single metric.
+- Every point must be {label, value, display_value?}.
+- value must be numeric.
+- display_value should preserve useful formatting/units when helpful.
+- All values must represent the same unit and same semantic meaning.
+- Exclude citation markers like [12], IDs, model names with embedded numbers, dates, and footnotes.
+- Exclude descriptive/spec-sheet numbers unless they are explicitly the report's intended comparison metric.
 
-If should_generate is False:
-- Set lower_is_better to null
-- Leave chart_type, title, metric_name, and points empty"""
+If no good chart exists, set should_generate=false.
+That is the correct decision when the data is weak, misleading, qualitative, heterogeneous, or not central to the report.
+
+WHEN should_generate=false
+- chart_type = null
+- title = null
+- metric_name = null
+- lower_is_better = null
+- points = []
+- reason = a short concrete explanation of why a chart would be misleading or low-value
+
+WHEN should_generate=true
+- reason should briefly explain why the chosen metric is the most relevant one for the report
+
+Be conservative.
+A skipped chart is better than a misleading chart.
+"""
 
 
 @dataclass(frozen=True)
@@ -191,6 +268,18 @@ class PlotlyChartOrchestrator:
 
         if not spec.points or len(spec.points) < 2:
             logger.info("LLM chart analysis: should_generate=True but <2 points, skipping")
+            return None
+
+        rejection_reason = get_chart_spec_rejection_reason(
+            report_title=report_title,
+            chart_title=spec.title or "",
+            metric_name=spec.metric_name or "",
+            labels=[str(point.get("label", "")) for point in spec.points],
+            values=[point.get("value") for point in spec.points],
+            chart_type=spec.chart_type,
+        )
+        if rejection_reason:
+            logger.info("LLM chart analysis: rejected invalid chart spec (reason: %s)", rejection_reason)
             return None
 
         return await self._execute_chart(spec, report_title, report_id)

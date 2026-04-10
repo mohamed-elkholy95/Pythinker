@@ -16,6 +16,8 @@ import re
 import warnings
 from dataclasses import dataclass
 
+from app.domain.services.chart_semantics import get_chart_spec_rejection_reason
+
 logger = logging.getLogger(__name__)
 
 
@@ -184,7 +186,8 @@ class ComparisonChartGenerator:
         if not force_generation and not self._is_comparison_context(report_title, markdown_content, table):
             return None
 
-        numeric_spec = self._build_numeric_chart_spec(table, report_title)
+        had_numeric_series: list[bool] = []
+        numeric_spec = self._build_numeric_chart_spec(table, report_title, track_numeric_presence=had_numeric_series)
         if numeric_spec:
             svg, width, height = self._render_bar_chart(numeric_spec)
             return ChartGenerationResult(
@@ -195,6 +198,10 @@ class ComparisonChartGenerator:
                 width=width,
                 height=height,
             )
+
+        if had_numeric_series and had_numeric_series[0]:
+            logger.info("Skipping legacy chart: numeric data was present but not chartable")
+            return None
 
         matrix_spec = self._build_matrix_chart_spec(table, report_title)
         if matrix_spec:
@@ -363,10 +370,13 @@ class ComparisonChartGenerator:
 
         return False
 
-    def _build_numeric_chart_spec(self, table: _MarkdownTable, report_title: str) -> _NumericChartSpec | None:
+    def _build_numeric_chart_spec(
+        self, table: _MarkdownTable, report_title: str, *, track_numeric_presence: list[bool] | None = None
+    ) -> _NumericChartSpec | None:
         label_column = 0
         best_metric_index: int | None = None
         best_points: list[_NumericPoint] = []
+        any_numeric_series = False
 
         for col_index in range(1, len(table.headers)):
             points: list[_NumericPoint] = []
@@ -385,9 +395,14 @@ class ComparisonChartGenerator:
                 seen_labels.add(normalized_label)
                 points.append(_NumericPoint(label=label, value=parsed, display_value=row[col_index].strip()))
 
-            if len(points) >= 2 and len(points) > len(best_points):
-                best_metric_index = col_index
-                best_points = points
+            if len(points) >= 2:
+                any_numeric_series = True
+                if len(points) > len(best_points):
+                    best_metric_index = col_index
+                    best_points = points
+
+        if track_numeric_presence is not None:
+            track_numeric_presence.append(any_numeric_series)
 
         if best_metric_index is None or len(best_points) < 2:
             return None
@@ -404,6 +419,18 @@ class ComparisonChartGenerator:
         limited_points = sorted_points[:8]
 
         title = table.heading or report_title or "Comparison Chart"
+        rejection_reason = get_chart_spec_rejection_reason(
+            report_title=report_title,
+            chart_title=title,
+            metric_name=metric_name,
+            labels=[point.label for point in limited_points],
+            values=[point.value for point in limited_points],
+            chart_type="bar",
+        )
+        if rejection_reason:
+            logger.info("Skipping chart: %s", rejection_reason)
+            return None
+
         return _NumericChartSpec(
             title=title,
             metric_name=metric_name,
