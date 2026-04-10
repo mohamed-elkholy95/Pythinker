@@ -813,10 +813,13 @@ class TestRewriteWithoutUnsupportedClaims:
         verifier._llm.ask = slow_ask
         claim = MagicMock()
         claim.claim_text = "some claim"
-        # Patch class-level constants for this test
+        # Patch timeout via settings (code reads hallucination_rewrite_timeout from config)
+        mock_settings = MagicMock()
+        mock_settings.hallucination_rewrite_timeout = 0.01
         with (
             patch.object(OutputVerifier, "_REWRITE_TIMEOUT_S", 0.01),
             patch.object(OutputVerifier, "_REWRITE_MAX_RETRIES", 2),
+            patch("app.core.config.get_settings", return_value=mock_settings),
         ):
             result = await verifier._rewrite_without_unsupported_claims("content " * 50, [claim])
         assert result is None
