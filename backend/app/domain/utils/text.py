@@ -9,6 +9,7 @@ Provides unified text truncation functionality used across the codebase:
 """
 
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -359,3 +360,29 @@ def truncate_output(content: str, max_length: int, preserve_end: bool = True) ->
     if preserve_end:
         return TextTruncator.truncate_preserving_ends(content, max_length)
     return TextTruncator.truncate(content, max_length)
+
+
+def is_report_like_content(content: str) -> bool:
+    """Return True when content looks like a structured report.
+
+    Detects markdown headings, bold headers, numbered sections, or
+    citation-heavy long-form content.  Used by OutputVerifier and
+    ResponseGenerator to gate report-specific quality checks.
+    """
+    if not content:
+        return False
+
+    heading_count = len(re.findall(r"^#{1,4}\s+.+", content, re.MULTILINE))
+    if heading_count >= 2:
+        return True
+
+    bold_headers = len(re.findall(r"\*\*[^*]+:\*\*", content))
+    if bold_headers >= 2:
+        return True
+
+    numbered_sections = len(re.findall(r"^\d+\.\s+[A-Z]", content, re.MULTILINE))
+    if numbered_sections >= 2:
+        return True
+
+    citation_count = len(re.findall(r"\[\d+\]", content))
+    return bool(citation_count >= 3 and len(content) > 1000)

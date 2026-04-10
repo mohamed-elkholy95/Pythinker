@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -56,6 +57,14 @@ _CAPABILITY_PROBE_CMD = (
 
 # Default cache TTL in seconds (5 minutes).
 DEFAULT_CACHE_TTL = 300.0
+_PROBE_ERROR_MARKERS = (
+    "Traceback (most recent call last):",
+    "ModuleNotFoundError",
+    "ImportError",
+    "No module named 'plotly'",
+    "No module named 'kaleido'",
+)
+_VERSION_LINE_RE = re.compile(r"^(?P<plotly>[A-Za-z0-9._-]+),(?P<kaleido>[A-Za-z0-9._-]+)$")
 
 
 class PlotlyCapabilityStatus(StrEnum):
@@ -191,17 +200,16 @@ class PlotlyCapabilityCheck:
                 error_message="Empty probe output",
             )
 
-        # Parse ``plotly_version,kaleido_version``
-        versions = output.strip().split(",", maxsplit=1)
-        plotly_ver = versions[0].strip() if len(versions) >= 1 else None
-        kaleido_ver = versions[1].strip() if len(versions) >= 2 else None
-
-        if not plotly_ver:
+        parsed_versions = self._parse_probe_versions(output)
+        if parsed_versions is None:
+            error_message = self._extract_probe_error(output)
+            logger.info("Plotly capability unavailable: %s", error_message)
             return PlotlyCapabilityResult(
                 status=PlotlyCapabilityStatus.UNAVAILABLE,
                 checked_at=now,
-                error_message="Could not parse plotly version from probe output",
+                error_message=error_message,
             )
+        plotly_ver, kaleido_ver = parsed_versions
 
         logger.info(
             "Plotly capability detected: plotly=%s, kaleido=%s",
@@ -224,3 +232,28 @@ class PlotlyCapabilityCheck:
         if isinstance(data, str):
             return data
         return str(data) if data is not None else ""
+
+    @staticmethod
+    def _parse_probe_versions(output: str) -> tuple[str, str] | None:
+        """Return version tuple from probe output, ignoring wrapper noise."""
+        for raw_line in reversed(output.splitlines()):
+            line = raw_line.strip()
+            if not line:
+                continue
+            match = _VERSION_LINE_RE.fullmatch(line)
+            if match:
+                return match.group("plotly"), match.group("kaleido")
+            if any(marker in line for marker in _PROBE_ERROR_MARKERS):
+                return None
+        return None
+
+    @staticmethod
+    def _extract_probe_error(output: str) -> str:
+        """Return a compact, factual error summary for probe failures."""
+        for raw_line in reversed(output.splitlines()):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if any(marker in line for marker in _PROBE_ERROR_MARKERS):
+                return line
+        return "Could not parse plotly version from probe output"
