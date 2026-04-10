@@ -93,6 +93,8 @@
       :class="[
         'chat-message-entry flex flex-col gap-1 w-full group',
         isAssistantSummaryCompact ? 'assistant-summary-layout' : '',
+        showAssistantTimelineBridge ? 'assistant-timeline-bridge timeline-bridge' : '',
+        showAssistantTimelineConnector ? 'timeline-bridge--has-connector' : '',
         props.showAssistantHeader === false ? 'mt-0.5' : 'mt-2'
       ]"
     >
@@ -176,12 +178,18 @@
     v-else-if="message.type === 'tool'"
     :class="[
       'chat-message-entry standalone-tool-row',
+      showStandaloneToolTimelineBridge ? 'timeline-bridge' : '',
+      showStandaloneToolTimelineConnector ? 'timeline-bridge--has-connector' : '',
       isSkillContinuation ? 'standalone-tool-row--skill-continuation' : 'mt-1',
     ]"
   >
     <!-- Skill invoke: render as mini-step aligned with step flow -->
     <template v-if="toolContent.function === 'skill_invoke'">
-      <div v-if="props.showSkillHeader !== false" class="step-compact step-compact--has-connector">
+      <div
+        v-if="props.showSkillHeader !== false"
+        class="step-compact"
+        :class="{ 'step-compact--has-connector': showSkillHeaderConnector }"
+      >
         <div class="step-compact-header step-compact-header--skill" style="pointer-events: none;">
           <div v-if="toolContent.status === 'calling'" class="step-compact-icon step-compact-icon--running">
             <span class="step-running-dot" aria-hidden="true"></span>
@@ -209,7 +217,13 @@
           </div>
         </div>
       </div>
-      <div v-else class="skill-tool-continuation">
+      <div
+        v-else
+        :class="[
+          'skill-tool-continuation timeline-bridge',
+          showStandaloneToolTimelineConnector ? 'timeline-bridge--has-connector' : '',
+        ]"
+      >
         <div class="skill-tool-continuation-inner">
           <ToolUse
             :tool="toolContent"
@@ -421,6 +435,12 @@ const props = defineProps<{
   thinkingText?: string;
   /** When false, hides the "Pythinker is working" header for consecutive skill_invoke tools */
   showSkillHeader?: boolean;
+  /**
+   * When true, completely suppresses this assistant message from rendering.
+   * Used for mid-execution step results sandwiched between step events that
+   * would otherwise break the visual continuity of the step timeline.
+   */
+  suppressContent?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -518,12 +538,34 @@ const isAssistantSummaryCompact = computed(() => {
 
 const isHiddenAssistantPlaceholder = computed(() => {
   if (props.message.type !== 'assistant') return false;
+  if (props.suppressContent) return true;
   return !hasRenderableAssistantContent(assistantDisplayContent.value);
 });
 
 const isSkillContinuation = computed(() => {
   if (props.message.type !== 'tool') return false;
   return toolContent.value.function === 'skill_invoke' && props.showSkillHeader === false;
+});
+
+const showAssistantTimelineBridge = computed(() => {
+  if (props.message.type !== 'assistant') return false;
+  return props.showAssistantHeader === false && !props.renderAsSummaryCard && !isAssistantSummaryCompact.value;
+});
+
+const showAssistantTimelineConnector = computed(() => showAssistantTimelineBridge.value && !!props.showStepConnector);
+
+const showStandaloneToolTimelineBridge = computed(() => {
+  if (props.message.type !== 'tool') return false;
+  return toolContent.value.function !== 'skill_invoke';
+});
+
+const showStandaloneToolTimelineConnector = computed(
+  () => (showStandaloneToolTimelineBridge.value || isSkillContinuation.value) && !!props.showStepConnector,
+);
+
+const showSkillHeaderConnector = computed(() => {
+  if (props.message.type !== 'tool') return false;
+  return toolContent.value.function === 'skill_invoke' && !!props.showStepConnector;
 });
 
 // Convert ReportContent to ReportData for the component
@@ -819,21 +861,28 @@ watch(
   padding-left: 38px;
 }
 
-.skill-tool-continuation {
+.timeline-bridge {
   position: relative;
   padding-left: 38px;
-  padding-top: 2px;
 }
 
-.skill-tool-continuation::before {
+.timeline-bridge--has-connector::before {
   content: '';
   position: absolute;
   left: 20px;
-  top: -8px;
-  bottom: -6px;
+  top: -6px;
+  bottom: -8px;
   width: 0;
   border-left: 1.5px dashed var(--border-dark);
   pointer-events: none;
+}
+
+.timeline-bridge .standalone-tool-pill {
+  padding-left: 0;
+}
+
+.skill-tool-continuation {
+  padding-top: 2px;
 }
 
 .skill-tool-continuation-inner {
@@ -858,6 +907,10 @@ watch(
    ══════════════════════════════════════════════════ */
 .report-message-layout {
   max-width: 100%;
+}
+
+.assistant-timeline-bridge .assistant-message-content {
+  max-width: calc(100% - 38px);
 }
 
 /* ══════════════════════════════════════════════════
