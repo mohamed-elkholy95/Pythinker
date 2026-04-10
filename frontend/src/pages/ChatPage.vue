@@ -4390,9 +4390,11 @@ onMounted(async () => {
     getServerConfig(),
     getSettings(),
   ])
+  const serverConfig = serverConfigResult.status === 'fulfilled' ? serverConfigResult.value : null
+  const userSettings = userSettingsResult.status === 'fulfilled' ? userSettingsResult.value : null
   activeHeaderModelName.value = resolveInitialHeaderModelName(
-    serverConfigResult.status === 'fulfilled' ? serverConfigResult.value.model_name : '',
-    userSettingsResult.status === 'fulfilled' ? userSettingsResult.value.model_name : '',
+    serverConfig?.model_display_name || serverConfig?.model_name || '',
+    userSettings?.model_display_name || userSettings?.model_name || '',
   )
 
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {

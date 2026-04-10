@@ -6,7 +6,7 @@
       <div class="active-config-info">
         <span class="active-config-label">Active Model</span>
         <span class="active-config-value">
-          {{ serverConfig.model_name || 'Loading...' }}
+          {{ serverConfig.model_display_name || serverConfig.model_name || 'Loading...' }}
           <span class="active-config-sep">&middot;</span>
           <span class="active-config-endpoint">{{ displayApiBase }}</span>
         </span>
@@ -63,7 +63,7 @@
           </div>
         </div>
         <div class="readonly-value">
-          {{ serverConfig.model_name || 'Not configured' }}
+          {{ serverConfig.model_display_name || serverConfig.model_name || 'Not configured' }}
         </div>
       </div>
 

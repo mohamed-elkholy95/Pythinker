@@ -3,6 +3,7 @@ import { apiClient } from './client'
 export interface UserSettings {
   llm_provider: string
   model_name: string
+  model_display_name?: string
   api_base: string
   temperature: number
   max_tokens: number
