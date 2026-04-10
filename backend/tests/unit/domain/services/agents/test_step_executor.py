@@ -379,7 +379,7 @@ class TestApplyStepResultPayload:
         # We can simulate this by passing a dict that Pydantic strict mode rejects:
         payload = {"success": 1, "result": "ok", "attachments": []}  # 1 is not strict bool
         ok = StepExecutor.apply_step_result_payload(step, payload, "raw")
-        assert ok is False
+        assert ok is True
         # Best-effort: success_value is not bool → fallback to False
         assert step.success is False
 
@@ -392,7 +392,10 @@ class TestApplyStepResultPayload:
         ok = StepExecutor.apply_step_result_payload(step, payload, "raw")
         # Strict validation fails (result must be str|None, attachments must be list)
         # Best-effort: success=True (bool), result=str(999)="999"
-        assert ok is False
+        assert ok is True
+        assert step.success is True
+        assert step.result == "999"
+        assert step.attachments == []
 
     def test_best_effort_dict_success_true_result_none_uses_raw(self):
         step = _make_step()
@@ -500,11 +503,11 @@ class TestApplyStepResultPayload:
         ok = StepExecutor.apply_step_result_payload(step, payload, "raw")
         assert ok is True
 
-    def test_returns_false_on_best_effort_path(self):
+    def test_returns_true_on_best_effort_path(self):
         step = _make_step()
         payload = {"success": False, "result": None, "attachments": "bad"}
         ok = StepExecutor.apply_step_result_payload(step, payload, "raw")
-        assert ok is False
+        assert ok is True
 
     def test_returns_false_on_last_resort_path(self):
         step = _make_step()

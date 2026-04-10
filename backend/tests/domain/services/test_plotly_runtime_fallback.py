@@ -227,6 +227,28 @@ class TestCapabilityCheckUnavailable:
         assert result.is_available is False
         assert "Probe exception" in (result.error_message or "")
 
+    @pytest.mark.asyncio
+    async def test_probe_returns_unavailable_when_output_contains_import_traceback(
+        self, checker: PlotlyCapabilityCheck
+    ) -> None:
+        sandbox = AsyncMock()
+        sandbox.exec_command.return_value = ToolResult.ok(
+            message="ok",
+            data={
+                "output": (
+                    "Traceback (most recent call last):\n"
+                    '  File "<string>", line 1, in <module>\n'
+                    "ModuleNotFoundError: No module named 'plotly'"
+                )
+            },
+        )
+
+        result = await checker.check(sandbox, "session-1")
+
+        assert result.status == PlotlyCapabilityStatus.UNAVAILABLE
+        assert result.is_available is False
+        assert "ModuleNotFoundError" in (result.error_message or "")
+
 
 # ---------------------------------------------------------------------------
 # Cache TTL and invalidation
@@ -558,6 +580,18 @@ class TestCapabilityCheckOrchestratorIntegration:
     async def test_proceed_when_capability_available(self, mock_llm: AsyncMock) -> None:
         """When capability check says AVAILABLE, chart generation proceeds."""
         sandbox = _make_sandbox_with_chart_output()
+        sandbox.exec_command.side_effect = [
+            ToolResult.ok(message="ok", data={"output": "6.3.1,1.0.0"}),
+            ToolResult.ok(
+                message="ok",
+                data={
+                    "output": '{"success": true, "html_path": "/workspace/chart.html", '
+                    '"png_path": "/workspace/chart.png", '
+                    '"html_size": 2048, "png_size": 1024, '
+                    '"data_points": 3}'
+                },
+            ),
+        ]
 
         checker = PlotlyCapabilityCheck(cache_ttl=60.0)
         cap_result = await checker.check(sandbox, "test-session")

@@ -77,6 +77,30 @@ def test_force_generation_can_produce_chart_from_generic_table():
     assert "data-chart-kind" in result.svg_content
 
 
+def test_force_generation_rejects_proxy_metric_masquerading_as_performance():
+    """Even forced legacy fallback charts must reject proxy metrics under performance titles."""
+    generator = ComparisonChartGenerator()
+
+    markdown = """# DGX Spark Inference Performance
+
+| Model | Parameters |
+|-------|------------|
+| Llama 3.3 70B | 70 |
+| DeepSeek R1 32B | 32 |
+| Mistral 7B | 7 |
+"""
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        result = generator.generate_chart(
+            "DGX Spark Inference Performance",
+            markdown,
+            force_generation=True,
+        )
+
+    assert result is None
+
+
 # ==================================================================================
 # ACTIVE TESTS: Table extraction methods used by PlotlyChartOrchestrator
 # ==================================================================================

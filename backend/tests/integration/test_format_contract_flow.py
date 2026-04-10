@@ -175,10 +175,14 @@ class TestFormatContractRecovery:
             }
         )
 
-        # Round 2 (after tool result): prose — fast-path wraps as JSON directly
+        # Round 2 (after tool result): prose — must trigger JSON re-enforcement
         prose_response = "I searched the web and found relevant information about the topic."
+        valid_json = json.dumps({"success": True, "result": "Recovered after JSON re-enforcement", "attachments": []})
         agent.ask_with_messages = AsyncMock(
-            return_value={"content": prose_response},
+            side_effect=[
+                {"content": prose_response},
+                {"content": valid_json},
+            ],
         )
 
         events = [event async for event in agent.execute("Search for test data")]
@@ -186,15 +190,17 @@ class TestFormatContractRecovery:
 
         assert len(message_events) == 1, f"Expected exactly 1 MessageEvent, got {len(message_events)}: {message_events}"
 
-        # Fast-path wraps prose as JSON without a re-enforcement LLM call
         parsed = json.loads(message_events[0].message)
         assert parsed["success"] is True
-        assert prose_response in parsed["result"]
+        assert parsed["result"] == "Recovered after JSON re-enforcement"
 
-        # Only one ask_with_messages call (the post-tool response) — no re-enforcement
-        assert agent.ask_with_messages.await_count == 1, (
-            f"Expected 1 ask_with_messages call (fast-path), got {agent.ask_with_messages.await_count}"
+        # Two calls: post-tool response + JSON re-enforcement
+        assert agent.ask_with_messages.await_count == 2, (
+            f"Expected 2 ask_with_messages calls (re-enforcement), got {agent.ask_with_messages.await_count}"
         )
+        reenforcement_call = agent.ask_with_messages.await_args_list[1]
+        assert reenforcement_call.kwargs["format"] == "json_object"
+        assert "Respond with ONLY a valid JSON object" in reenforcement_call.args[0][0]["content"]
 
     @pytest.mark.asyncio
     async def test_valid_json_passes_through_without_extra_call(self, agent: BaseAgent) -> None:
@@ -267,6 +273,66 @@ class TestFormatContractRecovery:
         assert agent.ask_with_messages.await_count == 0, (
             "ask_with_messages should not be called when the initial response is already valid JSON"
         )
+
+    @pytest.mark.asyncio
+    async def test_required_tool_step_retries_after_text_only_initial_response(self) -> None:
+        """Tool-required steps retry instead of accepting a prose-only first response."""
+        tool = _make_tool_mock()
+        agent = _build_agent(tools=[tool])
+        agent._required_tool_names_this_step = {"web_search"}
+
+        valid_json = json.dumps({"success": True, "result": "Recovered after tool use", "attachments": []})
+
+        agent.ask = AsyncMock(return_value={"content": "I can help with that."})
+        agent.ask_with_messages = AsyncMock(
+            side_effect=[
+                {
+                    "tool_calls": [
+                        {
+                            "id": "tc-required-1",
+                            "type": "function",
+                            "function": {"name": "web_search", "arguments": '{"query": "dgx spark benchmarks"}'},
+                        }
+                    ]
+                },
+                {"content": valid_json},
+            ]
+        )
+
+        events = [event async for event in agent.execute("Search for DGX Spark benchmarks")]
+        message_events = [e for e in events if isinstance(e, MessageEvent)]
+
+        assert len(message_events) == 1
+        parsed = json.loads(message_events[0].message)
+        assert parsed["success"] is True
+        assert parsed["result"] == "Recovered after tool use"
+        tool.invoke_function.assert_awaited_once()
+
+        assert agent.ask_with_messages.await_count == 2
+        first_retry_call = agent.ask_with_messages.await_args_list[0]
+        retry_messages = first_retry_call.args[0]
+        assert "requires actual tool use" in retry_messages[0]["content"]
+        assert "web_search" in retry_messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_required_tool_step_returns_failure_when_retry_still_skips_tools(self) -> None:
+        """Tool-required steps must not be wrapped into a successful prose JSON result."""
+        tool = _make_tool_mock()
+        agent = _build_agent(tools=[tool])
+        agent._required_tool_names_this_step = {"web_search"}
+
+        agent.ask = AsyncMock(return_value={"content": "Here is a summary from memory."})
+        agent.ask_with_messages = AsyncMock(return_value={"content": "Still answering without any tool calls."})
+
+        events = [event async for event in agent.execute("Search for DGX Spark benchmarks")]
+        message_events = [e for e in events if isinstance(e, MessageEvent)]
+
+        assert len(message_events) == 1
+        parsed = json.loads(message_events[0].message)
+        assert parsed["success"] is False
+        assert "no tools were called" in parsed["error"]
+        tool.invoke_function.assert_not_awaited()
+        assert agent.ask_with_messages.await_count == 2
 
     @pytest.mark.asyncio
     async def test_no_tools_format_used_in_initial_ask(self) -> None:
@@ -347,9 +413,10 @@ class TestFormatContractRecovery:
         Simulates a more realistic multi-hop tool loop:
           Round 1: LLM calls web_search
           Round 2: LLM calls web_search again (chained tool use)
-          Round 3: LLM returns prose (non-JSON) — fast-path wraps as JSON
+          Round 3: LLM returns prose (non-JSON) — re-enforcement must recover JSON
         """
         prose_text = "After searching twice, here is what I found..."
+        valid_json = json.dumps({"success": True, "result": "Recovered after two tool rounds", "attachments": []})
 
         tool_call_response = {
             "tool_calls": [
@@ -366,7 +433,8 @@ class TestFormatContractRecovery:
         agent.ask_with_messages = AsyncMock(
             side_effect=[
                 tool_call_response,  # Round 2: another tool call
-                {"content": prose_text},  # prose — fast-path wraps directly
+                {"content": prose_text},  # prose → JSON re-enforcement
+                {"content": valid_json},
             ]
         )
 
@@ -376,7 +444,38 @@ class TestFormatContractRecovery:
         assert len(message_events) == 1
         parsed = json.loads(message_events[0].message)
         assert parsed["success"] is True
-        assert prose_text in parsed["result"]
+        assert parsed["result"] == "Recovered after two tool rounds"
 
-        # 2 calls: tool-result-1, tool-result-2 (prose wrapped) — no re-enforcement
+        # 3 calls: tool-result-1, tool-result-2, JSON re-enforcement
+        assert agent.ask_with_messages.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_post_tool_prose_reenforcement_fails_closed_when_json_still_invalid(self, agent: BaseAgent) -> None:
+        """A tool-executing step must fail closed if the model still refuses JSON after re-enforcement."""
+        agent.ask = AsyncMock(
+            return_value={
+                "tool_calls": [
+                    {
+                        "id": "tc-4",
+                        "type": "function",
+                        "function": {"name": "web_search", "arguments": '{"query": "dgx spark"}'},
+                    }
+                ]
+            }
+        )
+        agent.ask_with_messages = AsyncMock(
+            side_effect=[
+                {"content": "I found several benchmark sources."},
+                {"content": "Here is a plain-English summary instead of JSON."},
+            ]
+        )
+
+        events = [event async for event in agent.execute("Search for DGX Spark benchmarks")]
+        message_events = [e for e in events if isinstance(e, MessageEvent)]
+
+        assert len(message_events) == 1
+        parsed = json.loads(message_events[0].message)
+        assert parsed["success"] is False
+        assert parsed["result"] is None
+        assert "valid JSON" in parsed["error"]
         assert agent.ask_with_messages.await_count == 2

@@ -17,9 +17,17 @@ from app.domain.models.event import (
     ToolEvent,
     ToolStatus,
 )
-from app.domain.models.plan import ExecutionStatus
+from app.domain.models.plan import ExecutionStatus, Step, StepType
 from app.domain.services.agents.critic import CriticConfig
 from app.domain.services.agents.execution import ExecutionAgent
+
+
+def _make_tool_bundle(name: str) -> MagicMock:
+    """Create a lightweight tool bundle mock for step-level filtering tests."""
+    tool = MagicMock()
+    tool.name = name
+    tool.get_tools = MagicMock(return_value=[])
+    return tool
 
 
 class TestExecutionAgentInit:
@@ -106,6 +114,207 @@ class TestExecutionAgent:
             description="Search for Python tutorials",
             status=ExecutionStatus.PENDING,
         )
+
+    @pytest.mark.asyncio
+    async def test_execute_step_restricts_final_delivery_to_local_tool_bundles(
+        self, executor, simple_plan, mock_message
+    ):
+        """Delivery steps with an existing report draft should not reopen web research."""
+        executor.tools = [
+            _make_tool_bundle("file"),
+            _make_tool_bundle("message"),
+            _make_tool_bundle("chart"),
+            _make_tool_bundle("search"),
+            _make_tool_bundle("browser"),
+            _make_tool_bundle("shell"),
+        ]
+        executor._file_write_report_cache = "# Report\n\nDraft report content"
+
+        delivery_step = Step(
+            id="2",
+            description="Review, validate, and deliver final output",
+            step_type=StepType.DELIVERY,
+            status=ExecutionStatus.PENDING,
+        )
+        message = mock_message(message="Finalize the report")
+        observed_tool_names: list[list[str]] = []
+        observed_prompts: list[str] = []
+
+        async def fake_execute(prompt: str):
+            observed_tool_names.append([tool.name for tool in executor.tools])
+            observed_prompts.append(prompt)
+            yield MessageEvent(message='{"success": true, "result": "Delivered", "attachments": []}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(return_value={"success": True, "result": "Delivered", "attachments": []})
+
+        [event async for event in executor.execute_step(simple_plan, delivery_step, message)]
+
+        assert observed_tool_names == [["file", "message", "chart"]]
+        assert observed_prompts and "Do not do fresh web research" in observed_prompts[0]
+        assert [tool.name for tool in executor.tools] == ["file", "message", "chart", "search", "browser", "shell"]
+
+    @pytest.mark.asyncio
+    async def test_execute_step_restricts_merged_delivery_step_by_description(
+        self, executor, simple_plan, mock_message
+    ):
+        """Merged delivery steps still arrive as execution steps and should be clamped locally."""
+        executor.tools = [
+            _make_tool_bundle("file"),
+            _make_tool_bundle("message"),
+            _make_tool_bundle("search"),
+            _make_tool_bundle("browser"),
+        ]
+        executor._file_write_report_cache = "# Report\n\nDraft report content"
+
+        merged_delivery_step = Step(
+            id="3",
+            description="Validate report accuracy and deliver final output",
+            step_type=StepType.EXECUTION,
+            status=ExecutionStatus.PENDING,
+        )
+        message = mock_message(message="Validate and deliver")
+        observed_tool_names: list[list[str]] = []
+
+        async def fake_execute(_prompt: str):
+            observed_tool_names.append([tool.name for tool in executor.tools])
+            yield MessageEvent(message='{"success": true, "result": "Delivered", "attachments": []}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(return_value={"success": True, "result": "Delivered", "attachments": []})
+
+        [event async for event in executor.execute_step(simple_plan, merged_delivery_step, message)]
+
+        assert observed_tool_names == [["file", "message"]]
+
+    @pytest.mark.asyncio
+    async def test_execute_step_keeps_delivery_tools_unrestricted_without_report_draft(
+        self, executor, simple_plan, mock_message
+    ):
+        """Delivery steps should only enter local-only mode after a report draft exists."""
+        executor.tools = [
+            _make_tool_bundle("file"),
+            _make_tool_bundle("message"),
+            _make_tool_bundle("search"),
+            _make_tool_bundle("browser"),
+        ]
+
+        delivery_step = Step(
+            id="4",
+            description="Review, validate, and deliver final output",
+            step_type=StepType.DELIVERY,
+            status=ExecutionStatus.PENDING,
+        )
+        message = mock_message(message="Validate and deliver")
+        observed_tool_names: list[list[str]] = []
+
+        async def fake_execute(_prompt: str):
+            observed_tool_names.append([tool.name for tool in executor.tools])
+            yield MessageEvent(message='{"success": true, "result": "Delivered", "attachments": []}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(return_value={"success": True, "result": "Delivered", "attachments": []})
+
+        [event async for event in executor.execute_step(simple_plan, delivery_step, message)]
+
+        assert observed_tool_names == [["file", "message", "search", "browser"]]
+
+    @pytest.mark.asyncio
+    async def test_execute_step_accepts_best_effort_success_payload(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Best-effort payload recovery should still complete the step when success/result are usable."""
+        message = mock_message(message="Use gathered findings")
+
+        async def fake_execute(_prompt: str):
+            yield MessageEvent(message='{"success": true, "result": "Recovered summary", "attachments": "oops"}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(
+            return_value={"success": True, "result": "Recovered summary", "attachments": "oops"}
+        )
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        step_events = [event for event in events if isinstance(event, StepEvent)]
+        assert step_events
+        assert step_events[-1].status is StepStatus.COMPLETED
+        assert step_events[-1].step.success is True
+        assert step_events[-1].step.result == "Recovered summary"
+        assert step_events[-1].step.attachments == []
+
+    @pytest.mark.asyncio
+    async def test_execute_step_includes_known_report_artifact_path_in_delivery_prompt(
+        self, executor, simple_plan, mock_message
+    ):
+        """Final delivery prompts should reuse the exact known report path instead of guessing filenames."""
+        executor.tools = [
+            _make_tool_bundle("file"),
+            _make_tool_bundle("message"),
+            _make_tool_bundle("chart"),
+            _make_tool_bundle("search"),
+        ]
+        executor._file_write_report_cache = "# Report\n\nDraft report content"
+        executor._last_report_artifact_path = "/workspace/reports/dgx_spark_vs_m3_ultra.md"
+
+        delivery_step = Step(
+            id="5",
+            description="Review existing report, cross-validate claims, and deliver final output",
+            step_type=StepType.DELIVERY,
+            status=ExecutionStatus.PENDING,
+        )
+        message = mock_message(message="Review the report and deliver it")
+        observed_prompts: list[str] = []
+
+        async def fake_execute(prompt: str):
+            observed_prompts.append(prompt)
+            yield MessageEvent(message='{"success": true, "result": "Delivered", "attachments": []}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(return_value={"success": True, "result": "Delivered", "attachments": []})
+
+        [event async for event in executor.execute_step(simple_plan, delivery_step, message)]
+
+        assert observed_prompts
+        assert "/workspace/reports/dgx_spark_vs_m3_ultra.md" in observed_prompts[0]
+        assert "Do not guess alternate filenames" in observed_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_execute_step_skips_report_artifact_prompt_when_no_path_known(
+        self, executor, simple_plan, mock_message
+    ):
+        """When a draft exists but no artifact path is cached, omit the prompt entirely.
+
+        This avoids the contradictory guidance of "go find the file yourself"
+        while tools are restricted to local bundles.
+        """
+        executor.tools = [
+            _make_tool_bundle("file"),
+            _make_tool_bundle("message"),
+            _make_tool_bundle("chart"),
+        ]
+        executor._file_write_report_cache = "# Report\n\nDraft report content"
+
+        delivery_step = Step(
+            id="6",
+            description="Review existing report, cross-validate claims, and deliver final output",
+            step_type=StepType.DELIVERY,
+            status=ExecutionStatus.PENDING,
+        )
+        message = mock_message(message="Review the report and deliver it")
+        observed_prompts: list[str] = []
+
+        async def fake_execute(prompt: str):
+            observed_prompts.append(prompt)
+            yield MessageEvent(message='{"success": true, "result": "Delivered", "attachments": []}')
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(return_value={"success": True, "result": "Delivered", "attachments": []})
+
+        [event async for event in executor.execute_step(simple_plan, delivery_step, message)]
+
+        assert observed_prompts
+        assert "<known_report_artifact>" not in observed_prompts[0]
 
     @pytest.mark.asyncio
     async def test_execute_step_yields_step_event(self, executor, simple_plan, mock_step, mock_message):
@@ -272,10 +481,64 @@ class TestExecutionAgent:
         assert all(event.status != StepStatus.COMPLETED for event in step_events)
 
     @pytest.mark.asyncio
+    async def test_execute_step_preserves_partial_results_for_tool_backed_format_failure(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Successful tool-backed work should leave a real partial result when JSON packaging fails."""
+        message = mock_message(message="Run research step with format failure")
+
+        tool_result = MagicMock()
+        tool_result.success = True
+        tool_result.message = "Search completed"
+        tool_result.data = {"results": [{"title": "DGX Spark specs"}]}
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-1",
+                tool_name="search",
+                function_name="search",
+                function_args={"query": "DGX Spark specs"},
+                status=ToolStatus.CALLED,
+                function_result=tool_result,
+            )
+            yield MessageEvent(
+                message=(
+                    '{"success": false, "result": null, "attachments": [], '
+                    '"error": "Tool execution completed, but the agent did not return a valid JSON result."}'
+                )
+            )
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(
+            return_value={
+                "success": False,
+                "result": None,
+                "attachments": [],
+                "error": "Tool execution completed, but the agent did not return a valid JSON result.",
+            }
+        )
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        step_events = [event for event in events if isinstance(event, StepEvent)]
+        assert step_events
+        assert step_events[-1].status == StepStatus.FAILED
+        assert step_events[-1].step.status == ExecutionStatus.FAILED
+        assert step_events[-1].step.success is False
+        assert step_events[-1].step.result is not None
+        assert "Partial results available from successful tool calls" in step_events[-1].step.result
+        assert "search" in step_events[-1].step.result
+        assert (
+            step_events[-1].step.error == "Tool execution completed, but the agent did not return a valid JSON result."
+        )
+
+    @pytest.mark.asyncio
     async def test_execute_step_uses_json_repair_fallback_when_parser_fails(
         self, executor, simple_plan, mock_step, mock_message
     ):
         """When parser fails, execution should still recover JSON from mixed prose output."""
+        mock_step.description = "Summarize the collected findings"
+        mock_step.step_type = StepType.DELIVERY
         message = mock_message(message="Run task with mixed prose and JSON output")
 
         executor.llm.ask = AsyncMock(
