@@ -215,6 +215,7 @@ class StuckDetector:
         similarity_threshold: float = 0.95,
         semantic_threshold: float = 0.90,
         enable_semantic: bool = True,
+        research_mode: str | None = None,
     ):
         """
         Initialize the stuck detector.
@@ -225,12 +226,14 @@ class StuckDetector:
             similarity_threshold: Minimum similarity ratio to consider responses similar
             semantic_threshold: Threshold for semantic similarity detection (0-1)
             enable_semantic: Whether to enable semantic similarity checking
+            research_mode: Research mode (e.g. "deep_research") — relaxes thresholds
         """
         self._window_size = window_size
         self._threshold = threshold
         self._similarity_threshold = similarity_threshold
         self._semantic_threshold = semantic_threshold
         self._enable_semantic = enable_semantic
+        self._research_mode = research_mode
         self._response_history: deque[ResponseRecord] = deque(maxlen=window_size)
         self._stuck_count = 0
         self._recovery_attempts = 0
@@ -269,6 +272,10 @@ class StuckDetector:
         # After 2+ detections in the same step, inject a stronger "force
         # output" prompt instead of generic "try different approach".
         self._step_stuck_count: int = 0
+
+    def set_research_mode(self, mode: str | None) -> None:
+        """Set the research mode to adjust thresholds (e.g. deep_research relaxes limits)."""
+        self._research_mode = mode
 
     def reset_for_new_step(self) -> None:
         """Clear tool action history at step boundaries.
@@ -1269,6 +1276,10 @@ class StuckDetector:
             return None
 
         research_only_threshold = 6
+        if self._research_mode == "deep_research":
+            from app.core.config import get_settings
+
+            research_only_threshold = getattr(get_settings(), "stuck_detector_research_threshold", 12)
 
         if len(self._tool_action_history) < research_only_threshold:
             return None
