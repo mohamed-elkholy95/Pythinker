@@ -428,7 +428,7 @@ class TruncationDetector:
             Content with missing reference placeholders appended (or unchanged
             if no fix is needed).
         """
-        max_auto_fix = 5  # Only auto-fix small gaps
+        max_auto_fix = 50  # Handle large reference gaps from LLM output truncation
 
         ref_heading_match = re.search(
             r"^##\s+References?\s*$",
