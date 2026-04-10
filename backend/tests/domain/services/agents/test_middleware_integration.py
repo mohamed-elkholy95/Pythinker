@@ -211,4 +211,4 @@ class TestFactoryProducesWorkingPipeline:
             tools=[],
             feature_flags={},
         )
-        assert len(ctx_service.middleware_pipeline.middleware) == 8
+        assert len(ctx_service.middleware_pipeline.middleware) == 9

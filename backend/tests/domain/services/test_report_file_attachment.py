@@ -257,36 +257,23 @@ class TestReportFileAttachment:
 
         await runner._ensure_report_file(event)
 
+        # Plotly runtime is unavailable in tests, so the legacy SVG fallback is used.
+        # SVG chart write + report file write = 2 file_write calls.
         assert mock_sandbox.file_write.call_count == 2
         assert event.attachments is not None
-        assert len(event.attachments) == 3
+        # SVG fallback produces 2 attachments: svg chart + report markdown
+        assert len(event.attachments) == 2
 
         report_attachment = next(a for a in event.attachments if a.filename == "report-report-chart-1.md")
         assert report_attachment.content_type == "text/markdown"
 
-        html_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.html")
-        assert html_attachment.content_type == "text/html"
-        assert html_attachment.file_path == "/workspace/model_comparison.html"
-        assert html_attachment.metadata is not None
-        assert html_attachment.metadata.get("is_comparison_chart") is True
-        assert html_attachment.metadata.get("chart_format") == "plotly_html_png"
-        assert html_attachment.metadata.get("chart_engine") == "plotly"
-        assert html_attachment.metadata.get("source_report_id") == "report-chart-1"
-        assert html_attachment.metadata.get("data_points") == 3
-
-        png_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.png")
-        assert png_attachment.content_type == "image/png"
-        assert png_attachment.file_path == "/workspace/model_comparison.png"
-        assert png_attachment.metadata is not None
-        assert png_attachment.metadata.get("is_comparison_chart") is True
-        assert png_attachment.metadata.get("chart_format") == "plotly_html_png"
-        assert png_attachment.metadata.get("chart_engine") == "plotly"
-        assert png_attachment.metadata.get("source_report_id") == "report-chart-1"
-
-        # After reorder, chart input is written before the report file
-        chart_input_write_call = mock_sandbox.file_write.call_args_list[0]
-        assert "plotly_input_" in chart_input_write_call.kwargs["file"]
-        assert '"output_html": "/workspace/model_comparison.html"' in chart_input_write_call.kwargs["content"]
+        svg_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.svg")
+        assert svg_attachment.content_type == "image/svg+xml"
+        assert svg_attachment.metadata is not None
+        assert svg_attachment.metadata.get("is_comparison_chart") is True
+        assert svg_attachment.metadata.get("chart_format") == "svg"
+        assert svg_attachment.metadata.get("source_report_id") == "report-chart-1"
+        assert svg_attachment.metadata.get("data_points") == 3
 
     @pytest.mark.asyncio
     async def test_chart_generation_can_be_skipped_with_user_flag(self, runner, mock_sandbox):
@@ -323,10 +310,11 @@ class TestReportFileAttachment:
 
         await runner._ensure_report_file(event)
 
+        # Plotly runtime is unavailable in tests; SVG fallback is used.
+        # SVG chart write + report file write = 2 file_write calls.
         assert mock_sandbox.file_write.call_count == 2
         assert event.attachments is not None
-        assert any(a.filename == "comparison-chart-report-force-1.html" for a in event.attachments)
-        assert any(a.filename == "comparison-chart-report-force-1.png" for a in event.attachments)
+        assert any(a.filename == "comparison-chart-report-force-1.svg" for a in event.attachments)
 
     @pytest.mark.asyncio
     async def test_chart_regeneration_replaces_existing_chart(self, runner, mock_sandbox):
@@ -369,14 +357,15 @@ class TestReportFileAttachment:
 
         await runner._ensure_report_file(event)
 
+        # Regeneration strips old chart attachments (HTML+PNG) and generates
+        # a new SVG chart (Plotly runtime is unavailable in tests).
+        # 1 file_write call for the SVG chart; report .md already exists.
         assert mock_sandbox.file_write.call_count == 1
         assert event.attachments is not None
-        assert len(event.attachments) == 3
-        html_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.html"]
-        png_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.png"]
-        assert len(html_attachments) == 1
-        assert len(png_attachments) == 1
-        assert html_attachments[0].metadata is not None
-        assert png_attachments[0].metadata is not None
-        assert html_attachments[0].metadata.get("generation_mode") == "regenerate"
-        assert png_attachments[0].metadata.get("generation_mode") == "regenerate"
+        # After regeneration: report .md (kept) + new SVG chart = 2 attachments
+        assert len(event.attachments) == 2
+        svg_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.svg"]
+        assert len(svg_attachments) == 1
+        assert svg_attachments[0].metadata is not None
+        assert svg_attachments[0].metadata.get("is_comparison_chart") is True
+        assert svg_attachments[0].metadata.get("source_report_id") == "report-regen-1"

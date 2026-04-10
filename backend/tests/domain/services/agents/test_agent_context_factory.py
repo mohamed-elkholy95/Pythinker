@@ -46,7 +46,7 @@ class TestAgentContextFactory:
         )
         assert isinstance(ctx, AgentServiceContext)
         assert ctx.feature_flags["test_flag"] is True
-        assert len(ctx.middleware_pipeline.middleware) == 8
+        assert len(ctx.middleware_pipeline.middleware) == 9
 
 
 class TestFactoryRegistersAllMiddleware:
@@ -62,9 +62,10 @@ class TestFactoryRegistersAllMiddleware:
         assert "wall_clock_pressure" in names
         assert "token_budget" in names
         assert "security_assessment" in names
+        assert "permission_gate" in names
         assert "hallucination_guard" in names
         assert "efficiency_monitor" in names
         assert "url_failure_guard" in names
         assert "stuck_detection" in names
         assert "error_handler" in names
-        assert len(names) == 8
+        assert len(names) == 9
