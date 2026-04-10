@@ -367,6 +367,66 @@ The deliverable workflow prompt enforces single-shot verification:
 
 A flow-level state flag (`_report_verification_failed`) suppresses replanning when a report attachment is already tracked and one verification pass has already failed.
 
+### Final Delivery Local-Only Mode
+
+When a step is doing final review/delivery work and a report draft already exists in the execution caches, `ExecutionAgent.execute_step()` now removes remote research bundles before the LLM turn:
+
+- Keeps local delivery bundles such as `file`, `message`, `chart`, `workspace`, `scratchpad`, and `export`
+- Removes remote browsing/research bundles such as `search` and `browser`
+- Adds a prompt nudge telling the agent to use existing local artifacts and ask the user if those artifacts are insufficient
+
+This prevents final delivery from regressing into guessed-URL browsing or fresh web research after the report has already been written, which was previously inflating context and triggering stuck recovery during the last step.
+
+Final delivery prompts also reuse the exact markdown artifact path when one is known from prior `file_write` / `file_create` calls:
+
+- Reuses the cached report path instead of letting the model invent a new filename
+- Falls back to a short "do not guess a report filename" prompt when a draft exists but the exact path is not cached yet
+
+### Step Result Payload Recovery
+
+`StepExecutor.apply_step_result_payload()` now treats partially structured step payloads as usable when the core fields can be recovered safely:
+
+- Strict `ExecutionStepResult` validation still runs first
+- If validation fails but `success`, `result`, or `attachments` can still be extracted, the step keeps that recovered state
+- Only completely unusable payloads fall back to the generic step-failure path
+
+This prevents tool-backed steps from being marked failed solely because of a non-critical schema defect such as malformed `attachments`, while still failing closed on non-JSON or structurally empty responses.
+
+`ExecutionAgent.execute_step()` also preserves a deterministic partial result when:
+
+- one or more tool calls succeeded
+- no tool calls failed
+- the only failure was final JSON packaging (`"did not return a valid JSON result"`, prose instead of JSON, or equivalent format-only failure)
+
+In that case the step still remains **failed**, but it keeps a real partial summary instead of an empty result so downstream steps can continue from the successful tool activity without pretending the step fully succeeded.
+
+### Partial-Result Unblocking Guard
+
+`StepFailureHandler.handle_failure()` now unblocks dependents only when the failed step left something actionable behind:
+
+- an existing `step.result`, or
+- concrete file outputs in `attachments` / `artifacts`
+
+When a failed step has no usable result and no files, the handler keeps dependents blocked instead of injecting a fake placeholder. This prevents zero-progress replans from treating empty contract failures as partial progress.
+
+### Grounding Escalation Policy
+
+Report grounding now uses one inclusive threshold policy in `OutputVerifier`:
+
+- **>= 15% unsupported** → reliability notice
+- **>= 30% unsupported** → escalated warning plus targeted re-research hints
+- **>= 60% unsupported** → critical block path
+
+Report grounding also fails closed when verification finds an escalated unsupported-claim ratio and the cleanup rewrite does not succeed:
+
+- **Moderate ratio + successful rewrite** → deliver rewritten report with a reliability notice
+- **Escalated ratio + failed or timed-out rewrite on report-like content** → block delivery as `hallucination_ratio_critical`
+- **Above block threshold** → unchanged critical path
+
+This keeps report-grounding severity owned by `OutputVerifier` instead of relying on the delivery gate to infer severity from warning strings, and avoids boundary drift at exact `15%`, `30%`, and `60%` scores.
+
+Critical delivery-gate issues such as `hallucination_ratio_critical` now also log as `red` gate severity, so blocked critical outcomes are no longer reported as `yellow`.
+
 ### Plotly Chart Fallback Policy
 
 `AgentTaskRunner._ensure_plotly_chart_files()` probes Plotly availability via `PlotlyCapabilityCheck` before launching the chart script:
@@ -374,6 +434,8 @@ A flow-level state flag (`_report_verification_failed`) suppresses replanning wh
 - **Available** → Plotly HTML + PNG via `PlotlyChartOrchestrator`
 - **Unavailable** → immediate SVG fallback (no subprocess spawned)
 - **Probe cached** for 300 s per session to avoid repeated `exec_command` overhead
+- **Probe parser ignores wrapper noise and treats import tracebacks as unavailable**, so logs no longer report false-positive Plotly capability
+- **Plotly and SVG chart specs revalidated** so malformed specs or semantic mismatches such as `Inference Performance` charts built from `Parameters` are skipped before any chart artifact is written
 
 **Deployment options:**
 
