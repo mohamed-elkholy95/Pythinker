@@ -2768,6 +2768,22 @@ class PlaywrightBrowser:
         or None if the URL looks valid and full navigation should proceed.
         Saves 5-6s per dead URL by avoiding full Playwright navigation.
         """
+        # Block domains with repeated connection failures (anti-bot disconnects)
+        _precheck_domain = ""
+        with contextlib.suppress(Exception):
+            _precheck_domain = urlparse(url).netloc.lower()
+        if _precheck_domain and self._head_conn_failures.get(_precheck_domain, 0) >= 2:
+            logger.info(
+                "HEAD pre-check: domain %s blocked after %d connection drops, skipping navigation",
+                _precheck_domain,
+                self._head_conn_failures[_precheck_domain],
+            )
+            return ToolResult(
+                success=False,
+                message=f"Navigation to {url} skipped — this website blocks automated access. Use an alternative source.",
+                data={"url": url, "reason": "domain_conn_blocked"},
+            )
+
         from app.infrastructure.external.http_pool import get_http_client
 
         try:
