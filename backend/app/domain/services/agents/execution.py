@@ -35,6 +35,11 @@ from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType, is_ter
 from app.domain.models.source_citation import SourceCitation
 from app.domain.models.tool_name import ToolName
 from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.services.agents.agent_loop import (
+    ERR_NO_JSON_AFTER_RECOVERY,
+    ERR_NO_JSON_AFTER_TOOLS,
+    ERR_PROSE_INSTEAD_OF_JSON,
+)
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.context_manager import ContextManager, InsightType
 from app.domain.services.agents.critic import CriticAgent, CriticConfig
@@ -87,6 +92,13 @@ _REFUSAL_PHRASES = [
 ]
 
 _REFUSAL_PADDING_THRESHOLD = 500  # chars after refusal that trigger warning
+_FORMAT_ONLY_STEP_FAILURE_ERRORS = frozenset(
+    {
+        ERR_NO_JSON_AFTER_TOOLS,
+        ERR_NO_JSON_AFTER_RECOVERY,
+        ERR_PROSE_INSTEAD_OF_JSON,
+    }
+)
 
 
 def _detect_refusal_padding(content: str) -> None:
@@ -168,6 +180,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
+_FINAL_DELIVERY_LOCAL_TOOL_BUNDLES = frozenset(
+    {
+        "chart",
+        "export",
+        "file",
+        "message",
+        "scratchpad",
+        "workspace",
+    }
+)
+_FINAL_DELIVERY_LOCAL_ONLY_PROMPT = (
+    "\n\n<final_delivery_mode>"
+    "A report draft already exists for this task. "
+    "Do not do fresh web research, broad browsing, or guessed-URL validation in this step. "
+    "Use local files and existing artifacts to review, validate, finalize, and deliver the report. "
+    "If the local artifacts are insufficient, ask the user instead of reopening research."
+    "</final_delivery_mode>"
+)
 
 SKILL_AWARENESS_PROMPT = """
 <skill_awareness>
@@ -342,6 +372,8 @@ class ExecutionAgent(BaseAgent):
         # Cached file_write markdown content from execution steps.
         # Populated as tool events arrive (immune to memory compaction/validation).
         self._file_write_report_cache: str | None = None
+        self._known_markdown_artifact_paths: list[str] = []
+        self._last_report_artifact_path: str | None = None
         self._delivery_channel: str | None = None
         self._report_output_path: str | None = None
         self._artifact_references: list[dict[str, str]] = []
@@ -456,6 +488,7 @@ class ExecutionAgent(BaseAgent):
         # Save/restore tools and system_prompt to avoid permanent mutation across steps
         original_tools = list(self.tools)
         original_system_prompt = self.system_prompt
+        original_required_tool_names = getattr(self, "_required_tool_names_this_step", None)
 
         # Inject skill-awareness prompt when SkillInvokeTool is present in the agent's tool list.
         # This is a general nudge (always injected, not just when message.skills is populated).
@@ -568,6 +601,9 @@ class ExecutionAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to build skill context: {e}")
 
+        is_final_delivery = self._is_final_delivery_step(step) and self._ensure_report_draft_cached()
+        final_delivery_local_mode = self._restrict_tools_for_final_delivery(is_final_delivery)
+
         # Increment iteration counter for prompt adapter
         self._prompt_adapter.increment_iteration()
 
@@ -595,6 +631,11 @@ class ExecutionAgent(BaseAgent):
 
         # Build execution prompt from assembled context (includes all appendages)
         base_prompt = build_execution_prompt_from_context(ctx)
+        if final_delivery_local_mode:
+            base_prompt += _FINAL_DELIVERY_LOCAL_ONLY_PROMPT
+        known_report_artifact_prompt = self._build_known_report_artifact_prompt(is_final_delivery)
+        if known_report_artifact_prompt:
+            base_prompt += known_report_artifact_prompt
 
         # P1-11: Inject source citation instruction when search tools are available.
         # This ensures the agent knows it must cite URLs from search results.
@@ -632,10 +673,14 @@ class ExecutionAgent(BaseAgent):
         # Skill visibility is handled by synthetic ToolEvent emission above;
         # tool_choice forcing is kept as a soft nudge via the enforcement prompt.
         _original_tool_choice = self.tool_choice
+        self._required_tool_names_this_step = self._infer_required_tool_names_for_step(step)
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
         _step_start_time = time.monotonic()
+        successful_tool_names: set[str] = set()
+        failed_tool_names: set[str] = set()
+        created_file_paths: list[str] = []
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -675,15 +720,22 @@ class ExecutionAgent(BaseAgent):
                                 parsed_response = await self._retry_step_result_json(event.message)
 
                     # Validate structured output and degrade safely when malformed.
-                    payload_valid = self._apply_step_result_payload(
+                    payload_usable = self._apply_step_result_payload(
                         step=step, parsed_response=parsed_response, raw_message=event.message
                     )
-                    if not payload_valid:
-                        logger.warning("Step response payload missing/invalid schema; marking step as unsuccessful")
+                    if not payload_usable:
+                        logger.warning("Step response payload was unusable; marking step as unsuccessful")
                         step.status = ExecutionStatus.FAILED
                         yield StepEvent(status=StepStatus.FAILED, step=step)
                         continue
 
+                    self._recover_partial_result_from_tool_activity(
+                        step=step,
+                        parsed_response=parsed_response,
+                        successful_tool_names=successful_tool_names,
+                        failed_tool_names=failed_tool_names,
+                        created_file_paths=created_file_paths,
+                    )
                     if not step.success:
                         step.status = ExecutionStatus.FAILED
                         _step_duration_ms = (time.monotonic() - _step_start_time) * 1000
@@ -734,6 +786,10 @@ class ExecutionAgent(BaseAgent):
                         error = event.function_result.message if event.function_result and not success else None
                         # Guard against None function_name
                         func_name = event.function_name or "unknown"
+                        if success:
+                            successful_tool_names.add(func_name)
+                        else:
+                            failed_tool_names.add(func_name)
                         self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
 
                         # Record Prometheus tool call metrics
@@ -774,10 +830,15 @@ class ExecutionAgent(BaseAgent):
                             if func_name in ["file_write", "file_create"]:
                                 file_path = event.function_args.get("path", "")
                                 if file_path:
+                                    created_file_paths.append(str(file_path))
                                     self._context_manager.track_file_operation(
                                         path=file_path,
                                         operation="created",
                                         content_summary=f"Created via {func_name}",
+                                    )
+                                    self._remember_markdown_artifact_path(
+                                        file_path,
+                                        event.function_args.get("content", ""),
                                     )
                                     # Cache markdown deliverable content for
                                     # summarization recovery.  This survives
@@ -893,6 +954,205 @@ class ExecutionAgent(BaseAgent):
             self.system_prompt = original_system_prompt
             self._step_model_override = None  # DeepCode Phase 1: Reset model override
             self.tool_choice = _original_tool_choice  # Phase 1: Restore tool_choice
+            self._required_tool_names_this_step = original_required_tool_names
+
+    @staticmethod
+    def _infer_required_tool_names_for_step(step: Step) -> set[str]:
+        """Infer whether a step must execute tools before returning a final answer.
+
+        Keep this intentionally small and local: use planner-declared tool hints when
+        available, fall back to the same action verbs that the post-step audit uses.
+        """
+        if step.expected_tools:
+            return {str(tool_name).strip() for tool_name in step.expected_tools if str(tool_name).strip()}
+
+        if step.step_type != StepType.EXECUTION or not step.description:
+            return set()
+
+        required_tools: set[str] = set()
+        desc_lower = step.description.lower()
+
+        if step.tool_hint:
+            tool_hint = step.tool_hint.strip().lower()
+            if tool_hint in {"web_search", "deal_search", "deal_find_coupons", "deal_compare_prices"}:
+                required_tools.update({"info_search_web", "wide_research"})
+            elif tool_hint == "browser":
+                required_tools.update({"browser_navigate", "browser_get_content"})
+            elif tool_hint == "file":
+                required_tools.update({"file_read", "file_write"})
+            elif tool_hint == "shell":
+                required_tools.update({"shell_exec", "code_execute_python"})
+
+        if re.search(r"\b(research|search)\b", desc_lower):
+            required_tools.update({"info_search_web", "wide_research", "browser_navigate", "browser_get_content"})
+        if re.search(r"\bbrowse\b", desc_lower):
+            required_tools.update({"browser_navigate", "browser_get_content"})
+        if re.search(r"\b(execute|run)\b", desc_lower):
+            required_tools.update({"shell_exec", "code_execute_python"})
+        if re.search(r"\b(write|create)\b", desc_lower):
+            required_tools.add("file_write")
+        if re.search(r"\bread\b", desc_lower):
+            required_tools.add("file_read")
+
+        return required_tools
+
+    @staticmethod
+    def _is_final_delivery_step(step: Step) -> bool:
+        """Return True when the step is final review/delivery work."""
+        if step.step_type in {StepType.DELIVERY, StepType.FINALIZATION}:
+            return True
+
+        candidate_texts = [step.description]
+        metadata = step.metadata or {}
+        original_descriptions = metadata.get("original_descriptions")
+        if isinstance(original_descriptions, list):
+            candidate_texts.extend(str(item) for item in original_descriptions if isinstance(item, str))
+
+        for text in candidate_texts:
+            desc_lower = (text or "").lower()
+            if not desc_lower:
+                continue
+            has_delivery = any(term in desc_lower for term in ("deliver", "finalize", "finalise"))
+            has_final_target = any(
+                term in desc_lower for term in ("final output", "final report", "report", "deliverable", "artifact")
+            )
+            has_review = any(term in desc_lower for term in ("review", "validate", "verify", "proofread"))
+            if (has_delivery and has_final_target) or (has_delivery and has_review):
+                return True
+
+        return False
+
+    def _ensure_report_draft_cached(self) -> bool:
+        """Check whether a local report draft exists; populate cache as side-effect.
+
+        Named ``_ensure_*`` (not ``_has_*``) because it mutates
+        ``_file_write_report_cache`` when a report is recovered from memory.
+        Call once per step and pass the boolean result to downstream consumers.
+        """
+        for cached_report in (self._pre_trim_report_cache, self._file_write_report_cache):
+            if isinstance(cached_report, str) and cached_report.strip():
+                return True
+
+        recovered_report = self._extract_report_from_file_write_memory()
+        if recovered_report and recovered_report.strip():
+            self._file_write_report_cache = recovered_report
+            return True
+
+        return False
+
+    def _remember_markdown_artifact_path(self, file_path: str, file_content: str = "") -> None:
+        """Track markdown artifact paths so later review steps can reuse exact filenames."""
+        normalized_path = (file_path or "").strip()
+        if not normalized_path.endswith(".md"):
+            return
+
+        if normalized_path not in self._known_markdown_artifact_paths:
+            self._known_markdown_artifact_paths.append(normalized_path)
+
+        if isinstance(file_content, str) and len(file_content.strip()) > 200:
+            self._last_report_artifact_path = normalized_path
+
+    def _build_known_report_artifact_prompt(self, is_final_delivery: bool) -> str:
+        """Guide final delivery steps to reuse exact report paths instead of guessing.
+
+        Only emits a prompt when a concrete path is known — avoids the
+        contradictory "draft exists but go find it yourself" guidance.
+        """
+        if not is_final_delivery:
+            return ""
+
+        if self._last_report_artifact_path:
+            return (
+                "\n\n<known_report_artifact>"
+                f"Known report markdown path from this run: {self._last_report_artifact_path}\n"
+                "Use this exact path when reading, validating, or editing the report. "
+                "Do not guess alternate filenames."
+                "</known_report_artifact>"
+            )
+
+        if self._known_markdown_artifact_paths:
+            path_lines = "\n".join(f"- {path}" for path in self._known_markdown_artifact_paths[-3:])
+            return (
+                "\n\n<known_report_artifact>"
+                "Known markdown artifacts from this run:\n"
+                f"{path_lines}\n"
+                "Reuse one of these exact paths when reviewing the report. "
+                "Do not guess alternate filenames."
+                "</known_report_artifact>"
+            )
+
+        return ""
+
+    def _restrict_tools_for_final_delivery(self, is_final_delivery: bool) -> bool:
+        """Keep final delivery steps local once a report draft already exists."""
+        if not is_final_delivery:
+            return False
+
+        filtered_tools = [tool for tool in self.tools if tool.name in _FINAL_DELIVERY_LOCAL_TOOL_BUNDLES]
+        removed_tools = [tool.name for tool in self.tools if tool.name not in _FINAL_DELIVERY_LOCAL_TOOL_BUNDLES]
+
+        if not removed_tools:
+            return False
+
+        self.tools = filtered_tools
+        logger.info(
+            "Restricted final delivery step to local tool bundles: kept=%s removed=%s",
+            [tool.name for tool in filtered_tools],
+            removed_tools,
+        )
+        return True
+
+    @staticmethod
+    def _is_format_only_step_failure(parsed_response: Any, error: str | None) -> bool:
+        """Return True when a step failed only because the final JSON envelope was malformed."""
+        if not isinstance(parsed_response, dict):
+            return False
+        if parsed_response.get("success") is not False:
+            return False
+        if parsed_response.get("result") not in (None, ""):
+            return False
+        normalized_error = (error or parsed_response.get("error") or "").strip()
+        return normalized_error in _FORMAT_ONLY_STEP_FAILURE_ERRORS
+
+    @staticmethod
+    def _build_partial_tool_result_summary(
+        successful_tool_names: set[str],
+        created_file_paths: list[str],
+    ) -> str:
+        """Build a deterministic partial-result summary from successful tool calls."""
+        tool_list = ", ".join(sorted(successful_tool_names))
+        summary = (
+            "Partial results available from successful tool calls: "
+            f"{tool_list}. The agent failed to format the final JSON step result."
+        )
+        if created_file_paths:
+            summary += f" Files created: {', '.join(created_file_paths[:5])}."
+        return summary
+
+    def _recover_partial_result_from_tool_activity(
+        self,
+        *,
+        step: Step,
+        parsed_response: Any,
+        successful_tool_names: set[str],
+        failed_tool_names: set[str],
+        created_file_paths: list[str],
+    ) -> bool:
+        """Preserve actionable partial progress when only the JSON packaging failed."""
+        if step.result or not successful_tool_names or failed_tool_names:
+            return False
+        if not self._is_format_only_step_failure(parsed_response, step.error):
+            return False
+
+        step.result = self._build_partial_tool_result_summary(successful_tool_names, created_file_paths)
+        if created_file_paths and not step.attachments:
+            step.attachments = list(dict.fromkeys(created_file_paths))
+        logger.info(
+            "Recovered partial step result from successful tool activity: tools=%s files=%s",
+            sorted(successful_tool_names),
+            created_file_paths[:5],
+        )
+        return True
 
     async def summarize(
         self,
@@ -1076,6 +1336,7 @@ class ExecutionAgent(BaseAgent):
             flags = self._resolve_feature_flags()
             delivery_integrity_enabled = flags.get("delivery_integrity_gate", False)
             delivery_channel = getattr(self, "_delivery_channel", None)
+            required_sections_lower = {section.lower() for section in active_policy.min_required_sections}
             accumulated_text = ""
             attempt_text = ""  # pre-initialised so CancelledError handler can always read it
             stream_messages = list(self.memory.get_messages())
@@ -1464,6 +1725,36 @@ class ExecutionAgent(BaseAgent):
                 )
                 yield ErrorEvent(error="Summary generation failed: LLM produced no report content")
                 return
+
+            report_delivery_requires_full_content = "artifact references" in required_sections_lower or bool(
+                self._pre_trim_report_cache
+            )
+            if report_delivery_requires_full_content:
+                unresolved_quality_issues: list[str] = []
+                if self._is_meta_commentary(message_content):
+                    unresolved_quality_issues.append("meta-commentary")
+                if self._is_low_quality_summary(message_content):
+                    unresolved_quality_issues.append("low-quality")
+                if unresolved_quality_issues:
+                    logger.warning(
+                        "Summarization remained %s after recovery attempts; blocking report delivery",
+                        ", ".join(unresolved_quality_issues),
+                    )
+                    _metrics.record_counter(
+                        "pythinker_summarization_low_quality_total",
+                        labels={"recovery": "blocked"},
+                    )
+                    yield StepEvent(
+                        status=StepStatus.FAILED,
+                        step=Step(
+                            id="finalization",
+                            description="Summary remained incomplete after retries",
+                            status=ExecutionStatus.FAILED,
+                            step_type=StepType.FINALIZATION,
+                        ),
+                    )
+                    yield ErrorEvent(error="Summary generation failed: final report content was incomplete")
+                    return
 
             # DeepCode Phase 2.2: Pattern-based truncation detection
             # Enhances finish_reason="length" detection with content pattern matching
@@ -1882,18 +2173,6 @@ class ExecutionAgent(BaseAgent):
                         "delivery_gate_downgraded_total",
                         labels={"reason": "all_steps_completed", "channel": delivery_channel or "web"},
                     )
-                    # When hallucination rewrite failed and we're downgrading,
-                    # add a prominent user-facing warning so the user knows the
-                    # content may be unreliable.
-                    if "hallucination_ratio_critical" in issue_text:
-                        _halluc_notice = (
-                            "\n\n> **⚠️ Content Advisory:** Parts of this report could not "
-                            "be fully verified against available sources. Automated "
-                            "fact-checking flagged some claims as unverifiable. Please "
-                            "cross-reference critical data points independently."
-                        )
-                        message_content += _halluc_notice
-                        logger.info("Added hallucination downgrade advisory to report")
                     # Enhance disclaimer if unexecuted scripts detected (write-without-execute audit)
                     if "hallucination" in issue_text and getattr(self, "_has_unexecuted_scripts", False):
                         _bench_notice = (
@@ -2305,28 +2584,19 @@ class ExecutionAgent(BaseAgent):
 
         When all plan steps completed, minor structural gaps can still be
         downgraded so users receive their completed work.  Structural
-        failures (truncation, broken citations) remain non-downgradable.
-
-        hallucination_ratio_critical IS downgradable when all plan steps
-        completed, because the report file is already saved to the
-        workspace — blocking the summary just frustrates the user.  A
-        reliability disclaimer is appended instead (handled by the caller).
+        failures (truncation, broken citations, critically ungrounded
+        content) remain non-downgradable.
         """
-        # Hard non-downgradable: these indicate structurally broken output
+        # Hard non-downgradable: these indicate structurally broken or
+        # critically unreliable output.
         hard_non_downgradable = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
-        }
-        # Soft non-downgradable: these can be downgraded when all steps
-        # completed, since the report file exists and is accessible
-        soft_non_downgradable = {
             "hallucination_ratio_critical",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()
             if token in hard_non_downgradable:
-                return False
-            if token in soft_non_downgradable and not all_steps_completed:
                 return False
         return True
 

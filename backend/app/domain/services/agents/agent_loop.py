@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
 from app.domain.models.tool_permission import PermissionTier
+from app.domain.services.agents.base import _extract_embedded_json
 from app.domain.services.agents.middleware import MiddlewareContext, MiddlewareSignal
 from app.domain.services.agents.tool_dispatcher import ToolDispatcher, ToolDispatchResult
 
@@ -17,6 +18,93 @@ if TYPE_CHECKING:
     from app.domain.services.agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+# Canonical error strings for format-only step failures.
+# Imported by execution.py to detect recoverable failures — keep in sync.
+ERR_NO_JSON_AFTER_TOOLS = "Tool execution completed, but the agent did not return a valid JSON result."
+ERR_NO_JSON_AFTER_RECOVERY = "The agent could not produce a valid JSON result after tool execution."
+ERR_PROSE_INSTEAD_OF_JSON = "The agent returned prose instead of the required JSON result."
+
+
+def _normalize_required_tool_names(agent: BaseAgent) -> list[str]:
+    raw_required = getattr(agent, "_required_tool_names_this_step", None)
+    if not raw_required:
+        return []
+    if isinstance(raw_required, str):
+        return [raw_required]
+    return sorted({str(name).strip() for name in raw_required if str(name).strip()})
+
+
+def _build_required_tool_use_nudge(required_tools: list[str]) -> str:
+    tool_list = ", ".join(required_tools)
+    return (
+        "This step requires actual tool use before you can finish. "
+        f"Call at least one required tool now: {tool_list}. "
+        "Do not answer with prose or a final summary until a required tool has been used."
+    )
+
+
+def _build_missing_tool_failure_payload(required_tools: list[str]) -> str:
+    tool_list = ", ".join(required_tools) if required_tools else "required tools"
+    return json.dumps(
+        {
+            "success": False,
+            "result": None,
+            "attachments": [],
+            "error": f"Step required tool use before completion, but no tools were called. Required tools: {tool_list}.",
+        }
+    )
+
+
+
+def _build_invalid_json_failure_payload(error: str) -> str:
+    return json.dumps(
+        {
+            "success": False,
+            "result": None,
+            "attachments": [],
+            "error": error,
+        }
+    )
+
+
+async def _attempt_json_recovery(agent: BaseAgent, prompt: str) -> str | None:
+    """Send a JSON recovery prompt and return normalized JSON or None."""
+    recovery_message = await agent.ask_with_messages(
+        [{"role": "user", "content": prompt}],
+        format="json_object",
+    )
+    recovery_content = (recovery_message.get("content") or "").strip()
+    if recovery_content and len(recovery_content) > 10:
+        normalized = _extract_embedded_json(recovery_content)
+        if normalized is not None:
+            logger.info("Summarization recovery succeeded (%d chars)", len(recovery_content))
+            return normalized
+        logger.warning("Summarization recovery returned non-JSON content")
+    return None
+
+
+def _synthesize_payload_from_tool_results(agent: BaseAgent) -> str | None:
+    """Build a minimal success JSON from the most recent tool result in memory.
+
+    Used as last-resort when the LLM refuses to return JSON but underlying
+    tools completed successfully.  Avoids marking a step as failed just because
+    GLM returned prose formatting.
+    """
+    try:
+        if not hasattr(agent, "memory") or agent.memory is None:
+            return None
+        for msg in reversed(agent.memory.messages):
+            if msg.get("role") != "tool":
+                continue
+            content = msg.get("content", "")
+            if not isinstance(content, str) or len(content) < 20:
+                continue
+            summary = content[:400].split("\n")[0].strip()
+            return json.dumps({"success": True, "result": summary, "attachments": []})
+    except Exception:
+        logger.debug("_synthesize_payload_from_tool_results failed", exc_info=True)
+    return None
 
 
 class AgentLoop:
@@ -33,6 +121,9 @@ class AgentLoop:
         has_tools = bool(agent.get_available_tools())
         initial_format = None if has_tools else format
         message = await agent.ask(request, initial_format)
+        required_tool_names = _normalize_required_tool_names(agent)
+        missing_tool_retry_count = 0
+        executed_tool_calls = 0
 
         iteration_budget = float(agent.max_iterations)
         iteration_spent = 0.0
@@ -78,6 +169,16 @@ class AgentLoop:
         try:
             while iteration_spent < iteration_budget:
                 if not message.get("tool_calls"):
+                    if has_tools and required_tool_names and executed_tool_calls == 0 and missing_tool_retry_count < 1:
+                        missing_tool_retry_count += 1
+                        logger.warning(
+                            "Required-tool step returned text-only response before any tool call; retrying with tool-use nudge (required=%s)",
+                            required_tool_names,
+                        )
+                        message = await agent.ask_with_messages(
+                            [{"role": "user", "content": _build_required_tool_use_nudge(required_tool_names)}]
+                        )
+                        continue
                     break
 
                 tool_calls = message["tool_calls"]
@@ -166,6 +267,10 @@ class AgentLoop:
                 if dispatch_result.awaiting_confirmation:
                     return
 
+                executed_tool_calls += sum(
+                    1 for tool_response in dispatch_result.tool_responses if tool_response.get("role") == "tool"
+                )
+
                 if mw_ctx.metadata.get("wall_clock_advisory_sent") and agent._step_start_time is not None:
                     now = time.monotonic()
                     elapsed = now - agent._step_start_time
@@ -248,47 +353,14 @@ class AgentLoop:
 
         final_text = (message.get("content") or "").strip()
         if has_tools and format == "json_object":
-            is_valid_json = False
-            if final_text:
-                try:
-                    json.loads(final_text)
-                    is_valid_json = True
-                except (ValueError, TypeError):
-                    pass
-
-            if not is_valid_json and final_text and len(final_text) > 10:
-                stripped = final_text.lstrip()
-                if stripped.startswith("{") or stripped.startswith("["):
-                    try:
-                        parsed = json.loads(final_text)
-                        if isinstance(parsed, dict):
-                            logger.info("Post-tool response was already valid JSON (%d chars)", len(final_text))
-                            is_valid_json = True
-                    except (ValueError, TypeError):
-                        pass
-
-                if not is_valid_json:
-                    embedded_json = (
-                        agent._extract_embedded_json(final_text) if hasattr(agent, "_extract_embedded_json") else None
-                    )
-                    if embedded_json is not None:
-                        logger.info(
-                            "Extracted embedded JSON from %d-char mixed prose response",
-                            len(final_text),
-                        )
-                        message["content"] = embedded_json
-                        is_valid_json = True
-                    else:
-                        logger.info(
-                            "Wrapping %d-char prose response as JSON (skipping re-enforcement LLM call)",
-                            len(final_text),
-                        )
-                        salvage_summary = final_text[:500].split("\n")[0].strip()
-                        final_text = json.dumps({"success": True, "result": salvage_summary, "attachments": []})
-                        message["content"] = final_text
-                        is_valid_json = True
-
-            if not is_valid_json:
+            normalized_json = _extract_embedded_json(final_text)
+            if normalized_json is not None:
+                if normalized_json != final_text:
+                    logger.info("Extracted embedded JSON from %d-char mixed prose response", len(final_text))
+                else:
+                    logger.info("Post-tool response was already valid JSON (%d chars)", len(final_text))
+                message["content"] = normalized_json
+            else:
                 logger.info("Re-enforcing JSON format on post-tool-loop response")
                 message = await agent.ask_with_messages(
                     [
@@ -303,6 +375,26 @@ class AgentLoop:
                     ],
                     format="json_object",
                 )
+                reenforced_text = (message.get("content") or "").strip()
+                normalized_json = _extract_embedded_json(reenforced_text)
+                if normalized_json is not None:
+                    message["content"] = normalized_json
+                else:
+                    # Last resort: synthesize a success payload from tool results already
+                    # in memory.  GLM-class models sometimes refuse JSON formatting but
+                    # the underlying tools ran successfully — treat that as a soft success
+                    # rather than propagating a failure that cascades into blocked steps.
+                    synthetic = _synthesize_payload_from_tool_results(agent)
+                    if synthetic is not None:
+                        logger.info(
+                            "Synthesized success payload from tool results after failed JSON re-enforcement"
+                        )
+                        message["content"] = synthetic
+                    else:
+                        logger.warning(
+                            "Post-tool response remained non-JSON after re-enforcement; returning failure payload"
+                        )
+                        message["content"] = _build_invalid_json_failure_payload(ERR_NO_JSON_AFTER_TOOLS)
 
         final_content = (message.get("content") or "").strip() or None
         if not final_content and not wall_clock_exceeded:
@@ -313,28 +405,14 @@ class AgentLoop:
                     content = memory_message.get("content", "")
                     if isinstance(content, str) and len(content) > 300:
                         memory_message["content"] = content[:300] + "\n[... truncated for recovery ...]"
-            recovery_message = await agent.ask_with_messages(
-                [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Respond with ONLY a JSON object summarizing what you accomplished. "
-                            'Example: {"success": true, "result": "summary here", "attachments": []}. '
-                            "No other text."
-                        ),
-                    }
-                ],
-                format="json_object",
+            final_content = await _attempt_json_recovery(
+                agent,
+                "Respond with ONLY a JSON object summarizing what you accomplished. "
+                '{"success": true, "result": "summary here", "attachments": []}. '
+                "No other text.",
             )
-            recovery_content = (recovery_message.get("content") or "").strip()
-            if recovery_content and len(recovery_content) > 10:
-                try:
-                    json.loads(recovery_content)
-                    logger.info("Summarization recovery succeeded (%d chars)", len(recovery_content))
-                    final_content = recovery_content
-                except (ValueError, TypeError):
-                    logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
-                    final_content = json.dumps({"success": True, "result": recovery_content[:500], "attachments": []})
+            if not final_content:
+                final_content = _build_invalid_json_failure_payload(ERR_NO_JSON_AFTER_RECOVERY)
 
         if not final_content:
             stripped = (final_text or "").lstrip()
@@ -350,53 +428,34 @@ class AgentLoop:
                     except (ValueError, TypeError):
                         pass
                 else:
-                    logger.info(
-                        "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
-                        len(final_text),
-                    )
-                    salvage_summary = final_text[:300].split("\n")[0].strip()
-                    final_content = json.dumps(
-                        {
-                            "success": True,
-                            "result": salvage_summary,
-                            "attachments": [],
-                        }
-                    )
-
-            if not final_content and not wall_clock_exceeded:
-                logger.info("Attempting summarization recovery for empty final message")
-                recovery_message = await agent.ask_with_messages(
-                    [
-                        {
-                            "role": "user",
-                            "content": (
-                                "You completed tool calls but did not provide a text response. "
-                                "Respond with ONLY a JSON object: "
-                                '{"success": true, "result": "<brief summary of what you accomplished>", "attachments": []}. '
-                                "No markdown, no extra text."
-                            ),
-                        }
-                    ],
-                    format="json_object",
-                )
-                recovery_content = (recovery_message.get("content") or "").strip()
-                if recovery_content and len(recovery_content) > 10:
-                    try:
-                        json.loads(recovery_content)
+                    if format == "json_object":
+                        logger.warning("Final step response remained prose instead of JSON; returning failure payload")
+                        final_content = _build_invalid_json_failure_payload(ERR_PROSE_INSTEAD_OF_JSON)
+                    else:
                         logger.info(
-                            "Summarization recovery succeeded as JSON (%d chars)",
-                            len(recovery_content),
+                            "Salvaging %d-char prose response as step result (LLM wrote content instead of JSON)",
+                            len(final_text),
                         )
-                        final_content = recovery_content
-                    except (ValueError, TypeError):
-                        logger.info("Wrapping %d-char recovery prose as JSON", len(recovery_content))
+                        salvage_summary = final_text[:300].split("\n")[0].strip()
                         final_content = json.dumps(
                             {
                                 "success": True,
-                                "result": recovery_content[:500],
+                                "result": salvage_summary,
                                 "attachments": [],
                             }
                         )
+
+            if not final_content and not wall_clock_exceeded:
+                logger.info("Attempting summarization recovery for empty final message")
+                final_content = await _attempt_json_recovery(
+                    agent,
+                    "You completed tool calls but did not provide a text response. "
+                    "Respond with ONLY a JSON object: "
+                    '{"success": true, "result": "<brief summary of what you accomplished>", "attachments": []}. '
+                    "No markdown, no extra text.",
+                )
+                if not final_content:
+                    final_content = _build_invalid_json_failure_payload(ERR_NO_JSON_AFTER_RECOVERY)
 
                 if not final_content:
                     logger.warning("Agent produced empty final message — yielding fallback")
@@ -405,14 +464,13 @@ class AgentLoop:
                         if wall_clock_exceeded
                         else "I was unable to produce a complete response. Please try again or rephrase your request."
                     )
-                    final_content = json.dumps(
-                        {
-                            "success": False,
-                            "result": None,
-                            "attachments": [],
-                            "error": fallback_error,
-                        }
-                    )
+                    final_content = _build_invalid_json_failure_payload(fallback_error)
+
+        if has_tools and required_tool_names and executed_tool_calls == 0:
+            logger.warning(
+                "Required-tool step completed without any executed tool calls; returning missing-tool failure payload"
+            )
+            final_content = _build_missing_tool_failure_payload(required_tool_names)
 
         yield MessageEvent(message=final_content)
         await agent.cleanup_background_tasks()

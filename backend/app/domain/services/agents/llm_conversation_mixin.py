@@ -128,7 +128,10 @@ class LlmConversationMixin:
             settings = get_settings()
             # If this agent is part of a deep_research flow, use the higher cap
             if getattr(self, "_is_deep_research", False):
-                return getattr(settings, "hard_context_char_cap_deep_research", 100_000)
+                # Deep research tasks with verbose LLMs (e.g. GLM) accumulate
+                # 120-160 K chars across multi-step plans. A 160 K cap avoids
+                # the consecutive-cap-hit spiral that forces premature step advances.
+                return getattr(settings, "hard_context_char_cap_deep_research", 160_000)
             return getattr(settings, "hard_context_char_cap", 50_000)
         except Exception:
             return self._HARD_CONTEXT_CHAR_CAP

@@ -32,6 +32,7 @@ from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import StreamEvent
 from app.domain.services.agents.compliance_gates import GateStatus, get_compliance_gates
 from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+from app.domain.utils.text import is_report_like_content
 
 if TYPE_CHECKING:
     from app.domain.services.agents.source_tracker import SourceTracker
@@ -581,11 +582,11 @@ class ResponseGenerator:
             "hallucination_verification_skipped",
             "hallucination_verification_ungrounded",
         }
+        if self.is_report_structure(content):
+            severity_promoting_warnings.add("hallucination_ratio_moderate")
         has_severity_promoting_warning = bool(severity_promoting_warnings & set(warnings))
 
-        critical_count = (
-            sum(1 for i in issues if i.get("severity") == "critical") if issues and isinstance(issues[0], dict) else 0
-        )
+        critical_count = sum(1 for issue in issues if self._is_critical_integrity_issue(issue))
         if critical_count > 0 or len(issues) >= 3:
             gate_severity = "red"
         elif len(issues) > 0 or has_severity_promoting_warning:
@@ -744,6 +745,14 @@ class ResponseGenerator:
             "delivery_integrity_stream_truncation_total",
             labels={"provider": provider, "finish_reason": finish_reason, "outcome": outcome},
         )
+
+    def _is_critical_integrity_issue(self, issue: Any) -> bool:
+        """Return True when a delivery-gate issue should count as critical severity."""
+        if isinstance(issue, dict):
+            return issue.get("severity") == "critical"
+        if not isinstance(issue, str):
+            return False
+        return self._normalize_integrity_reason(issue) == "hallucination_ratio_critical"
 
     def _normalize_integrity_reason(self, reason: str) -> str:
         """Normalize a gate issue/warning reason for metric labels."""
@@ -924,26 +933,8 @@ class ResponseGenerator:
         passed = "missing_references_section" not in issues and citation_count >= 2
         return passed, issues
 
-    def is_report_structure(self, content: str) -> bool:
-        """Check if content has report-like structure (headings, sections, or citations)."""
-        if not content:
-            return False
-
-        heading_count = len(re.findall(r"^#{1,4}\s+.+", content, re.MULTILINE))
-        if heading_count >= 2:
-            return True
-
-        bold_headers = len(re.findall(r"\*\*[^*]+:\*\*", content))
-        if bold_headers >= 2:
-            return True
-
-        numbered_sections = len(re.findall(r"^\d+\.\s+[A-Z]", content, re.MULTILINE))
-        if numbered_sections >= 2:
-            return True
-
-        # Also detect citation-heavy content + sufficient length as report-like
-        citation_count = len(re.findall(r"\[\d+\]", content))
-        return bool(citation_count >= 3 and len(content) > 1000)
+    # is_report_structure → shared utility in domain/utils/text.py
+    is_report_structure = staticmethod(is_report_like_content)
 
     # ── Title Extraction ───────────────────────────────────────────────
 
