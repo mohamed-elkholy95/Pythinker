@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -86,22 +87,80 @@ def _should_block_tool_at_pressure(tool_name: str, level: str) -> bool:
 
 
 def _extract_embedded_json(text: str) -> str | None:
-    """Extract a JSON object embedded in mixed prose+JSON text.
+    """Extract the first valid JSON object from mixed prose+JSON text.
 
-    Scans each line for a standalone JSON object (``{...}``).  Returns the
-    first valid JSON string found, or ``None`` if no embedded JSON exists.
-    This handles the common LLM pattern of wrapping valid JSON in prose:
+    Tries three strategies in order:
+    0. Direct parse — fast path when the text is already valid JSON
+    1. Markdown code fence stripping (```json ... ```)
+    2. Brace-depth scan — handles multi-line JSON anywhere in the text
 
-        "Here is the result:\\n{\"success\": true, ...}\\nDone."
+    This handles GLM / other quirky LLMs that wrap valid JSON in prose or
+    markdown fences instead of returning bare JSON as instructed.
     """
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            try:
-                json.loads(stripped)
-                return stripped
-            except (ValueError, TypeError):
+    if not text:
+        return None
+
+    # Strategy 0: fast path — text is already valid JSON
+    stripped = text.lstrip()
+    if stripped.startswith("{"):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return text
+        except (ValueError, TypeError):
+            pass
+
+    # Strategy 1: markdown fences
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return candidate
+        except (ValueError, TypeError):
+            pass  # fall through
+
+    # Strategy 2: brace-depth scan (handles multi-line JSON)
+    pos = 0
+    while True:
+        start = text.find("{", pos)
+        if start == -1:
+            break
+        depth = 0
+        in_string = False
+        escape_next = False
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escape_next:
+                escape_next = False
                 continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            candidate = text[start : end + 1]
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return candidate
+            except (ValueError, TypeError):
+                pass  # try next { in text
+        pos = start + 1
+
     return None
 
 

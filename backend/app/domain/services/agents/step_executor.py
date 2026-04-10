@@ -138,7 +138,9 @@ class StepExecutor:
             raw_message: The raw string LLM response.
 
         Returns:
-            True if strict validation passed, False otherwise.
+            True when the payload is usable either via strict validation or
+            best-effort recovery. False only when the response is not
+            recoverable as a structured step result.
         """
         try:
             step_result = ExecutionStepResult.model_validate(parsed_response)
@@ -178,7 +180,7 @@ class StepExecutor:
                 error_value = parsed_response.get("error")
                 existing_error = getattr(step, "error", None)
                 step.error = str(error_value) if error_value else existing_error or "Step payload validation failed"
-            return False
+            return True
 
         step.success = False
         step.result = None
