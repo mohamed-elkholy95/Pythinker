@@ -181,7 +181,7 @@
           class="flex flex-col w-full pt-[24px] flex-1"
           :style="chatMessagesStyle"
         >
-          <AgentHandlerActivityPanel :show="showAgentHandlerActivity" />
+          <!-- AgentHandlerActivityPanel removed -->
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="isChatMode ? undefined : activeThinkingStepId"
             :showStepLeadingConnector="!isChatMode && shouldShowStepLeadingConnector(index)"
@@ -587,7 +587,6 @@ import { useDocumentVisibility } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
-import AgentHandlerActivityPanel from '../components/AgentHandlerActivityPanel.vue';
 import ReasoningTreeView from '@/components/reasoning/ReasoningTreeView.vue';
 import * as agentApi from '../api/agent';
 import type { ThinkingMode } from '../api/agent';
@@ -1378,14 +1377,6 @@ const showSessionWarmupMessage = computed(() => {
   );
 });
 
-/** Agent-mode handler strip: live vs quiet detection + optional Docker log preview. */
-const showAgentHandlerActivity = computed(
-  () =>
-    chatViewMode.value === 'chat' &&
-    !isChatMode.value &&
-    isLoading.value &&
-    !showSessionWarmupMessage.value,
-);
 
 const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
   if (sessionInitTimedOut.value) return 'timed_out';
