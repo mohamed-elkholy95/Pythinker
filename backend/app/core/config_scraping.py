@@ -30,7 +30,7 @@ class ScrapingSettingsMixin:
     # Proxy rotation (optional)
     scraping_proxy_enabled: bool = False
     scraping_proxy_list: str = ""  # Comma-separated proxy URLs
-    scraping_proxy_strategy: str = "cyclic"  # cyclic only in v0.4
+    scraping_proxy_strategy: str = "cyclic"  # ProxyRotator default: cyclic rotation
 
     # Caching configuration
     scraping_cache_enabled: bool = True

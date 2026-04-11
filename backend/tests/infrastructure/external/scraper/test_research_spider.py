@@ -55,7 +55,7 @@ class TestResearchSpiderInit:
 
 
 class TestResearchSpiderSessions:
-    """Verify configure_sessions registers an HTTP session."""
+    """Verify configure_sessions registers HTTP + stealth sessions."""
 
     def test_session_registered(self):
         spider = ResearchSpider(start_urls=["https://example.com"])
@@ -63,8 +63,13 @@ class TestResearchSpiderSessions:
         assert spider._session_manager is not None
         assert spider._session_manager.default_session_id == "http"
 
-    def test_session_count_is_one(self):
+    def test_default_registers_two_sessions(self):
+        """HTTP (default) + stealth (lazy) sessions are registered."""
         spider = ResearchSpider(start_urls=["https://example.com"])
+        assert len(spider._session_manager) == 2
+
+    def test_stealth_disabled_registers_one_session(self):
+        spider = ResearchSpider(start_urls=["https://example.com"], stealth_enabled=False)
         assert len(spider._session_manager) == 1
 
 
@@ -120,6 +125,47 @@ class TestResearchSpiderParseOutput:
         items = [item async for item in spider.parse(mock_response)]
 
         assert items[0]["title"] is None
+
+
+class TestResearchSpiderRobotsTxt:
+    """Verify robots_txt_obey is enabled by default."""
+
+    def test_robots_txt_obey_default(self):
+        spider = ResearchSpider(start_urls=["https://example.com"])
+        assert spider.robots_txt_obey is True
+
+    def test_max_blocked_retries_is_one(self):
+        """Single retry via stealth session, then give up."""
+        spider = ResearchSpider(start_urls=["https://example.com"])
+        assert spider.max_blocked_retries == 1
+
+
+class TestResearchSpiderBlockedEscalation:
+    """Verify retry_blocked_request escalates to stealth session."""
+
+    @pytest.mark.asyncio
+    async def test_retry_blocked_request_sets_stealth_sid(self):
+        spider = ResearchSpider(start_urls=["https://example.com"])
+        mock_request = MagicMock()
+        mock_request.url = "https://example.com"
+        mock_request.sid = "http"
+        mock_response = MagicMock()
+        mock_response.status = 429
+
+        result = await spider.retry_blocked_request(mock_request, mock_response)
+        assert result.sid == "stealth"
+
+    @pytest.mark.asyncio
+    async def test_retry_blocked_request_no_stealth_when_disabled(self):
+        spider = ResearchSpider(start_urls=["https://example.com"], stealth_enabled=False)
+        mock_request = MagicMock()
+        mock_request.url = "https://example.com"
+        mock_request.sid = "http"
+        mock_response = MagicMock()
+        mock_response.status = 429
+
+        result = await spider.retry_blocked_request(mock_request, mock_response)
+        assert result.sid == "http"  # unchanged
 
 
 class TestResearchSpiderRequiresStartUrls:

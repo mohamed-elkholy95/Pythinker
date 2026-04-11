@@ -30,7 +30,7 @@ from app.infrastructure.external.scraper.proxy_health_tracker import ProxyHealth
 from app.infrastructure.external.scraper.stealth_session_manager import StealthSessionManager
 
 if TYPE_CHECKING:
-    from scrapling.engines.toolbelt.proxy_rotation import ProxyRotator
+    from scrapling.fetchers import ProxyRotator
 
     from app.core.config import Settings
 
@@ -196,11 +196,11 @@ class ScraplingAdapter:
 
     def _init_proxy_rotator(self, proxy_list_str: str) -> None:
         try:
-            from scrapling.engines.toolbelt.proxy_rotation import ProxyRotator, cyclic_rotation
+            from scrapling.fetchers import ProxyRotator
 
             proxies = [p.strip() for p in proxy_list_str.split(",") if p.strip()]
             if proxies:
-                self._proxy_rotator = ProxyRotator(proxies=proxies, strategy=cyclic_rotation)
+                self._proxy_rotator = ProxyRotator(proxies=proxies)
                 logger.info(f"Proxy rotator initialised with {len(proxies)} proxies")
         except Exception:
             logger.warning("Failed to initialise ProxyRotator — continuing without proxy rotation", exc_info=True)
@@ -693,6 +693,7 @@ class ScraplingAdapter:
             impersonate=self._settings.scraping_default_impersonate,
             timeout=self._settings.scraping_http_timeout,
             max_text_length=self._settings.scraping_max_content_length,
+            stealth_enabled=self._settings.scraping_stealth_enabled,
         )
 
         items_by_url: dict[str, dict] = {}
